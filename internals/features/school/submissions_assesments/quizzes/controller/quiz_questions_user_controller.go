@@ -23,27 +23,39 @@ import (
 func (ctl *QuizQuestionsController) List(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 
-	// 1) Resolve school context (boleh member)
-	mc, err := helperAuth.ResolveSchoolContext(c)
-	if err != nil {
-		if fe, ok := err.(*fiber.Error); ok {
-			return helper.JsonError(c, fe.Code, fe.Message)
-		}
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-	}
+	// =====================================================
+	// 1) Tentukan schoolID:
+	//    - Prioritas: dari token (GetSchoolIDFromTokenPreferTeacher)
+	//    - Fallback: dari ResolveSchoolContext (id / slug)
+	// =====================================================
 
 	var schoolID uuid.UUID
-	switch {
-	case mc.ID != uuid.Nil:
-		schoolID = mc.ID
-	case strings.TrimSpace(mc.Slug) != "":
-		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
-		if er != nil || id == uuid.Nil {
-			return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+
+	// 1. Coba dari token dulu
+	if tokenSchoolID, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && tokenSchoolID != uuid.Nil {
+		schoolID = tokenSchoolID
+	} else {
+		// 2. Fallback: pakai resolver lama (id / slug)
+		mc, err := helperAuth.ResolveSchoolContext(c)
+		if err != nil {
+			if fe, ok := err.(*fiber.Error); ok {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 		}
-		schoolID = id
-	default:
-		return helper.JsonError(c, fiber.StatusBadRequest, "School context hilang")
+
+		switch {
+		case mc.ID != uuid.Nil:
+			schoolID = mc.ID
+		case strings.TrimSpace(mc.Slug) != "":
+			id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
+			if er != nil || id == uuid.Nil {
+				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+			}
+			schoolID = id
+		default:
+			return helper.JsonError(c, fiber.StatusBadRequest, "School context hilang")
+		}
 	}
 
 	// Minimal member school

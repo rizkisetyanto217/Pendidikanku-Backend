@@ -2,7 +2,10 @@
 package controller
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -72,69 +75,202 @@ func (ctl *QuizQuestionsController) applySort(db *gorm.DB, sort string) *gorm.DB
 }
 
 /* =========================================================
+   Small helper: resolve schoolID (token first)
+========================================================= */
+
+func resolveSchoolIDPreferToken(c *fiber.Ctx) (uuid.UUID, error) {
+	// 1) Coba dari token dulu (active_school_id / prefer teacher)
+	if sid, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && sid != uuid.Nil {
+		return sid, nil
+	}
+
+	// 2) Fallback ke resolver lama (id / slug)
+	mc, err := helperAuth.ResolveSchoolContext(c)
+	if err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return uuid.Nil, fiber.NewError(fe.Code, fe.Message)
+		}
+		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+
+	switch {
+	case mc.ID != uuid.Nil:
+		return mc.ID, nil
+
+	case strings.TrimSpace(mc.Slug) != "":
+		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
+		if er != nil || id == uuid.Nil {
+			return uuid.Nil, fiber.NewError(fiber.StatusNotFound, "School (slug) tidak ditemukan")
+		}
+		return id, nil
+
+	default:
+		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, "School context hilang")
+	}
+}
+
+/* =========================================================
    WRITE (DKM/Admin)
 ========================================================= */
 
 // POST /quiz-questions
+// Bisa terima:
+//   - Single object  : { ... }
+//   - Bulk (array)   : [ { ... }, { ... } ]
 func (ctl *QuizQuestionsController) Create(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 
-	var req qdto.CreateQuizQuestionRequest
-	if err := c.BodyParser(&req); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
-	}
-	if err := ctl.Validator.Struct(&req); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	// ========================================
+	// 1) Parse body: dukung object / array
+	// ========================================
+
+	body := c.Body()
+	trim := bytes.TrimSpace(body)
+	if len(trim) == 0 {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload kosong")
 	}
 
-	// 🔒 Resolve school + wajib DKM/Admin
-	mc, err := helperAuth.ResolveSchoolContext(c)
+	var reqs []qdto.CreateQuizQuestionRequest
+
+	switch trim[0] {
+	case '[': // array
+		if err := json.Unmarshal(trim, &reqs); err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid (array): "+err.Error())
+		}
+	case '{': // single object
+		var single qdto.CreateQuizQuestionRequest
+		if err := json.Unmarshal(trim, &single); err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid (object): "+err.Error())
+		}
+		reqs = append(reqs, single)
+	default:
+		return helper.JsonError(c, fiber.StatusBadRequest, "Format JSON tidak dikenali (harus object atau array)")
+	}
+
+	if len(reqs) == 0 {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Tidak ada soal yang dikirim")
+	}
+
+	// ========================================
+	// 2) Tenant & role: token dulu, baru slug/id
+	// ========================================
+
+	schoolID, err := resolveSchoolIDPreferToken(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
-	mid, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
+
+	// 🔒 Wajib DKM/Admin di school tersebut
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+		return helper.JsonError(c, fiber.StatusForbidden, err.Error())
 	}
 
-	// Force school_id dari tenant context
-	req.QuizQuestionSchoolID = mid
+	// ========================================
+	// 3) Validasi & konversi ke model
+	//    - Force school_id
+	//    - Validasi struct
+	//    - Safety: cek quiz_id milik tenant
+	// ========================================
 
-	// Safety: pastikan quiz_id milik school tenant
-	var ok bool
-	if err := ctl.DB.Raw(`
-		SELECT EXISTS(
-		  SELECT 1 FROM quizzes
-		  WHERE quiz_id = ? AND quiz_school_id = ?
-		)
-	`, req.QuizQuestionQuizID, mid).Scan(&ok).Error; err != nil {
+	models := make([]*qmodel.QuizQuestionModel, 0, len(reqs))
+
+	// Cache hasil cek quiz per quiz_id biar nggak nembak DB berulang
+	quizChecked := make(map[uuid.UUID]bool)
+
+	for i := range reqs {
+		reqs[i].QuizQuestionSchoolID = schoolID
+
+		// Validasi DTO per item
+		if err := ctl.Validator.Struct(&reqs[i]); err != nil {
+			return helper.JsonError(
+				c,
+				fiber.StatusBadRequest,
+				"Validasi gagal pada item ke-"+strconv.Itoa(i+1)+": "+err.Error(),
+			)
+		}
+
+		qid := reqs[i].QuizQuestionQuizID
+
+		// Cek quiz_id milik tenant (sekali per quiz_id)
+		if _, already := quizChecked[qid]; !already {
+			var exists bool
+			if err := ctl.DB.Raw(`
+				SELECT EXISTS(
+				  SELECT 1 FROM quizzes
+				  WHERE quiz_id = ? AND quiz_school_id = ?
+				)
+			`, qid, schoolID).Scan(&exists).Error; err != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+			}
+			if !exists {
+				return helper.JsonError(
+					c,
+					fiber.StatusForbidden,
+					"Quiz tidak milik tenant aktif (item ke-"+strconv.Itoa(i+1)+")",
+				)
+			}
+			quizChecked[qid] = true
+		}
+
+		m, err := reqs[i].ToModel()
+		if err != nil {
+			return helper.JsonError(
+				c,
+				fiber.StatusBadRequest,
+				"Konversi gagal pada item ke-"+strconv.Itoa(i+1)+": "+err.Error(),
+			)
+		}
+		models = append(models, m)
+	}
+
+	// ========================================
+	// 4) Simpan dalam transaksi
+	// ========================================
+
+	if err := ctl.DB.Transaction(func(tx *gorm.DB) error {
+		for _, m := range models {
+			if err := tx.Create(m).Error; err != nil {
+				if isCheckViolation(err) {
+					return fiber.NewError(fiber.StatusBadRequest, "Melanggar aturan bentuk data (CHECK)")
+				}
+				if isForeignKeyViolation(err) {
+					return fiber.NewError(fiber.StatusBadRequest, "Relasi tidak valid (quiz/school)")
+				}
+				if isUniqueViolation(err) {
+					return fiber.NewError(fiber.StatusBadRequest, "Duplikasi data (UNIQUE)")
+				}
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	if !ok {
-		return helper.JsonError(c, fiber.StatusForbidden, "Quiz tidak milik tenant aktif")
+
+	// ========================================
+	// 5) Build response DTO
+	// ========================================
+
+	if len(models) == 1 {
+		return helper.JsonCreated(c, "Soal berhasil dibuat", qdto.FromModelQuizQuestion(models[0]))
 	}
 
-	m, err := req.ToModel()
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	out := make([]*qdto.QuizQuestionResponse, 0, len(models))
+	for _, m := range models {
+		out = append(out, qdto.FromModelQuizQuestion(m))
 	}
 
-	if err := ctl.DB.Create(m).Error; err != nil {
-		if isCheckViolation(err) {
-			return helper.JsonError(c, fiber.StatusBadRequest, "Melanggar aturan bentuk data (CHECK)")
-		}
-		if isForeignKeyViolation(err) {
-			return helper.JsonError(c, fiber.StatusBadRequest, "Relasi tidak valid (quiz/school)")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
-	return helper.JsonCreated(c, "Soal berhasil dibuat", qdto.FromModelQuizQuestion(m))
+	return helper.JsonCreated(c, "Soal berhasil dibuat (multiple)", out)
+
 }
 
 // PATCH /quiz-questions/:id
@@ -146,15 +282,8 @@ func (ctl *QuizQuestionsController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// 🔒 Resolve school + wajib DKM/Admin
-	mc, err := helperAuth.ResolveSchoolContext(c)
-	if err != nil {
-		if fe, ok := err.(*fiber.Error); ok {
-			return helper.JsonError(c, fe.Code, fe.Message)
-		}
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-	}
-	mid, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
+	// 🔒 Tentukan school_id: token dulu, fallback ke params (id/slug)
+	schoolID, err := resolveSchoolIDPreferToken(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
@@ -162,9 +291,17 @@ func (ctl *QuizQuestionsController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
+	// 🔒 Wajib DKM/Admin di school tersebut
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusForbidden, err.Error())
+	}
+
 	var m qmodel.QuizQuestionModel
 	if err := ctl.DB.
-		First(&m, "quiz_question_id = ? AND quiz_question_school_id = ? AND quiz_question_deleted_at IS NULL", id, mid).
+		First(&m, "quiz_question_id = ? AND quiz_question_school_id = ? AND quiz_question_deleted_at IS NULL", id, schoolID).
 		Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Soal tidak ditemukan")
@@ -187,7 +324,7 @@ func (ctl *QuizQuestionsController) Patch(c *fiber.Ctx) error {
 		var ok bool
 		if err := ctl.DB.Raw(`
 			SELECT EXISTS(SELECT 1 FROM quizzes WHERE quiz_id = ? AND quiz_school_id = ?)
-		`, newQID, mid).Scan(&ok).Error; err != nil {
+		`, newQID, schoolID).Scan(&ok).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 		}
 		if !ok {
@@ -223,15 +360,8 @@ func (ctl *QuizQuestionsController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// 🔒 Resolve school + wajib DKM/Admin
-	mc, err := helperAuth.ResolveSchoolContext(c)
-	if err != nil {
-		if fe, ok := err.(*fiber.Error); ok {
-			return helper.JsonError(c, fe.Code, fe.Message)
-		}
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-	}
-	mid, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
+	// 🔒 Tentukan school_id: token dulu, fallback ke params (id/slug)
+	schoolID, err := resolveSchoolIDPreferToken(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
@@ -239,10 +369,18 @@ func (ctl *QuizQuestionsController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
+	// 🔒 Wajib DKM/Admin di school tersebut
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusForbidden, err.Error())
+	}
+
 	// pastikan exist dan milik tenant
 	var m qmodel.QuizQuestionModel
 	if err := ctl.DB.Select("quiz_question_id").
-		First(&m, "quiz_question_id = ? AND quiz_question_school_id = ? AND quiz_question_deleted_at IS NULL", id, mid).
+		First(&m, "quiz_question_id = ? AND quiz_question_school_id = ? AND quiz_question_deleted_at IS NULL", id, schoolID).
 		Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Soal tidak ditemukan")
@@ -258,7 +396,6 @@ func (ctl *QuizQuestionsController) Delete(c *fiber.Ctx) error {
 	}
 	return helper.JsonDeleted(c, "Soal dihapus", nil)
 }
-
 
 /* =========================================================
    DB error helpers

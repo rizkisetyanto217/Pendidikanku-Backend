@@ -106,6 +106,7 @@ func parseRuleTimeToPtr(s *string) *time.Time {
 
 /* =================================================================
    LIST /admin/class-attendance-sessions — updated to DTO terbaru
+   + support mode "nearest" (3 hari ke depan, urut paling dekat)
 ================================================================= */
 
 func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fiber.Ctx) error {
@@ -189,14 +190,24 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	}
 	orderExpr := col + " " + strings.ToUpper(order)
 
+	// ===== MODE NEAREST (3 hari ke depan, urut paling dekat sekarang) =====
+	nearestRaw := strings.ToLower(strings.TrimSpace(c.Query("nearest")))
+	isNearest := nearestRaw == "1" || nearestRaw == "true" || nearestRaw == "yes"
+
 	// ===== Filters dasar =====
-	df, err := parseYmd(c.Query("date_from"))
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "date_from tidak valid (YYYY-MM-DD)")
-	}
-	dt, err := parseYmd(c.Query("date_to"))
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "date_to tidak valid (YYYY-MM-DD)")
+	var df, dt *time.Time
+	var err error
+
+	if !isNearest {
+		// mode biasa → pakai date_from/date_to
+		df, err = parseYmd(c.Query("date_from"))
+		if err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "date_from tidak valid (YYYY-MM-DD)")
+		}
+		dt, err = parseYmd(c.Query("date_to"))
+		if err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "date_to tidak valid (YYYY-MM-DD)")
+		}
 	}
 
 	teacherIdPtr, err := parseUUIDPtr(c.Query("teacher_id"), "teacher_id")
@@ -249,12 +260,30 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		Where("cas.class_attendance_session_school_id = ?", schoolID).
 		Where("cas.class_attendance_session_deleted_at IS NULL")
 
-	if df != nil && dt != nil {
-		qBase = qBase.Where("cas.class_attendance_session_date BETWEEN ? AND ?", *df, *dt)
-	} else if df != nil {
-		qBase = qBase.Where("cas.class_attendance_session_date >= ?", *df)
-	} else if dt != nil {
-		qBase = qBase.Where("cas.class_attendance_session_date <= ?", *dt)
+	// ===== Filter waktu =====
+	if isNearest {
+		// Mode terdekat: gunakan starts_at sebagai acuan,
+		// ambil sesi dengan starts_at antara sekarang dan 3 hari ke depan.
+		now := time.Now()
+		threeDaysLater := now.AddDate(0, 0, 3)
+
+		qBase = qBase.Where(`
+			cas.class_attendance_session_starts_at IS NOT NULL
+			AND cas.class_attendance_session_starts_at >= ?
+			AND cas.class_attendance_session_starts_at <= ?
+		`, now, threeDaysLater)
+
+		// Override sorting: paling dekat dengan jam sekarang di atas
+		orderExpr = "cas.class_attendance_session_starts_at ASC, cas.class_attendance_session_date ASC, cas.class_attendance_session_id ASC"
+	} else {
+		// Mode biasa: pakai date_from/date_to
+		if df != nil && dt != nil {
+			qBase = qBase.Where("cas.class_attendance_session_date BETWEEN ? AND ?", *df, *dt)
+		} else if df != nil {
+			qBase = qBase.Where("cas.class_attendance_session_date >= ?", *df)
+		} else if dt != nil {
+			qBase = qBase.Where("cas.class_attendance_session_date <= ?", *dt)
+		}
 	}
 
 	if scheduleIDPtr != nil {
@@ -372,7 +401,9 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	}
 
 	var rows []row
-	if err := qBase.
+
+	// build query select + order (order kedua hanya dipakai di mode biasa)
+	qSelect := qBase.
 		Select(`
 			cas.class_attendance_session_id,
 			cas.class_attendance_session_school_id,
@@ -425,8 +456,14 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			cas.class_attendance_session_updated_at,
 			cas.class_attendance_session_deleted_at
 		`).
-		Order(orderExpr).
-		Order("cas.class_attendance_session_date DESC, cas.class_attendance_session_id DESC").
+		Order(orderExpr)
+
+	if !isNearest {
+		// mode biasa: tambahkan order tambahan by date desc
+		qSelect = qSelect.Order("cas.class_attendance_session_date DESC, cas.class_attendance_session_id DESC")
+	}
+
+	if err := qSelect.
 		Limit(p.Limit).
 		Offset(p.Offset).
 		Find(&rows).Error; err != nil {
@@ -707,7 +744,6 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			ClassAttendanceSessionTeacherNameSnapshot: r.TeacherNameSnapshot,
 			ClassAttendanceSessionRoomNameSnapshot:    r.RoomNameSnapshot,
 
-			// rule snapshot — juga dikembalikan sebagai map
 			// rule snapshot — juga dikembalikan sebagai map
 			ClassAttendanceSessionRuleSnapshot:           jsonToMap(r.RuleSnapshot),
 			ClassAttendanceSessionRuleDayOfWeekSnapshot:  r.RuleDayOfWeekSnapshot,
