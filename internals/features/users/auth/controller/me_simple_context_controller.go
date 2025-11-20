@@ -154,7 +154,6 @@ func parseSchoolInfoFromJWT(c *fiber.Ctx) (ids []uuid.UUID, roleMap map[uuid.UUI
 }
 
 /* =============== Controller: GetMyContext (versi scope/role) =============== */
-
 func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 	// 1) Ambil user_id via helperAuth (diisi middleware)
 	userUUID, err := helperAuth.GetUserIDFromToken(c)
@@ -315,33 +314,34 @@ func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 	// 3d) CLAIMS-ONLY dari JWT (untuk kandidat school_id, bukan sumber role)
 	idsFromJWT, _ := parseSchoolInfoFromJWT(c)
 
-	// ===== Fallback: kalau token nggak punya school/masjid_id,
-	//        coba resolve dari slug di URL =====
-	if len(idsFromJWT) == 0 {
-		// cari slug dari beberapa kemungkinan nama param
-		slug := strings.TrimSpace(c.Params("masjid_slug"))
-		if slug == "" {
-			slug = strings.TrimSpace(c.Params("school_slug"))
-		}
-		if slug == "" {
-			slug = strings.TrimSpace(c.Params("slug"))
-		}
+	// 3e) Resolusi slug (juga dipakai sebagai FILTER memberships)
+	var filterSchoolID *uuid.UUID
 
-		if slug != "" {
-			var row struct {
-				ID uuid.UUID `gorm:"column:school_id"`
-			}
-			if err := ac.DB.WithContext(c.Context()).
-				Model(&schoolModel.SchoolModel{}).
-				Select("school_id").
-				Where("school_slug = ?", slug).
-				Where("school_deleted_at IS NULL").
-				Where("school_is_active = ?", true).
-				First(&row).Error; err == nil && row.ID != uuid.Nil {
+	slug := strings.TrimSpace(c.Params("masjid_slug"))
+	if slug == "" {
+		slug = strings.TrimSpace(c.Params("school_slug"))
+	}
+	if slug == "" {
+		slug = strings.TrimSpace(c.Params("slug"))
+	}
 
-				// masukkan id hasil dari slug sebagai kandidat school dari "JWT"
-				idsFromJWT = []uuid.UUID{row.ID}
-			}
+	if slug != "" {
+		var row struct {
+			ID uuid.UUID `gorm:"column:school_id"`
+		}
+		if err := ac.DB.WithContext(c.Context()).
+			Model(&schoolModel.SchoolModel{}).
+			Select("school_id").
+			Where("school_slug = ?", slug).
+			Where("school_deleted_at IS NULL").
+			Where("school_is_active = ?", true).
+			First(&row).Error; err == nil && row.ID != uuid.Nil {
+
+			// simpan untuk filter akhir
+			filterSchoolID = &row.ID
+
+			// pastikan sekolah ini ikut kandidat meskipun tidak ada di roles/JWT
+			idsFromJWT = append(idsFromJWT, row.ID)
 		}
 	}
 
@@ -414,6 +414,17 @@ func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 		}
 
 		resp.Memberships = append(resp.Memberships, opt)
+	}
+
+	// === FILTER membership berdasarkan slug (kalau ada) ===
+	if filterSchoolID != nil {
+		filtered := make([]SchoolRoleOption, 0, len(resp.Memberships))
+		for _, m := range resp.Memberships {
+			if m.SchoolID == *filterSchoolID {
+				filtered = append(filtered, m)
+			}
+		}
+		resp.Memberships = filtered
 	}
 
 	// 6) (Opsional) handle seleksi dan set cookie
