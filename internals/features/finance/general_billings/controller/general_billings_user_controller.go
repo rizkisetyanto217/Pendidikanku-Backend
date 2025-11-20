@@ -2,11 +2,14 @@ package controller
 
 import (
 	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
 	dto "schoolku_backend/internals/features/finance/general_billings/dto"
 	model "schoolku_backend/internals/features/finance/general_billings/model"
 	helper "schoolku_backend/internals/helpers"
-	"strings"
-	"time"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -17,28 +20,31 @@ import (
 //
 //	q, kind_id, active(=true|false|1|0), due_from(YYYY-MM-DD), due_to(YYYY-MM-DD),
 //	include_global(=true|false)  -> default true
-//	page, per_page, sort_by(created_at|due_date|title), order(asc|desc)
-//
-// GET /api/a/:school_id/general-billings
-// Query:
-//
-//	q, kind_id, active(=true|false|1|0), due_from(YYYY-MM-DD), due_to(YYYY-MM-DD),
-//	include_global(=true|false)  -> default true
 //	page, per_page(atau limit), sort_by(created_at|due_date|title), order(asc|desc)
 //	per_page=all  -> ambil semua (tanpa limit/offset)
 func (ctl *GeneralBillingController) List(c *fiber.Ctx) error {
-	// === Path param ===
-	midStr := strings.TrimSpace(c.Params("school_id"))
-	if midStr == "" {
-		return helper.JsonError(c, fiber.StatusBadRequest, "school_id wajib di path")
-	}
-	mid, err := uuid.Parse(midStr)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "school_id tidak valid")
+	// === Resolve school context: token > active-school > path ===
+	var schoolID uuid.UUID
+	if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
+		schoolID = id
+	} else if id, err := helperAuth.GetActiveSchoolID(c); err == nil && id != uuid.Nil {
+		schoolID = id
+	} else {
+		// legacy: dari path (boleh UUID / slug, tergantung ParseSchoolIDFromPath kamu)
+		sid, err := helperAuth.ParseSchoolIDFromPath(c)
+		if err != nil {
+			return helper.JsonError(c, http.StatusBadRequest, "school context not found")
+		}
+		schoolID = sid
 	}
 
+	// === Guard: hanya staff (teacher/dkm/admin/bendahara) ===
+	if err := helperAuth.EnsureStaffSchool(c, schoolID); err != nil {
+		return err
+	}
+	c.Locals("__school_guard_ok", schoolID.String())
+
 	// === Pagination & sorting ===
-	// pakai helper.ResolvePaging(defaultPerPage=20, maxPerPage=200)
 	pg := helper.ResolvePaging(c, 20, 200)
 
 	// dukung per_page=all (tanpa limit/offset)
@@ -80,10 +86,10 @@ func (ctl *GeneralBillingController) List(c *fiber.Ctx) error {
 
 	if includeGlobal {
 		// tampilkan PUNYA TENANT + GLOBAL
-		db = db.Where("(general_billing_school_id = ? OR general_billing_school_id IS NULL)", mid)
+		db = db.Where("(general_billing_school_id = ? OR general_billing_school_id IS NULL)", schoolID)
 	} else {
 		// khusus PUNYA TENANT saja
-		db = db.Where("general_billing_school_id = ?", mid)
+		db = db.Where("general_billing_school_id = ?", schoolID)
 	}
 
 	// kind filter
@@ -147,15 +153,13 @@ func (ctl *GeneralBillingController) List(c *fiber.Ctx) error {
 		out = append(out, dto.FromModelGeneralBilling(&items[i]))
 	}
 
-	// === Build pagination untuk JsonList (helper akan isi count & per_page_options) ===
+	// === Build pagination untuk JsonList ===
 	var pagination helper.Pagination
 	if allMode {
-		// semua data di page 1
 		pagination = helper.BuildPaginationFromPage(total, 1, int(total))
 	} else {
 		pagination = helper.BuildPaginationFromPage(total, pg.Page, pg.PerPage)
 	}
 
-	// === JSON response standar ===
 	return helper.JsonList(c, "OK", out, pagination)
 }

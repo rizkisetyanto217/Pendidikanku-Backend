@@ -1109,6 +1109,14 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		}
 	}
 
+	// 2c) Pastikan user punya role "student" di sekolah ini (scoped)
+	if err := tx.Exec(`
+		SELECT fn_grant_role(?, 'student', ?, ?)
+	`, userID, schoolID, userID).Error; err != nil {
+		_ = tx.Rollback()
+		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal set role student: "+err.Error())
+	}
+
 	// 3) Fee rule + options (1 rule untuk semua item)
 	type feeRuleHeader struct {
 		ID            uuid.UUID      `gorm:"column:fee_rule_id"`
@@ -1283,12 +1291,13 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		ID         uuid.UUID  `gorm:"column:class_id"`
 		Name       string     `gorm:"column:class_name"`
 		Slug       string     `gorm:"column:class_slug"`
-		TermID     *uuid.UUID `gorm:"column:class_term_id"`
-		TermYear   *string    `gorm:"column:class_term_academic_year_snapshot"`
-		TermName   *string    `gorm:"column:class_term_name_snapshot"`
-		TermSlug   *string    `gorm:"column:class_term_slug_snapshot"`
+		TermID     *uuid.UUID `gorm:"column:class_academic_term_id"`
+		TermYear   *string    `gorm:"column:class_academic_term_academic_year_snapshot"`
+		TermName   *string    `gorm:"column:class_academic_term_name_snapshot"`
+		TermSlug   *string    `gorm:"column:class_academic_term_slug_snapshot"`
 		TermAngkat *int       `gorm:"column:term_angkatan_int"` // cast dari varchar
 	}
+
 	classIDs := make([]uuid.UUID, 0, len(items))
 	for _, it := range items {
 		classIDs = append(classIDs, it.ClassID)
@@ -1301,11 +1310,11 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 				class_id,
 				class_name,
 				class_slug,
-				class_term_id,
-				class_term_academic_year_snapshot,
-				class_term_name_snapshot,
-				class_term_slug_snapshot,
-				NULLIF(class_term_angkatan_snapshot,'')::int AS term_angkatan_int
+				class_academic_term_id,
+				class_academic_term_academic_year_snapshot,
+				class_academic_term_name_snapshot,
+				class_academic_term_slug_snapshot,
+				NULLIF(class_academic_term_angkatan_snapshot,'')::int AS term_angkatan_int
 			`).
 			Where("class_school_id = ? AND class_id IN ?", schoolID, classIDs).
 			Find(&rows).Error; err != nil {

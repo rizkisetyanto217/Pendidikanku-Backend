@@ -880,6 +880,20 @@ func OwnerOnly() fiber.Handler {
 	}
 }
 
+func ResolveSchoolIDFromContext(c *fiber.Ctx) (uuid.UUID, error) {
+	// 1) Prioritas: school_id dari token (mode guru dulu)
+	if id, err := GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
+		return id, nil
+	}
+
+	// 2) Fallback: active-school (kalau kamu pakai mekanisme ini)
+	if id, err := GetActiveSchoolID(c); err == nil && id != uuid.Nil {
+		return id, nil
+	}
+
+	// 3) Kalau tetap nggak ada, unauthorized / bad context
+	return uuid.Nil, helper.JsonError(c, fiber.StatusUnauthorized, "school context not found in token")
+}
 
 /* ============================================
    Middleware util untuk write-lock

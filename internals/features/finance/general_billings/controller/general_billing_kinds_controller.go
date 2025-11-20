@@ -137,8 +137,8 @@ func normalizeGBKByCategory(
 =========================
 */
 func (ctl *GeneralBillingKindController) Create(c *fiber.Ctx) error {
-	// 1) school guard
-	schoolID, err := helperAuth.ParseSchoolIDFromPath(c)
+	// 1) school guard via token
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
 		return err
 	}
@@ -183,11 +183,6 @@ func (ctl *GeneralBillingKindController) Create(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "created", dto.FromModel(rec))
 }
 
-/* =========================
-   Patch (Update)
-   PATCH /api/a/:school_id/general-billing-kinds/:id
-========================= */
-
 /*
 	=========================
 	  Patch (Update)
@@ -195,13 +190,9 @@ func (ctl *GeneralBillingKindController) Create(c *fiber.Ctx) error {
 
 =========================
 */
-/* =========================
-   Patch (Update)
-   PATCH /api/a/:school_id/general-billing-kinds/:id
-========================= */
 func (ctl *GeneralBillingKindController) Patch(c *fiber.Ctx) error {
-	// 1) Path + guard
-	schoolID, err := helperAuth.ParseSchoolIDFromPath(c)
+	// 1) school guard via token
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
 		return err
 	}
@@ -267,8 +258,8 @@ func (ctl *GeneralBillingKindController) Patch(c *fiber.Ctx) error {
 ========================= */
 
 func (ctl *GeneralBillingKindController) Delete(c *fiber.Ctx) error {
-	// 1) Path + guard
-	schoolID, err := helperAuth.ParseSchoolIDFromPath(c)
+	// 1) school guard via token
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
 		return err
 	}

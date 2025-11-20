@@ -29,5 +29,6 @@ func FinanceOwnerRoutes(r fiber.Router, db *gorm.DB) {
 func FinanceUserRoutes(r fiber.Router, db *gorm.DB) {
 	PaymentRoute.UserPaymentRoutes(r, db)
 	BillingRoute.BillingsUserRoutes(r, db)
+	GeneralBillingRoute.GeneralBillingUserRoutes(r, db)
 
 }

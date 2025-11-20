@@ -1,29 +1,51 @@
 package controller
 
 import (
+	"strings"
+
 	dto "schoolku_backend/internals/features/finance/general_billings/dto"
 	model "schoolku_backend/internals/features/finance/general_billings/model"
 	helper "schoolku_backend/internals/helpers"
-	"strings"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 )
 
-// GET /finance/user-general-billings
-
-// GET /finance/user-general-billings
+// GET /api/a/:school_id/user-general-billings
 func (ctl *UserGeneralBillingController) List(c *fiber.Ctx) error {
+	// ===== Resolve school context: token > active-school > path =====
+	var schoolID uuid.UUID
+	if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
+		schoolID = id
+	} else if id, err := helperAuth.GetActiveSchoolID(c); err == nil && id != uuid.Nil {
+		schoolID = id
+	} else {
+		sid, err := helperAuth.ParseSchoolIDFromPath(c)
+		if err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "school context not found")
+		}
+		schoolID = sid
+	}
+
+	// ===== Guard: hanya staff (teacher/dkm/admin/bendahara) =====
+	if err := helperAuth.EnsureStaffSchool(c, schoolID); err != nil {
+		return err
+	}
+	c.Locals("__school_guard_ok", schoolID.String())
+
+	// ===== Query DTO dari query params =====
 	var q dto.ListUserGeneralBillingQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid query")
 	}
 
-	/* ===== Pagination ===== */
+	// ===== Pagination =====
 	pg := helper.ResolvePaging(c, 20, 200) // default 20, max 200
 	perPageRaw := strings.ToLower(strings.TrimSpace(c.Query("per_page")))
 	allMode := perPageRaw == "all"
 
-	/* ===== Sorting whitelist ===== */
+	// ===== Sorting whitelist =====
 	allowedSort := map[string]string{
 		"created_at": "user_general_billing_created_at",
 		"updated_at": "user_general_billing_updated_at",
@@ -42,14 +64,14 @@ func (ctl *UserGeneralBillingController) List(c *fiber.Ctx) error {
 	}
 	orderExpr := col + " " + dir
 
-	/* ===== Base query ===== */
+	// ===== Base query: tenant-scoped =====
 	tx := ctl.DB.WithContext(c.Context()).
-		Model(&model.UserGeneralBilling{})
+		Model(&model.UserGeneralBilling{}).
+		Where("user_general_billing_school_id = ?", schoolID)
 
-	/* ===== Filters ===== */
-	if q.SchoolID != nil {
-		tx = tx.Where("user_general_billing_school_id = ?", *q.SchoolID)
-	}
+	// ===== Filters =====
+	// school_id dari query diabaikan; selalu pakai schoolID dari context
+
 	if q.BillingID != nil {
 		tx = tx.Where("user_general_billing_billing_id = ?", *q.BillingID)
 	}
@@ -63,13 +85,13 @@ func (ctl *UserGeneralBillingController) List(c *fiber.Ctx) error {
 		tx = tx.Where("user_general_billing_status = ?", strings.TrimSpace(*q.Status))
 	}
 
-	/* ===== Count total ===== */
+	// ===== Count total =====
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	/* ===== Data + sorting + paging ===== */
+	// ===== Data + sorting + paging =====
 	var rows []model.UserGeneralBilling
 	qry := tx.
 		Order(orderExpr).
@@ -83,13 +105,13 @@ func (ctl *UserGeneralBillingController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	/* ===== Map ke DTO ===== */
+	// ===== Map ke DTO =====
 	out := make([]dto.UserGeneralBillingResponse, 0, len(rows))
 	for _, m := range rows {
 		out = append(out, dto.FromModelUserGeneralBilling(m))
 	}
 
-	/* ===== Pagination meta ===== */
+	// ===== Pagination meta =====
 	var pagination helper.Pagination
 	if allMode {
 		per := int(total)
@@ -101,6 +123,6 @@ func (ctl *UserGeneralBillingController) List(c *fiber.Ctx) error {
 		pagination = helper.BuildPaginationFromPage(total, pg.Page, pg.PerPage)
 	}
 
-	/* ===== JSON response ===== */
+	// ===== JSON response =====
 	return helper.JsonList(c, "List user general billings", out, pagination)
 }

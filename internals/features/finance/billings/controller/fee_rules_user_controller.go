@@ -3,23 +3,26 @@ package controller
 import (
 	"fmt"
 	"net/http"
+	"strings"
+
 	"schoolku_backend/internals/features/finance/billings/dto"
 	model "schoolku_backend/internals/features/finance/billings/model"
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
-	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
 
 // GET /:school_id/spp/fee-rules
-// GET /:school_id/spp/fee-rules
 func (h *Handler) ListFeeRules(c *fiber.Ctx) error {
-	schoolID, err := mustSchoolID(c)
+	// === School context: token dulu, baru fallback path ===
+	schoolID, err := mustSchoolID(c) // <- ini sudah: token (prefer teacher) -> active -> :school_id
 	if err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, "invalid school_id")
 	}
+
+	// Member sekolah (student/teacher/dkm/admin/bendahara) boleh lihat fee-rules
 	if err := helperAuth.EnsureMemberSchool(c, schoolID); err != nil {
 		return err
 	}
@@ -57,8 +60,9 @@ func (h *Handler) ListFeeRules(c *fiber.Ctx) error {
 	allowed := map[string]string{
 		"created_at": "fee_rule_created_at",
 		"updated_at": "fee_rule_updated_at",
-		"amount":     "fee_rule_amount_idr",
-		"option":     "fee_rule_option_code",
+		// catatan: kalau sudah full pakai FeeRuleAmountOptions, kolom amount ini bisa dihapus atau diganti
+		"amount": "fee_rule_amount_idr",
+		"option": "fee_rule_option_code",
 	}
 	sortBy := strings.ToLower(strings.TrimSpace(c.Query("sort_by")))
 	sortCol, ok := allowed[sortBy]

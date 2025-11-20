@@ -16,6 +16,7 @@ import (
 	"schoolku_backend/internals/features/finance/billings/dto"
 	billing "schoolku_backend/internals/features/finance/billings/model"
 	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
 // =======================================================
@@ -246,11 +247,18 @@ func (h *BillBatchHandler) resolveAmountFromRules(
 // =======================================================
 // CREATE (hanya buat batch; school_id dari path)
 // =======================================================
+// =======================================================
+// CREATE (hanya buat batch; school_id dari token / path)
+// =======================================================
 
 func (h *BillBatchHandler) CreateBillBatch(c *fiber.Ctx) error {
 	schoolID, err := mustSchoolID(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid school_id")
+	}
+	// 🔐 staff guard (teacher/dkm/admin/bendahara)
+	if err := helperAuth.EnsureStaffSchool(c, schoolID); err != nil {
+		return err
 	}
 
 	var in dto.BillBatchCreateDTO
@@ -258,7 +266,7 @@ func (h *BillBatchHandler) CreateBillBatch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid json")
 	}
 
-	// override dari path
+	// override dari context
 	in.BillBatchSchoolID = schoolID
 	in.BillBatchBillCode = normalizeBillCode(in.BillBatchBillCode)
 	in.BillBatchOptionCode = strPtrOrNil(in.BillBatchOptionCode)
@@ -298,6 +306,10 @@ func (h *BillBatchHandler) UpdateBillBatch(c *fiber.Ctx) error {
 	schoolID, err := mustSchoolID(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid school_id")
+	}
+	// 🔐 staff guard
+	if err := helperAuth.EnsureStaffSchool(c, schoolID); err != nil {
+		return err
 	}
 
 	id, err := parseUUIDParam(c, "id")
@@ -351,6 +363,10 @@ func (h *BillBatchHandler) DeleteBillBatch(c *fiber.Ctx) error {
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid school_id")
 	}
+	// 🔐 staff guard
+	if err := helperAuth.EnsureStaffSchool(c, schoolID); err != nil {
+		return err
+	}
 
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
@@ -386,6 +402,10 @@ func (h *BillBatchHandler) CreateBillBatchAndGenerate(c *fiber.Ctx) error {
 	schoolID, err := mustSchoolID(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid school_id")
+	}
+	// 🔐 staff guard
+	if err := helperAuth.EnsureStaffSchool(c, schoolID); err != nil {
+		return err
 	}
 
 	var in dto.BillBatchGenerateDTO
@@ -486,8 +506,6 @@ func (h *BillBatchHandler) CreateBillBatchAndGenerate(c *fiber.Ctx) error {
 		return nil
 	})
 	if err != nil {
-		// helper.JsonError biasanya sudah mengatur HTTP status; jika bukan,
-		// fallback 500.
 		if he, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, he.Code, he.Message)
 		}

@@ -20,7 +20,7 @@ func BillingsAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	// Jika kamu punya resolver konteks school berbasis param, aktifkan di sini
 	// contoh: ResolveSchoolContextByParam("school_id")
 	grp := admin.Group(
-		"/:school_id",
+		"",
 		// schoolkuMiddleware.ResolveSchoolContextByParam("school_id"), // opsional kalau ada
 		schoolkuMiddleware.IsSchoolAdmin(),
 	)

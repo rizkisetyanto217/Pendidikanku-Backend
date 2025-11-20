@@ -3,50 +3,66 @@ package controller
 import (
 	"fmt"
 	"net/http"
+	"strings"
+
 	"schoolku_backend/internals/features/finance/billings/dto"
 	billing "schoolku_backend/internals/features/finance/billings/model"
 	helper "schoolku_backend/internals/helpers"
-	"strings"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
 
 // =======================================================
-// LIST (filters + pagination)
+// LIST (filters + pagination, tenant-scoped by school)
 // =======================================================
 
 func (h *BillBatchHandler) ListBillBatches(c *fiber.Ctx) error {
+	// === Resolve school context (token > active-school > path) ===
+	schoolID, err := mustSchoolID(c)
+	if err != nil {
+		return helper.JsonError(c, http.StatusBadRequest, "invalid school_id")
+	}
+
+	// === Guard: hanya staff (teacher/dkm/admin/bendahara) ===
+	if err := helperAuth.EnsureStaffSchool(c, schoolID); err != nil {
+		return err
+	}
+
 	// === Paging (default 20, max 200) + dukungan per_page=all ===
 	pg := helper.ResolvePaging(c, 20, 200)
 	perPageRaw := strings.ToLower(strings.TrimSpace(c.Query("per_page")))
 	allMode := perPageRaw == "all"
 	offset := (pg.Page - 1) * pg.PerPage
 
+	// Base query: tenant-scoped + belum dihapus
 	q := h.DB.Model(&billing.BillBatch{}).
-		Where("bill_batch_deleted_at IS NULL")
+		Where("bill_batch_school_id = ? AND bill_batch_deleted_at IS NULL", schoolID)
 
-	// === Filters ===
-	if s := strings.TrimSpace(c.Query("school_id")); s != "" {
-		if id, err := uuid.Parse(s); err == nil {
-			q = q.Where("bill_batch_school_id = ?", id)
-		}
-	}
+	// === Filters tambahan ===
+
+	// class_id
 	if s := strings.TrimSpace(c.Query("class_id")); s != "" {
 		if id, err := uuid.Parse(s); err == nil {
 			q = q.Where("bill_batch_class_id = ?", id)
 		}
 	}
+
+	// section_id
 	if s := strings.TrimSpace(c.Query("section_id")); s != "" {
 		if id, err := uuid.Parse(s); err == nil {
 			q = q.Where("bill_batch_section_id = ?", id)
 		}
 	}
+
+	// term_id
 	if s := strings.TrimSpace(c.Query("term_id")); s != "" {
 		if id, err := uuid.Parse(s); err == nil {
 			q = q.Where("bill_batch_term_id = ?", id)
 		}
 	}
+
 	// ym=YYYY-MM
 	if ym := strings.TrimSpace(c.Query("ym")); ym != "" {
 		var y, m int
@@ -54,6 +70,7 @@ func (h *BillBatchHandler) ListBillBatches(c *fiber.Ctx) error {
 			q = q.Where("bill_batch_year = ? AND bill_batch_month = ?", y, m)
 		}
 	}
+
 	// q: title contains
 	if s := strings.TrimSpace(c.Query("q")); s != "" {
 		q = q.Where("LOWER(bill_batch_title) LIKE ?", "%"+strings.ToLower(s)+"%")

@@ -10,17 +10,32 @@ import (
 	helperAuth "schoolku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 )
 
 // GET /api/a/:school_id/general-billing-kinds
 
 // GET /api/a/:school_id/general-billing-kinds
 func (ctl *GeneralBillingKindController) List(c *fiber.Ctx) error {
-	// 1) Guard school di path
-	schoolID, err := helperAuth.ParseSchoolIDFromPath(c)
-	if err != nil {
-		return err
+	// 1) Resolve school context:
+	//    - Prioritas: dari token (teacher dulu, lalu active-school)
+	//    - Fallback: dari path (school_id / slug, sesuai helper lama)
+	var schoolID uuid.UUID
+
+	if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
+		schoolID = id
+	} else if id, err := helperAuth.GetActiveSchoolID(c); err == nil && id != uuid.Nil {
+		schoolID = id
+	} else {
+		// legacy: ambil dari path (bisa :school_id / slug tergantung implementasi helper)
+		sid, err := helperAuth.ParseSchoolIDFromPath(c)
+		if err != nil {
+			return err
+		}
+		schoolID = sid
 	}
+
+	// 1b) Guard role DKM/Teacher di school tersebut
 	if er := helperAuth.EnsureDKMOrTeacherSchool(c, schoolID); er != nil {
 		return er
 	}
@@ -135,22 +150,6 @@ func (ctl *GeneralBillingKindController) List(c *fiber.Ctx) error {
 }
 
 // -------- helpers lokal --------
-
-// sanitizeOrderForGorm membuang prefix "ORDER BY " (case-insensitive) dari output SafeOrderClause
-// sehingga bisa langsung dipakai di GORM.Order()
-func sanitizeOrderForGorm(clause string) string {
-	s := strings.TrimSpace(clause)
-	if s == "" {
-		return ""
-	}
-	up := strings.ToUpper(s)
-	const prefix = "ORDER BY "
-	if strings.HasPrefix(up, prefix) {
-		// potong sepanjang prefix sesuai case asli
-		return strings.TrimSpace(s[len(prefix):])
-	}
-	return s
-}
 
 // parseTimePtrLoose: dukung "YYYY-MM-DD" dan RFC3339
 func parseTimePtrLoose(s string) *time.Time {
