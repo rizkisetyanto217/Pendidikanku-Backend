@@ -387,6 +387,16 @@ func UseSchoolScope() fiber.Handler {
 			// jika tidak cocok, lanjut ke scope strict seperti biasa
 		}
 
+		// 4) BYPASS registration-enroll (self-registration + payment student)
+		//    Contoh path:
+		//    - /api/u/:school_id/finance/payments/registration-enroll
+		//    - /api/u/m/:school_slug/finance/payments/registration-enroll
+		if c.Method() == fiber.MethodPost &&
+			strings.HasPrefix(p, "/api/u/s") &&
+			strings.HasSuffix(p, "/payments/registration-enroll") {
+			return c.Next()
+		}
+
 		log.Println("🎯 [MIDDLEWARE] UseSchoolScope (STRICT by path + token fallback) | Path:", c.Path(), "| Method:", c.Method())
 
 		isOwner := helper.IsOwner(c)

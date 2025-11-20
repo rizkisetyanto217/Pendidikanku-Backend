@@ -37,19 +37,30 @@ func GetSchoolIDBySlug(c *fiber.Ctx, slug string) (uuid.UUID, error) {
 		return uuid.Nil, fiber.NewError(fiber.StatusInternalServerError, "DB context invalid")
 	}
 
-	var id uuid.UUID
-	// case-insensitive & only alive
+	// 🚫 JANGAN langsung scan ke uuid.UUID
+	// var id uuid.UUID
+
+	// ✅ Scan ke string dulu
+	var idStr string
 	if err := db.Raw(`
 		SELECT school_id
 		FROM schools
 		WHERE LOWER(school_slug) = LOWER(?) AND school_deleted_at IS NULL
 		LIMIT 1
-	`, strings.TrimSpace(slug)).Scan(&id).Error; err != nil {
+	`, strings.TrimSpace(slug)).Scan(&idStr).Error; err != nil {
 		return uuid.Nil, err
 	}
-	if id == uuid.Nil {
+
+	idStr = strings.TrimSpace(idStr)
+	if idStr == "" {
 		return uuid.Nil, gorm.ErrRecordNotFound
 	}
+
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
 	return id, nil
 }
 

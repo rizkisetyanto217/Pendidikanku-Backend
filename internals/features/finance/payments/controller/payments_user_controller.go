@@ -878,6 +878,9 @@ func genOrderID(prefix string) string {
 // ================= HANDLER: POST /payments/registration-enroll =================
 // ================= HANDLER: POST /payments/registration-enroll =================
 func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
+	// ✅ penting: supaya GetSchoolIDBySlug & helper lain bisa akses DB
+	c.Locals("DB", h.DB)
+
 	// 0) Auth & resolve school
 	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {

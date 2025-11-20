@@ -17,18 +17,20 @@ func UserPaymentRoutes(r fiber.Router, db *gorm.DB) {
 	h := paymentctl.NewPaymentController(db, midtransServerKey, useProd)
 
 	// ===========================
-	// VARIAN A (direkomendasikan):
-	// Caller base path: /api
-	// Hasil: POST /api/a/:school_id/finance/payments/registration-enroll
+	// VARIAN ID (by UUID di path)
+	// Contoh: POST /api/u/:school_id/finance/payments/registration-enroll
 	// ===========================
 	payments := r.Group("/:school_id/payments")
+	{
+		payments.Post("/registration-enroll", h.CreateRegistrationAndPayment)
+	}
 
 	// ===========================
-	// VARIAN B (kalau base path caller sudah /api/v1/finance)
-	// Uncomment kalau kamu memanggil dari /api/v1/finance sebagai base:
-	// payments := r.Group("/:school_id/payments")
+	// VARIAN SLUG
+	// Contoh: POST /api/u/m/:school_slug/finance/payments/registration-enroll
 	// ===========================
-
-	// khusus student login: registrasi + payment + auto-enroll
-	payments.Post("/registration-enroll", h.CreateRegistrationAndPayment)
+	paymentsSlug := r.Group("/s/:school_slug/payments")
+	{
+		paymentsSlug.Post("/registration-enroll", h.CreateRegistrationAndPayment)
+	}
 }
