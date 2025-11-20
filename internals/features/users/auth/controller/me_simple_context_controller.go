@@ -278,12 +278,48 @@ func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 
 	// 3c) CLAIMS-ONLY dari JWT (roles tambahan dari token/cookie)
 	idsFromJWT, roleMapFromJWT := parseSchoolInfoFromJWT(c)
+
+	// ===== Fallback: kalau token nggak punya school/masjid_id,
+	//        coba resolve dari slug di URL =====
+	if len(idsFromJWT) == 0 {
+		// cari slug dari beberapa kemungkinan nama param
+		slug := strings.TrimSpace(c.Params("masjid_slug"))
+		if slug == "" {
+			slug = strings.TrimSpace(c.Params("school_slug"))
+		}
+		if slug == "" {
+			slug = strings.TrimSpace(c.Params("slug"))
+		}
+
+		if slug != "" {
+			var row struct {
+				ID uuid.UUID `gorm:"column:school_id"`
+			}
+			if err := ac.DB.WithContext(c.Context()).
+				Model(&schoolModel.SchoolModel{}).
+				Select("school_id").
+				Where("school_slug = ?", slug).
+				Where("school_deleted_at IS NULL").
+				Where("school_is_active = ?", true).
+				First(&row).Error; err == nil && row.ID != uuid.Nil {
+
+				// masukkan id hasil dari slug sebagai kandidat school dari "JWT"
+				idsFromJWT = []uuid.UUID{row.ID}
+				// role-nya tetap akan dicek pakai helperAuth.HasRoleInSchool di bawah
+				// supaya konsisten dengan mekanisme sebelumnya.
+			}
+		}
+	}
+
+	// Role dari klaim JWT (kalau ada mapping id → roles)
 	for mid, set := range roleMapFromJWT {
 		for r := range set {
 			addRole(mid, r)
 		}
 	}
-	// Role dari helperAuth (dkm/admin/bendahara)
+
+	// Role dari helperAuth (dkm/admin/bendahara),
+	// sekarang juga akan jalan untuk school_id hasil slug di atas
 	for _, mid := range idsFromJWT {
 		for _, r := range []string{"dkm", "admin", "bendahara"} {
 			if helperAuth.HasRoleInSchool(c, mid, r) {
@@ -313,6 +349,7 @@ func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 		UserAvatarURL: avatarRecord.URL,
 		Memberships:   []SchoolRoleOption{},
 	}
+
 	if len(schoolIDs) == 0 {
 		return helper.JsonOK(c, "Context berhasil diambil", resp)
 	}
@@ -326,31 +363,35 @@ func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 		Find(&schools).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil school: "+err.Error())
 	}
+
 	for _, s := range schools {
 		b := schoolRoles[s.SchoolID]
-		if b == nil || len(b.roles) == 0 {
-			continue
-		}
-		roles := make([]string, 0, len(b.roles))
-		for r := range b.roles {
-			roles = append(roles, r)
+
+		// kumpulkan roles (bisa kosong)
+		roles := []string{}
+		var teacherID *uuid.UUID
+		var studentID *uuid.UUID
+
+		if b != nil {
+			for r := range b.roles {
+				roles = append(roles, r)
+			}
+			if b.teacherID != nil {
+				teacherID = b.teacherID
+			}
+			if b.studentID != nil {
+				studentID = b.studentID
+			}
 		}
 
 		opt := SchoolRoleOption{
-			SchoolID:   s.SchoolID,
-			SchoolName: s.SchoolName,
-			Roles:      roles,
-		}
-
-		// isi pointer dengan aman (tanpa ambil alamat dari range var)
-		opt.SchoolSlug = strptr(s.SchoolSlug)
-		opt.SchoolIconURL = s.SchoolIconURL // ⬅️ icon URL dikirim ke FE
-
-		if b.teacherID != nil {
-			opt.SchoolTeacherID = b.teacherID
-		}
-		if b.studentID != nil {
-			opt.SchoolStudentID = b.studentID
+			SchoolID:        s.SchoolID,
+			SchoolName:      s.SchoolName,
+			SchoolSlug:      strptr(s.SchoolSlug),
+			SchoolIconURL:   s.SchoolIconURL,
+			Roles:           roles,
+			SchoolTeacherID: teacherID,
+			SchoolStudentID: studentID,
 		}
 
 		resp.Memberships = append(resp.Memberships, opt)

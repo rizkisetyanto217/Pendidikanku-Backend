@@ -884,10 +884,12 @@ func getUserRolesClaim(ctx context.Context, db *gorm.DB, userID uuid.UUID) (help
 	return out, nil
 }
 
-/* ==========================
-   LOGIN (username/email + password)
-========================== */
+/*
+	==========================
+	  LOGIN (username/email + password)
 
+==========================
+*/
 func Login(db *gorm.DB, c *fiber.Ctx) error {
 	var input struct {
 		Identifier string `json:"identifier"`
@@ -905,8 +907,6 @@ func Login(db *gorm.DB, c *fiber.Ctx) error {
 	// ⬇️ Ambil slug dari URL params: /api/:school_slug/auth/login
 	schoolSlug := strings.TrimSpace(c.Params("school_slug"))
 	if schoolSlug == "" {
-		// Kalau kamu mau fallback ke "login global", bisa diubah,
-		// tapi untuk kasusmu slug memang wajib.
 		return helpers.JsonError(c, fiber.StatusBadRequest, "school_slug wajib ada di URL")
 	}
 
@@ -945,7 +945,6 @@ func Login(db *gorm.DB, c *fiber.Ctx) error {
 	// ⬇️ Resolve slug → school_id
 	schoolID, err := findSchoolIDBySlug(c.Context(), db, schoolSlug)
 	if err != nil {
-		// kalau error-nya fiber.Error, teruskan kodenya
 		if fe, ok := err.(*fiber.Error); ok {
 			return helpers.JsonError(c, fe.Code, fe.Message)
 		}
@@ -953,15 +952,14 @@ func Login(db *gorm.DB, c *fiber.Ctx) error {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data sekolah")
 	}
 
-	// ⬇️ Filter rolesClaim supaya hanya untuk school_id tersebut
-	filteredClaim, ok := filterRolesClaimToSchool(rolesClaim, schoolID)
-	if !ok {
-		// user ini tidak punya peran apapun di sekolah ini
-		return helpers.JsonError(c, fiber.StatusForbidden, "Anda tidak terdaftar di sekolah ini")
-	}
+	// ⬇️ Filter rolesClaim hanya untuk sekolah ini.
+	//    BEDANYA: sekarang walaupun tidak punya role, kita TETAP lanjut (tidak 403).
+	filteredClaim, _ := filterRolesClaimToSchool(rolesClaim, schoolID)
 
-	// Issue tokens — sekarang rolesClaim sudah terseleksi 1 sekolah
-	return issueTokensWithRoles(c, db, *userFull, filteredClaim)
+	// Terbitkan token:
+	// - roles cuma untuk sekolah ini (bisa kosong)
+	// - school_id di-override pakai schoolID dari slug (supaya FE & PMB punya context tenant)
+	return issueTokensWithRoles(c, db, *userFull, filteredClaim, &schoolID)
 }
 
 /*
@@ -1278,11 +1276,13 @@ func setAuthCookiesOnlyRefreshAndXsrf(c *fiber.Ctx, refreshToken string, now tim
 	setXSRFCookie(c, randomString(48), now.Add(refreshTTLDefault))
 }
 
+// NOTE: tambah param forcedSchoolID *uuid.UUID
 func issueTokensWithRoles(
 	c *fiber.Ctx,
 	db *gorm.DB,
 	user userModel.UserModel,
 	rolesClaim helpersAuth.RolesClaim,
+	forcedSchoolID *uuid.UUID,
 ) error {
 	jwtSecret, err := getJWTSecret()
 	if err != nil {
@@ -1299,20 +1299,48 @@ func issueTokensWithRoles(
 	}
 
 	isOwner := hasGlobalRole(rolesClaim, "owner")
+
+	// 🔹 schoolIDs awal dari claim (bisa kosong)
 	schoolIDs := deriveSchoolIDsFromRolesClaim(rolesClaim)
-	activeSchoolID := helpersAuth.GetActiveSchoolIDIfSingle(rolesClaim)
+
+	// 🔹 Tentukan activeSchoolID:
+	//     - kalau forcedSchoolID != nil → pakai itu
+	//     - kalau tidak → fallback ke helper lama (single-school only)
+	var activeSchoolID *string
+	if forcedSchoolID != nil && *forcedSchoolID != uuid.Nil {
+		s := forcedSchoolID.String()
+		activeSchoolID = &s
+
+		// pastikan masuk list schoolIDs (kalau belum ada, prepend)
+		found := false
+		for _, id := range schoolIDs {
+			if id == s {
+				found = true
+				break
+			}
+		}
+		if !found {
+			schoolIDs = append([]string{s}, schoolIDs...)
+		}
+	} else {
+		activeSchoolID = helpersAuth.GetActiveSchoolIDIfSingle(rolesClaim)
+	}
+
 	teacherRecords := buildTeacherRecords(db, user.ID, rolesClaim)
 	studentRecords := buildStudentRecords(db, user.ID, rolesClaim)
 
+	// map tenant_profile per school (kalau ada role)
 	tpMap := getTenantProfilesMapStr(c.Context(), db, schoolUUIDsFromClaim(rolesClaim))
 	combined := combineRolesWithTenant(rolesClaim, tpMap)
 
+	// tenant_profile: ambil dari activeSchoolID kalau ada
 	var tenantProfile *string
 	if activeSchoolID != nil {
 		if mid, err := uuid.Parse(*activeSchoolID); err == nil {
 			tenantProfile = getSchoolTenantProfileStr(c.Context(), db, mid)
 		}
 	}
+	// fallback: ambil profil dari school paling kecil ID-nya
 	if tenantProfile == nil && len(combined) > 0 {
 		minID, prof := "", ""
 		for _, it := range combined {
@@ -1327,15 +1355,28 @@ func issueTokensWithRoles(
 		}
 	}
 
-	accessClaims := buildAccessClaims(user, rolesClaim, schoolIDs, isOwner, activeSchoolID, tenantProfile, combined, teacherRecords, studentRecords, now)
+	accessClaims := buildAccessClaims(
+		user,
+		rolesClaim,
+		schoolIDs,
+		isOwner,
+		activeSchoolID,
+		tenantProfile,
+		combined,
+		teacherRecords,
+		studentRecords,
+		now,
+	)
 	refreshClaims := buildRefreshClaims(user.ID, now)
 
-	accessToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims).SignedString([]byte(jwtSecret))
+	accessToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims).
+		SignedString([]byte(jwtSecret))
 	if err != nil {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat access token")
 	}
 
-	refreshToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims).SignedString([]byte(refreshSecret))
+	refreshToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims).
+		SignedString([]byte(refreshSecret))
 	if err != nil {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat refresh token")
 	}
@@ -1355,12 +1396,22 @@ func issueTokensWithRoles(
 	// ✅ set hanya refresh cookie + XSRF cookie
 	setAuthCookiesOnlyRefreshAndXsrf(c, refreshToken, now)
 
-	// Response user payload seperti sebelumnya
-	respUser := buildLoginResponseUser(user, rolesClaim, schoolIDs, isOwner, activeSchoolID, tenantProfile, combined, teacherRecords, studentRecords)
+	// Response user payload
+	respUser := buildLoginResponseUser(
+		user,
+		rolesClaim,
+		schoolIDs,
+		isOwner,
+		activeSchoolID,
+		tenantProfile,
+		combined,
+		teacherRecords,
+		studentRecords,
+	)
 
 	return helpers.JsonOK(c, "Login berhasil", fiber.Map{
 		"user":         respUser,
-		"access_token": accessToken, // FE simpan in-memory dan kirim di Authorization
+		"access_token": accessToken,
 	})
 }
 
