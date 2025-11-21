@@ -2,7 +2,7 @@ package service
 
 import (
 	"errors"
-	"time"
+	"strings"
 
 	"schoolku_backend/internals/features/finance/payments/model"
 
@@ -47,7 +47,8 @@ type CustomerInput struct {
 
 =========================================================
 */
-func GenerateSnapToken(p model.Payment, cust CustomerInput) (string, string, error) {
+// SESUDAH
+func GenerateSnapToken(p model.Payment, cust CustomerInput, finishURL string) (string, string, error) {
 	if p.PaymentAmountIDR <= 0 {
 		return "", "", errors.New("invalid payment_amount_idr")
 	}
@@ -84,6 +85,13 @@ func GenerateSnapToken(p model.Payment, cust CustomerInput) (string, string, err
 				CountryCode: defaultString(cust.Country, "IDN"),
 			},
 		},
+	}
+
+	// ⬇️ BAGIAN BARU: hanya kalau finishURL tidak kosong
+	if strings.TrimSpace(finishURL) != "" {
+		req.Callbacks = &snap.Callbacks{
+			Finish: strings.TrimSpace(finishURL),
+		}
 	}
 
 	if p.PaymentDescription != nil && *p.PaymentDescription != "" {
@@ -143,12 +151,4 @@ func safe(s string) string {
 		return "item-1"
 	}
 	return s
-}
-
-func minutesUntil(target time.Time, now time.Time) int64 {
-	d := target.Sub(now)
-	if d <= 0 {
-		return 0
-	}
-	return int64(d.Round(time.Minute) / time.Minute)
 }

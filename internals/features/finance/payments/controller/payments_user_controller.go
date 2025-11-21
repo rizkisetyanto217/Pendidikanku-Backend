@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -32,6 +33,14 @@ import (
 /* =======================================================================
    Controller
 ======================================================================= */
+
+func envOrDefault(key, def string) string {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def
+	}
+	return v
+}
 
 type PaymentController struct {
 	DB                 *gorm.DB
@@ -272,7 +281,7 @@ func (h *PaymentController) CreatePayment(c *fiber.Ctx) error {
 			_ = json.Unmarshal(m.PaymentMeta, &cust)
 		}
 
-		token, redirectURL, err := svc.GenerateSnapToken(*m, cust)
+		token, redirectURL, err := svc.GenerateSnapToken(*m, cust, "")
 		if err != nil {
 			return helper.JsonError(c, fiber.StatusBadGateway, "midtrans error: "+err.Error())
 		}
@@ -1531,7 +1540,24 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 			}
 		}
 
-		token, redirectURL, err := svc.GenerateSnapToken(*pm, cust)
+		// 🔹 ambil base URL FE dari env, atau fallback ke Railway
+		frontendBase := strings.TrimRight(envOrDefault("FRONTEND_BASE_URL", "https://madinahsalam.up.railway.app"), "/")
+
+		// 🔹 ambil slug sekolah dari DB
+		var schoolSlug string
+		if err := tx.Raw(`
+            SELECT school_slug
+            FROM schools
+            WHERE school_id = ? AND school_deleted_at IS NULL
+            LIMIT 1
+        `, schoolID).Scan(&schoolSlug).Error; err != nil || strings.TrimSpace(schoolSlug) == "" {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil slug sekolah untuk redirect pembayaran")
+		}
+
+		finishURL := fmt.Sprintf("%s/%s/user/pendaftaran/selesai", frontendBase, strings.TrimSpace(schoolSlug))
+
+		token, redirectURL, err := svc.GenerateSnapToken(*pm, cust, finishURL)
 		if err != nil {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusBadGateway, "midtrans error: "+err.Error())
