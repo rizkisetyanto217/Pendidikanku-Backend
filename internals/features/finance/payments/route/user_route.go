@@ -16,21 +16,15 @@ func UserPaymentRoutes(r fiber.Router, db *gorm.DB) {
 
 	h := paymentctl.NewPaymentController(db, midtransServerKey, useProd)
 
-	// ===========================
-	// VARIAN ID (by UUID di path)
-	// Contoh: POST /api/u/:school_id/finance/payments/registration-enroll
-	// ===========================
-	payments := r.Group("/:school_id/payments")
+	// Semua user-level payments sekarang pakai school dari TOKEN,
+	// bukan dari path. Prefix /payments saja.
+	payments := r.Group("/payments")
 	{
+		// bundle registration + payment
 		payments.Post("/registration-enroll", h.CreateRegistrationAndPayment)
-	}
-
-	// ===========================
-	// VARIAN SLUG
-	// Contoh: POST /api/u/m/:school_slug/finance/payments/registration-enroll
-	// ===========================
-	paymentsSlug := r.Group("/s/:school_slug/payments")
-	{
-		paymentsSlug.Post("/registration-enroll", h.CreateRegistrationAndPayment)
+		// kalau nanti mau expose generic create / patch untuk user,
+		// bisa taruh di sini juga:
+		// payments.Post("/", h.CreatePayment)
+		// payments.Patch("/:id", h.PatchPayment)
 	}
 }

@@ -878,36 +878,23 @@ func genOrderID(prefix string) string {
 // ================= HANDLER: POST /payments/registration-enroll =================
 // ================= HANDLER: POST /payments/registration-enroll =================
 func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
-	// ✅ penting: supaya GetSchoolIDBySlug & helper lain bisa akses DB
+	// ✅ penting: supaya GetSchoolIDBySlug & helper lain bisa akses DB (kalau kepake di tempat lain)
 	c.Locals("DB", h.DB)
 
-	// 0) Auth & resolve school
+	// 0) Auth
 	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return err
 	}
 
-	var schoolID uuid.UUID
-	if id, er := helperAuth.ParseSchoolIDFromPath(c); er == nil && id != uuid.Nil {
-		schoolID = id
-	} else {
-		sctx, er := helperAuth.ResolveSchoolContext(c)
-		if er != nil {
-			if fe, ok := er.(*fiber.Error); ok {
-				return helper.JsonError(c, fe.Code, fe.Message)
-			}
-			return helper.JsonError(c, fiber.StatusBadRequest, er.Error())
-		}
-		if sctx.ID != uuid.Nil {
-			schoolID = sctx.ID
-		} else {
-			id2, er2 := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(sctx.Slug))
-			if er2 != nil {
-				return helper.JsonError(c, fiber.StatusBadRequest, "school tidak valid")
-			}
-			schoolID = id2
-		}
+	// 0a) Resolve school_id murni dari token / context (BUKAN dari path)
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
+	if err != nil {
+		// helper sudah balikin fiber.Error yang rapi
+		return err
 	}
+
+	// 0b) Pastikan user memang member sekolah itu (student/teacher/dll)
 	if er := helperAuth.EnsureMemberSchool(c, schoolID); er != nil {
 		return er
 	}
