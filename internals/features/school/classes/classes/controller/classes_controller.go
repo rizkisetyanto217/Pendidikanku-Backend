@@ -164,40 +164,13 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	start := time.Now()
 	log.Printf("[CLASSES][CREATE] ▶️ incoming request")
 
-	/* ---- Resolve School Context + Guard DKM/Admin ---- */
-	mc, err := helperAuth.ResolveSchoolContext(c)
+	/* ---- Resolve School Context via helper ---- */
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
-		log.Printf("[CLASSES][CREATE] ❌ resolve school ctx error: %v", err)
-		if fe, ok := err.(*fiber.Error); ok {
-			return helper.JsonError(c, fe.Code, fe.Message)
-		}
-		return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak valid")
+		// ResolveSchoolIDFromContext sudah balikin JsonError yang rapi
+		return err
 	}
-
-	var schoolID uuid.UUID
-	switch {
-	case mc.ID != uuid.Nil:
-		schoolID = mc.ID
-		log.Printf("[CLASSES][CREATE] 🕌 school_id from ctx.ID=%s", schoolID)
-
-	case strings.TrimSpace(mc.Slug) != "":
-		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
-		if er != nil {
-			log.Printf("[CLASSES][CREATE] ❌ school by slug(%s) not found: %v", mc.Slug, er)
-			return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
-		}
-		schoolID = id
-		log.Printf("[CLASSES][CREATE] 🕌 school_id from slug=%s → %s", mc.Slug, schoolID)
-
-	default:
-		id, er := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
-		if er != nil || id == uuid.Nil {
-			log.Printf("[CLASSES][CREATE] ❌ school context not found via token: %v", er)
-			return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak ditemukan")
-		}
-		schoolID = id
-		log.Printf("[CLASSES][CREATE] 🕌 school_id from token=%s", schoolID)
-	}
+	log.Printf("[CLASSES][CREATE] 🕌 school_id=%s (from context)", schoolID)
 
 	// 🔒 Hanya DKM/Admin yang boleh bikin kelas
 	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
@@ -396,6 +369,12 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
 	}
 
+	// ---- Resolve school dari context ----
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
+	if err != nil {
+		return err
+	}
+
 	// ---- Parse payload tri-state (JSON / multipart) ----
 	var req dto.PatchClassRequest
 	if err := dto.DecodePatchClassFromRequest(c, &req); err != nil {
@@ -414,10 +393,13 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 		}
 	}()
 
-	// ---- Ambil existing + lock ----
+	// ---- Ambil existing + lock (tenant-safe) ----
 	var existing classmodel.ClassModel
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-		First(&existing, "class_id = ? AND class_deleted_at IS NULL", classID).Error; err != nil {
+		First(&existing,
+			"class_id = ? AND class_school_id = ? AND class_deleted_at IS NULL",
+			classID, schoolID,
+		).Error; err != nil {
 
 		_ = tx.Rollback().Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -427,7 +409,7 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 	}
 
 	// 🔒 Guard: hanya DKM/Admin di school terkait
-	if err := helperAuth.EnsureDKMSchool(c, existing.ClassSchoolID); err != nil {
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		_ = tx.Rollback().Error
 		return err
 	}
@@ -663,10 +645,16 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 
 /* =========================== DELETE (soft) =========================== */
 // DELETE /admin/classes/:id
-func (ctrl *ClassController) SoftDeleteClass(c *fiber.Ctx) error {
+func (ctrl *ClassController) DeleteClass(c *fiber.Ctx) error {
 	classID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+	}
+
+	// ---- Resolve school dari context ----
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
+	if err != nil {
+		return err
 	}
 
 	// Lock row + cek school_id untuk guard
@@ -683,7 +671,10 @@ func (ctrl *ClassController) SoftDeleteClass(c *fiber.Ctx) error {
 
 	var m classmodel.ClassModel
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("class_id = ? AND class_deleted_at IS NULL", classID).
+		Where(
+			"class_id = ? AND class_school_id = ? AND class_deleted_at IS NULL",
+			classID, schoolID,
+		).
 		First(&m).Error; err != nil {
 
 		_ = tx.Rollback()
@@ -694,7 +685,7 @@ func (ctrl *ClassController) SoftDeleteClass(c *fiber.Ctx) error {
 	}
 
 	// 🔒 Guard: hanya DKM/Admin pada school terkait
-	if err := helperAuth.EnsureDKMSchool(c, m.ClassSchoolID); err != nil {
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		_ = tx.Rollback()
 		return err
 	}

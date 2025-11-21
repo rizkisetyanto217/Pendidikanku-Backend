@@ -19,7 +19,7 @@ func ClassAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	{
 		grp.Post("/", classHandler.CreateClass)
 		grp.Patch("/:id", classHandler.PatchClass)
-		grp.Delete("/:id", classHandler.SoftDeleteClass)
+		grp.Delete("/:id", classHandler.DeleteClass)
 	}
 
 	// Controller class parents

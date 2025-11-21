@@ -210,7 +210,31 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		if q.CompletedLe != nil {
 			tx = tx.Where(aliasClass+".class_completed_at <= ?", *q.CompletedLe)
 		}
+
+		// ⬇️ NEW: hanya kelas yang sedang dibuka untuk pendaftaran
+		if q.OpenForRegistration != nil && *q.OpenForRegistration {
+			now := time.Now().UTC()
+
+			// status harus ACTIVE
+			tx = tx.Where(aliasClass+".class_status = ?", model.ClassStatusActive)
+
+			// jendela registrasi (kalau ada)
+			tx = tx.Where(
+				"("+aliasClass+".class_registration_opens_at IS NULL OR "+aliasClass+".class_registration_opens_at <= ?)",
+				now,
+			)
+			tx = tx.Where(
+				"("+aliasClass+".class_registration_closes_at IS NULL OR "+aliasClass+".class_registration_closes_at >= ?)",
+				now,
+			)
+
+			// kuota (kalau diset)
+			tx = tx.Where(
+				"(" + aliasClass + ".class_quota_total IS NULL OR " + aliasClass + ".class_quota_taken < " + aliasClass + ".class_quota_total)",
+			)
+		}
 		return tx
+
 	}
 
 	// 1) Tenant scope (token → context → query)
@@ -234,6 +258,15 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		if raw := strings.TrimSpace(c.Query("class_parent_id")); raw != "" {
 			if id, err := uuid.Parse(raw); err == nil {
 				q.ClassParentID = &id
+			}
+		}
+	}
+
+	// ✅ alias baru: ?academic_term_id= → isi ke ClassTermID jika belum ada
+	if q.ClassTermID == nil {
+		if raw := strings.TrimSpace(c.Query("academic_term_id")); raw != "" {
+			if id, err := uuid.Parse(raw); err == nil {
+				q.ClassTermID = &id
 			}
 		}
 	}

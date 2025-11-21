@@ -415,8 +415,8 @@ type ClassResponse struct {
 	ClassSchoolID uuid.UUID `json:"class_school_id"`
 
 	// JSON dan nama field disamakan dengan model:
-	ClassClassParentID   uuid.UUID  `json:"class_class_parent_id"`
-	ClassAcademicTermID  *uuid.UUID `json:"class_academic_term_id,omitempty"`
+	ClassClassParentID  uuid.UUID  `json:"class_class_parent_id"`
+	ClassAcademicTermID *uuid.UUID `json:"class_academic_term_id,omitempty"`
 
 	// Identitas
 	ClassSlug string `json:"class_slug"`
@@ -539,9 +539,9 @@ QUERY / FILTER DTO (untuk list)
 =========================================================
 */
 type ListClassQuery struct {
-	SchoolID     *uuid.UUID `query:"school_id"`
-	ClassParentID *uuid.UUID `query:"class_class_parent_id"`   // akan di-bind ke class_class_parent_id
-	ClassTermID   *uuid.UUID `query:"class_academic_term_id"`  // akan di-bind ke class_academic_term_id
+	SchoolID      *uuid.UUID `query:"school_id"`
+	ClassParentID *uuid.UUID `query:"class_class_parent_id"`  // akan di-bind ke class_class_parent_id
+	ClassTermID   *uuid.UUID `query:"class_academic_term_id"` // akan di-bind ke class_academic_term_id
 
 	Status       *string `query:"status"`
 	DeliveryMode *string `query:"delivery_mode"`
@@ -555,6 +555,9 @@ type ListClassQuery struct {
 
 	CompletedGe *time.Time `query:"completed_ge"`
 	CompletedLe *time.Time `query:"completed_le"`
+
+	// ⬇️ NEW: hanya kelas yang dibuka untuk pendaftaran sekarang
+	OpenForRegistration *bool `query:"open_for_registration"`
 
 	Limit  int     `query:"limit"  validate:"omitempty,min=1,max=200"`
 	Offset int     `query:"offset" validate:"omitempty,min=0"`

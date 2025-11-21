@@ -1,9 +1,11 @@
+// file: internals/features/finance/billings/controller/fee_rule_list_controller.go
 package controller
 
 import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time" // ⬅️ NEW
 
 	"schoolku_backend/internals/features/finance/billings/dto"
 	model "schoolku_backend/internals/features/finance/billings/model"
@@ -14,12 +16,39 @@ import (
 	"github.com/google/uuid"
 )
 
-// GET /:school_id/spp/fee-rules
+// lite-term untuk include opsional
+type termLite struct {
+	ID           uuid.UUID `json:"academic_term_id"                 gorm:"column:academic_term_id"`
+	Name         string    `json:"academic_term_name"               gorm:"column:academic_term_name"`
+	AcademicYear string    `json:"academic_term_academic_year"      gorm:"column:academic_term_academic_year"`
+	StartDate    time.Time `json:"academic_term_start_date"         gorm:"column:academic_term_start_date"`
+	EndDate      time.Time `json:"academic_term_end_date"           gorm:"column:academic_term_end_date"`
+	IsActive     bool      `json:"academic_term_is_active"          gorm:"column:academic_term_is_active"`
+	Angkatan     *int      `json:"academic_term_angkatan,omitempty" gorm:"column:academic_term_angkatan"`
+}
+
+// GET /api/u/fee-rules/list
+// GET /:school_id/spp/fee-rules (kompat lama)
 func (h *Handler) ListFeeRules(c *fiber.Ctx) error {
-	// === School context: token dulu, baru fallback path ===
-	schoolID, err := mustSchoolID(c) // <- ini sudah: token (prefer teacher) -> active -> :school_id
-	if err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, "invalid school_id")
+	// === School context: UTAMA dari token, baru fallback ke path ===
+	var schoolID uuid.UUID
+
+	// 1) Coba ambil dari token (school_ids di claim)
+	if ids, errTok := helperAuth.GetSchoolIDsFromToken(c); errTok == nil && len(ids) > 0 {
+		// asumsi: untuk staff/murid biasanya 1 active school,
+		// kalau nanti mau lebih strict bisa diganti pakai active_school_id
+		schoolID = ids[0]
+	} else {
+		// 2) Fallback: path param :school_id (kompatibel versi lama)
+		raw := strings.TrimSpace(c.Params("school_id"))
+		if raw == "" {
+			return helper.JsonError(c, http.StatusBadRequest, "school_id tidak ditemukan di token maupun path")
+		}
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			return helper.JsonError(c, http.StatusBadRequest, "invalid school_id")
+		}
+		schoolID = id
 	}
 
 	// Member sekolah (student/teacher/dkm/admin/bendahara) boleh lihat fee-rules
@@ -32,6 +61,18 @@ func (h *Handler) ListFeeRules(c *fiber.Ctx) error {
 	perPageRaw := strings.ToLower(strings.TrimSpace(c.Query("per_page")))
 	allMode := perPageRaw == "all"
 	offset := (pg.Page - 1) * pg.PerPage
+
+	// === Include flags (opsional) ===
+	includeRaw := strings.TrimSpace(c.Query("include"))
+	includeTerm := false
+	if includeRaw != "" {
+		for _, part := range strings.Split(includeRaw, ",") {
+			switch strings.ToLower(strings.TrimSpace(part)) {
+			case "term", "academic_term", "academic_terms":
+				includeTerm = true
+			}
+		}
+	}
 
 	// === Base query (tenant-scoped & alive) ===
 	q := h.DB.Model(&model.FeeRule{}).
@@ -60,9 +101,8 @@ func (h *Handler) ListFeeRules(c *fiber.Ctx) error {
 	allowed := map[string]string{
 		"created_at": "fee_rule_created_at",
 		"updated_at": "fee_rule_updated_at",
-		// catatan: kalau sudah full pakai FeeRuleAmountOptions, kolom amount ini bisa dihapus atau diganti
-		"amount": "fee_rule_amount_idr",
-		"option": "fee_rule_option_code",
+		"amount":     "fee_rule_amount_idr",
+		"option":     "fee_rule_option_code",
 	}
 	sortBy := strings.ToLower(strings.TrimSpace(c.Query("sort_by")))
 	sortCol, ok := allowed[sortBy]
@@ -91,7 +131,80 @@ func (h *Handler) ListFeeRules(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
 
-	out := dto.ToFeeRuleResponses(list)
+	// ============================
+	// Prefetch academic_terms (OPSIONAL)
+	// ============================
+	termMap := map[uuid.UUID]termLite{}
+
+	if includeTerm && len(list) > 0 {
+		termSet := map[uuid.UUID]struct{}{}
+		for _, fr := range list {
+			// asumsi field di model: FeeRuleTermID *uuid.UUID
+			if fr.FeeRuleTermID != nil {
+				termSet[*fr.FeeRuleTermID] = struct{}{}
+			}
+		}
+
+		if len(termSet) > 0 {
+			ids := make([]uuid.UUID, 0, len(termSet))
+			for id := range termSet {
+				ids = append(ids, id)
+			}
+
+			var trs []termLite
+			if err := h.DB.
+				Table("academic_terms").
+				Select(`
+					academic_term_id,
+					academic_term_name,
+					academic_term_academic_year,
+					academic_term_start_date,
+					academic_term_end_date,
+					academic_term_is_active,
+					academic_term_angkatan
+				`).
+				Where("academic_term_id IN ? AND academic_term_deleted_at IS NULL", ids).
+				Scan(&trs).Error; err != nil {
+				return helper.JsonError(c, http.StatusInternalServerError, "gagal mengambil academic_terms: "+err.Error())
+			}
+			for _, t := range trs {
+				termMap[t.ID] = t
+			}
+		}
+	}
+
+	// ============================
+	// Compose response (+ academic_terms opsional)
+	// ============================
+	base := dto.ToFeeRuleResponses(list)
+
+	// asumsikan ada type dto.FeeRuleResponse
+	type FeeRuleWithTerm struct {
+		dto.FeeRuleResponse `json:",inline"`
+		AcademicTerm        *termLite `json:"academic_terms,omitempty"`
+	}
+
+	var data any
+
+	if includeTerm {
+		out := make([]FeeRuleWithTerm, 0, len(base))
+		for i, fr := range list {
+			item := FeeRuleWithTerm{
+				FeeRuleResponse: base[i],
+			}
+			if fr.FeeRuleTermID != nil {
+				if t, ok := termMap[*fr.FeeRuleTermID]; ok {
+					tCopy := t
+					item.AcademicTerm = &tCopy
+				}
+			}
+			out = append(out, item)
+		}
+		data = out
+	} else {
+		// default: tanpa academic_terms
+		data = base
+	}
 
 	// === Pagination payload untuk JsonList ===
 	var pagination helper.Pagination
@@ -101,5 +214,5 @@ func (h *Handler) ListFeeRules(c *fiber.Ctx) error {
 		pagination = helper.BuildPaginationFromPage(total, pg.Page, pg.PerPage)
 	}
 
-	return helper.JsonList(c, "OK", out, pagination)
+	return helper.JsonList(c, "OK", data, pagination)
 }

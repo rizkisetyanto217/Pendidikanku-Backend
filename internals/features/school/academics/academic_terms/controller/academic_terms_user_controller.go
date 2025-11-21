@@ -14,6 +14,7 @@ import (
 	"schoolku_backend/internals/features/school/academics/academic_terms/dto"
 	termModel "schoolku_backend/internals/features/school/academics/academic_terms/model"
 
+	feeRuleModel "schoolku_backend/internals/features/finance/billings/model" // ⬅️ NEW
 	classSectionModel "schoolku_backend/internals/features/school/classes/class_sections/model"
 	classModel "schoolku_backend/internals/features/school/classes/classes/model"
 
@@ -27,22 +28,15 @@ var fallbackValidator = validator.New()
 
 // Struct khusus kalau ada include
 type AcademicTermWithRelations struct {
-	Term          dto.AcademicTermResponseDTO              `json:"term"`
+	Term          dto.AcademicTermResponseDTO           `json:"term"`
 	Classes       []classModel.ClassModel               `json:"classes,omitempty"`
 	ClassSections []classSectionModel.ClassSectionModel `json:"class_sections,omitempty"`
+	FeeRules      []feeRuleModel.FeeRule                `json:"fee_rules,omitempty"` // ⬅️ NEW
 }
 
 /* ================= Handlers ================= */
 
-// PUBLIC (tapi aware token)
-//
-// Skenario:
-// 1) Kalau user login dan token punya active_school → pakai school dari token.
-// 2) Kalau tidak ada / gagal baca token → pakai konteks PUBLIC:
-//   - /api/u/:school_id/academic-terms/list       (UUID di path)
-//   - /api/u/:school_slug/academic-terms/list     (slug di path)
-//
-// 3) Kalau semua sumber gagal → ErrSchoolContextMissing.
+// List academic terms + optional include
 func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	// Biar helper lain yang baca dari Locals("DB") tetap bisa jalan
 	c.Locals("DB", ctl.DB)
@@ -50,10 +44,11 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	var schoolID uuid.UUID
 
 	/* ========= 0) Parse include ========= */
-	// ?include=classes,class_sections
+	// ?include=classes,class_sections,fee_rules
 	rawInclude := strings.TrimSpace(c.Query("include", ""))
 	includeClasses := false
 	includeSections := false
+	includeFeeRules := false // ⬅️ NEW
 	if rawInclude != "" {
 		for _, part := range strings.Split(rawInclude, ",") {
 			p := strings.ToLower(strings.TrimSpace(part))
@@ -62,6 +57,8 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 				includeClasses = true
 			case "class_sections", "sections", "class-section":
 				includeSections = true
+			case "fee_rules", "fee-rules", "feerules", "fees": // ⬅️ beberapa alias santai
+				includeFeeRules = true
 			}
 		}
 	}
@@ -201,7 +198,7 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)
 
 	// Kalau tidak request include sama sekali → B/C lama
-	if !includeClasses && !includeSections {
+	if !includeClasses && !includeSections && !includeFeeRules {
 		return helper.JsonList(c, "ok", dto.FromModels(list), pg)
 	}
 
@@ -290,6 +287,35 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 		}
 	}
 
+	// --- INCLUDE: fee_rules (SPP, dll) ---
+	feeRulesByTerm := make(map[uuid.UUID][]feeRuleModel.FeeRule)
+	if includeFeeRules {
+		dbFee := ctl.DB.Model(&feeRuleModel.FeeRule{}).
+			Where("fee_rule_school_id = ? AND fee_rule_deleted_at IS NULL", schoolID).
+			Where("fee_rule_term_id IN ?", termIDs)
+
+		// (opsional) tambah filter ringan:
+		if v := strings.TrimSpace(c.Query("fee_rule_scope")); v != "" {
+			dbFee = dbFee.Where("fee_rule_scope = ?", v)
+		}
+		if v := strings.TrimSpace(c.Query("fee_rule_option_code")); v != "" {
+			dbFee = dbFee.Where("LOWER(fee_rule_option_code) = ?", strings.ToLower(v))
+		}
+
+		var fees []feeRuleModel.FeeRule
+		if err := dbFee.Find(&fees).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Query fee_rules failed: "+err.Error())
+		}
+
+		for _, f := range fees {
+			if f.FeeRuleTermID == nil {
+				continue
+			}
+			tid := *f.FeeRuleTermID
+			feeRulesByTerm[tid] = append(feeRulesByTerm[tid], f)
+		}
+	}
+
 	// ===== Build response dengan include =====
 	termDTOs := dto.FromModels(list)
 	items := make([]AcademicTermWithRelations, len(list))
@@ -303,6 +329,9 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 		}
 		if includeSections {
 			item.ClassSections = sectionsByTerm[tid]
+		}
+		if includeFeeRules {
+			item.FeeRules = feeRulesByTerm[tid]
 		}
 		items[i] = item
 	}

@@ -10,14 +10,14 @@ import (
 
 func BillingsUserRoutes(pub fiber.Router, db *gorm.DB) {
 	// punya ListFeeRules, ListBillBatches, dst.
+	h := &sppapi.Handler{DB: db}
 	studentBills := &sppapi.StudentBillHandler{DB: db} // punya List (atau ListStudentBills), Get, dll.
 	// billBatches := &sppapi.BillBatchHandler{DB: db}
 
-	grp := pub.Group("/:school_id")
+	grp := pub.Group("")
 	{
 		// ---- Student Bills (readonly)
-		// pakai StudentBillHandler agar tidak nyasar ke fee rule controller
 		grp.Get("/student-bills/list", studentBills.List) // atau studentBills.ListStudentBills jika namanya begitu
-
+		grp.Get("/fee-rules/list", h.ListFeeRules)
 	}
 }

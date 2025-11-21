@@ -68,25 +68,10 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	// 2) Resolve school **dari URL/slug saja** (TANPA fallback token)
-	var schoolID uuid.UUID
-	// a) coba param :school_id
-	if s := strings.TrimSpace(c.Params("school_id")); s != "" {
-		id, err := uuid.Parse(s)
-		if err != nil || id == uuid.Nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "school_id pada URL tidak valid")
-		}
-		schoolID = id
-	} else if s := strings.TrimSpace(c.Params("school_slug")); s != "" {
-		// b) atau param :school_slug (kalau route pakai slug)
-		id, er := helperAuth.GetSchoolIDBySlug(c, s)
-		if er != nil || id == uuid.Nil {
-			return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
-		}
-		schoolID = id
-	} else {
-		// ❗ TIDAK ADA fallback ke GetSchoolIDFromTokenPreferTeacher di endpoint admin/staff
-		return helper.JsonError(c, fiber.StatusBadRequest, "School context wajib via URL (school_id/school_slug)")
+	// 2) Resolve school dari token / active-school (BUKAN dari URL)
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
+	if err != nil {
+		return err // helper ini sudah balikin JsonError yang rapih
 	}
 
 	// 3) Guard: hanya DKM/Admin di school ini
@@ -94,11 +79,11 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 		return err
 	}
 
-	// 4) Paksa body sesuai context (abaikan yang datang dari client)
+	// 4) Paksa body sesuai context (abaikan yang datang dari client kalau beda)
 	if p.ClassParentSchoolID == uuid.Nil {
 		p.ClassParentSchoolID = schoolID
 	} else if p.ClassParentSchoolID != schoolID {
-		return helper.JsonError(c, fiber.StatusConflict, "class_parent_school_id pada body tidak cocok dengan konteks school")
+		return helper.JsonError(c, fiber.StatusConflict, "class_parent_school_id pada body tidak cocok dengan school context")
 	}
 
 	// 5) Uniqueness: code (opsional)
@@ -195,6 +180,12 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "id tidak valid")
 	}
 
+	// ✅ Resolve school dari token / active-school
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
+	if err != nil {
+		return err
+	}
+
 	tx := ctl.DB.WithContext(c.Context()).Begin()
 	if tx.Error != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, tx.Error.Error())
@@ -208,7 +199,10 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 
 	var ent classModel.ClassParentModel
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("class_parent_id = ? AND class_parent_deleted_at IS NULL", id).
+		Where(
+			"class_parent_id = ? AND class_parent_school_id = ? AND class_parent_deleted_at IS NULL",
+			id, schoolID,
+		).
 		First(&ent).Error; err != nil {
 
 		_ = tx.Rollback()
@@ -219,7 +213,7 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 	}
 
 	// Guard: hanya DKM/Admin di tenant yang sama
-	if err := helperAuth.EnsureDKMSchool(c, ent.ClassParentSchoolID); err != nil {
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -527,10 +521,20 @@ func (ctl *ClassParentController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "id tidak valid")
 	}
 
+	// ✅ Resolve school dari token / active-school
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
+	if err != nil {
+		return err
+	}
+
 	var ent classModel.ClassParentModel
 	if err := ctl.DB.WithContext(c.Context()).
-		Where("class_parent_id = ? AND class_parent_deleted_at IS NULL", id).
+		Where(
+			"class_parent_id = ? AND class_parent_school_id = ? AND class_parent_deleted_at IS NULL",
+			id, schoolID,
+		).
 		First(&ent).Error; err != nil {
+
 		if err == gorm.ErrRecordNotFound {
 			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
 		}
@@ -538,7 +542,7 @@ func (ctl *ClassParentController) Delete(c *fiber.Ctx) error {
 	}
 
 	// Guard akses: hanya DKM/Admin pada school terkait
-	if err := helperAuth.EnsureDKMSchool(c, ent.ClassParentSchoolID); err != nil {
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return err
 	}
 

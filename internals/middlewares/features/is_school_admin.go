@@ -441,6 +441,19 @@ func UseSchoolScope() fiber.Handler {
 				break
 			}
 		}
+
+		// 🆕 NEW: kalau belum ada role, tapi school_id ada di token → anggap dia "user"
+		if len(rolesAtSchool) == 0 {
+			if ids, err := helper.GetSchoolIDsFromToken(c); err == nil {
+				for _, id := range ids {
+					if strings.EqualFold(id.String(), reqSchool) {
+						rolesAtSchool = []string{constants.RoleUser}
+						break
+					}
+				}
+			}
+		}
+
 		if len(rolesAtSchool) == 0 {
 			return fiber.NewError(fiber.StatusForbidden, "Bukan anggota pada school yang diminta")
 		}

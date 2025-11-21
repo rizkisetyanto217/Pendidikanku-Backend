@@ -5,7 +5,6 @@ import (
 	"gorm.io/gorm"
 
 	sppapi "schoolku_backend/internals/features/finance/billings/controller"
-	schoolkuMiddleware "schoolku_backend/internals/middlewares/features"
 )
 
 /*
@@ -20,10 +19,7 @@ func BillingsAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	// Jika kamu punya resolver konteks school berbasis param, aktifkan di sini
 	// contoh: ResolveSchoolContextByParam("school_id")
 	grp := admin.Group(
-		"",
-		// schoolkuMiddleware.ResolveSchoolContextByParam("school_id"), // opsional kalau ada
-		schoolkuMiddleware.IsSchoolAdmin(),
-	)
+		"")
 
 	{
 		// =========================
@@ -31,7 +27,7 @@ func BillingsAdminRoutes(admin fiber.Router, db *gorm.DB) {
 		// =========================
 		grp.Post("/fee-rules", h.CreateFeeRule)
 		grp.Patch("/fee-rules/:id", h.UpdateFeeRule)
-		grp.Get("/fee-rules/list", h.ListFeeRules)
+		// grp.Get("/fee-rules/list", h.ListFeeRules)
 
 		// =========================
 		// Bill Batches
