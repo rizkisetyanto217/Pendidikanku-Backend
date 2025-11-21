@@ -1555,7 +1555,12 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil slug sekolah untuk redirect pembayaran")
 		}
 
-		finishURL := fmt.Sprintf("%s/%s/user/pendaftaran/selesai", frontendBase, strings.TrimSpace(schoolSlug))
+		finishURL := fmt.Sprintf(
+			"%s/%s/user/pendaftaran/selesai?payment_id=%s",
+			frontendBase,
+			strings.TrimSpace(schoolSlug),
+			pm.PaymentID.String(),
+		)
 
 		token, redirectURL, err := svc.GenerateSnapToken(*pm, cust, finishURL)
 		if err != nil {
