@@ -92,6 +92,11 @@ CREATE TABLE IF NOT EXISTS student_class_enrollments (
   student_class_enrollments_student_code_snapshot VARCHAR(50),
   student_class_enrollments_student_slug_snapshot VARCHAR(50),
 
+
+  student_class_enrollments_class_section_id UUID,
+  student_class_enrollments_class_section_name_snapshot VARCHAR(50),
+  student_class_enrollments_class_section_slug_snapshot VARCHAR(50),
+
   -- jejak waktu (audit)
   student_class_enrollments_applied_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   student_class_enrollments_reviewed_at   TIMESTAMPTZ,
@@ -107,6 +112,28 @@ CREATE TABLE IF NOT EXISTS student_class_enrollments (
   -- tenant-safe pair
   UNIQUE (student_class_enrollments_id, student_class_enrollments_school_id)
 );
+
+
+
+-- =========================================
+-- FK komposit ke class_sections (tenant-safe)
+-- =========================================
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'fk_sce_class_section_same_school'
+  ) THEN
+    ALTER TABLE student_class_enrollments
+      ADD CONSTRAINT fk_sce_class_section_same_school
+      FOREIGN KEY (student_class_enrollments_class_section_id, student_class_enrollments_school_id)
+      REFERENCES class_sections (class_section_id, class_section_school_id)
+      ON UPDATE CASCADE
+      ON DELETE SET NULL;
+  END IF;
+END$$;
+
 
 -- ==========================
 -- INDEXES
@@ -171,5 +198,33 @@ CREATE INDEX IF NOT EXISTS gin_sce_term_year_trgm_alive
   ON student_class_enrollments USING GIN (LOWER(student_class_enrollments_term_academic_year_snapshot) gin_trgm_ops)
   WHERE student_class_enrollments_deleted_at IS NULL;
 
+
+
+-- =========================================
+-- INDEXES untuk kolom baru
+-- =========================================
+
+-- 1) Lookup per tenant + section (buat filter "section ini isinya siapa saja")
+CREATE INDEX IF NOT EXISTS idx_sce_tenant_section_alive
+  ON student_class_enrollments (
+    student_class_enrollments_school_id,
+    student_class_enrollments_class_section_id
+  )
+  WHERE student_class_enrollments_deleted_at IS NULL;
+
+-- 2) Optional: cepat cari berdasarkan NAMA section (trgm, fuzzy search)
+CREATE INDEX IF NOT EXISTS gin_sce_class_section_name_snap_trgm_alive
+  ON student_class_enrollments USING GIN (
+    LOWER(student_class_enrollments_class_section_name_snapshot) gin_trgm_ops
+  )
+  WHERE student_class_enrollments_deleted_at IS NULL;
+
+-- 3) Optional: index slug snapshot per tenant (buat join / lookup exact)
+CREATE INDEX IF NOT EXISTS idx_sce_tenant_section_slug_snap_alive
+  ON student_class_enrollments (
+    student_class_enrollments_school_id,
+    student_class_enrollments_class_section_slug_snapshot
+  )
+  WHERE student_class_enrollments_deleted_at IS NULL;
 
 COMMIT;

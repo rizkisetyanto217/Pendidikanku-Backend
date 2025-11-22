@@ -11,6 +11,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
 	dto "schoolku_backend/internals/features/school/classes/classes/dto"
@@ -55,13 +56,13 @@ func parseStatusInParam(raw string) ([]emodel.ClassEnrollmentStatus, error) {
 	for _, p := range parts {
 		v := emodel.ClassEnrollmentStatus(strings.ToLower(strings.TrimSpace(p)))
 		switch v {
-		case emodel.EnrollmentInitiated,
-			emodel.EnrollmentPendingReview,
-			emodel.EnrollmentAwaitingPay,
-			emodel.EnrollmentAccepted,
-			emodel.EnrollmentWaitlisted,
-			emodel.EnrollmentRejected,
-			emodel.EnrollmentCanceled:
+		case emodel.ClassEnrollmentInitiated,
+			emodel.ClassEnrollmentPendingReview,
+			emodel.ClassEnrollmentAwaitingPayment,
+			emodel.ClassEnrollmentAccepted,
+			emodel.ClassEnrollmentWaitlisted,
+			emodel.ClassEnrollmentRejected,
+			emodel.ClassEnrollmentCanceled:
 			if _, ok := seen[v]; !ok {
 				seen[v] = struct{}{}
 				out = append(out, v)
@@ -122,11 +123,11 @@ func enrichEnrollmentExtras(
 		classIDs = append(classIDs, id)
 	}
 
-	// ===== Ambil students (name, user_id) =====
+	// ===== Ambil students (pakai snapshot user_profile) =====
 	type stuRow struct {
-		ID     uuid.UUID  `gorm:"column:school_student_id"`
-		Name   string     `gorm:"column:school_student_name"`
-		UserID *uuid.UUID `gorm:"column:school_student_user_id"`
+		ID            uuid.UUID `gorm:"column:school_student_id"`
+		UserProfileID uuid.UUID `gorm:"column:school_student_user_profile_id"`
+		NameSnapshot  *string   `gorm:"column:school_student_user_profile_name_snapshot"`
 	}
 
 	stuMap := make(map[uuid.UUID]stuRow, len(stuIDs))
@@ -134,7 +135,11 @@ func enrichEnrollmentExtras(
 		var stus []stuRow
 		_ = db.WithContext(ctx).
 			Table("school_students").
-			Select("school_student_id, school_student_name, school_student_user_id").
+			Select(`
+				school_student_id,
+				school_student_user_profile_id,
+				school_student_user_profile_name_snapshot
+			`).
 			Where("school_student_school_id = ? AND school_student_id IN ?", schoolID, stuIDs).
 			Find(&stus).Error
 
@@ -157,16 +162,49 @@ func enrichEnrollmentExtras(
 			Where("class_school_id = ? AND class_id IN ?", schoolID, classIDs).
 			Find(&clss).Error
 
-		for _, c := range clss {
-			clsMap[c.ID] = c
+		for _, cRow := range clss {
+			clsMap[cRow.ID] = cRow
 		}
 	}
 
-	// ===== Ambil usernames (batch) opsional =====
-	userIDsSet := map[uuid.UUID]struct{}{}
+	// ===== Ambil user_id dari user_profiles =====
+	profileIDsSet := map[uuid.UUID]struct{}{}
 	for _, s := range stuMap {
-		if s.UserID != nil {
-			userIDsSet[*s.UserID] = struct{}{}
+		if s.UserProfileID != uuid.Nil {
+			profileIDsSet[s.UserProfileID] = struct{}{}
+		}
+	}
+
+	profileIDs := make([]uuid.UUID, 0, len(profileIDsSet))
+	for id := range profileIDsSet {
+		profileIDs = append(profileIDs, id)
+	}
+
+	type profileRow struct {
+		ID     uuid.UUID `gorm:"column:user_profile_id"`
+		UserID uuid.UUID `gorm:"column:user_profile_user_id"`
+	}
+
+	profileUserMap := make(map[uuid.UUID]uuid.UUID, len(profileIDs)) // key: user_profile_id → user_id
+	if len(profileIDs) > 0 {
+		var prows []profileRow
+		_ = db.WithContext(ctx).
+			Table("user_profiles").
+			Select("user_profile_id, user_profile_user_id").
+			Where("user_profile_id IN ?", profileIDs).
+			Where("user_profile_deleted_at IS NULL").
+			Find(&prows).Error
+
+		for _, pr := range prows {
+			profileUserMap[pr.ID] = pr.UserID
+		}
+	}
+
+	// ===== Ambil usernames (batch) =====
+	userIDsSet := map[uuid.UUID]struct{}{}
+	for _, uid := range profileUserMap {
+		if uid != uuid.Nil {
+			userIDsSet[uid] = struct{}{}
 		}
 	}
 
@@ -187,6 +225,7 @@ func enrichEnrollmentExtras(
 			Table("users").
 			Select("id, user_name").
 			Where("id IN ?", userIDs).
+			Where("deleted_at IS NULL").
 			Find(&us).Error
 
 		for _, u := range us {
@@ -197,19 +236,24 @@ func enrichEnrollmentExtras(
 	// ===== Isi ke items (DTO) =====
 	for i := range items {
 		if s, ok := stuMap[items[i].StudentClassEnrollmentSchoolStudentID]; ok {
-			// override convenience name dengan nama terbaru
-			items[i].StudentClassEnrollmentStudentName = s.Name
+			// override convenience name dengan nama snapshot terbaru
+			if s.NameSnapshot != nil && *s.NameSnapshot != "" {
+				items[i].StudentClassEnrollmentStudentName = *s.NameSnapshot
+			}
 
-			if s.UserID != nil {
-				if un, ok2 := uMap[*s.UserID]; ok2 {
-					username := un
-					items[i].StudentClassEnrollmentUsername = &username
+			// isi username kalau bisa dilacak sampai users
+			if s.UserProfileID != uuid.Nil {
+				if uid, ok2 := profileUserMap[s.UserProfileID]; ok2 && uid != uuid.Nil {
+					if un, ok3 := uMap[uid]; ok3 {
+						username := un
+						items[i].StudentClassEnrollmentUsername = &username
+					}
 				}
 			}
 		}
 
-		if c, ok := clsMap[items[i].StudentClassEnrollmentClassID]; ok {
-			items[i].StudentClassEnrollmentClassName = c.ClassName
+		if cRow, ok := clsMap[items[i].StudentClassEnrollmentClassID]; ok {
+			items[i].StudentClassEnrollmentClassName = cRow.ClassName
 		}
 	}
 }
@@ -238,16 +282,20 @@ func (ctl *StudentClassEnrollmentController) Create(c *fiber.Ctx) error {
 
 	// ===== Lookup student (pastikan belong to school) =====
 	var stu struct {
-		ID     uuid.UUID  `gorm:"column:school_student_id"`
-		Name   string     `gorm:"column:school_student_name"`
-		Code   string     `gorm:"column:school_student_code"`
-		Slug   string     `gorm:"column:school_student_slug"`
-		UserID *uuid.UUID `gorm:"column:school_student_user_id"`
+		ID           uuid.UUID `gorm:"column:school_student_id"`
+		Slug         string    `gorm:"column:school_student_slug"`
+		Code         *string   `gorm:"column:school_student_code"`
+		NameSnapshot *string   `gorm:"column:school_student_user_profile_name_snapshot"`
 	}
 
 	if err := ctl.DB.WithContext(c.Context()).
 		Table("school_students").
-		Select("school_student_id, school_student_name, school_student_code, school_student_slug, school_student_user_id").
+		Select(`
+			school_student_id,
+			school_student_slug,
+			school_student_code,
+			school_student_user_profile_name_snapshot
+		`).
 		Where("school_student_id = ? AND school_student_school_id = ?", body.SchoolStudentID, schoolID).
 		Take(&stu).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -273,27 +321,33 @@ func (ctl *StudentClassEnrollmentController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
+	// Normalisasi nilai snapshot student (karena field di enrollment kemungkinan non-pointer)
+	studentName := ""
+	if stu.NameSnapshot != nil {
+		studentName = *stu.NameSnapshot
+	}
+
 	// ===== Build model & isi SNAPSHOT =====
 	m := emodel.StudentClassEnrollmentModel{
-		StudentClassEnrollmentSchoolID:        schoolID,
-		StudentClassEnrollmentSchoolStudentID: body.SchoolStudentID,
-		StudentClassEnrollmentClassID:         body.ClassID,
+		StudentClassEnrollmentsSchoolID:        schoolID,
+		StudentClassEnrollmentsSchoolStudentID: body.SchoolStudentID,
+		StudentClassEnrollmentsClassID:         body.ClassID,
 
-		StudentClassEnrollmentStatus:      emodel.EnrollmentInitiated,
-		StudentClassEnrollmentTotalDueIDR: body.TotalDueIDR,
-		StudentClassEnrollmentAppliedAt:   time.Now(),
+		StudentClassEnrollmentsStatus:      emodel.ClassEnrollmentInitiated,
+		StudentClassEnrollmentsTotalDueIDR: body.TotalDueIDR,
+		StudentClassEnrollmentsAppliedAt:   time.Now(),
 
 		// snapshots
-		StudentClassEnrollmentClassNameSnapshot:   cls.ClassName,
-		StudentClassEnrollmentClassSlugSnapshot:   cls.Slug,
-		StudentClassEnrollmentStudentNameSnapshot: stu.Name,
-		StudentClassEnrollmentStudentCodeSnapshot: stu.Code,
-		StudentClassEnrollmentStudentSlugSnapshot: stu.Slug,
+		StudentClassEnrollmentsClassNameSnapshot:   cls.ClassName,
+		StudentClassEnrollmentsClassSlugSnapshot:   &cls.Slug,
+		StudentClassEnrollmentsStudentNameSnapshot: studentName,
+		StudentClassEnrollmentsStudentCodeSnapshot: stu.Code,
+		StudentClassEnrollmentsStudentSlugSnapshot: &stu.Slug,
 	}
 
 	if body.Preferences != nil {
 		if b, er := json.Marshal(body.Preferences); er == nil {
-			m.StudentClassEnrollmentPreferences = b
+			m.StudentClassEnrollmentsPreferences = datatypes.JSON(b)
 		}
 	}
 
@@ -340,11 +394,11 @@ func (ctl *StudentClassEnrollmentController) Update(c *fiber.Ctx) error {
 	}
 
 	if body.TotalDueIDR != nil {
-		m.StudentClassEnrollmentTotalDueIDR = *body.TotalDueIDR
+		m.StudentClassEnrollmentsTotalDueIDR = *body.TotalDueIDR
 	}
 	if body.Preferences != nil {
 		if b, er := json.Marshal(body.Preferences); er == nil {
-			m.StudentClassEnrollmentPreferences = b
+			m.StudentClassEnrollmentsPreferences = datatypes.JSON(b)
 		}
 	}
 
@@ -387,50 +441,50 @@ func (ctl *StudentClassEnrollmentController) UpdateStatus(c *fiber.Ctx) error {
 
 	// set status + timestamp (isi otomatis jika kosong)
 	switch body.Status {
-	case emodel.EnrollmentInitiated:
-		m.StudentClassEnrollmentStatus = emodel.EnrollmentInitiated
-		if m.StudentClassEnrollmentAppliedAt.IsZero() {
-			m.StudentClassEnrollmentAppliedAt = time.Now()
+	case emodel.ClassEnrollmentInitiated:
+		m.StudentClassEnrollmentsStatus = emodel.ClassEnrollmentInitiated
+		if m.StudentClassEnrollmentsAppliedAt.IsZero() {
+			m.StudentClassEnrollmentsAppliedAt = time.Now()
 		}
-	case emodel.EnrollmentPendingReview:
-		m.StudentClassEnrollmentStatus = emodel.EnrollmentPendingReview
+	case emodel.ClassEnrollmentPendingReview:
+		m.StudentClassEnrollmentsStatus = emodel.ClassEnrollmentPendingReview
 		if body.ReviewedAt != nil {
-			m.StudentClassEnrollmentReviewedAt = body.ReviewedAt
-		} else if m.StudentClassEnrollmentReviewedAt == nil {
-			m.StudentClassEnrollmentReviewedAt = nowPtr()
+			m.StudentClassEnrollmentsReviewedAt = body.ReviewedAt
+		} else if m.StudentClassEnrollmentsReviewedAt == nil {
+			m.StudentClassEnrollmentsReviewedAt = nowPtr()
 		}
-	case emodel.EnrollmentAwaitingPay:
-		m.StudentClassEnrollmentStatus = emodel.EnrollmentAwaitingPay
-		if m.StudentClassEnrollmentReviewedAt == nil {
-			m.StudentClassEnrollmentReviewedAt = nowPtr()
+	case emodel.ClassEnrollmentAwaitingPayment:
+		m.StudentClassEnrollmentsStatus = emodel.ClassEnrollmentAwaitingPayment
+		if m.StudentClassEnrollmentsReviewedAt == nil {
+			m.StudentClassEnrollmentsReviewedAt = nowPtr()
 		}
-	case emodel.EnrollmentAccepted:
-		m.StudentClassEnrollmentStatus = emodel.EnrollmentAccepted
+	case emodel.ClassEnrollmentAccepted:
+		m.StudentClassEnrollmentsStatus = emodel.ClassEnrollmentAccepted
 		if body.AcceptedAt != nil {
-			m.StudentClassEnrollmentAcceptedAt = body.AcceptedAt
+			m.StudentClassEnrollmentsAcceptedAt = body.AcceptedAt
 		} else {
-			m.StudentClassEnrollmentAcceptedAt = nowPtr()
+			m.StudentClassEnrollmentsAcceptedAt = nowPtr()
 		}
-	case emodel.EnrollmentWaitlisted:
-		m.StudentClassEnrollmentStatus = emodel.EnrollmentWaitlisted
+	case emodel.ClassEnrollmentWaitlisted:
+		m.StudentClassEnrollmentsStatus = emodel.ClassEnrollmentWaitlisted
 		if body.WaitlistedAt != nil {
-			m.StudentClassEnrollmentWaitlistedAt = body.WaitlistedAt
+			m.StudentClassEnrollmentsWaitlistedAt = body.WaitlistedAt
 		} else {
-			m.StudentClassEnrollmentWaitlistedAt = nowPtr()
+			m.StudentClassEnrollmentsWaitlistedAt = nowPtr()
 		}
-	case emodel.EnrollmentRejected:
-		m.StudentClassEnrollmentStatus = emodel.EnrollmentRejected
+	case emodel.ClassEnrollmentRejected:
+		m.StudentClassEnrollmentsStatus = emodel.ClassEnrollmentRejected
 		if body.RejectedAt != nil {
-			m.StudentClassEnrollmentRejectedAt = body.RejectedAt
+			m.StudentClassEnrollmentsRejectedAt = body.RejectedAt
 		} else {
-			m.StudentClassEnrollmentRejectedAt = nowPtr()
+			m.StudentClassEnrollmentsRejectedAt = nowPtr()
 		}
-	case emodel.EnrollmentCanceled:
-		m.StudentClassEnrollmentStatus = emodel.EnrollmentCanceled
+	case emodel.ClassEnrollmentCanceled:
+		m.StudentClassEnrollmentsStatus = emodel.ClassEnrollmentCanceled
 		if body.CanceledAt != nil {
-			m.StudentClassEnrollmentCanceledAt = body.CanceledAt
+			m.StudentClassEnrollmentsCanceledAt = body.CanceledAt
 		} else {
-			m.StudentClassEnrollmentCanceledAt = nowPtr()
+			m.StudentClassEnrollmentsCanceledAt = nowPtr()
 		}
 	default:
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid status")
@@ -474,10 +528,10 @@ func (ctl *StudentClassEnrollmentController) AssignPayment(c *fiber.Ctx) error {
 	}
 
 	// assign payment
-	m.StudentClassEnrollmentPaymentID = &body.StudentClassEnrollmentPaymentID
+	m.StudentClassEnrollmentsPaymentID = &body.StudentClassEnrollmentPaymentID
 	if body.StudentClassEnrollmentPaymentSnapshot != nil {
 		if b, er := json.Marshal(body.StudentClassEnrollmentPaymentSnapshot); er == nil {
-			m.StudentClassEnrollmentPaymentSnapshot = b
+			m.StudentClassEnrollmentsPaymentSnapshot = datatypes.JSON(b)
 		}
 	}
 

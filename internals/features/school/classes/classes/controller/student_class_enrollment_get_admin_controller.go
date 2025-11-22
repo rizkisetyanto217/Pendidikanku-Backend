@@ -24,13 +24,42 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 		return er
 	}
 
-	// ========== query ==========
+	// ========== special case: student_id=me ==========
+	rawStudentID := strings.TrimSpace(c.Query("student_id"))
+	isMe := strings.EqualFold(rawStudentID, "me")
+
+	if isMe {
+		// Hapus dulu dari query supaya QueryParser nggak gagal parse "me" ke UUID
+		c.Request().URI().QueryArgs().Del("student_id")
+	}
+
+	// ========== query (struct) ==========
 	var q dto.ListStudentClassEnrollmentQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid query")
 	}
 
-	// status_in (comma-separated → slice)
+	// Kalau student_id=me → ambil dari token & override q.StudentID
+	if isMe {
+		sid, er := helperAuth.GetPrimarySchoolStudentID(c)
+		if er != nil || sid == uuid.Nil {
+			return helper.JsonError(c, fiber.StatusUnauthorized, "student_id (me) tidak ditemukan di token")
+		}
+		q.StudentID = &sid
+	}
+
+	// ========== explicit filter id dari query ==========
+	idStr := strings.TrimSpace(c.Query("id"))
+	var rowID uuid.UUID
+	if idStr != "" {
+		v, er := uuid.Parse(idStr)
+		if er != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "id invalid")
+		}
+		rowID = v
+	}
+
+	// status_in (comma-separated → slice) — override ke q.StatusIn
 	if raw := strings.TrimSpace(c.Query("status_in")); raw != "" {
 		sts, er := parseStatusInParam(raw)
 		if er != nil {
@@ -42,7 +71,7 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 	// view mode
 	view := strings.ToLower(strings.TrimSpace(c.Query("view"))) // "", "compact", "summary", "full"
 
-	// paging
+	// paging (masih pakai helper page/per_page)
 	pg := helper.ResolvePaging(c, 20, 200)
 
 	// ========== base query ==========
@@ -60,15 +89,32 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 	}
 
 	// ========== filters ==========
+	// filter by primary key (id)
+	if rowID != uuid.Nil {
+		base = base.Where("student_class_enrollments_id = ?", rowID)
+	}
+
+	// filter by student_id (bisa dari query biasa, bisa dari "me")
 	if q.StudentID != nil && *q.StudentID != uuid.Nil {
 		base = base.Where("student_class_enrollments_school_student_id = ?", *q.StudentID)
 	}
+
+	// filter by class_id (dari DTO)
 	if q.ClassID != nil && *q.ClassID != uuid.Nil {
 		base = base.Where("student_class_enrollments_class_id = ?", *q.ClassID)
 	}
 
+	// filter by status_in
 	if len(q.StatusIn) > 0 {
 		base = base.Where("student_class_enrollments_status IN ?", q.StatusIn)
+	}
+
+	// filter applied_from / applied_to (kalau diisi)
+	if q.AppliedFrom != nil {
+		base = base.Where("student_class_enrollments_applied_at >= ?", *q.AppliedFrom)
+	}
+	if q.AppliedTo != nil {
+		base = base.Where("student_class_enrollments_applied_at <= ?", *q.AppliedTo)
 	}
 
 	// ===== TERM FILTERS =====
@@ -94,7 +140,15 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 		base = base.Where("student_class_enrollments_term_angkatan_snapshot = ?", *q.Angkatan)
 	}
 
-	// TODO: kalau mau search Q (nama siswa/kelas/term) bisa ditambah di sini
+	// ===== Q search (nama siswa / nama kelas / nama term) =====
+	if strings.TrimSpace(q.Q) != "" {
+		pat := "%" + strings.TrimSpace(q.Q) + "%"
+		base = base.Where(`
+			student_class_enrollments_student_name_snapshot ILIKE ?
+			OR student_class_enrollments_class_name_snapshot ILIKE ?
+			OR COALESCE(student_class_enrollments_term_name_snapshot, '') ILIKE ?
+		`, pat, pat, pat)
+	}
 
 	// ========== count ==========
 	var total int64

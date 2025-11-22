@@ -10,6 +10,7 @@ import (
 	helperAuth "schoolku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 )
 
 // Skenario 2: endpoint khusus murid → hanya melihat enrollments miliknya sendiri
@@ -18,16 +19,22 @@ import (
 // ?status_in=...
 // ?applied_from=...
 // ?applied_to=...
+// ?academic_term_id=...
+// ?term_id=...
+// ?academic_year=...
+// ?angkatan=...
+// ?q=...
 // ?order_by=...
 // ?sort=...
 // ?limit=...
 // ?offset=...
-// ?view=compact|full
-func (ctl *StudentClassEnrollmentController) ListMy(c *fiber.Ctx) error {
-	// ========== tenant ==========
-	schoolID, err := helperAuth.ParseSchoolIDFromPath(c)
+// ?view=compact|full|summary
+// file: internals/features/school/classes/class_enrollments/controller/list.go
+func (ctl *StudentClassEnrollmentController) ListMe(c *fiber.Ctx) error {
+	// ========== tenant dari TOKEN (bukan dari path) ==========
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
-		return err
+		return err // helper sudah balikin JsonError
 	}
 
 	// Hanya murid dari school ini yang diizinkan
@@ -35,16 +42,13 @@ func (ctl *StudentClassEnrollmentController) ListMy(c *fiber.Ctx) error {
 		return err
 	}
 
-	// Ambil daftar student_id dari token / context
-	studentIDs, err := helperAuth.GetSchoolStudentIDsFromToken(c)
-	if err != nil || len(studentIDs) == 0 {
+	// 🔹 Ambil student_id dari token (bukan user_id)
+	studentID, err := helperAuth.GetPrimarySchoolStudentID(c)
+	if err != nil || studentID == uuid.Nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Konteks murid tidak ditemukan")
 	}
 
-	// Untuk endpoint "my", kita pakai satu ID (mis. yang pertama)
-	studentID := studentIDs[0]
-
-	// ========== query ==========
+	// ========== query (DTO) ==========
 	var q dto.ListStudentClassEnrollmentQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid query")
@@ -53,7 +57,7 @@ func (ctl *StudentClassEnrollmentController) ListMy(c *fiber.Ctx) error {
 	// FORCE: hanya enrollment milik murid ini
 	q.StudentID = &studentID
 
-	// status_in (comma-separated → slice)
+	// status_in (comma-separated → slice) → override ke q.StatusIn
 	if raw := strings.TrimSpace(c.Query("status_in")); raw != "" {
 		sts, er := parseStatusInParam(raw)
 		if er != nil {
@@ -63,9 +67,9 @@ func (ctl *StudentClassEnrollmentController) ListMy(c *fiber.Ctx) error {
 	}
 
 	// view mode
-	view := strings.ToLower(strings.TrimSpace(c.Query("view"))) // "", "compact", "full"
+	view := strings.ToLower(strings.TrimSpace(c.Query("view"))) // "", "compact", "full", "summary"
 
-	// paging
+	// paging (masih pakai page/per_page helper)
 	pg := helper.ResolvePaging(c, 20, 200)
 
 	// ========== base query ==========
@@ -73,17 +77,51 @@ func (ctl *StudentClassEnrollmentController) ListMy(c *fiber.Ctx) error {
 		Model(&emodel.StudentClassEnrollmentModel{}).
 		Where("student_class_enrollments_school_id = ?", schoolID).
 		Where("student_class_enrollments_school_student_id = ?", studentID).
-		Where("student_class_enrollments_deleted_at IS NULL") // untuk murid, biasanya hanya alive
+		Where("student_class_enrollments_deleted_at IS NULL") // untuk murid: hanya alive
 
-	// ========== filters tambahan ==========
+	// ========== filters tambahan dari DTO ==========
+	// status_in
 	if len(q.StatusIn) > 0 {
 		base = base.Where("student_class_enrollments_status IN ?", q.StatusIn)
 	}
+
+	// applied_from / applied_to
 	if q.AppliedFrom != nil {
 		base = base.Where("student_class_enrollments_applied_at >= ?", *q.AppliedFrom)
 	}
 	if q.AppliedTo != nil {
 		base = base.Where("student_class_enrollments_applied_at <= ?", *q.AppliedTo)
+	}
+
+	// ===== TERM FILTERS (academic_term_id / term_id / academic_year / angkatan) =====
+	var termID *uuid.UUID
+	if q.AcademicTermID != nil && *q.AcademicTermID != uuid.Nil {
+		termID = q.AcademicTermID
+	} else if q.TermID != nil && *q.TermID != uuid.Nil {
+		termID = q.TermID
+	}
+	if termID != nil {
+		base = base.Where("student_class_enrollments_term_id = ?", *termID)
+	}
+
+	if strings.TrimSpace(q.AcademicYear) != "" {
+		base = base.Where(
+			"student_class_enrollments_term_academic_year_snapshot = ?",
+			strings.TrimSpace(q.AcademicYear),
+		)
+	}
+	if q.Angkatan != nil {
+		base = base.Where("student_class_enrollments_term_angkatan_snapshot = ?", *q.Angkatan)
+	}
+
+	// ===== Q search (nama siswa / nama kelas / nama term) =====
+	if strings.TrimSpace(q.Q) != "" {
+		pat := "%" + strings.TrimSpace(q.Q) + "%"
+		base = base.Where(`
+			student_class_enrollments_student_name_snapshot ILIKE ?
+			OR student_class_enrollments_class_name_snapshot ILIKE ?
+			OR COALESCE(student_class_enrollments_term_name_snapshot, '') ILIKE ?
+		`, pat, pat, pat)
 	}
 
 	// ========== count ==========
@@ -95,7 +133,7 @@ func (ctl *StudentClassEnrollmentController) ListMy(c *fiber.Ctx) error {
 	// ========== data ==========
 	tx := base
 
-	// murid juga bisa pakai compact view biar ringan
+	// murid juga bisa pakai compact/summary view biar ringan
 	if view == "compact" || view == "summary" {
 		tx = tx.Select([]string{
 			"student_class_enrollments_id",
@@ -134,8 +172,5 @@ func (ctl *StudentClassEnrollmentController) ListMy(c *fiber.Ctx) error {
 	}
 
 	resp := dto.FromModels(rows)
-	// Untuk murid biasanya nggak perlu enrich extras heavy, tapi kalau mau boleh:
-	// enrichEnrollmentExtras(c.Context(), ctl.DB, schoolID, resp)
-
 	return helper.JsonList(c, "ok", resp, pagination)
 }

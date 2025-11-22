@@ -1,4 +1,4 @@
-// internals/features/lembaga/classes/user_classes/main/route/user_routes.go
+// file: internals/features/lembaga/classes/user_classes/main/route/user_routes.go
 package route
 
 import (
@@ -10,20 +10,40 @@ import (
 )
 
 func ClassUserRoutes(r fiber.Router, db *gorm.DB) {
-	// ===== Classes (READ-ONLY untuk user) =====
-	clsParent := classCtrl.NewClassParentController(db, nil)
-	cls := classCtrl.NewClassController(db)
-	// Tenant-aware prefix
+	// ===== Controllers =====
+	classHandler := classCtrl.NewClassController(db)
+	parentHandler := classCtrl.NewClassParentController(db, nil)
+	enrollHandler := classCtrl.NewStudentClassEnrollmentController(db)
+
+	// ================================
+	// Classes (READ-ONLY untuk user)
+	// ================================
+	// Mirror admin: /classes
 	classes := r.Group("/classes")
-	classes.Get("/list", cls.ListClasses) // list kelas (read-only)
+	{
+		// GET /api/u/classes/list
+		classes.Get("/list", classHandler.ListClasses)
+	}
 
-	// ===== Class Enrollments (khusus murid: hanya miliknya sendiri) =====
-	enroll := classCtrl.NewStudentClassEnrollmentController(db)
+	// ================================
+	// Class Parents (READ-ONLY untuk user)
+	// ================================
+	// Mirror admin: /class-parents
+	classParents := r.Group("/class-parents")
+	{
+		// GET /api/u/class-parents/list
+		classParents.Get("/list", parentHandler.List)
+	}
 
-	// Prefix: /api/u/:school_id/my/class-enrollments
-	// (asumsi: router ini di-mount di /api/u)
-	r.Get("/my/class-enrollments", enroll.ListMy)
-
-	classParent := r.Group("/class-parents")
-	classParent.Get("/list", clsParent.List)
+	// ================================
+	// Student Class Enrollments (MY)
+	// ================================
+	// Mirror admin prefix: /class-enrollments
+	// bedanya: di user → cuma punya endpoint "my" (punya murid sendiri)
+	classEnrollments := r.Group("/class-enrollments")
+	{
+		// GET /api/u/class-enrollments/my
+		// controller: ListMy (sudah kamu bikin khusus student)
+		classEnrollments.Get("/list", enrollHandler.List)
+	}
 }

@@ -1598,14 +1598,24 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 			StudentClassEnrollmentSchoolID:        schoolID,
 			StudentClassEnrollmentSchoolStudentID: schoolStudentID,
 			StudentClassEnrollmentClassID:         items[i].ClassID,
-			StudentClassEnrollmentStatus:          cenmodel.EnrollmentAwaitingPay,
-			StudentClassEnrollmentTotalDueIDR:     perShares[i],
+
+			StudentClassEnrollmentStatus:      cenmodel.ClassEnrollmentAwaitingPayment,
+			StudentClassEnrollmentTotalDueIDR: perShares[i],
 		}
+
 		// langsung isi dari snapshot yang tadi kita ambil (konsisten dengan DB)
 		if cs, ok := clsMap[items[i].ClassID]; ok {
 			if strings.TrimSpace(cs.Name) != "" {
+				dtoRow.StudentClassEnrollmentClassNameSnapshot = cs.Name
 				dtoRow.StudentClassEnrollmentClassName = cs.Name
 			}
+
+			// slug kalau mau ikutan (field DTO bertipe *string)
+			if strings.TrimSpace(cs.Slug) != "" {
+				slug := cs.Slug
+				dtoRow.StudentClassEnrollmentClassSlugSnapshot = &slug
+			}
+
 			// ===== TERM snapshots (baru) =====
 			dtoRow.StudentClassEnrollmentTermID = cs.TermID
 			dtoRow.StudentClassEnrollmentTermAcademicYearSnapshot = cs.TermYear
@@ -1613,9 +1623,24 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 			dtoRow.StudentClassEnrollmentTermSlugSnapshot = cs.TermSlug
 			dtoRow.StudentClassEnrollmentTermAngkatanSnapshot = cs.TermAngkat
 		}
+
+		// snapshot siswa
 		if stuSnap.Name != nil && strings.TrimSpace(*stuSnap.Name) != "" {
-			dtoRow.StudentClassEnrollmentStudentName = strings.TrimSpace(*stuSnap.Name)
+			name := strings.TrimSpace(*stuSnap.Name)
+			dtoRow.StudentClassEnrollmentStudentNameSnapshot = name
+			dtoRow.StudentClassEnrollmentStudentName = name
 		}
+
+		if stuSnap.Code != nil && strings.TrimSpace(*stuSnap.Code) != "" {
+			code := strings.TrimSpace(*stuSnap.Code)
+			dtoRow.StudentClassEnrollmentStudentCodeSnapshot = &code
+		}
+
+		if stuSnap.Slug != nil && strings.TrimSpace(*stuSnap.Slug) != "" {
+			slug := strings.TrimSpace(*stuSnap.Slug)
+			dtoRow.StudentClassEnrollmentStudentSlugSnapshot = &slug
+		}
+
 		enrollDTOs = append(enrollDTOs, dtoRow)
 	}
 
@@ -1623,4 +1648,5 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		Enrollments: enrollDTOs,
 		Payment:     dto.FromModel(pm),
 	})
+
 }

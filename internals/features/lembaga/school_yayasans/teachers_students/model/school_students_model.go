@@ -10,6 +10,10 @@ import (
 	"gorm.io/gorm"
 )
 
+// =======================================
+// ENUM & VALIDATOR
+// =======================================
+
 type SchoolStudentStatus string
 
 const (
@@ -24,7 +28,11 @@ var validSchoolStudentStatus = map[SchoolStudentStatus]struct{}{
 	SchoolStudentAlumni:   {},
 }
 
-// Opsional: helper untuk manipulasi JSONB class sections di service layer
+// =======================================
+// Helper: item JSONB class sections
+// Disimpan di kolom: school_student_class_sections (jsonb, NOT NULL, default '[]')
+// =======================================
+
 type SchoolStudentSectionItem struct {
 	ClassSectionID             uuid.UUID `json:"class_section_id"`
 	IsActive                   bool      `json:"is_active"`
@@ -39,6 +47,7 @@ type SchoolStudentSectionItem struct {
 // =======================================
 // Model: school_students
 // =======================================
+
 type SchoolStudentModel struct {
 	// PK & Tenant
 	SchoolStudentID       uuid.UUID `gorm:"column:school_student_id;type:uuid;default:gen_random_uuid();primaryKey" json:"school_student_id"`
@@ -79,7 +88,8 @@ type SchoolStudentModel struct {
 	SchoolStudentSchoolBackgroundURLSnapshot *string `gorm:"column:school_student_school_background_url_snapshot;type:text" json:"school_student_school_background_url_snapshot,omitempty"`
 
 	// ===== JSONB CLASS SECTIONS (NOT NULL DEFAULT '[]') =====
-	SchoolStudentClassSections datatypes.JSON `gorm:"column:school_student_class_sections;type:jsonb;not null" json:"school_student_class_sections"`
+	// Berisi array SchoolStudentSectionItem
+	SchoolStudentClassSections datatypes.JSON `gorm:"column:school_student_class_sections;type:jsonb;not null;default:'[]'" json:"school_student_class_sections"`
 
 	// Audit & Soft delete
 	SchoolStudentCreatedAt time.Time      `gorm:"column:school_student_created_at;type:timestamptz;not null;default:now();autoCreateTime" json:"school_student_created_at"`
@@ -89,7 +99,10 @@ type SchoolStudentModel struct {
 
 func (SchoolStudentModel) TableName() string { return "school_students" }
 
+// =======================================
 // Hooks ringan (mirror aturan SQL)
+// =======================================
+
 func (m *SchoolStudentModel) BeforeCreate(tx *gorm.DB) error {
 	// JSONB guard
 	if len(m.SchoolStudentClassSections) == 0 {

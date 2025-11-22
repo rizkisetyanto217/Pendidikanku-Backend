@@ -8,6 +8,7 @@ import (
 	m "schoolku_backend/internals/features/school/classes/classes/model"
 
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 )
 
 // Response ringkas: fokus untuk UI list
@@ -57,29 +58,29 @@ func FromModelsCompact(src []m.StudentClassEnrollmentModel) []StudentClassEnroll
 	out := make([]StudentClassEnrollmentCompactResponse, 0, len(src))
 	for _, r := range src {
 		item := StudentClassEnrollmentCompactResponse{
-			StudentClassEnrollmentID:          r.StudentClassEnrollmentID,
-			StudentClassEnrollmentStatus:      r.StudentClassEnrollmentStatus,
-			StudentClassEnrollmentTotalDueIDR: r.StudentClassEnrollmentTotalDueIDR,
+			StudentClassEnrollmentID:          r.StudentClassEnrollmentsID,
+			StudentClassEnrollmentStatus:      r.StudentClassEnrollmentsStatus,
+			StudentClassEnrollmentTotalDueIDR: r.StudentClassEnrollmentsTotalDueIDR,
 
 			// IDs & snapshots yang tersedia di model
-			StudentClassEnrollmentSchoolStudentID: r.StudentClassEnrollmentSchoolStudentID,
-			StudentClassEnrollmentStudentName:     r.StudentClassEnrollmentStudentNameSnapshot,
+			StudentClassEnrollmentSchoolStudentID: r.StudentClassEnrollmentsSchoolStudentID,
+			StudentClassEnrollmentStudentName:     r.StudentClassEnrollmentsStudentNameSnapshot,
 
-			StudentClassEnrollmentClassID:   r.StudentClassEnrollmentClassID,
-			StudentClassEnrollmentClassName: r.StudentClassEnrollmentClassNameSnapshot,
+			StudentClassEnrollmentClassID:   r.StudentClassEnrollmentsClassID,
+			StudentClassEnrollmentClassName: r.StudentClassEnrollmentsClassNameSnapshot,
 
 			// term (pointer fields dari model)
-			StudentClassEnrollmentTermID:                   r.StudentClassEnrollmentTermID,
-			StudentClassEnrollmentTermNameSnapshot:         r.StudentClassEnrollmentTermNameSnapshot,
-			StudentClassEnrollmentTermAcademicYearSnapshot: r.StudentClassEnrollmentTermAcademicYearSnapshot,
-			StudentClassEnrollmentTermAngkatanSnapshot:     r.StudentClassEnrollmentTermAngkatanSnapshot,
+			StudentClassEnrollmentTermID:                   r.StudentClassEnrollmentsTermID,
+			StudentClassEnrollmentTermNameSnapshot:         r.StudentClassEnrollmentsTermNameSnapshot,
+			StudentClassEnrollmentTermAcademicYearSnapshot: r.StudentClassEnrollmentsTermAcademicYearSnapshot,
+			StudentClassEnrollmentTermAngkatanSnapshot:     r.StudentClassEnrollmentsTermAngkatanSnapshot,
 
-			AppliedAt: r.StudentClassEnrollmentAppliedAt,
+			AppliedAt: r.StudentClassEnrollmentsAppliedAt,
 		}
 
 		// derive fields dari payment snapshot
-		item.PaymentStatus = strFromJSON(r.StudentClassEnrollmentPaymentSnapshot, "payment_status")
-		item.PaymentCheckoutURL = strFromJSON(r.StudentClassEnrollmentPaymentSnapshot, "payment_checkout_url")
+		item.PaymentStatus = strFromJSON([]byte(r.StudentClassEnrollmentsPaymentSnapshot), "payment_status")
+		item.PaymentCheckoutURL = strFromJSON([]byte(r.StudentClassEnrollmentsPaymentSnapshot), "payment_checkout_url")
 
 		out = append(out, item)
 	}
@@ -108,25 +109,25 @@ func makePaymentSnapshot(status, checkoutURL *string) []byte {
 // Catatan: ini tidak mengisi kolom lain yang tidak ada di compact DTO.
 func (r StudentClassEnrollmentCompactResponse) ToModelCompact() m.StudentClassEnrollmentModel {
 	return m.StudentClassEnrollmentModel{
-		StudentClassEnrollmentID:          r.StudentClassEnrollmentID,
-		StudentClassEnrollmentStatus:      r.StudentClassEnrollmentStatus,
-		StudentClassEnrollmentTotalDueIDR: r.StudentClassEnrollmentTotalDueIDR,
+		StudentClassEnrollmentsID:          r.StudentClassEnrollmentID,
+		StudentClassEnrollmentsStatus:      r.StudentClassEnrollmentStatus,
+		StudentClassEnrollmentsTotalDueIDR: r.StudentClassEnrollmentTotalDueIDR,
 
 		// IDs & snapshots
-		StudentClassEnrollmentSchoolStudentID:          r.StudentClassEnrollmentSchoolStudentID,
-		StudentClassEnrollmentStudentNameSnapshot:      r.StudentClassEnrollmentStudentName,
-		StudentClassEnrollmentClassID:                  r.StudentClassEnrollmentClassID,
-		StudentClassEnrollmentClassNameSnapshot:        r.StudentClassEnrollmentClassName,
-		StudentClassEnrollmentTermID:                   r.StudentClassEnrollmentTermID,
-		StudentClassEnrollmentTermNameSnapshot:         r.StudentClassEnrollmentTermNameSnapshot,
-		StudentClassEnrollmentTermAcademicYearSnapshot: r.StudentClassEnrollmentTermAcademicYearSnapshot,
-		StudentClassEnrollmentTermAngkatanSnapshot:     r.StudentClassEnrollmentTermAngkatanSnapshot,
+		StudentClassEnrollmentsSchoolStudentID:          r.StudentClassEnrollmentSchoolStudentID,
+		StudentClassEnrollmentsStudentNameSnapshot:      r.StudentClassEnrollmentStudentName,
+		StudentClassEnrollmentsClassID:                  r.StudentClassEnrollmentClassID,
+		StudentClassEnrollmentsClassNameSnapshot:        r.StudentClassEnrollmentClassName,
+		StudentClassEnrollmentsTermID:                   r.StudentClassEnrollmentTermID,
+		StudentClassEnrollmentsTermNameSnapshot:         r.StudentClassEnrollmentTermNameSnapshot,
+		StudentClassEnrollmentsTermAcademicYearSnapshot: r.StudentClassEnrollmentTermAcademicYearSnapshot,
+		StudentClassEnrollmentsTermAngkatanSnapshot:     r.StudentClassEnrollmentTermAngkatanSnapshot,
 
 		// payment snapshot (optional)
-		StudentClassEnrollmentPaymentSnapshot: makePaymentSnapshot(r.PaymentStatus, r.PaymentCheckoutURL),
+		StudentClassEnrollmentsPaymentSnapshot: datatypes.JSON(makePaymentSnapshot(r.PaymentStatus, r.PaymentCheckoutURL)),
 
 		// jejak waktu
-		StudentClassEnrollmentAppliedAt: r.AppliedAt,
+		StudentClassEnrollmentsAppliedAt: r.AppliedAt,
 	}
 }
 
