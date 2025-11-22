@@ -102,4 +102,11 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	routeDetails.FinanceAdminRoutes(admin, db, midtransServerKey, useMidtransProd) // ⬅️ FIX: pass 4 argumen
 	routeDetails.FinanceOwnerRoutes(owner, db)
 	routeDetails.FinanceUserRoutes(privateScoped, db)
+
+
+	log.Println("[INFO] Mounting School routes...")
+	routeDetails.SchoolPublicRoutes(public, db)
+	routeDetails.SchoolUserRoutes(privateScoped, db)
+	routeDetails.SchoolAdminRoutes(admin, db)
+	routeDetails.SchoolOwnerRoutes(owner, db)
 }

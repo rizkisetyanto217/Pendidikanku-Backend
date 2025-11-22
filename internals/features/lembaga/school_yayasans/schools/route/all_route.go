@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func AllSchoolRoutes(user fiber.Router, db *gorm.DB) {
+func AllLembagaRoutes(user fiber.Router, db *gorm.DB) {
 	schoolCtrl := controller.NewSchoolController(db, nil, nil)
 	profileCtrl := controller.NewSchoolProfileController(db, nil)
 	plan := controller.NewSchoolServicePlanController(db, nil)

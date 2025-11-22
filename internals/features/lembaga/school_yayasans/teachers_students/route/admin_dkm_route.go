@@ -11,14 +11,17 @@ import (
 	"gorm.io/gorm"
 )
 
-func SchoolAdminRoutes(api fiber.Router, db *gorm.DB) {
+func LembagaTeacherStudentAdminRoutes(api fiber.Router, db *gorm.DB) {
 	// ===== CONTROLLERS =====
-	ctrlTeacher := adminTeacherCtrl.NewSchoolTeacherController(db) // teacher (baru refactor)
+	ctrlTeacher := adminTeacherCtrl.NewSchoolTeacherController(db) // teacher (sudah pakai school dari token)
 	v := validator.New()
 	ctrlStudent := adminTeacherCtrl.New(db, v) // student controller
 
-	// 🎓 /:school_id/school-teachers → DKM + Admin + Owner
-	schoolTeachers := api.Group("/:school_id/school-teachers",
+	// 🎓 /school-teachers → DKM + Admin + Owner
+	// Controller akan:
+	//   - ambil school_id dari token (ResolveSchoolIDFromContext)
+	//   - pastikan DKM/Admin dengan EnsureDKMSchool di dalam controller
+	schoolTeachers := api.Group("/school-teachers",
 		authMiddleware.OnlyRolesSlice(
 			constants.RoleErrorAdmin("mengelola guru school"),
 			constants.AdminAndAbove, // admin, dkm, owner
@@ -26,17 +29,20 @@ func SchoolAdminRoutes(api fiber.Router, db *gorm.DB) {
 		schoolkuMiddleware.IsSchoolAdmin(),
 	)
 	schoolTeachers.Post("/", ctrlTeacher.Create)
-	schoolTeachers.Patch("/:id", ctrlTeacher.Update) // 🔥 tambahin update sesuai controller baru
+	schoolTeachers.Patch("/:id", ctrlTeacher.Update)
 	schoolTeachers.Delete("/:id", ctrlTeacher.Delete)
 
-	// 🧑‍🎓 /:school_id/school-students → DKM + Admin + Owner
-	schoolStudents := api.Group("/:school_id/school-students",
+	// 🧑‍🎓 /school-students → DKM + Admin + Owner
+	// Student controller idealnya juga ambil school_id dari token
+	// (pattern sama: ResolveSchoolIDFromContext + EnsureDKMSchool/EnsureStaffSchool di dalam).
+	schoolStudents := api.Group("/school-students",
 		authMiddleware.OnlyRolesSlice(
 			constants.RoleErrorAdmin("mengelola siswa/jamaah school"),
 			constants.AdminAndAbove,
 		),
 		schoolkuMiddleware.IsSchoolAdmin(),
 	)
+	schoolStudents.Get("/list", ctrlStudent.List)
 	schoolStudents.Post("/", ctrlStudent.Create)
 	schoolStudents.Put("/:id", ctrlStudent.Update)
 	schoolStudents.Patch("/:id", ctrlStudent.Patch)

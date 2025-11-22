@@ -18,7 +18,7 @@ func UserRoutes(app *fiber.App, db *gorm.DB) {
 		rateLimiter.GlobalRateLimiter(),
 	)
 	// 🔓 Jadikan daftar/gateway teacher publik
-	teacherProfile.AllTeacherUserRoute(public, db)
+	teacherProfile.AllLembagaTeacherStudentRoutes(public, db)
 
 	// === API (protected / structured) ===
 	api := app.Group("/api",

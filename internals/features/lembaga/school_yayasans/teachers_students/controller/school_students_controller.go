@@ -1,4 +1,4 @@
-// internals/features/lembaga/teachers_students/controller/school_student_controller.go
+// internals/features/lembaga/school_yayasans/teachers_students/controller/school_student_controller.go
 package controller
 
 import (
@@ -14,6 +14,7 @@ import (
 	model "schoolku_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
 	snapshotUserProfile "schoolku_backend/internals/features/users/users/snapshot"
 	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
 /* =========================
@@ -80,8 +81,18 @@ func getMultiQuery(c *fiber.Ctx, key string) []string {
    ========================= */
 
 // POST /api/a/school-students
-// POST /api/a/school-students
 func (h *SchoolStudentController) Create(c *fiber.Ctx) error {
+	// 1) Ambil school_id dari TOKEN
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
+	if err != nil {
+		return err
+	}
+
+	// 2) Enforce DKM/Admin
+	if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
+		return er
+	}
+
 	var req dto.SchoolStudentCreateReq
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid body")
@@ -94,11 +105,18 @@ func (h *SchoolStudentController) Create(c *fiber.Ctx) error {
 
 	m := req.ToModel()
 
+	// **Enforce tenant**: jangan percaya body, paksa pakai schoolID dari token
+	m.SchoolStudentSchoolID = schoolID
+
 	// ===== Snapshot user_profile (by profile_id) =====
 	if m.SchoolStudentUserProfileID == uuid.Nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "user_profile_id is required")
 	}
-	snap, err := snapshotUserProfile.BuildUserProfileSnapshotByProfileID(c.Context(), h.DB, m.SchoolStudentUserProfileID)
+	snap, err := snapshotUserProfile.BuildUserProfileSnapshotByProfileID(
+		c.Context(),
+		h.DB,
+		m.SchoolStudentUserProfileID,
+	)
 	if err != nil {
 		switch {
 		case errors.Is(err, gorm.ErrRecordNotFound):
@@ -107,9 +125,8 @@ func (h *SchoolStudentController) Create(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal mengambil snapshot user profile")
 		}
 	}
-	// Isi kolom snapshot di model (hanya yang tersedia di model kamu)
+	// Isi kolom snapshot di model
 	if snap != nil {
-		// Name (string wajib di struct snapshot → pastikan non-empty)
 		if strings.TrimSpace(snap.Name) != "" {
 			m.SchoolStudentUserProfileNameSnapshot = &snap.Name
 		}
@@ -117,8 +134,6 @@ func (h *SchoolStudentController) Create(c *fiber.Ctx) error {
 		m.SchoolStudentUserProfileWhatsappURLSnapshot = snap.WhatsappURL
 		m.SchoolStudentUserProfileParentNameSnapshot = snap.ParentName
 		m.SchoolStudentUserProfileParentWhatsappURLSnapshot = snap.ParentWhatsappURL
-		// snap.Slug / snap.DonationName / snap.Location tersedia, tapi model kamu
-		// tidak punya kolom-kolom itu—abaikan saja.
 	}
 
 	// ===== Insert =====
@@ -131,13 +146,25 @@ func (h *SchoolStudentController) Create(c *fiber.Ctx) error {
 
 // PUT /api/a/school-students/:id
 func (h *SchoolStudentController) Update(c *fiber.Ctx) error {
+	// 1) tenant dari token
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
+	if err != nil {
+		return err
+	}
+	// 2) Enforce DKM/Admin
+	if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
+		return er
+	}
+
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	var m model.SchoolStudentModel
-	if err := h.DB.First(&m, "school_student_id = ?", id).Error; err != nil {
+	if err := h.DB.
+		Where("school_student_school_id = ?", schoolID).
+		First(&m, "school_student_id = ?", id).Error; err != nil {
 		if isNotFound(err) {
 			return helper.JsonError(c, fiber.StatusNotFound, "not found")
 		}
@@ -155,6 +182,9 @@ func (h *SchoolStudentController) Update(c *fiber.Ctx) error {
 
 	req.Apply(&m)
 
+	// enforce lagi (jaga-jaga) supaya tidak bisa dipindahkan ke sekolah lain
+	m.SchoolStudentSchoolID = schoolID
+
 	if err := h.DB.Save(&m).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
@@ -164,13 +194,25 @@ func (h *SchoolStudentController) Update(c *fiber.Ctx) error {
 
 // PATCH /api/a/school-students/:id
 func (h *SchoolStudentController) Patch(c *fiber.Ctx) error {
+	// tenant dari token
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
+	if err != nil {
+		return err
+	}
+	// Enforce DKM/Admin
+	if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
+		return er
+	}
+
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	var m model.SchoolStudentModel
-	if err := h.DB.First(&m, "school_student_id = ?", id).Error; err != nil {
+	if err := h.DB.
+		Where("school_student_school_id = ?", schoolID).
+		First(&m, "school_student_id = ?", id).Error; err != nil {
 		if isNotFound(err) {
 			return helper.JsonError(c, fiber.StatusNotFound, "not found")
 		}
@@ -188,6 +230,9 @@ func (h *SchoolStudentController) Patch(c *fiber.Ctx) error {
 
 	req.Apply(&m)
 
+	// enforce tenant
+	m.SchoolStudentSchoolID = schoolID
+
 	if err := h.DB.Save(&m).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
@@ -197,12 +242,24 @@ func (h *SchoolStudentController) Patch(c *fiber.Ctx) error {
 
 // DELETE /api/a/school-students/:id  (soft delete)
 func (h *SchoolStudentController) Delete(c *fiber.Ctx) error {
+	// tenant dari token
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
+	if err != nil {
+		return err
+	}
+	// Enforce DKM/Admin
+	if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
+		return er
+	}
+
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	if err := h.DB.Delete(&model.SchoolStudentModel{}, "school_student_id = ?", id).Error; err != nil {
+	if err := h.DB.
+		Where("school_student_school_id = ?", schoolID).
+		Delete(&model.SchoolStudentModel{}, "school_student_id = ?", id).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
@@ -211,13 +268,25 @@ func (h *SchoolStudentController) Delete(c *fiber.Ctx) error {
 
 // POST /api/a/school-students/:id/restore
 func (h *SchoolStudentController) Restore(c *fiber.Ctx) error {
+	// tenant dari token
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
+	if err != nil {
+		return err
+	}
+	// Enforce DKM/Admin
+	if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
+		return er
+	}
+
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	var m model.SchoolStudentModel
-	if err := h.DB.Unscoped().First(&m, "school_student_id = ?", id).Error; err != nil {
+	if err := h.DB.Unscoped().
+		Where("school_student_school_id = ?", schoolID).
+		First(&m, "school_student_id = ?", id).Error; err != nil {
 		if isNotFound(err) {
 			return helper.JsonError(c, fiber.StatusNotFound, "not found")
 		}
@@ -225,7 +294,9 @@ func (h *SchoolStudentController) Restore(c *fiber.Ctx) error {
 	}
 
 	// clear deleted_at
-	if err := h.DB.Model(&m).Update("school_student_deleted_at", nil).Error; err != nil {
+	if err := h.DB.Model(&m).
+		Where("school_student_school_id = ?", schoolID).
+		Update("school_student_deleted_at", nil).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 

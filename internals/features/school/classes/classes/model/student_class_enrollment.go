@@ -65,6 +65,10 @@ type StudentClassEnrollmentModel struct {
 	StudentClassEnrollmentStudentCodeSnapshot string `gorm:"type:varchar(50);column:student_class_enrollments_student_code_snapshot" json:"student_class_enrollments_student_code_snapshot"`
 	StudentClassEnrollmentStudentSlugSnapshot string `gorm:"type:varchar(50);column:student_class_enrollments_student_slug_snapshot" json:"student_class_enrollments_student_slug_snapshot"`
 
+	// ===== Convenience fields (TIDAK disimpan di DB) =====
+	StudentClassEnrollmentStudentName string `gorm:"-" json:"student_class_enrollments_student_name"`
+	StudentClassEnrollmentClassName   string `gorm:"-" json:"student_class_enrollments_class_name"`
+
 	// Jejak waktu (audit)
 	StudentClassEnrollmentAppliedAt    time.Time  `gorm:"not null;default:now();column:student_class_enrollments_applied_at" json:"student_class_enrollments_applied_at"`
 	StudentClassEnrollmentReviewedAt   *time.Time `gorm:"column:student_class_enrollments_reviewed_at" json:"student_class_enrollments_reviewed_at"`

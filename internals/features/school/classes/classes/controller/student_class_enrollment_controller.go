@@ -95,7 +95,12 @@ func nowPtr() *time.Time {
 	return &t
 }
 
-func enrichEnrollmentExtras(ctx context.Context, db *gorm.DB, schoolID uuid.UUID, items []dto.StudentClassEnrollmentResponse) {
+func enrichEnrollmentExtras(
+	ctx context.Context,
+	db *gorm.DB,
+	schoolID uuid.UUID,
+	items []dto.StudentClassEnrollmentResponse,
+) {
 	if len(items) == 0 {
 		return
 	}
@@ -107,6 +112,7 @@ func enrichEnrollmentExtras(ctx context.Context, db *gorm.DB, schoolID uuid.UUID
 		stuIDsSet[it.StudentClassEnrollmentSchoolStudentID] = struct{}{}
 		classIDsSet[it.StudentClassEnrollmentClassID] = struct{}{}
 	}
+
 	stuIDs := make([]uuid.UUID, 0, len(stuIDsSet))
 	classIDs := make([]uuid.UUID, 0, len(classIDsSet))
 	for id := range stuIDsSet {
@@ -116,26 +122,28 @@ func enrichEnrollmentExtras(ctx context.Context, db *gorm.DB, schoolID uuid.UUID
 		classIDs = append(classIDs, id)
 	}
 
-	// ===== Ambil students (name, user_id)
+	// ===== Ambil students (name, user_id) =====
 	type stuRow struct {
 		ID     uuid.UUID  `gorm:"column:school_student_id"`
-		Name   string     `gorm:"column:name"`
-		UserID *uuid.UUID `gorm:"column:user_id"`
+		Name   string     `gorm:"column:school_student_name"`
+		UserID *uuid.UUID `gorm:"column:school_student_user_id"`
 	}
+
 	stuMap := make(map[uuid.UUID]stuRow, len(stuIDs))
 	if len(stuIDs) > 0 {
 		var stus []stuRow
 		_ = db.WithContext(ctx).
 			Table("school_students").
-			Select("school_student_id, name, user_id").
-			Where("school_id = ? AND school_student_id IN ?", schoolID, stuIDs).
+			Select("school_student_id, school_student_name, school_student_user_id").
+			Where("school_student_school_id = ? AND school_student_id IN ?", schoolID, stuIDs).
 			Find(&stus).Error
+
 		for _, s := range stus {
 			stuMap[s.ID] = s
 		}
 	}
 
-	// ===== Ambil classes (class_name)
+	// ===== Ambil classes (class_name) =====
 	type clsRow struct {
 		ID        uuid.UUID `gorm:"column:class_id"`
 		ClassName string    `gorm:"column:class_name"`
@@ -148,26 +156,30 @@ func enrichEnrollmentExtras(ctx context.Context, db *gorm.DB, schoolID uuid.UUID
 			Select("class_id, class_name").
 			Where("class_school_id = ? AND class_id IN ?", schoolID, classIDs).
 			Find(&clss).Error
+
 		for _, c := range clss {
 			clsMap[c.ID] = c
 		}
 	}
 
-	// ===== Ambil usernames (batch) opsional
+	// ===== Ambil usernames (batch) opsional =====
 	userIDsSet := map[uuid.UUID]struct{}{}
 	for _, s := range stuMap {
 		if s.UserID != nil {
 			userIDsSet[*s.UserID] = struct{}{}
 		}
 	}
+
 	userIDs := make([]uuid.UUID, 0, len(userIDsSet))
 	for id := range userIDsSet {
 		userIDs = append(userIDs, id)
 	}
+
 	type userRow struct {
 		ID       uuid.UUID `gorm:"column:id"`
 		UserName string    `gorm:"column:user_name"`
 	}
+
 	uMap := make(map[uuid.UUID]string, len(userIDs))
 	if len(userIDs) > 0 {
 		var us []userRow
@@ -176,15 +188,18 @@ func enrichEnrollmentExtras(ctx context.Context, db *gorm.DB, schoolID uuid.UUID
 			Select("id, user_name").
 			Where("id IN ?", userIDs).
 			Find(&us).Error
+
 		for _, u := range us {
 			uMap[u.ID] = u.UserName
 		}
 	}
 
-	// ===== Isi ke items
+	// ===== Isi ke items (DTO) =====
 	for i := range items {
 		if s, ok := stuMap[items[i].StudentClassEnrollmentSchoolStudentID]; ok {
+			// override convenience name dengan nama terbaru
 			items[i].StudentClassEnrollmentStudentName = s.Name
+
 			if s.UserID != nil {
 				if un, ok2 := uMap[*s.UserID]; ok2 {
 					username := un
@@ -192,6 +207,7 @@ func enrichEnrollmentExtras(ctx context.Context, db *gorm.DB, schoolID uuid.UUID
 				}
 			}
 		}
+
 		if c, ok := clsMap[items[i].StudentClassEnrollmentClassID]; ok {
 			items[i].StudentClassEnrollmentClassName = c.ClassName
 		}
@@ -223,15 +239,16 @@ func (ctl *StudentClassEnrollmentController) Create(c *fiber.Ctx) error {
 	// ===== Lookup student (pastikan belong to school) =====
 	var stu struct {
 		ID     uuid.UUID  `gorm:"column:school_student_id"`
-		Name   string     `gorm:"column:name"`
-		Code   string     `gorm:"column:code"`
-		Slug   string     `gorm:"column:slug"`
-		UserID *uuid.UUID `gorm:"column:user_id"`
+		Name   string     `gorm:"column:school_student_name"`
+		Code   string     `gorm:"column:school_student_code"`
+		Slug   string     `gorm:"column:school_student_slug"`
+		UserID *uuid.UUID `gorm:"column:school_student_user_id"`
 	}
+
 	if err := ctl.DB.WithContext(c.Context()).
 		Table("school_students").
-		Select("school_student_id, name, code, slug, user_id").
-		Where("school_student_id = ? AND school_id = ?", body.SchoolStudentID, schoolID).
+		Select("school_student_id, school_student_name, school_student_code, school_student_slug, school_student_user_id").
+		Where("school_student_id = ? AND school_student_school_id = ?", body.SchoolStudentID, schoolID).
 		Take(&stu).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusBadRequest, "invalid student for this school")
@@ -500,129 +517,4 @@ func (ctl *StudentClassEnrollmentController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 	return helper.JsonDeleted(c, "deleted", fiber.Map{"student_class_enrollments_id": id})
-}
-
-func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
-	// ========== tenant ==========
-	schoolID, err := helperAuth.ParseSchoolIDFromPath(c)
-	if err != nil {
-		return err
-	}
-
-	// ❗ Skenario 1: hanya DKM/Admin (boleh tambahkan bendahara kalau mau)
-	// - EnsureDKMSchool = role "dkm" + "admin" yang terdaftar di school ini
-	if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
-		return er
-	}
-
-	// ========== query ==========
-	var q dto.ListStudentClassEnrollmentQuery
-	if err := c.QueryParser(&q); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "invalid query")
-	}
-	// status_in (comma-separated → slice)
-	if raw := strings.TrimSpace(c.Query("status_in")); raw != "" {
-		sts, er := parseStatusInParam(raw)
-		if er != nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, er.Error())
-		}
-		q.StatusIn = sts
-	}
-	// view mode
-	view := strings.ToLower(strings.TrimSpace(c.Query("view"))) // "", "compact", "full"
-
-	// paging
-	pg := helper.ResolvePaging(c, 20, 200)
-
-	// ========== base query ==========
-	base := ctl.DB.WithContext(c.Context()).
-		Model(&emodel.StudentClassEnrollmentModel{}).
-		Where("student_class_enrollments_school_id = ?", schoolID)
-
-	// OnlyAlive default: true (filter soft-delete)
-	onlyAlive := true
-	if q.OnlyAlive != nil {
-		onlyAlive = *q.OnlyAlive
-	}
-	if onlyAlive {
-		base = base.Where("student_class_enrollments_deleted_at IS NULL")
-	}
-
-	// ========== filters ==========
-	if q.StudentID != nil && *q.StudentID != uuid.Nil {
-		base = base.Where("student_class_enrollments_school_student_id = ?", *q.StudentID)
-	}
-	if q.ClassID != nil && *q.ClassID != uuid.Nil {
-		base = base.Where("student_class_enrollments_class_id = ?", *q.ClassID)
-	}
-	if len(q.StatusIn) > 0 {
-		base = base.Where("student_class_enrollments_status IN ?", q.StatusIn)
-	}
-	if q.AppliedFrom != nil {
-		base = base.Where("student_class_enrollments_applied_at >= ?", *q.AppliedFrom)
-	}
-	if q.AppliedTo != nil {
-		base = base.Where("student_class_enrollments_applied_at <= ?", *q.AppliedTo)
-	}
-
-	// ========== count ==========
-	var total int64
-	if err := base.Count(&total).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "failed to count")
-	}
-
-	// ========== data ==========
-	tx := base // copy builder for data fetch
-
-	// optimisasi kolom saat compact -> pastikan semua field untuk DTO compact ikut di-select
-	if view == "compact" || view == "summary" {
-		tx = tx.Select([]string{
-			// id & status & nominal
-			"student_class_enrollments_id",
-			"student_class_enrollments_status",
-			"student_class_enrollments_total_due_idr",
-
-			// convenience (mirror snapshot & ids)
-			"student_class_enrollments_school_student_id",
-			"student_class_enrollments_student_name_snapshot",
-			"student_class_enrollments_class_id",
-			"student_class_enrollments_class_name_snapshot",
-
-			// term (denormalized, optional)
-			"student_class_enrollments_term_id",
-			"student_class_enrollments_term_name_snapshot",
-			"student_class_enrollments_term_academic_year_snapshot",
-			"student_class_enrollments_term_angkatan_snapshot",
-
-			// payment snapshot (untuk derive PaymentStatus/CheckoutURL)
-			"student_class_enrollments_payment_snapshot",
-
-			// jejak penting
-			"student_class_enrollments_applied_at",
-		})
-	}
-
-	var rows []emodel.StudentClassEnrollmentModel
-	if err := tx.
-		Order(orderClause(q.OrderBy, q.Sort)).
-		Offset(pg.Offset).
-		Limit(pg.Limit).
-		Find(&rows).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "failed to fetch")
-	}
-
-	pagination := helper.BuildPaginationFromOffset(total, pg.Offset, pg.Limit)
-
-	// ========== mapping sesuai view ==========
-	if view == "compact" || view == "summary" {
-		compact := dto.FromModelsCompact(rows)
-		return helper.JsonList(c, "ok", compact, pagination)
-	}
-
-	// default: full payload
-	resp := dto.FromModels(rows)
-	// (opsional) enrich convenience fields tambahan (Username, dsb.)
-	enrichEnrollmentExtras(c.Context(), ctl.DB, schoolID, resp)
-
-	return helper.JsonList(c, "ok", resp, pagination)
 }

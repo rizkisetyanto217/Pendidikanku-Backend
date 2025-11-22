@@ -28,7 +28,7 @@ type teacherJoinCodeRow struct {
 	DeletedAt *time.Time
 }
 
-// ===== ganti fungsi lookup kode: dari schools, bukan school_teacher_join_codes =====
+// ===== kode diambil dari kolom di tabel schools =====
 func getSchoolIDFromTeacherCode(ctx context.Context, db *gorm.DB, code string) (uuid.UUID, error) {
 	code = strings.TrimSpace(code)
 	if code == "" {
@@ -36,10 +36,6 @@ func getSchoolIDFromTeacherCode(ctx context.Context, db *gorm.DB, code string) (
 	}
 
 	var rows []teacherJoinCodeRow
-	// Ambil kandidat yang:
-	// - punya hash
-	// - aktif & tidak terhapus
-	// (opsional: tambahkan policy kadaluarsa kalau ada)
 	if err := db.WithContext(ctx).Raw(`
 		SELECT
 			school_id                       AS school_id,
@@ -57,7 +53,6 @@ func getSchoolIDFromTeacherCode(ctx context.Context, db *gorm.DB, code string) (
 		return uuid.Nil, fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi kode")
 	}
 
-	// Bandingkan bcrypt
 	for _, r := range rows {
 		if r.DeletedAt != nil || !r.IsActive || strings.TrimSpace(r.CodeHash) == "" {
 			continue
@@ -71,11 +66,13 @@ func getSchoolIDFromTeacherCode(ctx context.Context, db *gorm.DB, code string) (
 }
 
 /*
-POST /api/u/:school_id/join-teacher
+POST /api/u/join-teacher
 Body: { "code": "...." }
-Syarat: user login & sudah punya user_teacher (profil guru)
+
+- user_id diambil dari token (wajib login)
+- school_id diambil dari kode guru (kolom school_teacher_code_hash di tabel schools)
+- user harus sudah punya user_teacher (profil guru)
 */
-// Handler: school_id diambil dari code
 func (ctrl *SchoolTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 	// user dari token
 	userID, err := helperAuth.GetUserIDFromToken(c)
@@ -94,7 +91,7 @@ func (ctrl *SchoolTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 	// ✅ school_id dari code (validasi + cek expiry/revoked)
 	schoolID, err := getSchoolIDFromTeacherCode(c.Context(), ctrl.DB, strings.TrimSpace(body.Code))
 	if err != nil {
-		// err sudah user-friendly
+		// err sudah user-friendly (fiber.Error)
 		return err
 	}
 

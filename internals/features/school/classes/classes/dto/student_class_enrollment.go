@@ -60,9 +60,10 @@ type ListStudentClassEnrollmentQuery struct {
 	OnlyAlive *bool `query:"only_alive"`
 
 	// NEW: term filters (denormalized kolom)
-	TermID       *uuid.UUID `query:"term_id"`
-	AcademicYear string     `query:"academic_year"` // ex: "2026/2027"
-	Angkatan     *int       `query:"angkatan"`      // ex: 2024
+	TermID         *uuid.UUID `query:"term_id"`
+	AcademicYear   string     `query:"academic_year"` // ex: "2026/2027"
+	Angkatan       *int       `query:"angkatan"`
+	AcademicTermID *uuid.UUID `query:"academic_term_id"` // ex: 2024
 
 	// NEW: simple search (on snapshots: student/class/term)
 	Q string `query:"q"`

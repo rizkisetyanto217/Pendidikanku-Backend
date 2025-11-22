@@ -108,20 +108,19 @@ func revokeTeacherRole(tx *gorm.DB, userID, schoolID uuid.UUID) error {
 	`, userID, schoolID).Error
 }
 
-/* ===================== CREATE ===================== */
+// ===================== CREATE =====================
 // POST /api/a/schools/:school_id/school-teachers
 func (ctrl *SchoolTeacherController) Create(c *fiber.Ctx) error {
 	if c.Locals("DB") == nil {
 		c.Locals("DB", ctrl.DB)
 	}
 
-	// 🔒 resolve context school
-	mc, err := helperAuth.ResolveSchoolContext(c)
+	// 🔒 Ambil school_id dari token + pastikan role DKM/Admin
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
 		return err
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return err
 	}
 
@@ -134,7 +133,7 @@ func (ctrl *SchoolTeacherController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusUnprocessableEntity, err.Error())
 	}
 
-	// DTO -> model (paksa school dari context/params)
+	// DTO -> model (paksa school dari context/token)
 	rec, err := body.ToModel(schoolID.String())
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
@@ -203,19 +202,19 @@ func (ctrl *SchoolTeacherController) Create(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "Pengajar berhasil ditambahkan", yDTO.NewSchoolTeacherResponse(&created))
 }
 
-/* ===================== UPDATE ===================== */
+// ===================== UPDATE =====================
 // PATCH /api/a/schools/:school_id/school-teachers/:id
 func (ctrl *SchoolTeacherController) Update(c *fiber.Ctx) error {
 	if c.Locals("DB") == nil {
 		c.Locals("DB", ctrl.DB)
 	}
 
-	mc, err := helperAuth.ResolveSchoolContext(c)
+	// 🔒 Ambil school_id dari token + pastikan role DKM/Admin
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
 		return err
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return err
 	}
 
@@ -236,8 +235,10 @@ func (ctrl *SchoolTeacherController) Update(c *fiber.Ctx) error {
 	var before yModel.SchoolTeacherModel
 	if err := ctrl.DB.WithContext(c.Context()).
 		Clauses(clause.Locking{Strength: "UPDATE"}).
-		First(&before, "school_teacher_id = ? AND school_teacher_school_id = ? AND school_teacher_deleted_at IS NULL",
-			rowID, schoolID).Error; err != nil {
+		First(&before,
+			"school_teacher_id = ? AND school_teacher_school_id = ? AND school_teacher_deleted_at IS NULL",
+			rowID, schoolID,
+		).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Pengajar tidak ditemukan")
 		}
@@ -297,20 +298,19 @@ func (ctrl *SchoolTeacherController) Update(c *fiber.Ctx) error {
 	return helper.JsonUpdated(c, "Pengajar diperbarui", yDTO.NewSchoolTeacherResponse(&before))
 }
 
-/* ===================== DELETE ===================== */
+// ===================== DELETE =====================
 // DELETE /api/a/schools/:school_id/school-teachers/:id
 func (ctrl *SchoolTeacherController) Delete(c *fiber.Ctx) error {
 	if c.Locals("DB") == nil {
 		c.Locals("DB", ctrl.DB)
 	}
 
-	// 🔒 school context + DKM/Admin guard
-	mc, err := helperAuth.ResolveSchoolContext(c)
+	// 🔒 Ambil school_id dari token + pastikan role DKM/Admin
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
 		return err
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return err
 	}
 
