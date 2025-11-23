@@ -1,4 +1,4 @@
-// internals/features/lembaga/subjects/main/router/subjects_user_routes.go
+// file: internals/features/lembaga/subjects/main/router/subjects_user_routes.go
 package router
 
 import (
@@ -10,26 +10,26 @@ import (
 )
 
 /*
-User routes: read-only (student/parent/teacher)
-
-Contoh mount:
+Mount:
 
 	CSSTUserRoutes(app.Group("/api/u"), db)
 
-Sehingga endpoint jadi:
+Endpoint:
 
 	GET /api/u/class-section-subject-teachers/list
-
-Catatan:
-- school diambil dari token (active_school) via UseSchoolScope.
-- Kalau token tidak ada / active_school kosong → harusnya balikin ErrSchoolContextMissing dari helper.
 */
 func CSSTUserRoutes(r fiber.Router, db *gorm.DB) {
-	// Controller
 	csstCtl := &csstController.ClassSectionSubjectTeacherController{DB: db}
+	stuCtl := &csstController.StudentCSSTController{DB: db}
 
-	// Pure token-scope: Tidak pakai :school_id / :school_slug di path
 	base := r.Group("/", schoolkuMiddleware.UseSchoolScope())
 	csst := base.Group("/class-section-subject-teachers")
+
+	// Satu route saja: semua filter via query params
 	csst.Get("/list", csstCtl.List)
+
+	stu := base.Group("/student-class-section-subject-teachers")
+
+	// Satu route saja: list mapping murid ↔ CSST, filter via query params
+	stu.Get("/list", stuCtl.List)
 }

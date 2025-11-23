@@ -1,6 +1,9 @@
+// file: internals/features/school/academics/classes/controller/student_class_enrollment_list_controller.go
 package controller
 
 import (
+	"context"
+	"reflect"
 	"strings"
 
 	dto "schoolku_backend/internals/features/school/classes/classes/dto"
@@ -8,8 +11,12 @@ import (
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
 
+	csDTO "schoolku_backend/internals/features/school/classes/class_sections/dto"
+	csModel "schoolku_backend/internals/features/school/classes/class_sections/model"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
@@ -70,6 +77,18 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 
 	// view mode
 	view := strings.ToLower(strings.TrimSpace(c.Query("view"))) // "", "compact", "summary", "full"
+
+	// include mode (?include=class_sections)
+	includeRaw := strings.ToLower(strings.TrimSpace(c.Query("include")))
+	wantClassSections := false
+	if includeRaw != "" {
+		for _, p := range strings.Split(includeRaw, ",") {
+			if strings.TrimSpace(p) == "class_sections" {
+				wantClassSections = true
+				break
+			}
+		}
+	}
 
 	// paging (masih pakai helper page/per_page)
 	pg := helper.ResolvePaging(c, 20, 200)
@@ -201,14 +220,142 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 	// ========== mapping sesuai view ==========
 	if view == "compact" || view == "summary" {
 		compact := dto.FromModelsCompact(rows)
+		// NOTE: include=class_sections saat ini hanya dipakai di view=full
 		return helper.JsonList(c, "ok", compact, pagination)
 	}
 
 	// default: full payload
-	resp := dto.FromModels(rows)
+	resp := dto.FromModels(rows) // tipe slice dari DTO-mu yang lama
 
 	// (opsional) enrich convenience fields tambahan (Username, dll.)
 	enrichEnrollmentExtras(c.Context(), ctl.DB, schoolID, resp)
 
+	// (opsional) include class_sections per class
+	if wantClassSections {
+		if err := enrichEnrollmentClassSections(c.Context(), ctl.DB, schoolID, resp); err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "failed to load class sections")
+		}
+	}
+
 	return helper.JsonList(c, "ok", resp, pagination)
+}
+
+// include: class_sections (group by class_id) – versi generic pakai refleksi
+func enrichEnrollmentClassSections(
+	ctx context.Context,
+	db *gorm.DB,
+	schoolID uuid.UUID,
+	items any, // biar nggak tergantung nama tipe DTO
+) error {
+	v := reflect.ValueOf(items)
+	if v.Kind() != reflect.Slice {
+		return nil
+	}
+
+	// 1) Kumpulkan distinct class_id dari field `ClassID`
+	classSet := make(map[uuid.UUID]struct{})
+
+	for i := 0; i < v.Len(); i++ {
+		elem := v.Index(i)
+		if elem.Kind() == reflect.Ptr {
+			if elem.IsNil() {
+				continue
+			}
+			elem = elem.Elem()
+		}
+		if !elem.IsValid() {
+			continue
+		}
+
+		f := elem.FieldByName("ClassID")
+		if !f.IsValid() || !f.CanInterface() {
+			continue
+		}
+
+		cid, ok := f.Interface().(uuid.UUID)
+		if !ok || cid == uuid.Nil {
+			continue
+		}
+		classSet[cid] = struct{}{}
+	}
+
+	if len(classSet) == 0 {
+		return nil
+	}
+
+	classIDs := make([]uuid.UUID, 0, len(classSet))
+	for id := range classSet {
+		classIDs = append(classIDs, id)
+	}
+
+	// 2) Query class_sections by class_id
+	var secs []csModel.ClassSectionModel
+	if err := db.WithContext(ctx).
+		Model(&csModel.ClassSectionModel{}).
+		Where("class_section_school_id = ?", schoolID).
+		Where("class_section_class_id IN ?", classIDs).
+		Where("class_section_deleted_at IS NULL").
+		Order("class_section_name ASC").
+		Find(&secs).Error; err != nil {
+		return err
+	}
+
+	if len(secs) == 0 {
+		return nil
+	}
+
+	// 3) Konversi ke DTO compact
+	compact := csDTO.FromModelsCompact(secs)
+
+	// 4) Group per class_id (pakai ClassSectionClassID dari compact)
+	byClass := make(map[uuid.UUID][]csDTO.ClassSectionCompact)
+	for _, s := range compact {
+		if s.ClassSectionClassID == nil || *s.ClassSectionClassID == uuid.Nil {
+			continue
+		}
+		byClass[*s.ClassSectionClassID] = append(byClass[*s.ClassSectionClassID], s)
+	}
+
+	// 5) Tempel ke tiap enrollment lewat field `ClassSections`
+	sectionsSliceType := reflect.TypeOf([]csDTO.ClassSectionCompact{})
+
+	for i := 0; i < v.Len(); i++ {
+		elem := v.Index(i)
+		if elem.Kind() == reflect.Ptr {
+			if elem.IsNil() {
+				continue
+			}
+			elem = elem.Elem()
+		}
+		if !elem.IsValid() {
+			continue
+		}
+
+		fID := elem.FieldByName("ClassID")
+		if !fID.IsValid() || !fID.CanInterface() {
+			continue
+		}
+		cid, ok := fID.Interface().(uuid.UUID)
+		if !ok || cid == uuid.Nil {
+			continue
+		}
+
+		list, ok := byClass[cid]
+		if !ok {
+			continue
+		}
+
+		fSec := elem.FieldByName("ClassSections")
+		if !fSec.IsValid() || !fSec.CanSet() {
+			continue
+		}
+		if fSec.Type() != sectionsSliceType {
+			// tipe field-nya beda → skip
+			continue
+		}
+
+		fSec.Set(reflect.ValueOf(list))
+	}
+
+	return nil
 }

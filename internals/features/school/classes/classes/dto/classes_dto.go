@@ -843,3 +843,5 @@ func DecodePatchClassMultipart(c *fiber.Ctx, r *PatchClassRequest) error {
 
 	return nil
 }
+
+

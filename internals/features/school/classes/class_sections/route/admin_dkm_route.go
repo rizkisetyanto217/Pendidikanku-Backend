@@ -56,7 +56,7 @@ func ClassSectionAdminRoutes(api fiber.Router, db *gorm.DB) {
 	stuClassSec := base.Group("/student-class-sections")
 
 	stuClassSec.Post("/", ucsH.Create)
-	stuClassSec.Get("/list", ucsH.ListAll)
+	stuClassSec.Get("/list", ucsH.List)
 	stuClassSec.Patch("/:id", ucsH.Patch)
 	stuClassSec.Delete("/:id", ucsH.Delete)
 }

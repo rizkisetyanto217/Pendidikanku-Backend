@@ -36,14 +36,17 @@ func ClassUserRoutes(r fiber.Router, db *gorm.DB) {
 	}
 
 	// ================================
-	// Student Class Enrollments (MY)
+	// Student Class Enrollments (USER)
 	// ================================
 	// Mirror admin prefix: /class-enrollments
-	// bedanya: di user → cuma punya endpoint "my" (punya murid sendiri)
+	// Di user: bisa pakai ?student_id=me untuk "my enrollments"
 	classEnrollments := r.Group("/class-enrollments")
 	{
-		// GET /api/u/class-enrollments/my
-		// controller: ListMy (sudah kamu bikin khusus student)
+		// GET /api/u/class-enrollments/list?student_id=me
 		classEnrollments.Get("/list", enrollHandler.List)
+
+		// POST /api/u/class-enrollments/:id/join-section
+		// body: { "class_section_id": "..." }
+		classEnrollments.Post("/:id/join-section", enrollHandler.JoinSectionCSST)
 	}
 }

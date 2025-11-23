@@ -58,16 +58,31 @@ func parseUUIDList(s string) ([]uuid.UUID, error) {
 
 /* ================================ Handler (NO-JOIN) ================================ */
 
+// Satu endpoint saja:
+//
+//	GET /api/u/class-section-subject-teachers/list
+//
+// Filter via query:
+//   - ?id=uuid,uuid2
+//   - ?class_section_id=uuid,uuid2 atau ?section_id=uuid,uuid2
+//   - ?teacher_id=uuid
+//   - ?subject_id=uuid
+//   - ?q=...
+//   - ?is_active=...
+//   - ?with_deleted=...
+//   - ?order_by=created_at|updated_at|subject_name|section_name|teacher_name|book_title|slug
+//   - ?sort=asc|desc
+//   - paging: ?page=&per_page= (ResolvePaging) atau ?limit=&offset=
 func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
-	// === School context: token → :school_id → :school_slug ===
+	// === School context ===
 	var schoolID uuid.UUID
 
-	// 1) Dari token: active_school
-	if sid, err := helperAuth.GetActiveSchoolID(c); err == nil && sid != uuid.Nil {
+	// 1) Prioritas: token / middleware UseSchoolScope (active_school_id)
+	if sid, err := helperAuth.ResolveSchoolIDFromContext(c); err == nil && sid != uuid.Nil {
 		schoolID = sid
 	}
 
-	// 2) Dari path :school_id
+	// (opsional) fallback: kalau suatu saat dipakai di route lain yg pakai :school_id atau :school_slug
 	if schoolID == uuid.Nil {
 		if raw := strings.TrimSpace(c.Params("school_id")); raw != "" {
 			id, err := uuid.Parse(raw)
@@ -77,8 +92,6 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 			schoolID = id
 		}
 	}
-
-	// 3) Dari :school_slug
 	if schoolID == uuid.Nil {
 		if slug := strings.TrimSpace(c.Params("school_slug")); slug != "" {
 			id, er := helperAuth.GetSchoolIDBySlug(c, slug)
@@ -92,7 +105,6 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 4) Kalau tetep nggak ada → context missing
 	if schoolID == uuid.Nil {
 		return helper.JsonError(
 			c,
@@ -101,17 +113,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		)
 	}
 
-	// path :id (detail)
-	var pathID *uuid.UUID
-	if s := strings.TrimSpace(c.Params("id")); s != "" {
-		id, e := uuid.Parse(s)
-		if e != nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "id tidak valid")
-		}
-		pathID = &id
-	}
-
-	// query params umum
+	// query params umum (limit/offset/order_by/sort/is_active/with_deleted)
 	var q listQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
@@ -128,12 +130,12 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	limit, offset := p.Limit, p.Offset
 
 	// ==== Query params khusus ====
-	// Dukung dua nama: section_id dan class_section_id
-	rawSectionID := strings.TrimSpace(c.Query("class_section_id"))
+	// Dukung dua nama section_id via query:
+	rawSectionID := strings.TrimSpace(c.Query("section_id"))
 	rawClassSectionID := strings.TrimSpace(c.Query("class_section_id"))
 
-	subjectIDStr := strings.TrimSpace(c.Query("subject_id"))
 	teacherIDStr := strings.TrimSpace(c.Query("teacher_id"))
+	subjectIDStr := strings.TrimSpace(c.Query("subject_id"))
 	qtext := strings.TrimSpace(strings.ToLower(c.Query("q")))
 
 	// filter by id via query param (bisa multi)
@@ -182,7 +184,6 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	}
 
 	// ===== Sorting =====
-	// mapping ke kolom real di model
 	orderCol := "class_section_subject_teacher_created_at"
 	if q.OrderBy != nil {
 		switch strings.ToLower(*q.OrderBy) {
@@ -232,7 +233,6 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		tx = tx.Where("class_section_subject_teacher_school_teacher_id = ?", *teacherID)
 	}
 	if subjectID != nil {
-		// pakai snapshot subject_id yang memang ada di model
 		tx = tx.Where("class_section_subject_teacher_subject_id_snapshot = ?", *subjectID)
 	}
 
@@ -246,20 +246,6 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 			LOWER(class_section_subject_teacher_book_title_snapshot) LIKE ?`,
 			like, like, like, like, like,
 		)
-	}
-
-	// DETAIL BY ID (path)
-	if pathID != nil {
-		var row modelCSST.ClassSectionSubjectTeacherModel
-		if err := tx.
-			Where("class_section_subject_teacher_id = ?", *pathID).
-			Take(&row).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusNotFound, "data tidak ditemukan")
-			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
-		}
-		return helper.JsonOK(c, "OK", row)
 	}
 
 	// COUNT

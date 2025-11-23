@@ -1,4 +1,3 @@
-// file: internals/features/school/classes/class_enrollments/controller/student_class_enrollments_controller.go
 package controller
 
 import (
@@ -9,15 +8,15 @@ import (
 	"strings"
 	"time"
 
+	enrollDTO "schoolku_backend/internals/features/school/classes/classes/dto"
+	emodel "schoolku_backend/internals/features/school/classes/classes/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
-
-	dto "schoolku_backend/internals/features/school/classes/classes/dto"
-	emodel "schoolku_backend/internals/features/school/classes/classes/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
 /* =======================================================
@@ -96,11 +95,12 @@ func nowPtr() *time.Time {
 	return &t
 }
 
+// Enrich: isi username + nama student + class_name dari tabel lain
 func enrichEnrollmentExtras(
 	ctx context.Context,
 	db *gorm.DB,
 	schoolID uuid.UUID,
-	items []dto.StudentClassEnrollmentResponse,
+	items []enrollDTO.StudentClassEnrollmentResponse,
 ) {
 	if len(items) == 0 {
 		return
@@ -111,7 +111,9 @@ func enrichEnrollmentExtras(
 	classIDsSet := map[uuid.UUID]struct{}{}
 	for _, it := range items {
 		stuIDsSet[it.StudentClassEnrollmentSchoolStudentID] = struct{}{}
-		classIDsSet[it.StudentClassEnrollmentClassID] = struct{}{}
+
+		// ⬇️ pakai ClassID (field baru di DTO)
+		classIDsSet[it.ClassID] = struct{}{}
 	}
 
 	stuIDs := make([]uuid.UUID, 0, len(stuIDsSet))
@@ -252,7 +254,8 @@ func enrichEnrollmentExtras(
 			}
 		}
 
-		if cRow, ok := clsMap[items[i].StudentClassEnrollmentClassID]; ok {
+		// pakai ClassID (bukan field lama StudentClassEnrollmentClassID)
+		if cRow, ok := clsMap[items[i].ClassID]; ok {
 			items[i].StudentClassEnrollmentClassName = cRow.ClassName
 		}
 	}
@@ -275,7 +278,7 @@ func (ctl *StudentClassEnrollmentController) Create(c *fiber.Ctx) error {
 	}
 
 	// body
-	var body dto.CreateStudentClassEnrollmentRequest
+	var body enrollDTO.CreateStudentClassEnrollmentRequest
 	if err := c.BodyParser(&body); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid body")
 	}
@@ -321,7 +324,7 @@ func (ctl *StudentClassEnrollmentController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// Normalisasi nilai snapshot student (karena field di enrollment kemungkinan non-pointer)
+	// Normalisasi nilai snapshot student
 	studentName := ""
 	if stu.NameSnapshot != nil {
 		studentName = *stu.NameSnapshot
@@ -356,8 +359,8 @@ func (ctl *StudentClassEnrollmentController) Create(c *fiber.Ctx) error {
 	}
 
 	// response
-	resp := dto.FromModelStudentClassEnrollment(&m)
-	list := []dto.StudentClassEnrollmentResponse{resp}
+	resp := enrollDTO.FromModelStudentClassEnrollment(&m)
+	list := []enrollDTO.StudentClassEnrollmentResponse{resp}
 	enrichEnrollmentExtras(c.Context(), ctl.DB, schoolID, list)
 	return helper.JsonCreated(c, "created", list[0])
 }
@@ -377,7 +380,7 @@ func (ctl *StudentClassEnrollmentController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	var body dto.UpdateStudentClassEnrollmentRequest
+	var body enrollDTO.UpdateStudentClassEnrollmentRequest
 	if err := c.BodyParser(&body); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid body")
 	}
@@ -405,7 +408,7 @@ func (ctl *StudentClassEnrollmentController) Update(c *fiber.Ctx) error {
 	if err := ctl.DB.WithContext(c.Context()).Save(&m).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	return helper.JsonUpdated(c, "updated", dto.FromModelStudentClassEnrollment(&m))
+	return helper.JsonUpdated(c, "updated", enrollDTO.FromModelStudentClassEnrollment(&m))
 }
 
 // PATCH /:school_id/class-enrollments/:id/status
@@ -423,7 +426,7 @@ func (ctl *StudentClassEnrollmentController) UpdateStatus(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	var body dto.UpdateStudentClassEnrollmentStatusRequest
+	var body enrollDTO.UpdateStudentClassEnrollmentStatusRequest
 	if err := c.BodyParser(&body); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid body")
 	}
@@ -493,7 +496,7 @@ func (ctl *StudentClassEnrollmentController) UpdateStatus(c *fiber.Ctx) error {
 	if err := ctl.DB.WithContext(c.Context()).Save(&m).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	return helper.JsonUpdated(c, "status updated", dto.FromModelStudentClassEnrollment(&m))
+	return helper.JsonUpdated(c, "status updated", enrollDTO.FromModelStudentClassEnrollment(&m))
 }
 
 // PATCH /:school_id/class-enrollments/:id/payment
@@ -511,7 +514,7 @@ func (ctl *StudentClassEnrollmentController) AssignPayment(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	var body dto.AssignEnrollmentPaymentRequest
+	var body enrollDTO.AssignEnrollmentPaymentRequest
 	if err := c.BodyParser(&body); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid body")
 	}
@@ -538,7 +541,7 @@ func (ctl *StudentClassEnrollmentController) AssignPayment(c *fiber.Ctx) error {
 	if err := ctl.DB.WithContext(c.Context()).Save(&m).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	return helper.JsonUpdated(c, "payment assigned", dto.FromModelStudentClassEnrollment(&m))
+	return helper.JsonUpdated(c, "payment assigned", enrollDTO.FromModelStudentClassEnrollment(&m))
 }
 
 // DELETE /:school_id/class-enrollments/:id

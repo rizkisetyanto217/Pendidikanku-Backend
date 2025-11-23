@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	csDTO "schoolku_backend/internals/features/school/classes/class_sections/dto"
 	m "schoolku_backend/internals/features/school/classes/classes/model"
 	h "schoolku_backend/internals/helpers"
 
@@ -99,7 +100,16 @@ type StudentClassEnrollmentResponse struct {
 	StudentClassEnrollmentID              uuid.UUID `json:"student_class_enrollments_id"`
 	StudentClassEnrollmentSchoolID        uuid.UUID `json:"student_class_enrollments_school_id"`
 	StudentClassEnrollmentSchoolStudentID uuid.UUID `json:"student_class_enrollments_school_student_id"`
-	StudentClassEnrollmentClassID         uuid.UUID `json:"student_class_enrollments_class_id"`
+
+	// ⬇️ Class ID utama (dipakai untuk JSON response)
+	StudentClassEnrollmentClassID uuid.UUID `json:"student_class_enrollments_class_id"`
+
+	// ⬇️ Convenience field internal (dipakai di controller/payment)
+	// nggak keluar di JSON
+	ClassID uuid.UUID `json:"-"`
+
+	// include=class_sections → akan diisi di enrichEnrollmentClassSections
+	ClassSections []csDTO.ClassSectionCompact `json:"class_sections,omitempty"`
 
 	StudentClassEnrollmentStatus      m.ClassEnrollmentStatus `json:"student_class_enrollments_status"`
 	StudentClassEnrollmentTotalDueIDR int64                   `json:"student_class_enrollments_total_due_idr"`
@@ -142,21 +152,26 @@ type StudentClassEnrollmentResponse struct {
 	StudentClassEnrollmentUpdatedAt time.Time `json:"student_class_enrollments_updated_at"`
 
 	// ===== Convenience (mirror snapshot, bukan kolom DB) =====
-	StudentClassEnrollmentStudentName string  `json:"student_class_enrollments_student_name,omitempty"` // mirror dari snapshot
-	StudentClassEnrollmentUsername    *string `json:"student_class_enrollments_username,omitempty"`     // join user (jika ada)
-	StudentClassEnrollmentClassName   string  `json:"student_class_enrollments_class_name,omitempty"`   // mirror dari snapshot
+	StudentClassEnrollmentStudentName string  `json:"student_class_enrollments_student_name,omitempty"`
+	StudentClassEnrollmentUsername    *string `json:"student_class_enrollments_username,omitempty"`
+	StudentClassEnrollmentClassName   string  `json:"student_class_enrollments_class_name,omitempty"`
 }
 
-/* ======================================================
-   Mappers
-====================================================== */
+/*
+	======================================================
+	  Mappers
+======================================================
+*/
 
 func FromModelStudentClassEnrollment(mo *m.StudentClassEnrollmentModel) StudentClassEnrollmentResponse {
 	resp := StudentClassEnrollmentResponse{
 		StudentClassEnrollmentID:              mo.StudentClassEnrollmentsID,
 		StudentClassEnrollmentSchoolID:        mo.StudentClassEnrollmentsSchoolID,
 		StudentClassEnrollmentSchoolStudentID: mo.StudentClassEnrollmentsSchoolStudentID,
-		StudentClassEnrollmentClassID:         mo.StudentClassEnrollmentsClassID,
+
+		// ⬇️ isi dua-duanya: field JSON + convenience
+		StudentClassEnrollmentClassID: mo.StudentClassEnrollmentsClassID,
+		ClassID:                       mo.StudentClassEnrollmentsClassID,
 
 		StudentClassEnrollmentStatus:      mo.StudentClassEnrollmentsStatus,
 		StudentClassEnrollmentTotalDueIDR: mo.StudentClassEnrollmentsTotalDueIDR,
@@ -184,22 +199,21 @@ func FromModelStudentClassEnrollment(mo *m.StudentClassEnrollmentModel) StudentC
 		StudentClassEnrollmentClassName:   mo.StudentClassEnrollmentsClassNameSnapshot,
 	}
 
-	// ===== Term denormalized (pointer fields)
+	// Term
 	resp.StudentClassEnrollmentTermID = mo.StudentClassEnrollmentsTermID
 	resp.StudentClassEnrollmentTermAcademicYearSnapshot = mo.StudentClassEnrollmentsTermAcademicYearSnapshot
 	resp.StudentClassEnrollmentTermNameSnapshot = mo.StudentClassEnrollmentsTermNameSnapshot
 	resp.StudentClassEnrollmentTermSlugSnapshot = mo.StudentClassEnrollmentsTermSlugSnapshot
 	resp.StudentClassEnrollmentTermAngkatanSnapshot = mo.StudentClassEnrollmentsTermAngkatanSnapshot
 
-	// ===== CLASS SECTION (opsional)
+	// Class section
 	resp.StudentClassEnrollmentClassSectionID = mo.StudentClassEnrollmentsClassSectionID
 	resp.StudentClassEnrollmentClassSectionNameSnapshot = mo.StudentClassEnrollmentsClassSectionNameSnapshot
 	resp.StudentClassEnrollmentClassSectionSlugSnapshot = mo.StudentClassEnrollmentsClassSectionSlugSnapshot
 
-	// ===== Payment (optional)
+	// Payment
 	resp.StudentClassEnrollmentPaymentID = mo.StudentClassEnrollmentsPaymentID
 
-	// JSON → map[string]interface{}
 	if b := mo.StudentClassEnrollmentsPaymentSnapshot; len(b) > 0 && string(b) != "null" {
 		_ = json.Unmarshal(b, &resp.StudentClassEnrollmentPaymentSnapshot)
 	}
@@ -235,4 +249,11 @@ type BulkUpdateEnrollmentStatusRequest struct {
 	WaitlistedAt  *time.Time              `json:"student_class_enrollments_waitlisted_at"`
 	RejectedAt    *time.Time              `json:"student_class_enrollments_rejected_at"`
 	CanceledAt    *time.Time              `json:"student_class_enrollments_canceled_at"`
+}
+
+// Optional DTOs (Payment assign & Bulk status)
+// ...
+
+type JoinClassSectionRequest struct {
+	ClassSectionID uuid.UUID `json:"class_section_id" validate:"required"`
 }

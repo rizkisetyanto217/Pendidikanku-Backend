@@ -1106,3 +1106,84 @@ func CSSTLiteSliceFromModels(rows []csstModel.ClassSectionSubjectTeacherModel) [
 	}
 	return out
 }
+
+// ===== COMPACT DTO (untuk embed di tempat lain, misal enrollment) =====
+
+type ClassSectionCompact struct {
+	ClassSectionID      uuid.UUID  `json:"class_section_id"`
+	ClassSectionName    string     `json:"class_section_name"`
+	ClassSectionClassID *uuid.UUID `json:"class_section_class_id,omitempty"`
+	ClassSectionSlug    *string    `json:"class_section_slug,omitempty"`
+
+	// Info dasar tambahan
+	ClassSectionCode     *string `json:"class_section_code,omitempty"`
+	ClassSectionSchedule *string `json:"class_section_schedule,omitempty"`
+
+	ClassSectionCapacity      *int `json:"class_section_capacity,omitempty"`
+	ClassSectionTotalStudents int  `json:"class_section_total_students"`
+	ClassSectionIsActive      bool `json:"class_section_is_active"`
+
+	// Link & image
+	ClassSectionGroupURL *string `json:"class_section_group_url,omitempty"`
+	ClassSectionImageURL *string `json:"class_section_image_url,omitempty"`
+
+	// Homeroom teacher (wali kelas) - pakai ID + slug saja
+	ClassSectionSchoolTeacherID           *uuid.UUID `json:"class_section_school_teacher_id,omitempty"`
+	ClassSectionSchoolTeacherSlugSnapshot *string    `json:"class_section_school_teacher_slug_snapshot,omitempty"`
+
+	// Room
+	ClassSectionClassRoomID               *uuid.UUID `json:"class_section_class_room_id,omitempty"`
+	ClassSectionClassRoomSlugSnapshot     *string    `json:"class_section_class_room_slug_snapshot,omitempty"`
+	ClassSectionClassRoomNameSnapshot     *string    `json:"class_section_class_room_name_snapshot,omitempty"`
+	ClassSectionClassRoomLocationSnapshot *string    `json:"class_section_class_room_location_snapshot,omitempty"`
+
+	// TERM
+	ClassSectionAcademicTermID                   *uuid.UUID `json:"class_section_academic_term_id,omitempty"`
+	ClassSectionAcademicTermNameSnapshot         *string    `json:"class_section_academic_term_name_snapshot,omitempty"`
+	ClassSectionAcademicTermSlugSnapshot         *string    `json:"class_section_academic_term_slug_snapshot,omitempty"`
+	ClassSectionAcademicTermAcademicYearSnapshot *string    `json:"class_section_academic_term_academic_year_snapshot,omitempty"`
+	ClassSectionAcademicTermAngkatanSnapshot     *int       `json:"class_section_academic_term_angkatan_snapshot,omitempty"`
+}
+
+// FromModelsCompact: mapping dari []ClassSectionModel → []ClassSectionCompact
+func FromModelsCompact(rows []m.ClassSectionModel) []ClassSectionCompact {
+	out := make([]ClassSectionCompact, 0, len(rows))
+	for _, cs := range rows {
+		// bikin copy biar aman pointer ke slug
+		slug := cs.ClassSectionSlug
+
+		item := ClassSectionCompact{
+			ClassSectionID:      cs.ClassSectionID,
+			ClassSectionName:    cs.ClassSectionName,
+			ClassSectionClassID: cs.ClassSectionClassID,
+			ClassSectionSlug:    &slug,
+
+			ClassSectionCode:     cs.ClassSectionCode,
+			ClassSectionSchedule: cs.ClassSectionSchedule,
+
+			ClassSectionCapacity:      cs.ClassSectionCapacity,
+			ClassSectionTotalStudents: cs.ClassSectionTotalStudents,
+			ClassSectionIsActive:      cs.ClassSectionIsActive,
+
+			ClassSectionGroupURL: cs.ClassSectionGroupURL,
+			ClassSectionImageURL: cs.ClassSectionImageURL,
+
+			ClassSectionSchoolTeacherID:           cs.ClassSectionSchoolTeacherID,
+			ClassSectionSchoolTeacherSlugSnapshot: cs.ClassSectionSchoolTeacherSlugSnapshot,
+
+			ClassSectionClassRoomID:               cs.ClassSectionClassRoomID,
+			ClassSectionClassRoomSlugSnapshot:     cs.ClassSectionClassRoomSlugSnapshot,
+			ClassSectionClassRoomNameSnapshot:     cs.ClassSectionClassRoomNameSnapshot,
+			ClassSectionClassRoomLocationSnapshot: cs.ClassSectionClassRoomLocationSnapshot,
+
+			ClassSectionAcademicTermID:                   cs.ClassSectionAcademicTermID,
+			ClassSectionAcademicTermNameSnapshot:         cs.ClassSectionAcademicTermNameSnapshot,
+			ClassSectionAcademicTermSlugSnapshot:         cs.ClassSectionAcademicTermSlugSnapshot,
+			ClassSectionAcademicTermAcademicYearSnapshot: cs.ClassSectionAcademicTermAcademicYearSnapshot,
+			ClassSectionAcademicTermAngkatanSnapshot:     cs.ClassSectionAcademicTermAngkatanSnapshot,
+		}
+
+		out = append(out, item)
+	}
+	return out
+}

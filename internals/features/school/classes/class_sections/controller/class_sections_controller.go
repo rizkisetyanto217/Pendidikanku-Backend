@@ -316,46 +316,20 @@ func pickImageFile(c *fiber.Ctx, names ...string) *multipart.FileHeader {
    HANDLERS
 ========================================================= */
 // POST /admin/class-sections
+// POST /admin/class-sections
 func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	log.Printf("[SECTIONS][CREATE] ▶️ incoming request")
 
-	// ---- School context ----
-	mc, err := helperAuth.ResolveSchoolContext(c)
+	// ---- School context: SELALU dari token/context (bukan slug/path) ----
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
-		var fe *fiber.Error
-		if errors.As(err, &fe) {
-			return helper.JsonError(c, fe.Code, fe.Message)
-		}
-		return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak valid")
-	}
-
-	var schoolID uuid.UUID
-	switch {
-	case mc.ID != uuid.Nil:
-		schoolID = mc.ID
-
-	case strings.TrimSpace(mc.Slug) != "":
-		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
-		if er != nil {
-			return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
-		}
-		schoolID = id
-
-	default:
-		id, er := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
-		if er != nil || id == uuid.Nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak ditemukan")
-		}
-		schoolID = id
+		// ResolveSchoolIDFromContext sudah balikin JsonError yang proper
+		return err
 	}
 
 	// ⬇️ hanya DKM/admin yang boleh buat section
 	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
-		var fe *fiber.Error
-		if errors.As(err, &fe) {
-			return helper.JsonError(c, fe.Code, fe.Message)
-		}
-		return helper.JsonError(c, fiber.StatusForbidden, "Hanya DKM/admin yang diizinkan mengelola section")
+		return err
 	}
 
 	// ---- Parse req ----
@@ -556,10 +530,17 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 }
 
 // PATCH /admin/class-sections/:id
+// PATCH /admin/class-sections/:id
 func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 	sectionID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
+	}
+
+	// 🔐 Selalu pakai school_id dari token/context
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
+	if err != nil {
+		return err
 	}
 
 	// Decode request (support JSON & multipart)
@@ -593,8 +574,14 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Guard akses DKM/admin pada school terkait
-	if err := helperAuth.EnsureDKMSchool(c, existing.ClassSectionSchoolID); err != nil {
+	// 🔒 Tenant guard: section harus milik school di token
+	if existing.ClassSectionSchoolID != schoolID {
+		_ = tx.Rollback()
+		return helper.JsonError(c, fiber.StatusForbidden, "Section bukan milik school Anda")
+	}
+
+	// Guard akses DKM/admin pada school terkait (pakai schoolID dari token)
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -637,7 +624,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		if req.ClassSectionClassRoomID.Value != nil {
 			rs, err := sectionroomsnap.ValidateAndSnapshotRoom(
 				tx,
-				existing.ClassSectionSchoolID,
+				schoolID,
 				*req.ClassSectionClassRoomID.Value,
 			)
 			if err != nil {
@@ -662,7 +649,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		if req.ClassSectionSchoolTeacherID.Value != nil {
 			ts, err := teachersnap.ValidateAndSnapshotTeacher(
 				tx,
-				existing.ClassSectionSchoolID,
+				schoolID,
 				*req.ClassSectionSchoolTeacherID.Value,
 			)
 			if err != nil {
@@ -700,7 +687,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 			func(q *gorm.DB) *gorm.DB {
 				return q.Where(
 					"class_section_school_id = ? AND class_section_id <> ? AND class_section_deleted_at IS NULL",
-					existing.ClassSectionSchoolID, existing.ClassSectionID,
+					schoolID, existing.ClassSectionID,
 				)
 			},
 			160,
@@ -722,7 +709,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 			func(q *gorm.DB) *gorm.DB {
 				return q.Where(
 					"class_section_school_id = ? AND class_section_id <> ? AND class_section_deleted_at IS NULL",
-					existing.ClassSectionSchoolID, existing.ClassSectionID,
+					schoolID, existing.ClassSectionID,
 				)
 			},
 			160,
@@ -870,6 +857,12 @@ func (ctrl *ClassSectionController) SoftDeleteClassSection(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
 	}
 
+	// 🔐 Selalu pakai school_id dari token/context
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
+	if err != nil {
+		return err
+	}
+
 	tx := ctrl.DB.WithContext(c.Context()).Begin()
 	if tx.Error != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, tx.Error.Error())
@@ -892,8 +885,14 @@ func (ctrl *ClassSectionController) SoftDeleteClassSection(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
+	// 🔒 Tenant guard: section harus milik school di token
+	if m.ClassSectionSchoolID != schoolID {
+		_ = tx.Rollback()
+		return helper.JsonError(c, fiber.StatusForbidden, "Section bukan milik school Anda")
+	}
+
 	// Guard akses DKM/admin pada school terkait
-	if err := helperAuth.EnsureDKMSchool(c, m.ClassSectionSchoolID); err != nil {
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
