@@ -1,20 +1,61 @@
+// file: internals/features/school/classes/class_section_subject_teachers/controller/student_csst_list_controller.go
 package controller
 
 import (
+	"strings"
+	"time"
+
 	dto "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/dto"
 	model "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
-	"strings"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 )
+
+/* =========================================================
+   Types untuk include=csst
+   ========================================================= */
+
+type CSSTIncluded struct {
+	ID                  uuid.UUID `json:"class_section_subject_teacher_id"`
+	Slug                *string   `json:"class_section_subject_teacher_slug,omitempty"`
+	SubjectName         *string   `json:"class_section_subject_teacher_subject_name_snapshot,omitempty"`
+	SubjectCode         *string   `json:"class_section_subject_teacher_subject_code_snapshot,omitempty"`
+	SubjectSlug         *string   `json:"class_section_subject_teacher_subject_slug_snapshot,omitempty"`
+	TeacherNameSnapshot *string   `json:"class_section_subject_teacher_school_teacher_name_snapshot,omitempty"`
+	ClassSectionID      uuid.UUID `json:"class_section_subject_teacher_class_section_id"`
+	ClassSectionName    *string   `json:"class_section_subject_teacher_class_section_name_snapshot,omitempty"`
+	ClassSectionCode    *string   `json:"class_section_subject_teacher_class_section_code_snapshot,omitempty"`
+	ClassSectionSlug    *string   `json:"class_section_subject_teacher_class_section_slug_snapshot,omitempty"`
+	DeliveryMode        string    `json:"class_section_subject_teacher_delivery_mode"`
+	EnrolledCount       int       `json:"class_section_subject_teacher_enrolled_count"`
+	MinPassingScore     *int      `json:"class_section_subject_teacher_min_passing_score,omitempty"`
+	ClassRoomName       *string   `json:"class_section_subject_teacher_class_room_name_snapshot,omitempty"`
+	CreatedAt           string    `json:"class_section_subject_teacher_created_at"`
+	UpdatedAt           string    `json:"class_section_subject_teacher_updated_at"`
+	IsActive            bool      `json:"class_section_subject_teacher_is_active"`
+	DeletedAt           *string   `json:"class_section_subject_teacher_deleted_at,omitempty"`
+	SchoolID            uuid.UUID `json:"class_section_subject_teacher_school_id"`
+}
+
+type StudentCSSTWithCSST struct {
+	dto.StudentCSSTItem
+	CSST *CSSTIncluded `json:"class_section_subject_teacher,omitempty"`
+}
 
 /* =========================================================
    LIST
    ========================================================= */
 
 // GET /api/a/student-csst
+// ?student_id=<uuid>
+// ?csst_id=<uuid>   // alias, diisi ke q.CSSTID
+// ?is_active=true|false
+// ?include=csst
+// ?q=...
+// ?page=1&page_size=20
 func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 	// 1) School context dari token
 	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
@@ -27,13 +68,34 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		return err
 	}
 
-	// 3) Parse query
+	// 3) Parse query ke struct
 	var q dto.StudentCSSTListQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "query params tidak valid")
 	}
 
-	// default paging
+	// 🔹 Alias: ?csst_id=<uuid> → isi q.CSSTID (override kalau ada)
+	if raw := strings.TrimSpace(c.Query("csst_id")); raw != "" {
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "csst_id tidak valid")
+		}
+		q.CSSTID = &id
+	}
+
+	// --- parse include ---
+	includeRaw := strings.ToLower(strings.TrimSpace(c.Query("include")))
+	wantCSST := false
+	if includeRaw != "" {
+		for _, p := range strings.Split(includeRaw, ",") {
+			switch strings.TrimSpace(p) {
+			case "csst", "class_section_subject_teacher", "class_section_subject_teachers":
+				wantCSST = true
+			}
+		}
+	}
+
+	// default paging (pakai q.Page & q.PageSize sesuai DTO kamu)
 	if q.Page <= 0 {
 		q.Page = 1
 	}
@@ -90,19 +152,12 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal menghitung total")
 	}
 
+	// Kalau kosong, langsung balikin list kosong + pagination standar
 	if total == 0 {
-		resp := dto.StudentCSSTListResponse{
-			Data: []dto.StudentCSSTItem{},
-			Meta: dto.PageMeta{
-				Total:       0,
-				Page:        q.Page,
-				PageSize:    q.PageSize,
-				TotalPages:  0,
-				HasNext:     false,
-				HasPrevious: false,
-			},
-		}
-		return helper.JsonOK(c, "ok", resp)
+		pagination := helper.BuildPaginationFromPage(total, q.Page, q.PageSize)
+		// list kosong, nggak masalah mau include csst atau nggak → tetap []
+		empty := []dto.StudentCSSTItem{}
+		return helper.JsonList(c, "ok", empty, pagination)
 	}
 
 	// 6) Ambil page
@@ -114,22 +169,95 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal mengambil data")
 	}
 
-	items := make([]dto.StudentCSSTItem, 0, len(rows))
-	for i := range rows {
-		items = append(items, toStudentCSSTItem(&rows[i]))
+	pagination := helper.BuildPaginationFromPage(total, q.Page, q.PageSize)
+
+	// ---------- mode default: TANPA include=csst ----------
+	if !wantCSST {
+		items := make([]dto.StudentCSSTItem, 0, len(rows))
+		for i := range rows {
+			items = append(items, toStudentCSSTItem(&rows[i]))
+		}
+
+		// ✅ format: { success, message, data: [...], pagination: {...} }
+		return helper.JsonList(c, "ok", items, pagination)
 	}
 
-	totalPages := int((total + int64(q.PageSize) - 1) / int64(q.PageSize))
-	resp := dto.StudentCSSTListResponse{
-		Data: items,
-		Meta: dto.PageMeta{
-			Total:       total,
-			Page:        q.Page,
-			PageSize:    q.PageSize,
-			TotalPages:  totalPages,
-			HasNext:     q.Page < totalPages,
-			HasPrevious: q.Page > 1,
-		},
+	// =====================================================
+	//  MODE include=csst → embed detail CSST di tiap item
+	// =====================================================
+
+	// 1) kumpulkan csst_id unik dari rows
+	csstSet := make(map[uuid.UUID]struct{})
+	for i := range rows {
+		if rows[i].StudentClassSectionSubjectTeacherCSSTID != uuid.Nil {
+			csstSet[rows[i].StudentClassSectionSubjectTeacherCSSTID] = struct{}{}
+		}
 	}
-	return helper.JsonOK(c, "ok", resp)
+
+	csstIDs := make([]uuid.UUID, 0, len(csstSet))
+	for id := range csstSet {
+		csstIDs = append(csstIDs, id)
+	}
+
+	// 2) query tabel class_section_subject_teachers
+	csstMap := make(map[uuid.UUID]*CSSTIncluded)
+
+	if len(csstIDs) > 0 {
+		var csstRows []model.ClassSectionSubjectTeacherModel
+		if err := ctl.DB.WithContext(c.Context()).
+			Model(&model.ClassSectionSubjectTeacherModel{}).
+			Where("class_section_subject_teacher_school_id = ?", schoolID).
+			Where("class_section_subject_teacher_id IN ?", csstIDs).
+			Find(&csstRows).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal mengambil data csst")
+		}
+
+		for i := range csstRows {
+			cs := csstRows[i]
+			item := &CSSTIncluded{
+				ID:                  cs.ClassSectionSubjectTeacherID,
+				Slug:                cs.ClassSectionSubjectTeacherSlug,
+				SubjectName:         cs.ClassSectionSubjectTeacherSubjectNameSnapshot,
+				SubjectCode:         cs.ClassSectionSubjectTeacherSubjectCodeSnapshot,
+				SubjectSlug:         cs.ClassSectionSubjectTeacherSubjectSlugSnapshot,
+				TeacherNameSnapshot: cs.ClassSectionSubjectTeacherSchoolTeacherNameSnapshot,
+				ClassSectionID:      cs.ClassSectionSubjectTeacherClassSectionID,
+				ClassSectionName:    cs.ClassSectionSubjectTeacherClassSectionNameSnapshot,
+				ClassSectionCode:    cs.ClassSectionSubjectTeacherClassSectionCodeSnapshot,
+				ClassSectionSlug:    cs.ClassSectionSubjectTeacherClassSectionSlugSnapshot,
+				DeliveryMode:        string(cs.ClassSectionSubjectTeacherDeliveryMode),
+				EnrolledCount:       cs.ClassSectionSubjectTeacherEnrolledCount,
+				MinPassingScore:     cs.ClassSectionSubjectTeacherMinPassingScore,
+				ClassRoomName:       cs.ClassSectionSubjectTeacherClassRoomNameSnapshot,
+				IsActive:            cs.ClassSectionSubjectTeacherIsActive,
+				SchoolID:            cs.ClassSectionSubjectTeacherSchoolID,
+				CreatedAt:           cs.ClassSectionSubjectTeacherCreatedAt.Format(time.RFC3339),
+				UpdatedAt:           cs.ClassSectionSubjectTeacherUpdatedAt.Format(time.RFC3339),
+			}
+			if cs.ClassSectionSubjectTeacherDeletedAt.Valid {
+				s := cs.ClassSectionSubjectTeacherDeletedAt.Time.Format(time.RFC3339)
+				item.DeletedAt = &s
+			}
+			csstMap[cs.ClassSectionSubjectTeacherID] = item
+		}
+	}
+
+	// 3) bentuk payload: item + csst nested
+	out := make([]StudentCSSTWithCSST, 0, len(rows))
+	for i := range rows {
+		base := toStudentCSSTItem(&rows[i])
+
+		var included *CSSTIncluded
+		if cs, ok := csstMap[rows[i].StudentClassSectionSubjectTeacherCSSTID]; ok {
+			included = cs
+		}
+
+		out = append(out, StudentCSSTWithCSST{
+			StudentCSSTItem: base,
+			CSST:            included,
+		})
+	}
+
+	// ✅ Response final: { success, message, data: [...], pagination: {...} }
+	return helper.JsonList(c, "ok", out, pagination)
 }

@@ -17,7 +17,8 @@ import (
 
 // GET /api/u/student-class-sections/list
 // ?school_student_id=me|<uuid,uuid2,...>
-// ?section_id=<uuid,uuid2,...>
+// ?section_id=<uuid,uuid2,...>        // alias lama
+// ?class_section_id=<uuid,uuid2,...>  // alias baru
 // ?status=active|inactive|completed
 // ?q=...
 // ?include=class_sections,csst
@@ -128,13 +129,37 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		searchTerm = strings.TrimSpace(c.Query("q"))
 	)
 
+	// 🔹 section_id (lama)
 	if raw := strings.TrimSpace(c.Query("section_id")); raw != "" {
 		ids, e := parseUUIDList(raw)
 		if e != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "section_id tidak valid: "+e.Error())
 		}
-		secIDs = ids
+		secIDs = append(secIDs, ids...)
 	}
+
+	// 🔹 class_section_id (alias baru)
+	if raw := strings.TrimSpace(c.Query("class_section_id")); raw != "" {
+		ids, e := parseUUIDList(raw)
+		if e != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "class_section_id tidak valid: "+e.Error())
+		}
+		secIDs = append(secIDs, ids...)
+	}
+
+	// (opsional) hilangkan duplikat secIDs
+	if len(secIDs) > 1 {
+		tmpSet := make(map[uuid.UUID]struct{}, len(secIDs))
+		uniq := make([]uuid.UUID, 0, len(secIDs))
+		for _, id := range secIDs {
+			if _, ok := tmpSet[id]; !ok {
+				tmpSet[id] = struct{}{}
+				uniq = append(uniq, id)
+			}
+		}
+		secIDs = uniq
+	}
+
 	if s := strings.TrimSpace(c.Query("status")); s != "" {
 		status = s
 	}
@@ -207,7 +232,7 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	//  MODE include=class_sections / csst
 	// =====================================================================
 
-	// 1) Kumpulkan section_id unik
+	// 1) Kumpulkan section_id unik dari hasil query
 	secIDSet := make(map[uuid.UUID]struct{})
 	for i := range rows {
 		secIDSet[rows[i].StudentClassSectionSectionID] = struct{}{}
@@ -285,7 +310,8 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	// 3) Query class_sections
 	if len(secIDs) > 0 {
 		var secRows []classSectionModel.ClassSectionModel
-		if err := tx.
+		if err := ctl.DB.WithContext(c.Context()).
+			Model(&classSectionModel.ClassSectionModel{}).
 			Where(`
 				class_section_id IN ?
 				AND class_section_school_id = ?
@@ -335,7 +361,8 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	// 4) Query CSST & attach ke masing-masing section
 	if includeCSST && len(secIDs) > 0 {
 		var csstRows []csstModel.ClassSectionSubjectTeacherModel
-		if err := tx.
+		if err := ctl.DB.WithContext(c.Context()).
+			Model(&csstModel.ClassSectionSubjectTeacherModel{}).
 			Where(`
 				class_section_subject_teacher_school_id = ?
 				AND class_section_subject_teacher_deleted_at IS NULL
