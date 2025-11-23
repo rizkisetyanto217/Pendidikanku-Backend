@@ -3,9 +3,10 @@ package controller
 
 import (
 	"strings"
+	"time"
 
 	dto "schoolku_backend/internals/features/school/classes/class_sections/dto"
-	model "schoolku_backend/internals/features/school/classes/class_sections/model"
+	classSectionModel "schoolku_backend/internals/features/school/classes/class_sections/model"
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
 
@@ -18,6 +19,7 @@ import (
 // ?section_id=<uuid,uuid2,...>
 // ?status=active|inactive|completed
 // ?q=...
+// ?include=class_sections
 // ?page=1&size=20
 func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	// 1) school dari TOKEN
@@ -36,6 +38,19 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	}
 
 	tx := ctl.DB.WithContext(c.Context())
+
+	// ----------------- PARSE INCLUDE -----------------
+	includeRaw := strings.TrimSpace(c.Query("include"))
+	var includeClassSections bool
+	if includeRaw != "" {
+		parts := strings.Split(includeRaw, ",")
+		for _, p := range parts {
+			if strings.TrimSpace(p) == "class_sections" {
+				includeClassSections = true
+				break
+			}
+		}
+	}
 
 	// ----------------- RESOLVE school_student_id -----------------
 	rawSchoolStudent := strings.TrimSpace(c.Query("school_student_id"))
@@ -122,7 +137,7 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	}
 
 	// BASE QUERY
-	q := tx.Model(&model.StudentClassSection{}).
+	q := tx.Model(&classSectionModel.StudentClassSection{}).
 		Where(`
 			student_class_section_school_id = ?
 			AND student_class_section_deleted_at IS NULL
@@ -155,7 +170,7 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	}
 
 	// DATA
-	var rows []model.StudentClassSection
+	var rows []classSectionModel.StudentClassSection
 	if err := q.
 		Order("student_class_section_created_at DESC").
 		Limit(size).
@@ -164,15 +179,144 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// MAP ke DTO
-	out := make([]dto.StudentClassSectionResp, 0, len(rows))
-	for i := range rows {
-		out = append(out, dto.FromModel(&rows[i]))
-	}
-
 	// pagination style standar
 	pagination := helper.BuildPaginationFromOffset(total, offset, size)
 
-	// ⬅️ sekarang tanpa "items"/"meta", langsung array di "data"
+	// =====================================================================
+	//  MODE TANPA INCLUDE → balikkan seperti sebelumnya (backward compatible)
+	// =====================================================================
+	if !includeClassSections {
+		out := make([]dto.StudentClassSectionResp, 0, len(rows))
+		for i := range rows {
+			out = append(out, dto.FromModel(&rows[i]))
+		}
+		return helper.JsonList(c, "OK", out, pagination)
+	}
+
+	// =====================================================================
+	//  MODE include=class_sections
+	//  - Ambil semua section_id
+	//  - Query ke tabel class_sections
+	//  - Embed ke tiap item di field "class_section"
+	// =====================================================================
+
+	// 1) Kumpulkan section_id unik
+	secIDSet := make(map[uuid.UUID]struct{})
+	for i := range rows {
+		secIDSet[rows[i].StudentClassSectionSectionID] = struct{}{}
+	}
+
+	secIDs = make([]uuid.UUID, 0, len(secIDSet))
+	for id := range secIDSet {
+		secIDs = append(secIDs, id)
+	}
+
+	// 2) Query ke tabel class_sections
+	type ClassSectionIncluded struct {
+		ID            uuid.UUID  `json:"class_section_id"`
+		SchoolID      uuid.UUID  `json:"class_section_school_id"`
+		ClassID       *uuid.UUID `json:"class_section_class_id,omitempty"`
+		Slug          string     `json:"class_section_slug"`
+		Name          string     `json:"class_section_name"`
+		Code          *string    `json:"class_section_code,omitempty"`
+		Schedule      *string    `json:"class_section_schedule,omitempty"`
+		Capacity      *int       `json:"class_section_capacity,omitempty"`
+		TotalStudents int        `json:"class_section_total_students"`
+		GroupURL      *string    `json:"class_section_group_url,omitempty"`
+		IsActive      bool       `json:"class_section_is_active"`
+
+		// 🔹 Tambahan: image fields
+		ImageURL                *string    `json:"class_section_image_url,omitempty"`
+		ImageObjectKey          *string    `json:"class_section_image_object_key,omitempty"`
+		ImageURLOld             *string    `json:"class_section_image_url_old,omitempty"`
+		ImageObjectKeyOld       *string    `json:"class_section_image_object_key_old,omitempty"`
+		ImageDeletePendingUntil *time.Time `json:"class_section_image_delete_pending_until,omitempty"`
+
+		ClassNameSnapshot        *string    `json:"class_section_class_name_snapshot,omitempty"`
+		ClassSlugSnapshot        *string    `json:"class_section_class_slug_snapshot,omitempty"`
+		ClassParentID            *uuid.UUID `json:"class_section_class_parent_id,omitempty"`
+		ClassParentNameSnapshot  *string    `json:"class_section_class_parent_name_snapshot,omitempty"`
+		ClassParentSlugSnapshot  *string    `json:"class_section_class_parent_slug_snapshot,omitempty"`
+		ClassParentLevelSnapshot *int16     `json:"class_section_class_parent_level_snapshot,omitempty"`
+		SchoolTeacherID          *uuid.UUID `json:"class_section_school_teacher_id,omitempty"`
+		ClassRoomID              *uuid.UUID `json:"class_section_class_room_id,omitempty"`
+		AcademicTermID           *uuid.UUID `json:"class_section_academic_term_id,omitempty"`
+	}
+
+	classSectionMap := make(map[uuid.UUID]*ClassSectionIncluded)
+
+	if len(secIDs) > 0 {
+		var secRows []classSectionModel.ClassSectionModel
+		if err := tx.
+			Where(`
+                class_section_id IN ?
+                AND class_section_school_id = ?
+                AND class_section_deleted_at IS NULL
+            `, secIDs, schoolID).
+			Find(&secRows).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data class sections")
+		}
+
+		for i := range secRows {
+			cs := secRows[i]
+
+			item := &ClassSectionIncluded{
+				ID:            cs.ClassSectionID,
+				SchoolID:      cs.ClassSectionSchoolID,
+				ClassID:       cs.ClassSectionClassID,
+				Slug:          cs.ClassSectionSlug,
+				Name:          cs.ClassSectionName,
+				Code:          cs.ClassSectionCode,
+				Schedule:      cs.ClassSectionSchedule,
+				Capacity:      cs.ClassSectionCapacity,
+				TotalStudents: cs.ClassSectionTotalStudents,
+				GroupURL:      cs.ClassSectionGroupURL,
+				IsActive:      cs.ClassSectionIsActive,
+
+				ClassNameSnapshot:        cs.ClassSectionClassNameSnapshot,
+				ClassSlugSnapshot:        cs.ClassSectionClassSlugSnapshot,
+				ClassParentID:            cs.ClassSectionClassParentID,
+				ClassParentNameSnapshot:  cs.ClassSectionClassParentNameSnapshot,
+				ClassParentSlugSnapshot:  cs.ClassSectionClassParentSlugSnapshot,
+				ClassParentLevelSnapshot: cs.ClassSectionClassParentLevelSnapshot,
+				SchoolTeacherID:          cs.ClassSectionSchoolTeacherID,
+				ClassRoomID:              cs.ClassSectionClassRoomID,
+				AcademicTermID:           cs.ClassSectionAcademicTermID,
+			}
+
+			// 🔹 Set field image di sini
+			item.ImageURL = cs.ClassSectionImageURL
+			item.ImageObjectKey = cs.ClassSectionImageObjectKey
+			item.ImageURLOld = cs.ClassSectionImageURLOld
+			item.ImageObjectKeyOld = cs.ClassSectionImageObjectKeyOld
+			item.ImageDeletePendingUntil = cs.ClassSectionImageDeletePendingUntil
+
+			classSectionMap[cs.ClassSectionID] = item
+		}
+
+	}
+
+	// 3) Bentuk DTO nested
+	type StudentClassSectionWithClassSectionResp struct {
+		dto.StudentClassSectionResp
+		ClassSection *ClassSectionIncluded `json:"class_section,omitempty"`
+	}
+
+	out := make([]StudentClassSectionWithClassSectionResp, 0, len(rows))
+	for i := range rows {
+		base := dto.FromModel(&rows[i])
+
+		var included *ClassSectionIncluded
+		if cs, ok := classSectionMap[rows[i].StudentClassSectionSectionID]; ok {
+			included = cs
+		}
+
+		out = append(out, StudentClassSectionWithClassSectionResp{
+			StudentClassSectionResp: base,
+			ClassSection:            included,
+		})
+	}
+
 	return helper.JsonList(c, "OK", out, pagination)
+
 }
