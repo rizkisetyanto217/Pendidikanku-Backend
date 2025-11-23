@@ -11,6 +11,7 @@ import (
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
 
+	csstModel "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
 	csDTO "schoolku_backend/internals/features/school/classes/class_sections/dto"
 	csModel "schoolku_backend/internals/features/school/classes/class_sections/model"
 
@@ -78,16 +79,23 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 	// view mode
 	view := strings.ToLower(strings.TrimSpace(c.Query("view"))) // "", "compact", "summary", "full"
 
-	// include mode (?include=class_sections)
+	// include mode (?include=class_sections,csst)
 	includeRaw := strings.ToLower(strings.TrimSpace(c.Query("include")))
 	wantClassSections := false
+	wantCSST := false
 	if includeRaw != "" {
 		for _, p := range strings.Split(includeRaw, ",") {
-			if strings.TrimSpace(p) == "class_sections" {
+			switch strings.TrimSpace(p) {
+			case "class_sections":
 				wantClassSections = true
-				break
+			case "csst", "cssts", "class_section_subject_teachers":
+				wantCSST = true
 			}
 		}
+	}
+	// kalau minta CSST otomatis butuh class_sections juga
+	if wantCSST {
+		wantClassSections = true
 	}
 
 	// paging (masih pakai helper page/per_page)
@@ -220,7 +228,7 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 	// ========== mapping sesuai view ==========
 	if view == "compact" || view == "summary" {
 		compact := dto.FromModelsCompact(rows)
-		// NOTE: include=class_sections saat ini hanya dipakai di view=full
+		// NOTE: include=class_sections/csst saat ini hanya dipakai di view=full
 		return helper.JsonList(c, "ok", compact, pagination)
 	}
 
@@ -230,9 +238,9 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 	// (opsional) enrich convenience fields tambahan (Username, dll.)
 	enrichEnrollmentExtras(c.Context(), ctl.DB, schoolID, resp)
 
-	// (opsional) include class_sections per class
+	// (opsional) include class_sections (+csst)
 	if wantClassSections {
-		if err := enrichEnrollmentClassSections(c.Context(), ctl.DB, schoolID, resp); err != nil {
+		if err := enrichEnrollmentClassSections(c.Context(), ctl.DB, schoolID, resp, wantCSST); err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "failed to load class sections")
 		}
 	}
@@ -240,12 +248,14 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 	return helper.JsonList(c, "ok", resp, pagination)
 }
 
-// include: class_sections (group by class_id) – versi generic pakai refleksi
+// include: class_sections (group by class_id)
+// kalau withCSST = true → sekalian tempel array CSST per section
 func enrichEnrollmentClassSections(
 	ctx context.Context,
 	db *gorm.DB,
 	schoolID uuid.UUID,
 	items any, // biar nggak tergantung nama tipe DTO
+	withCSST bool,
 ) error {
 	v := reflect.ValueOf(items)
 	if v.Kind() != reflect.Slice {
@@ -299,24 +309,58 @@ func enrichEnrollmentClassSections(
 		Find(&secs).Error; err != nil {
 		return err
 	}
-
 	if len(secs) == 0 {
 		return nil
 	}
 
-	// 3) Konversi ke DTO compact
+	// 3) Konversi ke DTO compact (sama seperti sebelumnya)
 	compact := csDTO.FromModelsCompact(secs)
 
-	// 4) Group per class_id (pakai ClassSectionClassID dari compact)
+	// 4) Kalau diminta CSST, query CSST & group by section_id
+	var csstBySection map[uuid.UUID][]csstModel.ClassSectionSubjectTeacherModel
+	if withCSST {
+		csstBySection = make(map[uuid.UUID][]csstModel.ClassSectionSubjectTeacherModel)
+
+		sectionIDs := make([]uuid.UUID, 0, len(secs))
+		for _, s := range secs {
+			sectionIDs = append(sectionIDs, s.ClassSectionID)
+		}
+
+		var csstRows []csstModel.ClassSectionSubjectTeacherModel
+		if err := db.WithContext(ctx).
+			Model(&csstModel.ClassSectionSubjectTeacherModel{}).
+			Where("class_section_subject_teacher_school_id = ?", schoolID).
+			Where("class_section_subject_teacher_deleted_at IS NULL").
+			Where("class_section_subject_teacher_class_section_id IN ?", sectionIDs).
+			Find(&csstRows).Error; err != nil {
+			return err
+		}
+
+		for _, r := range csstRows {
+			secID := r.ClassSectionSubjectTeacherClassSectionID
+			csstBySection[secID] = append(csstBySection[secID], r)
+		}
+	}
+
+	// 5) Group per class_id (pakai ClassSectionClassID dari compact)
 	byClass := make(map[uuid.UUID][]csDTO.ClassSectionCompact)
-	for _, s := range compact {
+	for i, s := range compact {
 		if s.ClassSectionClassID == nil || *s.ClassSectionClassID == uuid.Nil {
 			continue
 		}
+
+		// kalau withCSST → tempel dulu ke field SubjectTeachers di compact
+		if withCSST {
+			secModel := secs[i] // FromModelsCompact biasanya preserve urutan
+			if list, ok := csstBySection[secModel.ClassSectionID]; ok && len(list) > 0 {
+				s.SubjectTeachers = list
+			}
+		}
+
 		byClass[*s.ClassSectionClassID] = append(byClass[*s.ClassSectionClassID], s)
 	}
 
-	// 5) Tempel ke tiap enrollment lewat field `ClassSections`
+	// 6) Tempel ke tiap enrollment lewat field `ClassSections`
 	sectionsSliceType := reflect.TypeOf([]csDTO.ClassSectionCompact{})
 
 	for i := 0; i < v.Len(); i++ {

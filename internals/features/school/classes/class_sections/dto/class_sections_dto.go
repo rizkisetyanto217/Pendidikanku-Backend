@@ -1143,6 +1143,8 @@ type ClassSectionCompact struct {
 	ClassSectionAcademicTermSlugSnapshot         *string    `json:"class_section_academic_term_slug_snapshot,omitempty"`
 	ClassSectionAcademicTermAcademicYearSnapshot *string    `json:"class_section_academic_term_academic_year_snapshot,omitempty"`
 	ClassSectionAcademicTermAngkatanSnapshot     *int       `json:"class_section_academic_term_angkatan_snapshot,omitempty"`
+
+	SubjectTeachers []csstModel.ClassSectionSubjectTeacherModel `json:"class_section_subject_teachers,omitempty"`
 }
 
 // FromModelsCompact: mapping dari []ClassSectionModel → []ClassSectionCompact

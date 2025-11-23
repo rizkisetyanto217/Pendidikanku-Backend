@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	csstModel "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
 	dto "schoolku_backend/internals/features/school/classes/class_sections/dto"
 	classSectionModel "schoolku_backend/internals/features/school/classes/class_sections/model"
 	helper "schoolku_backend/internals/helpers"
@@ -19,7 +20,7 @@ import (
 // ?section_id=<uuid,uuid2,...>
 // ?status=active|inactive|completed
 // ?q=...
-// ?include=class_sections
+// ?include=class_sections,csst
 // ?page=1&size=20
 func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	// 1) school dari TOKEN
@@ -42,14 +43,23 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	// ----------------- PARSE INCLUDE -----------------
 	includeRaw := strings.TrimSpace(c.Query("include"))
 	var includeClassSections bool
+	var includeCSST bool
+
 	if includeRaw != "" {
 		parts := strings.Split(includeRaw, ",")
 		for _, p := range parts {
-			if strings.TrimSpace(p) == "class_sections" {
+			switch strings.TrimSpace(p) {
+			case "class_sections":
 				includeClassSections = true
-				break
+			case "csst", "cssts", "class_section_subject_teachers":
+				includeCSST = true
 			}
 		}
+	}
+
+	// kalau minta CSST, otomatis butuh class_sections juga
+	if includeCSST {
+		includeClassSections = true
 	}
 
 	// ----------------- RESOLVE school_student_id -----------------
@@ -185,7 +195,7 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	// =====================================================================
 	//  MODE TANPA INCLUDE → balikkan seperti sebelumnya (backward compatible)
 	// =====================================================================
-	if !includeClassSections {
+	if !includeClassSections && !includeCSST {
 		out := make([]dto.StudentClassSectionResp, 0, len(rows))
 		for i := range rows {
 			out = append(out, dto.FromModel(&rows[i]))
@@ -194,10 +204,7 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	}
 
 	// =====================================================================
-	//  MODE include=class_sections
-	//  - Ambil semua section_id
-	//  - Query ke tabel class_sections
-	//  - Embed ke tiap item di field "class_section"
+	//  MODE include=class_sections / csst
 	// =====================================================================
 
 	// 1) Kumpulkan section_id unik
@@ -211,7 +218,35 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		secIDs = append(secIDs, id)
 	}
 
-	// 2) Query ke tabel class_sections
+	// ---- Tipe nested untuk CSST ----
+	type CSSTIncluded struct {
+		ID                                 uuid.UUID                   `json:"class_section_subject_teacher_id"`
+		Slug                               *string                     `json:"class_section_subject_teacher_slug,omitempty"`
+		Description                        *string                     `json:"class_section_subject_teacher_description,omitempty"`
+		GroupURL                           *string                     `json:"class_section_subject_teacher_group_url,omitempty"`
+		TotalAttendance                    int                         `json:"class_section_subject_teacher_total_attendance"`
+		TotalMeetingsTarget                *int                        `json:"class_section_subject_teacher_total_meetings_target,omitempty"`
+		Capacity                           *int                        `json:"class_section_subject_teacher_capacity,omitempty"`
+		EnrolledCount                      int                         `json:"class_section_subject_teacher_enrolled_count"`
+		TotalAssessments                   int                         `json:"class_section_subject_teacher_total_assessments"`
+		TotalAssessmentsGraded             int                         `json:"class_section_subject_teacher_total_assessments_graded"`
+		TotalAssessmentsUngraded           int                         `json:"class_section_subject_teacher_total_assessments_ungraded"`
+		TotalStudentsPassed                int                         `json:"class_section_subject_teacher_total_students_passed"`
+		DeliveryMode                       csstModel.ClassDeliveryMode `json:"class_section_subject_teacher_delivery_mode"`
+		ClassSectionID                     uuid.UUID                   `json:"class_section_subject_teacher_class_section_id"`
+		ClassRoomNameSnapshot              *string                     `json:"class_section_subject_teacher_class_room_name_snapshot,omitempty"`
+		SchoolTeacherNameSnapshot          *string                     `json:"class_section_subject_teacher_school_teacher_name_snapshot,omitempty"`
+		AssistantSchoolTeacherNameSnapshot *string                     `json:"class_section_subject_teacher_assistant_school_teacher_name_snapshot,omitempty"`
+		SubjectNameSnapshot                *string                     `json:"class_section_subject_teacher_subject_name_snapshot,omitempty"`
+		SubjectCodeSnapshot                *string                     `json:"class_section_subject_teacher_subject_code_snapshot,omitempty"`
+		SubjectSlugSnapshot                *string                     `json:"class_section_subject_teacher_subject_slug_snapshot,omitempty"`
+		MinPassingScore                    *int                        `json:"class_section_subject_teacher_min_passing_score,omitempty"`
+		IsActive                           bool                        `json:"class_section_subject_teacher_is_active"`
+		CreatedAt                          time.Time                   `json:"class_section_subject_teacher_created_at"`
+		UpdatedAt                          time.Time                   `json:"class_section_subject_teacher_updated_at"`
+	}
+
+	// 2) Tipe nested untuk ClassSection + CSST list
 	type ClassSectionIncluded struct {
 		ID            uuid.UUID  `json:"class_section_id"`
 		SchoolID      uuid.UUID  `json:"class_section_school_id"`
@@ -225,7 +260,6 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		GroupURL      *string    `json:"class_section_group_url,omitempty"`
 		IsActive      bool       `json:"class_section_is_active"`
 
-		// 🔹 Tambahan: image fields
 		ImageURL                *string    `json:"class_section_image_url,omitempty"`
 		ImageObjectKey          *string    `json:"class_section_image_object_key,omitempty"`
 		ImageURLOld             *string    `json:"class_section_image_url_old,omitempty"`
@@ -241,18 +275,22 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		SchoolTeacherID          *uuid.UUID `json:"class_section_school_teacher_id,omitempty"`
 		ClassRoomID              *uuid.UUID `json:"class_section_class_room_id,omitempty"`
 		AcademicTermID           *uuid.UUID `json:"class_section_academic_term_id,omitempty"`
+
+		// list CSST
+		SubjectTeachers []*CSSTIncluded `json:"class_section_subject_teachers,omitempty"`
 	}
 
 	classSectionMap := make(map[uuid.UUID]*ClassSectionIncluded)
 
+	// 3) Query class_sections
 	if len(secIDs) > 0 {
 		var secRows []classSectionModel.ClassSectionModel
 		if err := tx.
 			Where(`
-                class_section_id IN ?
-                AND class_section_school_id = ?
-                AND class_section_deleted_at IS NULL
-            `, secIDs, schoolID).
+				class_section_id IN ?
+				AND class_section_school_id = ?
+				AND class_section_deleted_at IS NULL
+			`, secIDs, schoolID).
 			Find(&secRows).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data class sections")
 		}
@@ -273,6 +311,12 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 				GroupURL:      cs.ClassSectionGroupURL,
 				IsActive:      cs.ClassSectionIsActive,
 
+				ImageURL:                cs.ClassSectionImageURL,
+				ImageObjectKey:          cs.ClassSectionImageObjectKey,
+				ImageURLOld:             cs.ClassSectionImageURLOld,
+				ImageObjectKeyOld:       cs.ClassSectionImageObjectKeyOld,
+				ImageDeletePendingUntil: cs.ClassSectionImageDeletePendingUntil,
+
 				ClassNameSnapshot:        cs.ClassSectionClassNameSnapshot,
 				ClassSlugSnapshot:        cs.ClassSectionClassSlugSnapshot,
 				ClassParentID:            cs.ClassSectionClassParentID,
@@ -284,19 +328,60 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 				AcademicTermID:           cs.ClassSectionAcademicTermID,
 			}
 
-			// 🔹 Set field image di sini
-			item.ImageURL = cs.ClassSectionImageURL
-			item.ImageObjectKey = cs.ClassSectionImageObjectKey
-			item.ImageURLOld = cs.ClassSectionImageURLOld
-			item.ImageObjectKeyOld = cs.ClassSectionImageObjectKeyOld
-			item.ImageDeletePendingUntil = cs.ClassSectionImageDeletePendingUntil
-
 			classSectionMap[cs.ClassSectionID] = item
 		}
-
 	}
 
-	// 3) Bentuk DTO nested
+	// 4) Query CSST & attach ke masing-masing section
+	if includeCSST && len(secIDs) > 0 {
+		var csstRows []csstModel.ClassSectionSubjectTeacherModel
+		if err := tx.
+			Where(`
+				class_section_subject_teacher_school_id = ?
+				AND class_section_subject_teacher_deleted_at IS NULL
+				AND class_section_subject_teacher_class_section_id IN ?
+			`, schoolID, secIDs).
+			Find(&csstRows).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data subject teachers")
+		}
+
+		for i := range csstRows {
+			r := csstRows[i]
+
+			ci := &CSSTIncluded{
+				ID:                                 r.ClassSectionSubjectTeacherID,
+				Slug:                               r.ClassSectionSubjectTeacherSlug,
+				Description:                        r.ClassSectionSubjectTeacherDescription,
+				GroupURL:                           r.ClassSectionSubjectTeacherGroupURL,
+				TotalAttendance:                    r.ClassSectionSubjectTeacherTotalAttendance,
+				TotalMeetingsTarget:                r.ClassSectionSubjectTeacherTotalMeetingsTarget,
+				Capacity:                           r.ClassSectionSubjectTeacherCapacity,
+				EnrolledCount:                      r.ClassSectionSubjectTeacherEnrolledCount,
+				TotalAssessments:                   r.ClassSectionSubjectTeacherTotalAssessments,
+				TotalAssessmentsGraded:             r.ClassSectionSubjectTeacherTotalAssessmentsGraded,
+				TotalAssessmentsUngraded:           r.ClassSectionSubjectTeacherTotalAssessmentsUngraded,
+				TotalStudentsPassed:                r.ClassSectionSubjectTeacherTotalStudentsPassed,
+				DeliveryMode:                       r.ClassSectionSubjectTeacherDeliveryMode,
+				ClassSectionID:                     r.ClassSectionSubjectTeacherClassSectionID,
+				ClassRoomNameSnapshot:              r.ClassSectionSubjectTeacherClassRoomNameSnapshot,
+				SchoolTeacherNameSnapshot:          r.ClassSectionSubjectTeacherSchoolTeacherNameSnapshot,
+				AssistantSchoolTeacherNameSnapshot: r.ClassSectionSubjectTeacherAssistantSchoolTeacherNameSnapshot,
+				SubjectNameSnapshot:                r.ClassSectionSubjectTeacherSubjectNameSnapshot,
+				SubjectCodeSnapshot:                r.ClassSectionSubjectTeacherSubjectCodeSnapshot,
+				SubjectSlugSnapshot:                r.ClassSectionSubjectTeacherSubjectSlugSnapshot,
+				MinPassingScore:                    r.ClassSectionSubjectTeacherMinPassingScore,
+				IsActive:                           r.ClassSectionSubjectTeacherIsActive,
+				CreatedAt:                          r.ClassSectionSubjectTeacherCreatedAt,
+				UpdatedAt:                          r.ClassSectionSubjectTeacherUpdatedAt,
+			}
+
+			if sec, ok := classSectionMap[r.ClassSectionSubjectTeacherClassSectionID]; ok {
+				sec.SubjectTeachers = append(sec.SubjectTeachers, ci)
+			}
+		}
+	}
+
+	// 5) Bentuk DTO nested
 	type StudentClassSectionWithClassSectionResp struct {
 		dto.StudentClassSectionResp
 		ClassSection *ClassSectionIncluded `json:"class_section,omitempty"`
@@ -318,5 +403,4 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	}
 
 	return helper.JsonList(c, "OK", out, pagination)
-
 }
