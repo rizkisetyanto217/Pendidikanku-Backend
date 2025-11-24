@@ -1,11 +1,11 @@
 package controller
 
 import (
-	"schoolku_backend/internals/features/users/user_teachers/model"
+	"strconv"
 	"strings"
 
 	userdto "schoolku_backend/internals/features/users/user_teachers/dto"
-
+	"schoolku_backend/internals/features/users/user_teachers/model"
 	helper "schoolku_backend/internals/helpers"
 
 	"github.com/gofiber/fiber/v2"
@@ -14,11 +14,15 @@ import (
 // GET /api/user-teachers
 // Query params:
 //
-//	q         : string (opsional) -> cari di user_teacher_name
-//	page      : int (default 1)
-//	per_page  : int (default 25, max 200)  -- sesuai DefaultOpts
-//	sort_by   : "created_at" (default) | "name"
-//	order     : "asc" | "desc" (default "desc")
+//	q            : string (opsional) -> cari di user_teacher_name
+//	page         : int (default 1)
+//	per_page     : int (default 25, max 200)  -- sesuai DefaultOpts
+//	sort_by      : "created_at" (default) | "name" | "completed" | "verified"
+//	order        : "asc" | "desc" (default "desc")
+//	is_active    : "true"/"false" (opsional, default: semua)
+//	is_verified  : "true"/"false" (opsional)
+//	is_completed : "true"/"false" (opsional)
+//
 //	(alias lama: limit/offset/sort juga masih didukung via ParseFiber)
 func (uc *UserTeacherController) List(c *fiber.Ctx) error {
 	q := strings.TrimSpace(c.Query("q"))
@@ -30,6 +34,8 @@ func (uc *UserTeacherController) List(c *fiber.Ctx) error {
 	allowed := map[string]string{
 		"created_at": "user_teacher_created_at",
 		"name":       "user_teacher_name",
+		"completed":  "user_teacher_is_completed",
+		"verified":   "user_teacher_is_verified",
 	}
 
 	orderClause, err := params.SafeOrderClause(allowed, "created_at")
@@ -41,9 +47,36 @@ func (uc *UserTeacherController) List(c *fiber.Ctx) error {
 
 	db := uc.DB.Model(&model.UserTeacherModel{})
 
-	// Filter (opsional): hanya aktif
-	// db = db.Where("user_teacher_is_active = ?", true)
+	// ================== FILTER OPSIONAL: STATUS ==================
 
+	// is_active
+	if raw := strings.TrimSpace(c.Query("is_active")); raw != "" {
+		val, err := strconv.ParseBool(raw)
+		if err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Parameter is_active harus boolean (true/false)")
+		}
+		db = db.Where("user_teacher_is_active = ?", val)
+	}
+
+	// is_verified
+	if raw := strings.TrimSpace(c.Query("is_verified")); raw != "" {
+		val, err := strconv.ParseBool(raw)
+		if err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Parameter is_verified harus boolean (true/false)")
+		}
+		db = db.Where("user_teacher_is_verified = ?", val)
+	}
+
+	// is_completed
+	if raw := strings.TrimSpace(c.Query("is_completed")); raw != "" {
+		val, err := strconv.ParseBool(raw)
+		if err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Parameter is_completed harus boolean (true/false)")
+		}
+		db = db.Where("user_teacher_is_completed = ?", val)
+	}
+
+	// ================== SEARCH ==================
 	// Search by name (ILIKE %q%)
 	if q != "" {
 		if len([]rune(q)) < 2 {
@@ -52,13 +85,13 @@ func (uc *UserTeacherController) List(c *fiber.Ctx) error {
 		db = db.Where("user_teacher_name ILIKE ?", "%"+q+"%")
 	}
 
-	// Hitung total sebelum limit/offset
+	// ================== COUNT ==================
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data")
 	}
 
-	// Pagination + Sorting
+	// ================== PAGINATION + SORTING ==================
 	if !params.All { // kalau per_page=all, biarkan limit dari preset (AllHardCap) via params.Limit()
 		db = db.Limit(params.Limit()).Offset(params.Offset())
 	} else {
@@ -66,7 +99,7 @@ func (uc *UserTeacherController) List(c *fiber.Ctx) error {
 	}
 	db = db.Order(orderBy)
 
-	// Fetch
+	// ================== FETCH ==================
 	var rows []model.UserTeacherModel
 	if err := db.Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")

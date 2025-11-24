@@ -56,7 +56,7 @@ type UsersProfileDTO struct {
 	UserProfileAvatarObjectKeyOld       *string    `json:"user_profile_avatar_object_key_old,omitempty"`
 	UserProfileAvatarDeletePendingUntil *time.Time `json:"user_profile_avatar_delete_pending_until,omitempty"`
 
-	// Privasi & verifikasi profil
+	// Privasi & verifikasi profil (oleh platform)
 	UserProfileIsPublicProfile bool       `json:"user_profile_is_public_profile"`
 	UserProfileIsVerified      bool       `json:"user_profile_is_verified"`
 	UserProfileVerifiedAt      *time.Time `json:"user_profile_verified_at,omitempty"`
@@ -70,6 +70,10 @@ type UsersProfileDTO struct {
 	// Arrays
 	UserProfileInterests []string `json:"user_profile_interests"`
 	UserProfileSkills    []string `json:"user_profile_skills"`
+
+	// Status kelengkapan profil
+	UserProfileIsCompleted bool       `json:"user_profile_is_completed"`
+	UserProfileCompletedAt *time.Time `json:"user_profile_completed_at,omitempty"`
 
 	// Audit
 	UserProfileCreatedAt time.Time  `json:"user_profile_created_at"`
@@ -127,9 +131,13 @@ func ToUsersProfileDTO(m profilemodel.UserProfileModel) UsersProfileDTO {
 		UserProfilePosition:                 m.UserProfilePosition,
 		UserProfileInterests:                []string(m.UserProfileInterests),
 		UserProfileSkills:                   []string(m.UserProfileSkills),
-		UserProfileCreatedAt:                m.UserProfileCreatedAt,
-		UserProfileUpdatedAt:                m.UserProfileUpdatedAt,
-		UserProfileDeletedAt:                deletedAtPtr,
+
+		UserProfileIsCompleted: m.UserProfileIsCompleted,
+		UserProfileCompletedAt: m.UserProfileCompletedAt,
+
+		UserProfileCreatedAt: m.UserProfileCreatedAt,
+		UserProfileUpdatedAt: m.UserProfileUpdatedAt,
+		UserProfileDeletedAt: deletedAtPtr,
 	}
 }
 

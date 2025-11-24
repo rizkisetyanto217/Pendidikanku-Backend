@@ -117,7 +117,7 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 	var (
 		sectionIDs []uuid.UUID
 		classIDs   []uuid.UUID
-		teacherIDs []uuid.UUID // NEW: filter by school_teacher
+		teacherIDs []uuid.UUID // filter by school_teacher
 		activeOnly *bool
 	)
 
@@ -139,7 +139,7 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		classIDs = ids
 	}
 
-	// NEW: filter by school_teacher_id (alias: teacher_id), mendukung multi
+	// filter by school_teacher_id (alias: teacher_id), mendukung multi
 	rawTeacher := strings.TrimSpace(c.Query("school_teacher_id"))
 	if rawTeacher == "" {
 		rawTeacher = strings.TrimSpace(c.Query("teacher_id"))
@@ -156,7 +156,10 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		v := c.QueryBool("is_active")
 		activeOnly = &v
 	}
+
 	withCSST := c.QueryBool("with_csst")
+	// lebih eksplisit: include student_class_sections
+	withStudentSections := c.QueryBool("with_student_class_sections")
 
 	// ---------- Query base ----------
 	tx := ctrl.DB.
@@ -172,7 +175,7 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		tx = tx.Where("class_section_class_id IN ?", classIDs)
 	}
 
-	// 🔥 apply filter wali/teacher section ke kolom FK
+	// filter wali/teacher section ke kolom FK
 	if len(teacherIDs) > 0 {
 		tx = tx.Where("class_section_school_teacher_id IN ?", teacherIDs)
 	}
@@ -180,6 +183,7 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 	if activeOnly != nil {
 		tx = tx.Where("class_section_is_active = ?", *activeOnly)
 	}
+
 	if searchTerm != "" {
 		s := "%" + strings.ToLower(searchTerm) + "%"
 		tx = tx.Where(`
@@ -219,65 +223,138 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 
 	pagination := helper.BuildPaginationFromOffset(total, pg.Offset, pg.Limit)
 
-	// ---------- Inject CSST ----------
-	if withCSST {
-		targetIDs := sectionIDs
-		if len(targetIDs) == 0 {
-			targetIDs = idsInPage
-		}
-
-		if len(targetIDs) > 0 {
-			var csstRows []csstModel.ClassSectionSubjectTeacherModel
-			csstQ := ctrl.DB.
-				Model(&csstModel.ClassSectionSubjectTeacherModel{}).
-				Where("class_section_subject_teacher_deleted_at IS NULL").
-				Where("class_section_subject_teacher_school_id = ?", schoolID).
-				Where("class_section_subject_teacher_class_section_id IN ?", targetIDs)
-			if activeOnly != nil {
-				csstQ = csstQ.Where("class_section_subject_teacher_is_active = ?", *activeOnly)
-			}
-			if err := csstQ.Find(&csstRows).Error; err != nil {
-				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil CSST")
-			}
-
-			// group by class_section_id
-			bySection := make(map[uuid.UUID][]csstModel.ClassSectionSubjectTeacherModel, len(targetIDs))
-			for i := range csstRows {
-				r := csstRows[i]
-				bySection[r.ClassSectionSubjectTeacherClassSectionID] =
-					append(bySection[r.ClassSectionSubjectTeacherClassSectionID], r)
-			}
-
-			out := make([]fiber.Map, 0, len(items))
-			for i := range items {
-				b, _ := json.Marshal(items[i])
-				var m fiber.Map
-				_ = json.Unmarshal(b, &m)
-
-				m["class_sections_csst"] = []secDTO.CSSTItemLite{}
-				m["class_sections_csst_count"] = 0
-				m["class_sections_csst_active_count"] = 0
-
-				secID := items[i].ClassSectionID
-				if list, ok := bySection[secID]; ok && len(list) > 0 {
-					lite := secDTO.CSSTLiteSliceFromModels(list)
-					active := 0
-					for _, it := range list {
-						if it.ClassSectionSubjectTeacherIsActive {
-							active++
-						}
-					}
-					m["class_sections_csst"] = lite
-					m["class_sections_csst_count"] = len(lite)
-					m["class_sections_csst_active_count"] = active
-				}
-				out = append(out, m)
-			}
-			return helper.JsonList(c, "ok", out, pagination)
-		}
-
+	// =========================================================
+	//  INCLUDE: CSST & STUDENT_CLASS_SECTIONS (bisa keduanya)
+	// =========================================================
+	if !withCSST && !withStudentSections {
+		// nggak ada include → simple
 		return helper.JsonList(c, "ok", items, pagination)
 	}
 
-	return helper.JsonList(c, "ok", items, pagination)
+	// Target section IDs untuk query relasi
+	targetIDs := sectionIDs
+	if len(targetIDs) == 0 {
+		targetIDs = idsInPage
+	}
+
+	// Base: konversi item ke map + index by section_id
+	out := make([]fiber.Map, 0, len(items))
+	indexBySection := make(map[uuid.UUID]int, len(items))
+
+	for i := range items {
+		b, _ := json.Marshal(items[i])
+		var m fiber.Map
+		_ = json.Unmarshal(b, &m)
+
+		// init field CSST kalau diminta
+		if withCSST {
+			m["class_sections_csst"] = []secDTO.CSSTItemLite{}
+			m["class_sections_csst_count"] = 0
+			m["class_sections_csst_active_count"] = 0
+		}
+
+		// init field student_class_sections kalau diminta
+		if withStudentSections {
+			m["class_sections_student_class_sections"] = []secDTO.StudentClassSectionResp{}
+			m["class_sections_student_class_sections_count"] = 0
+			m["class_sections_student_class_sections_active_count"] = 0
+		}
+
+		out = append(out, m)
+		indexBySection[items[i].ClassSectionID] = i
+	}
+
+	// ---------- Inject CSST ----------
+	if withCSST && len(targetIDs) > 0 {
+		var csstRows []csstModel.ClassSectionSubjectTeacherModel
+		csstQ := ctrl.DB.
+			Model(&csstModel.ClassSectionSubjectTeacherModel{}).
+			Where("class_section_subject_teacher_deleted_at IS NULL").
+			Where("class_section_subject_teacher_school_id = ?", schoolID).
+			Where("class_section_subject_teacher_class_section_id IN ?", targetIDs)
+
+		if activeOnly != nil {
+			csstQ = csstQ.Where("class_section_subject_teacher_is_active = ?", *activeOnly)
+		}
+
+		if err := csstQ.Find(&csstRows).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil CSST")
+		}
+
+		// group by class_section_id
+		bySection := make(map[uuid.UUID][]csstModel.ClassSectionSubjectTeacherModel, len(targetIDs))
+		for i := range csstRows {
+			r := csstRows[i]
+			bySection[r.ClassSectionSubjectTeacherClassSectionID] =
+				append(bySection[r.ClassSectionSubjectTeacherClassSectionID], r)
+		}
+
+		for secID, list := range bySection {
+			idx, ok := indexBySection[secID]
+			if !ok {
+				continue
+			}
+			lite := secDTO.CSSTLiteSliceFromModels(list)
+			activeCnt := 0
+			for _, it := range list {
+				if it.ClassSectionSubjectTeacherIsActive {
+					activeCnt++
+				}
+			}
+			out[idx]["class_sections_csst"] = lite
+			out[idx]["class_sections_csst_count"] = len(lite)
+			out[idx]["class_sections_csst_active_count"] = activeCnt
+		}
+	}
+
+	// ---------- Inject student_class_sections ----------
+	if withStudentSections && len(targetIDs) > 0 {
+		var scsRows []secModel.StudentClassSection
+
+		scsQ := ctrl.DB.
+			Model(&secModel.StudentClassSection{}).
+			Where("student_class_section_deleted_at IS NULL").
+			Where("student_class_section_school_id = ?", schoolID).
+			Where("student_class_section_section_id IN ?", targetIDs)
+
+		// kalau is_active=true → hanya enrolment status=active
+		if activeOnly != nil && *activeOnly {
+			scsQ = scsQ.Where("student_class_section_status = ?", secModel.StudentClassSectionActive)
+		}
+
+		if err := scsQ.Find(&scsRows).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil student_class_sections")
+		}
+
+		bySection := make(map[uuid.UUID][]secModel.StudentClassSection, len(targetIDs))
+		for i := range scsRows {
+			r := scsRows[i]
+			bySection[r.StudentClassSectionSectionID] =
+				append(bySection[r.StudentClassSectionSectionID], r)
+		}
+
+		for secID, list := range bySection {
+			idx, ok := indexBySection[secID]
+			if !ok {
+				continue
+			}
+
+			dtos := make([]secDTO.StudentClassSectionResp, 0, len(list))
+			activeCnt := 0
+
+			for i := range list {
+				dtoItem := secDTO.FromModel(&list[i])
+				dtos = append(dtos, dtoItem)
+				if dtoItem.StudentClassSectionStatus == string(secModel.StudentClassSectionActive) {
+					activeCnt++
+				}
+			}
+
+			out[idx]["class_sections_student_class_sections"] = dtos
+			out[idx]["class_sections_student_class_sections_count"] = len(dtos)
+			out[idx]["class_sections_student_class_sections_active_count"] = activeCnt
+		}
+	}
+
+	return helper.JsonList(c, "ok", out, pagination)
 }

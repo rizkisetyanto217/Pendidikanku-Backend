@@ -179,6 +179,13 @@ func (upc *UsersProfileController) CreateProfile(c *fiber.Ctx) error {
 
 	row := in.ToModel(userID)
 
+	// === LOGIKA AUTO: set is_completed kalau gender + whatsapp sudah terisi ===
+	if row.UserProfileGender != nil && row.UserProfileWhatsappURL != nil && strings.TrimSpace(*row.UserProfileWhatsappURL) != "" {
+		row.UserProfileIsCompleted = true
+		now := time.Now()
+		row.UserProfileCompletedAt = &now
+	}
+
 	// Jika multipart + ada avatar, upload sekalian (scope: USER)
 	if isMultipart {
 		if fh, err := getImageFormFile(c); err == nil && fh != nil {
@@ -379,6 +386,45 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 		}
 	}
 
+	// === LOGIKA AUTO is_completed (berdasarkan gender + whatsapp efektif) ===
+	// Hitung gender & whatsapp SETELAH update (combine from before + updateMap)
+	effectiveGenderPresent := false
+	effectiveWhatsappPresent := false
+
+	// gender
+	if v, ok := updateMap["user_profile_gender"]; ok {
+		if s, ok2 := v.(string); ok2 && strings.TrimSpace(s) != "" {
+			effectiveGenderPresent = true
+		}
+	} else if before.UserProfileGender != nil && strings.TrimSpace(string(*before.UserProfileGender)) != "" {
+		effectiveGenderPresent = true
+	}
+
+	// whatsapp
+	if v, ok := updateMap["user_profile_whatsapp_url"]; ok {
+		if s, ok2 := v.(string); ok2 && strings.TrimSpace(s) != "" {
+			effectiveWhatsappPresent = true
+		}
+	} else if before.UserProfileWhatsappURL != nil && strings.TrimSpace(*before.UserProfileWhatsappURL) != "" {
+		effectiveWhatsappPresent = true
+	}
+
+	completedAfter := effectiveGenderPresent && effectiveWhatsappPresent
+
+	if completedAfter {
+		// tandai completed
+		updateMap["user_profile_is_completed"] = true
+		// hanya set completed_at kalau sebelumnya belum completed
+		if !before.UserProfileIsCompleted || before.UserProfileCompletedAt == nil {
+			updateMap["user_profile_completed_at"] = now
+		}
+	} else if hasAnyKey(updateMap, "user_profile_gender", "user_profile_whatsapp_url") {
+		// user menyentuh salah satu field, tapi akhirnya tidak lengkap:
+		// turunkan jadi not-completed supaya aman dari constraint
+		updateMap["user_profile_is_completed"] = false
+		updateMap["user_profile_completed_at"] = nil
+	}
+
 	if len(updateMap) == 1 { // cuma updated_at
 		return helper.JsonOK(c, "No changes", profileDTO.ToUsersProfileDTO(before))
 	}
@@ -405,9 +451,8 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 	// === SNAPSHOT SYNC → user_class_sections (nama, avatar, WA, orangtua) via service ===
 	// Trigger hanya jika ada field relevan yang berubah
 	if hasAnyKey(updateMap,
-		// pakai yang sesuai dengan ToUpdateMap kamu:
-		"user_profile_full_name_snapshot", // jika ToUpdateMap mengisi snapshot nama
-		"user_profile_name",               // kalau kamu masih menulis kolom nama biasa
+		"user_profile_full_name_snapshot", // kalau suatu saat kamu isi snapshot nama
+		"user_profile_name",
 		"user_profile_avatar_url",
 		"user_profile_whatsapp_url",
 		"user_profile_parent_name",
@@ -418,7 +463,7 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 			upc.DB,
 			snapshotUserSections.UserProfileSnapshotInput{
 				UserID:            after.UserProfileUserID,
-				UserProfileID:     &after.UserProfileID, // <<— KIRIMKAN ID PROFILNYA
+				UserProfileID:     &after.UserProfileID,
 				FullNameSnapshot:  after.UserProfileFullNameSnapshot,
 				AvatarURL:         after.UserProfileAvatarURL,
 				WhatsappURL:       after.UserProfileWhatsappURL,

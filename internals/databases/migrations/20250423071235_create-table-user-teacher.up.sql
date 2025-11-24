@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS user_teachers (
   user_teacher_user_id          UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 
   -- Profil ringkas
-  user_teacher_name             VARCHAR(80) NOT NULL,
+  user_teacher_name_snapshot    VARCHAR(80) NOT NULL,
   user_teacher_field            VARCHAR(80),
   user_teacher_short_bio        VARCHAR(300),
   user_teacher_long_bio         TEXT,
@@ -55,6 +55,10 @@ CREATE TABLE IF NOT EXISTS user_teachers (
   user_teacher_is_verified      BOOLEAN     NOT NULL DEFAULT FALSE,
   user_teacher_is_active        BOOLEAN     NOT NULL DEFAULT TRUE,
 
+  user_teacher_is_completed BOOLEAN NOT NULL DEFAULT FALSE,
+  user_teacher_completed_at TIMESTAMPTZ,
+
+
   -- Audit
   user_teacher_created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   user_teacher_updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -74,6 +78,29 @@ CREATE TABLE IF NOT EXISTS user_teachers (
     CHECK (user_teacher_certificates IS NULL
            OR jsonb_typeof(user_teacher_certificates) = 'array')
 );
+
+
+
+-- Constraint: kalau sudah completed, minimal wajib isi gender + whatsapp_url
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.table_constraints
+    WHERE constraint_name = 'ck_user_teachers_completed_requires_min_fields'
+      AND table_name = 'user_teachers'
+  ) THEN
+    ALTER TABLE user_teachers
+      ADD CONSTRAINT ck_user_teachers_completed_requires_min_fields
+      CHECK (
+        user_teacher_is_completed = FALSE
+        OR (
+          user_teacher_gender IS NOT NULL
+          AND user_teacher_whatsapp_url IS NOT NULL
+        )
+      );
+  END IF;
+END$$;
 
 -- =========================================
 -- INDEXES (SEARCH HANYA DI NAME)
@@ -108,5 +135,21 @@ CREATE INDEX IF NOT EXISTS gin_user_teachers_certificates
 -- Arsip waktu
 CREATE INDEX IF NOT EXISTS brin_user_teachers_created_at
   ON user_teachers USING brin (user_teacher_created_at);
+
+
+  -- ============================================
+-- INDEXING
+-- ============================================
+
+-- Index: filter/list cepat berdasarkan status completed (untuk onboarding guru)
+CREATE INDEX IF NOT EXISTS ix_ut_completed_status_created
+  ON user_teachers (user_teacher_is_completed, user_teacher_created_at DESC)
+  WHERE user_teacher_deleted_at IS NULL;
+
+-- Index: kombinasi completed + verified (buat listing publik / rekomendasi guru)
+CREATE INDEX IF NOT EXISTS ix_ut_completed_verified
+  ON user_teachers (user_teacher_is_completed, user_teacher_is_verified)
+  WHERE user_teacher_deleted_at IS NULL;
+
 
 COMMIT;

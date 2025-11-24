@@ -22,6 +22,7 @@ type UserProfileModel struct {
 	// FK & Unique per user
 	UserProfileUserID uuid.UUID `gorm:"type:uuid;not null;column:user_profile_user_id;uniqueIndex:uq_user_profile_user_id" json:"user_profile_user_id"`
 
+	// Snapshot nama user (dari users)
 	UserProfileFullNameSnapshot *string `gorm:"size:100;column:user_profile_full_name_snapshot" json:"user_profile_full_name_snapshot,omitempty"`
 
 	// Identitas dasar
@@ -58,7 +59,7 @@ type UserProfileModel struct {
 	UserProfileAvatarObjectKeyOld       *string    `gorm:"type:text;column:user_profile_avatar_object_key_old" json:"user_profile_avatar_object_key_old,omitempty"`
 	UserProfileAvatarDeletePendingUntil *time.Time `gorm:"column:user_profile_avatar_delete_pending_until" json:"user_profile_avatar_delete_pending_until,omitempty"`
 
-	// Privasi & verifikasi
+	// Privasi & verifikasi (oleh platform Pendidikanku)
 	UserProfileIsPublicProfile bool       `gorm:"not null;default:true;column:user_profile_is_public_profile" json:"user_profile_is_public_profile"`
 	UserProfileIsVerified      bool       `gorm:"not null;default:false;column:user_profile_is_verified" json:"user_profile_is_verified"`
 	UserProfileVerifiedAt      *time.Time `gorm:"column:user_profile_verified_at" json:"user_profile_verified_at,omitempty"`
@@ -72,6 +73,10 @@ type UserProfileModel struct {
 	// Interests & skills (text[])
 	UserProfileInterests pq.StringArray `gorm:"type:text[];column:user_profile_interests" json:"user_profile_interests"`
 	UserProfileSkills    pq.StringArray `gorm:"type:text[];column:user_profile_skills" json:"user_profile_skills"`
+
+	// Status kelengkapan profil (wajib gender + whatsapp kalau TRUE)
+	UserProfileIsCompleted bool       `gorm:"not null;default:false;column:user_profile_is_completed" json:"user_profile_is_completed"`
+	UserProfileCompletedAt *time.Time `gorm:"column:user_profile_completed_at" json:"user_profile_completed_at,omitempty"`
 
 	// Audit
 	UserProfileCreatedAt time.Time      `gorm:"autoCreateTime;column:user_profile_created_at" json:"user_profile_created_at"`

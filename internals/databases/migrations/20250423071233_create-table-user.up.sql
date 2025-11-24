@@ -108,6 +108,9 @@ CREATE TABLE IF NOT EXISTS user_profiles (
   user_profile_parent_name         VARCHAR(100),
   user_profile_parent_whatsapp_url TEXT,
 
+  user_profile_is_completed BOOLEAN NOT NULL DEFAULT FALSE,
+  user_profile_completed_at TIMESTAMPTZ,
+
   -- Audit
   user_profile_created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   user_profile_updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -122,6 +125,39 @@ CREATE TABLE IF NOT EXISTS user_profiles (
     user_profile_slug IS NULL OR user_profile_slug ~ '^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$'
   )
 );
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.table_constraints
+    WHERE constraint_name = 'ck_user_profiles_completed_requires_min_fields'
+      AND table_name = 'user_profiles'
+  ) THEN
+    ALTER TABLE user_profiles
+      ADD CONSTRAINT ck_user_profiles_completed_requires_min_fields
+      CHECK (
+        user_profile_is_completed = FALSE
+        OR (
+          user_profile_gender IS NOT NULL
+          AND user_profile_whatsapp_url IS NOT NULL
+        )
+      );
+  END IF;
+END$$;
+
+
+
+-- Index: filter/list cepat berdasarkan status completed (untuk onboarding)
+CREATE INDEX IF NOT EXISTS ix_up_completed_status_created
+  ON user_profiles (user_profile_is_completed, user_profile_created_at DESC)
+  WHERE user_profile_deleted_at IS NULL;
+
+-- Index: kombinasi completed + verified (buat listing publik / rekomendasi)
+CREATE INDEX IF NOT EXISTS ix_up_completed_verified
+  ON user_profiles (user_profile_is_completed, user_profile_is_verified)
+  WHERE user_profile_deleted_at IS NULL;
+
 
 -- Indexes (pakai prefix baru)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_user_profile_slug_alive

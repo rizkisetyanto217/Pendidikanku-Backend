@@ -33,11 +33,14 @@ type CSSTIncluded struct {
 	EnrolledCount       int       `json:"class_section_subject_teacher_enrolled_count"`
 	MinPassingScore     *int      `json:"class_section_subject_teacher_min_passing_score,omitempty"`
 	ClassRoomName       *string   `json:"class_section_subject_teacher_class_room_name_snapshot,omitempty"`
-	CreatedAt           string    `json:"class_section_subject_teacher_created_at"`
-	UpdatedAt           string    `json:"class_section_subject_teacher_updated_at"`
-	IsActive            bool      `json:"class_section_subject_teacher_is_active"`
-	DeletedAt           *string   `json:"class_section_subject_teacher_deleted_at,omitempty"`
-	SchoolID            uuid.UUID `json:"class_section_subject_teacher_school_id"`
+
+	// ⬇️ NEW
+	TotalBooks int       `json:"class_section_subject_teacher_total_books"`
+	CreatedAt  string    `json:"class_section_subject_teacher_created_at"`
+	UpdatedAt  string    `json:"class_section_subject_teacher_updated_at"`
+	IsActive   bool      `json:"class_section_subject_teacher_is_active"`
+	DeletedAt  *string   `json:"class_section_subject_teacher_deleted_at,omitempty"`
+	SchoolID   uuid.UUID `json:"class_section_subject_teacher_school_id"`
 }
 
 type StudentCSSTWithCSST struct {
@@ -233,6 +236,8 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 				SchoolID:            cs.ClassSectionSubjectTeacherSchoolID,
 				CreatedAt:           cs.ClassSectionSubjectTeacherCreatedAt.Format(time.RFC3339),
 				UpdatedAt:           cs.ClassSectionSubjectTeacherUpdatedAt.Format(time.RFC3339),
+				// ⬇️ NEW
+				TotalBooks: cs.ClassSectionSubjectTeacherTotalBooks,
 			}
 			if cs.ClassSectionSubjectTeacherDeletedAt.Valid {
 				s := cs.ClassSectionSubjectTeacherDeletedAt.Time.Format(time.RFC3339)

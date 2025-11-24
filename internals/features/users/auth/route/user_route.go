@@ -44,4 +44,7 @@ func AuthRoutes(app *fiber.App, db *gorm.DB) {
 	protectedAuth.Put("/update-user-name", authController.UpdateUserName)
 	protectedAuth.Get("/me/context", authController.GetMyContext)
 	protectedAuth.Get("/me/simple-context", authController.GetMySimpleContext)
+	// di AuthRoutes, setelah protectedAuth := app.Group("/api/:school_slug/auth")
+	protectedAuth.Get("/me/profile-completion", authController.GetMyProfileCompletion)
+
 }

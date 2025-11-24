@@ -11,11 +11,11 @@ import (
 
 type UserTeacherModel struct {
 	// PK & FK
-	UserTeacherID      uuid.UUID `json:"user_teacher_id" gorm:"type:uuid;primaryKey;column:user_teacher_id"`
-	UserTeacherUserID  uuid.UUID `json:"user_teacher_user_id" gorm:"type:uuid;not null;column:user_teacher_user_id;uniqueIndex:uq_user_teachers_user"`
+	UserTeacherID     uuid.UUID `json:"user_teacher_id" gorm:"type:uuid;primaryKey;column:user_teacher_id"`
+	UserTeacherUserID uuid.UUID `json:"user_teacher_user_id" gorm:"type:uuid;not null;column:user_teacher_user_id;uniqueIndex:uq_user_teachers_user"`
 
 	// Profil ringkas
-	UserTeacherName            string  `json:"user_teacher_name" gorm:"type:varchar(80);not null;column:user_teacher_name"`
+	UserTeacherNameSnapshot string `json:"user_teacher_name_snapshot" gorm:"type:varchar(100);not null;column:user_teacher_name_snapshot"`
 	UserTeacherField           *string `json:"user_teacher_field,omitempty" gorm:"type:varchar(80);column:user_teacher_field"`
 	UserTeacherShortBio        *string `json:"user_teacher_short_bio,omitempty" gorm:"type:varchar(300);column:user_teacher_short_bio"`
 	UserTeacherLongBio         *string `json:"user_teacher_long_bio,omitempty" gorm:"type:text;column:user_teacher_long_bio"`
@@ -42,11 +42,11 @@ type UserTeacherModel struct {
 	UserTeacherTelegramUsername *string `json:"user_teacher_telegram_username,omitempty" gorm:"type:varchar(50);column:user_teacher_telegram_username"`
 
 	// Avatar (single file, 2-slot + retensi 30 hari)
-	UserTeacherAvatarURL                  *string    `json:"user_teacher_avatar_url,omitempty" gorm:"type:text;column:user_teacher_avatar_url"`
-	UserTeacherAvatarObjectKey            *string    `json:"user_teacher_avatar_object_key,omitempty" gorm:"type:text;column:user_teacher_avatar_object_key"`
-	UserTeacherAvatarURLOld               *string    `json:"user_teacher_avatar_url_old,omitempty" gorm:"type:text;column:user_teacher_avatar_url_old"`
-	UserTeacherAvatarObjectKeyOld         *string    `json:"user_teacher_avatar_object_key_old,omitempty" gorm:"type:text;column:user_teacher_avatar_object_key_old"`
-	UserTeacherAvatarDeletePendingUntil   *time.Time `json:"user_teacher_avatar_delete_pending_until,omitempty" gorm:"column:user_teacher_avatar_delete_pending_until"`
+	UserTeacherAvatarURL                *string    `json:"user_teacher_avatar_url,omitempty" gorm:"type:text;column:user_teacher_avatar_url"`
+	UserTeacherAvatarObjectKey          *string    `json:"user_teacher_avatar_object_key,omitempty" gorm:"type:text;column:user_teacher_avatar_object_key"`
+	UserTeacherAvatarURLOld             *string    `json:"user_teacher_avatar_url_old,omitempty" gorm:"type:text;column:user_teacher_avatar_url_old"`
+	UserTeacherAvatarObjectKeyOld       *string    `json:"user_teacher_avatar_object_key_old,omitempty" gorm:"type:text;column:user_teacher_avatar_object_key_old"`
+	UserTeacherAvatarDeletePendingUntil *time.Time `json:"user_teacher_avatar_delete_pending_until,omitempty" gorm:"column:user_teacher_avatar_delete_pending_until"`
 
 	// Title
 	UserTeacherTitlePrefix *string `json:"user_teacher_title_prefix,omitempty" gorm:"type:varchar(60);column:user_teacher_title_prefix"`
@@ -56,6 +56,10 @@ type UserTeacherModel struct {
 	UserTeacherIsVerified bool `json:"user_teacher_is_verified" gorm:"not null;default:false;column:user_teacher_is_verified"`
 	UserTeacherIsActive   bool `json:"user_teacher_is_active" gorm:"not null;default:true;column:user_teacher_is_active"`
 
+	// Completion status (onboarding/profile)
+	UserTeacherIsCompleted bool       `json:"user_teacher_is_completed" gorm:"not null;default:false;column:user_teacher_is_completed"`
+	UserTeacherCompletedAt *time.Time `json:"user_teacher_completed_at,omitempty" gorm:"column:user_teacher_completed_at"`
+
 	// Audit
 	UserTeacherCreatedAt time.Time      `json:"user_teacher_created_at" gorm:"column:user_teacher_created_at;autoCreateTime"`
 	UserTeacherUpdatedAt time.Time      `json:"user_teacher_updated_at" gorm:"column:user_teacher_updated_at;autoUpdateTime"`
@@ -64,5 +68,3 @@ type UserTeacherModel struct {
 
 // TableName overrides the default pluralization.
 func (UserTeacherModel) TableName() string { return "user_teachers" }
-
-

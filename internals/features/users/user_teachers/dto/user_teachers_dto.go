@@ -19,7 +19,7 @@ type CreateUserTeacherRequest struct {
 	UserTeacherUserID uuid.UUID `json:"user_teacher_user_id" form:"user_teacher_user_id"`
 
 	// Profil ringkas
-	UserTeacherName            string `json:"user_teacher_name" form:"user_teacher_name" validate:"required,max=80"`
+	UserTeacherNameSnapshot    string `json:"user_teacher_name_snapshot" form:"user_teacher_name_snapshot" validate:"required,max=100"`
 	UserTeacherField           string `json:"user_teacher_field" form:"user_teacher_field" validate:"omitempty,max=80"`
 	UserTeacherShortBio        string `json:"user_teacher_short_bio" form:"user_teacher_short_bio" validate:"omitempty,max=300"`
 	UserTeacherLongBio         string `json:"user_teacher_long_bio" form:"user_teacher_long_bio" validate:"omitempty"`
@@ -64,10 +64,11 @@ type CreateUserTeacherRequest struct {
 // ToModel: mapping Create → model.UserTeacher
 func (r CreateUserTeacherRequest) ToModel() model.UserTeacherModel {
 	m := model.UserTeacherModel{
-		UserTeacherUserID:     r.UserTeacherUserID,
-		UserTeacherName:       r.UserTeacherName,
-		UserTeacherIsVerified: false,
-		UserTeacherIsActive:   true,
+		UserTeacherUserID:       r.UserTeacherUserID,
+		UserTeacherNameSnapshot: r.UserTeacherNameSnapshot,
+		UserTeacherIsVerified:   false,
+		UserTeacherIsActive:     true,
+		// UserTeacherIsCompleted: false, // default zero value di DB & Go
 	}
 
 	// Optional strings → *string (NULL jika empty)
@@ -165,9 +166,10 @@ func (r CreateUserTeacherRequest) ToModel() model.UserTeacherModel {
 }
 
 // ========== UPDATE / PATCH ==========
+
 type UpdateUserTeacherRequest struct {
 	// Profil ringkas
-	UserTeacherName            *string `json:"user_teacher_name" form:"user_teacher_name" validate:"omitempty,max=80"`
+	UserTeacherNameSnapshot    *string `json:"user_teacher_name_snapshot" form:"user_teacher_name_snapshot" validate:"omitempty,max=100"`
 	UserTeacherField           *string `json:"user_teacher_field" form:"user_teacher_field" validate:"omitempty,max=80"`
 	UserTeacherShortBio        *string `json:"user_teacher_short_bio" form:"user_teacher_short_bio" validate:"omitempty,max=300"`
 	UserTeacherLongBio         *string `json:"user_teacher_long_bio" form:"user_teacher_long_bio" validate:"omitempty"`
@@ -205,8 +207,9 @@ type UpdateUserTeacherRequest struct {
 	UserTeacherAvatarDeletePendingUntil *time.Time `json:"user_teacher_avatar_delete_pending_until" form:"user_teacher_avatar_delete_pending_until" validate:"omitempty"`
 
 	// Flags
-	UserTeacherIsVerified *bool `json:"user_teacher_is_verified" form:"user_teacher_is_verified" validate:"omitempty"`
-	UserTeacherIsActive   *bool `json:"user_teacher_is_active" form:"user_teacher_is_active" validate:"omitempty"`
+	UserTeacherIsVerified  *bool `json:"user_teacher_is_verified" form:"user_teacher_is_verified" validate:"omitempty"`
+	UserTeacherIsActive    *bool `json:"user_teacher_is_active" form:"user_teacher_is_active" validate:"omitempty"`
+	UserTeacherIsCompleted *bool `json:"user_teacher_is_completed" form:"user_teacher_is_completed" validate:"omitempty"`
 
 	// Kolom yang ingin DIKOSONGKAN (set NULL) eksplisit
 	Clear []string `json:"__clear,omitempty" form:"__clear" validate:"omitempty,dive,oneof=user_teacher_field user_teacher_short_bio user_teacher_long_bio user_teacher_greeting user_teacher_education user_teacher_activity user_teacher_experience_years user_teacher_gender user_teacher_location user_teacher_city user_teacher_specialties user_teacher_certificates user_teacher_instagram_url user_teacher_whatsapp_url user_teacher_youtube_url user_teacher_linkedin_url user_teacher_github_url user_teacher_telegram_username user_teacher_title_prefix user_teacher_title_suffix user_teacher_avatar_url user_teacher_avatar_object_key user_teacher_avatar_url_old user_teacher_avatar_object_key_old user_teacher_avatar_delete_pending_until"`
@@ -215,8 +218,8 @@ type UpdateUserTeacherRequest struct {
 // ApplyPatch: terapkan update parsial ke model.
 func (r UpdateUserTeacherRequest) ApplyPatch(m *model.UserTeacherModel) {
 	// 1) Setter biasa (tanpa NULL implisit)
-	if r.UserTeacherName != nil {
-		m.UserTeacherName = *r.UserTeacherName
+	if r.UserTeacherNameSnapshot != nil {
+		m.UserTeacherNameSnapshot = *r.UserTeacherNameSnapshot
 	}
 	if r.UserTeacherField != nil {
 		m.UserTeacherField = r.UserTeacherField
@@ -307,6 +310,12 @@ func (r UpdateUserTeacherRequest) ApplyPatch(m *model.UserTeacherModel) {
 	if r.UserTeacherIsActive != nil {
 		m.UserTeacherIsActive = *r.UserTeacherIsActive
 	}
+	if r.UserTeacherIsCompleted != nil {
+		m.UserTeacherIsCompleted = *r.UserTeacherIsCompleted
+		// NOTE: saran: completed_at di-handle di service:
+		// - kalau dari false → true, set sekarang
+		// - kalau dari true → false, boleh set nil / biarkan
+	}
 
 	// 2) Clear → set NULL eksplisit
 	for _, col := range r.Clear {
@@ -380,7 +389,7 @@ type UserTeacherResponse struct {
 	UserTeacherUserID uuid.UUID `json:"user_teacher_user_id"`
 
 	// Profil ringkas
-	UserTeacherName            string `json:"user_teacher_name"`
+	UserTeacherNameSnapshot    string `json:"user_teacher_name_snapshot"`
 	UserTeacherField           string `json:"user_teacher_field"`
 	UserTeacherShortBio        string `json:"user_teacher_short_bio"`
 	UserTeacherLongBio         string `json:"user_teacher_long_bio"`
@@ -418,8 +427,10 @@ type UserTeacherResponse struct {
 	UserTeacherAvatarDeletePendingUntil *time.Time `json:"user_teacher_avatar_delete_pending_until,omitempty"`
 
 	// Status
-	UserTeacherIsVerified bool `json:"user_teacher_is_verified"`
-	UserTeacherIsActive   bool `json:"user_teacher_is_active"`
+	UserTeacherIsVerified  bool       `json:"user_teacher_is_verified"`
+	UserTeacherIsActive    bool       `json:"user_teacher_is_active"`
+	UserTeacherIsCompleted bool       `json:"user_teacher_is_completed"`
+	UserTeacherCompletedAt *time.Time `json:"user_teacher_completed_at,omitempty"`
 
 	// Audit
 	UserTeacherCreatedAt string `json:"user_teacher_created_at"`
@@ -440,7 +451,7 @@ func ToUserTeacherResponse(m model.UserTeacherModel) UserTeacherResponse {
 		UserTeacherID:     m.UserTeacherID,
 		UserTeacherUserID: m.UserTeacherUserID,
 
-		UserTeacherName:            m.UserTeacherName,
+		UserTeacherNameSnapshot:    m.UserTeacherNameSnapshot,
 		UserTeacherField:           deref(m.UserTeacherField),
 		UserTeacherShortBio:        deref(m.UserTeacherShortBio),
 		UserTeacherLongBio:         deref(m.UserTeacherLongBio),
@@ -472,8 +483,10 @@ func ToUserTeacherResponse(m model.UserTeacherModel) UserTeacherResponse {
 		UserTeacherAvatarObjectKeyOld:       deref(m.UserTeacherAvatarObjectKeyOld),
 		UserTeacherAvatarDeletePendingUntil: m.UserTeacherAvatarDeletePendingUntil,
 
-		UserTeacherIsVerified: m.UserTeacherIsVerified,
-		UserTeacherIsActive:   m.UserTeacherIsActive,
+		UserTeacherIsVerified:  m.UserTeacherIsVerified,
+		UserTeacherIsActive:    m.UserTeacherIsActive,
+		UserTeacherIsCompleted: m.UserTeacherIsCompleted,
+		UserTeacherCompletedAt: m.UserTeacherCompletedAt,
 
 		UserTeacherCreatedAt: m.UserTeacherCreatedAt.Format(time.RFC3339),
 		UserTeacherUpdatedAt: m.UserTeacherUpdatedAt.Format(time.RFC3339),

@@ -27,6 +27,7 @@ import (
 	authHelper "schoolku_backend/internals/features/users/auth/helper"
 	authModel "schoolku_backend/internals/features/users/auth/model"
 	authRepo "schoolku_backend/internals/features/users/auth/repository"
+	userTeacherService "schoolku_backend/internals/features/users/user_teachers/service"
 	userModel "schoolku_backend/internals/features/users/users/model"
 	userProfileService "schoolku_backend/internals/features/users/users/service"
 	helpers "schoolku_backend/internals/helpers"
@@ -532,63 +533,93 @@ func deriveSchoolIDsFromRolesClaim(rc helpersAuth.RolesClaim) []string {
 
 /*
 	==========================
-	  REGISTER (refactor: tx + upsert profile)
+	  REGISTER (refactor: tx + upsert profile + optional auto guru)
+
+	FE:
+	POST /api/:school_slug/auth/register
+	{
+	  "user_name": "xxx",
+	  "full_name": "yyy",
+	  "email": "zzz",
+	  "password": "Password1234",
+	  "confirm_password": "Password1234",
+	  "register_as": "student" | "teacher"  // optional, default "student"
+	}
 
 ==========================
 */
 func Register(db *gorm.DB, c *fiber.Ctx) error {
-	var input userModel.UserModel
+	// input khusus register:
+	// - embed UserModel untuk pakai Validate()
+	// - tambah register_as (student|teacher)
+	var input struct {
+		userModel.UserModel
+		RegisterAs string `json:"register_as"`
+	}
+
 	if err := c.BodyParser(&input); err != nil {
 		return helpers.JsonError(c, fiber.StatusBadRequest, "Invalid request body")
 	}
 
+	u := &input.UserModel
+
 	// ---------- Normalisasi ringan ----------
-	input.UserName = strings.TrimSpace(input.UserName)
-	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
-	if input.FullName != nil {
-		f := strings.TrimSpace(*input.FullName)
-		input.FullName = &f
+	u.UserName = strings.TrimSpace(u.UserName)
+	u.Email = strings.TrimSpace(strings.ToLower(u.Email))
+
+	if u.FullName != nil {
+		f := strings.TrimSpace(*u.FullName)
+		u.FullName = &f
 	}
-	if input.GoogleID != nil {
-		g := strings.TrimSpace(*input.GoogleID)
+	if u.GoogleID != nil {
+		g := strings.TrimSpace(*u.GoogleID)
 		if g == "" {
-			input.GoogleID = nil
+			u.GoogleID = nil
 		} else {
-			input.GoogleID = &g
+			u.GoogleID = &g
 		}
 	}
-	if input.Password != nil {
-		p := strings.TrimSpace(*input.Password)
+	if u.Password != nil {
+		p := strings.TrimSpace(*u.Password)
 		if p == "" {
-			input.Password = nil
+			u.Password = nil
 		} else {
-			input.Password = &p
+			u.Password = &p
 		}
 	}
 
+	// ---------- Normalisasi & default register_as ----------
+	regAs := strings.ToLower(strings.TrimSpace(input.RegisterAs))
+	if regAs == "" {
+		regAs = "student"
+	}
+	if regAs != "student" && regAs != "teacher" {
+		return helpers.JsonError(c, fiber.StatusBadRequest, "register_as harus 'student' atau 'teacher'")
+	}
+
 	// ---------- Validasi bisnis: minimal password ATAU google_id ----------
-	if (input.Password == nil || *input.Password == "") && (input.GoogleID == nil || *input.GoogleID == "") {
+	if (u.Password == nil || *u.Password == "") && (u.GoogleID == nil || *u.GoogleID == "") {
 		return helpers.JsonError(c, fiber.StatusBadRequest, "password atau google_id wajib diisi salah satu")
 	}
 
 	// ---------- Validasi field sesuai tag di model ----------
-	if err := input.Validate(); err != nil {
+	if err := u.Validate(); err != nil {
 		return helpers.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	// ---------- Hash password (jika ada) ----------
-	if input.Password != nil && *input.Password != "" {
-		hashed, err := authHelper.HashPassword(*input.Password)
+	if u.Password != nil && *u.Password != "" {
+		hashed, err := authHelper.HashPassword(*u.Password)
 		if err != nil {
 			return helpers.JsonError(c, fiber.StatusInternalServerError, "Password hashing failed")
 		}
-		input.Password = &hashed
+		u.Password = &hashed
 	}
 
-	// ---------- TRANSACTION: create user → ensure user_profiles → grant role ----------
+	// ---------- TRANSACTION ----------
 	if err := db.Transaction(func(tx *gorm.DB) error {
 		// Create user
-		if err := authRepo.CreateUser(tx, &input); err != nil {
+		if err := authRepo.CreateUser(tx, u); err != nil {
 			low := strings.ToLower(err.Error())
 			switch {
 			case strings.Contains(low, "uq_users_email") || strings.Contains(low, "users_email_key") || (strings.Contains(low, "email") && strings.Contains(low, "unique")):
@@ -602,25 +633,32 @@ func Register(db *gorm.DB, c *fiber.Ctx) error {
 			}
 		}
 
-		log.Printf("[register] ensuring user_profiles for user_id=%s", input.ID)
+		log.Printf("[register] ensuring user_profiles for user_id=%s", u.ID)
 
-		// Ensure user_profiles ada (idempotent & anti-race)
-		// baru: kirim pointer full name
-		if err := userProfileService.EnsureProfileRow(c.Context(), tx, input.ID, input.FullName); err != nil {
+		// 1) pastikan user_profiles ada (idempotent & anti-race)
+		if err := userProfileService.EnsureProfileRow(c.Context(), tx, u.ID, u.FullName); err != nil {
 			log.Printf("[register] ensure user_profiles ERROR: %v", err)
 			return fiber.NewError(fiber.StatusInternalServerError, "Failed to initialize user profile")
 		}
 
-		log.Printf("[register] ensure user_profiles OK for user_id=%s", input.ID)
+		log.Printf("[register] ensure user_profiles OK for user_id=%s", u.ID)
 
-		// Grant default role
-		if err := grantDefaultUserRole(c.Context(), tx, input.ID); err != nil {
+		// 2) kalau daftar sebagai TEACHER → auto buat user_teachers
+		if regAs == "teacher" {
+			if _, err := userTeacherService.EnsureUserTeacherFromUser(c.Context(), tx, u); err != nil {
+				log.Printf("[register] ensure user_teacher ERROR: %v", err)
+				return fiber.NewError(fiber.StatusInternalServerError, "Failed to initialize teacher profile")
+			}
+		}
+
+		// 3) Grant default role "user"
+		if err := grantDefaultUserRole(c.Context(), tx, u.ID); err != nil {
 			log.Printf("[register] grant default role 'user' failed: %v", err)
+			// tidak fatal, tapi boleh dianggap gagal kalau mau strict
 		}
 
 		return nil
 	}); err != nil {
-		// mapping fiber.Error dari dalam tx
 		if fe, ok := err.(*fiber.Error); ok {
 			return helpers.JsonError(c, fe.Code, fe.Message)
 		}
@@ -1650,10 +1688,10 @@ func createRefreshTokenFast(db *gorm.DB, rt *authModel.RefreshTokenModel) error 
 // 	return b.String()
 // }
 
-func shortRand() string {
-	// ringkas: 4 chars hex dari unixnano
-	return strconv.FormatInt(time.Now().UnixNano()%0xffff, 16)
-}
+// func shortRand() string {
+// 	// ringkas: 4 chars hex dari unixnano
+// 	return strconv.FormatInt(time.Now().UnixNano()%0xffff, 16)
+// }
 
 /*
 	==========================

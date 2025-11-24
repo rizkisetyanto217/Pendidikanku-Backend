@@ -123,7 +123,7 @@ func parseMultipartNoPayload(c *fiber.Ctx, rid string, req *userdto.CreateUserTe
 	get := func(k string) string { return strings.TrimSpace(c.FormValue(k)) }
 
 	// wajib
-	req.UserTeacherName = get("user_teacher_name")
+	req.UserTeacherNameSnapshot = get("user_teacher_name_snapshot")
 
 	// profil ringkas
 	req.UserTeacherField = get("user_teacher_field")
@@ -257,7 +257,7 @@ func (uc *UserTeacherController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 	log.Printf("[user-teacher#create] reqid=%s validation OK name=%q field=%q expYears=%v",
-		rid, req.UserTeacherName, req.UserTeacherField, req.UserTeacherExperienceYears)
+		rid, req.UserTeacherNameSnapshot, req.UserTeacherField, req.UserTeacherExperienceYears)
 
 	// --- pastikan 1 user = 1 profile ---
 	var exist int64
@@ -345,26 +345,6 @@ func (uc *UserTeacherController) Create(c *fiber.Ctx) error {
 	})
 }
 
-// GET /api/user-teachers/me
-func (uc *UserTeacherController) GetMe(c *fiber.Ctx) error {
-	userID, err := helperAuth.GetUserIDFromToken(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
-	}
-
-	var m model.UserTeacherModel
-	if err := uc.DB.First(&m, "user_teacher_user_id = ?", userID).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Profil pengajar belum dibuat")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
-	}
-
-	return helper.JsonOK(c, "Berhasil", fiber.Map{
-		"item": userdto.ToUserTeacherResponse(m),
-	})
-}
-
 // ========================= PATCH (CORE) =========================
 func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherModel, _ bool) error {
 	before := *m
@@ -433,6 +413,36 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 	req.ApplyPatch(m)
 	m.UserTeacherUpdatedAt = now
 
+	// ================= COMPLETION LOGIC =================
+	prevCompleted := before.UserTeacherIsCompleted
+	newCompleted := m.UserTeacherIsCompleted
+
+	// Kalau profil ingin/masih completed, pastikan minimal gender + whatsapp terisi
+	if newCompleted {
+		genderOK := m.UserTeacherGender != nil && strings.TrimSpace(*m.UserTeacherGender) != ""
+		waOK := m.UserTeacherWhatsappURL != nil && strings.TrimSpace(*m.UserTeacherWhatsappURL) != ""
+
+		if !genderOK || !waOK {
+			return helper.JsonError(
+				c,
+				fiber.StatusBadRequest,
+				"Untuk menandai profil sebagai lengkap, minimal isi jenis kelamin dan nomor WhatsApp.",
+			)
+		}
+	}
+
+	// Atur completed_at:
+	// - false -> true : set sekarang (jika belum pernah)
+	// - true  -> false : kosongkan (optional, di sini kita reset)
+	if !prevCompleted && newCompleted {
+		if m.UserTeacherCompletedAt == nil {
+			m.UserTeacherCompletedAt = &now
+		}
+	} else if prevCompleted && !newCompleted {
+		m.UserTeacherCompletedAt = nil
+	}
+	// ===================================================
+
 	// --- delta updates ---
 	updates := map[string]any{
 		"user_teacher_updated_at": m.UserTeacherUpdatedAt,
@@ -451,7 +461,7 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 	}
 
 	// ringkas
-	applyIfChanged("user_teacher_name", before.UserTeacherName, m.UserTeacherName)
+	applyIfChanged("user_teacher_name_snapshot", before.UserTeacherNameSnapshot, m.UserTeacherNameSnapshot)
 	applyIfChangedStr("user_teacher_field", before.UserTeacherField, m.UserTeacherField)
 	applyIfChangedStr("user_teacher_short_bio", before.UserTeacherShortBio, m.UserTeacherShortBio)
 	applyIfChangedStr("user_teacher_long_bio", before.UserTeacherLongBio, m.UserTeacherLongBio)
@@ -500,6 +510,10 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 	applyIfChanged("user_teacher_is_verified", before.UserTeacherIsVerified, m.UserTeacherIsVerified)
 	applyIfChanged("user_teacher_is_active", before.UserTeacherIsActive, m.UserTeacherIsActive)
 
+	// NEW: completion flags
+	applyIfChanged("user_teacher_is_completed", before.UserTeacherIsCompleted, m.UserTeacherIsCompleted)
+	applyIfChanged("user_teacher_completed_at", before.UserTeacherCompletedAt, m.UserTeacherCompletedAt)
+
 	// tidak ada perubahan nyata
 	if len(updates) == 1 {
 		return helper.JsonOK(c, "Tidak ada perubahan", fiber.Map{
@@ -514,7 +528,7 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 
 	// === SNAPSHOT SYNC ke school_teachers ===
 	changedSnapshot :=
-		before.UserTeacherName != m.UserTeacherName ||
+		before.UserTeacherNameSnapshot != m.UserTeacherNameSnapshot ||
 			derefStr(before.UserTeacherAvatarURL) != derefStr(m.UserTeacherAvatarURL) ||
 			derefStr(before.UserTeacherWhatsappURL) != derefStr(m.UserTeacherWhatsappURL) ||
 			derefStr(before.UserTeacherTitlePrefix) != derefStr(m.UserTeacherTitlePrefix) ||
@@ -523,7 +537,7 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 	if changedSnapshot {
 
 		set := map[string]any{
-			"school_teacher_user_teacher_name_snapshot":         m.UserTeacherName,
+			"school_teacher_user_teacher_name_snapshot":         m.UserTeacherNameSnapshot,
 			"school_teacher_user_teacher_avatar_url_snapshot":   m.UserTeacherAvatarURL,
 			"school_teacher_user_teacher_whatsapp_url_snapshot": m.UserTeacherWhatsappURL,
 			"school_teacher_user_teacher_title_prefix_snapshot": m.UserTeacherTitlePrefix,
@@ -532,7 +546,6 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 		}
 
 		// Guard opsional: kalau migrasinya belum naik, jangan bikin 500.
-		// (Boleh dihapus setelah skema terjamin sinkron.)
 		if !uc.DB.Migrator().HasColumn(&schoolTeacherModel.SchoolTeacherModel{}, "school_teacher_user_teacher_name_snapshot") {
 			log.Printf("[user-teacher#patch] snapshot columns not found — skip sync to school_teachers")
 		} else {
@@ -547,7 +560,9 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 
 	// === SNAPSHOT SYNC ke class_sections (teacher & assistant) ===
 	if changedSnapshot {
-		// Guard kolom di class_sections
+		// ... (bagian ini sama persis seperti punyamu sebelumnya, tidak perlu diubah)
+		// aku biarkan singkat supaya kamu fokus ke logic completed di atas
+		// --------------------------------
 		hasTeacherSnap := uc.DB.Migrator().HasColumn(&classsectionModel.ClassSectionModel{}, "class_section_teacher_snapshot")
 		hasAssistantSnap := uc.DB.Migrator().HasColumn(&classsectionModel.ClassSectionModel{}, "class_section_assistant_teacher_snapshot")
 		hasSnapUpdatedAt := uc.DB.Migrator().HasColumn(&classsectionModel.ClassSectionModel{}, "class_section_snapshot_updated_at")
@@ -555,7 +570,6 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 		if !(hasTeacherSnap || hasAssistantSnap) {
 			log.Printf("[user-teacher#patch] class_sections snapshot columns not found — skip sync to class_sections")
 		} else {
-			// Ambil semua school_teacher_id milik user_teacher ini (yang belum terhapus)
 			var mtIDs []uuid.UUID
 			if err := uc.DB.
 				Model(&schoolTeacherModel.SchoolTeacherModel{}).
@@ -565,9 +579,6 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 			}
 
 			if len(mtIDs) > 0 {
-				// Build snapshot JSONB kecil untuk disimpan di class_sections
-				// NOTE: Jangan terlalu besar agar hemat I/O. Kolom turunan (*_name_snap) akan ikut ter-refresh jika
-				// dibuat sebagai generated column / trigger view.
 				type smallTeacherSnap struct {
 					UserTeacherID uuid.UUID `json:"user_teacher_id"`
 					Name          string    `json:"name"`
@@ -579,17 +590,16 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 				}
 				payload := smallTeacherSnap{
 					UserTeacherID: m.UserTeacherID,
-					Name:          m.UserTeacherName,
+					Name:          m.UserTeacherNameSnapshot,
 					AvatarURL:     m.UserTeacherAvatarURL,
 					WhatsappURL:   m.UserTeacherWhatsappURL,
 					TitlePrefix:   m.UserTeacherTitlePrefix,
 					TitleSuffix:   m.UserTeacherTitleSuffix,
 					UpdatedAt:     now,
 				}
-				b, _ := json.Marshal(payload) // safe: field sederhana
+				b, _ := json.Marshal(payload)
 				jsonb := datatypes.JSON(b)
 
-				// Set common columns
 				setTeacher := map[string]any{}
 				setAssistant := map[string]any{}
 				if hasTeacherSnap {
@@ -603,7 +613,6 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 					setAssistant["class_section_snapshot_updated_at"] = now
 				}
 
-				// Update untuk homeroom/teacher
 				if hasTeacherSnap {
 					if err := uc.DB.
 						Model(&classsectionModel.ClassSectionModel{}).
@@ -613,7 +622,6 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 					}
 				}
 
-				// Update untuk assistant teacher
 				if hasAssistantSnap {
 					if err := uc.DB.
 						Model(&classsectionModel.ClassSectionModel{}).
@@ -628,7 +636,7 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 
 	// === SNAPSHOT SYNC ke class_section_subject_teachers (teacher & assistant) ===
 	{
-		// Cek ketersediaan kolom agar tidak 500 jika migrasi belum naik
+		// (bagian ini juga sama seperti sebelumnya, tidak perlu disentuh)
 		hasTeacherSnap := uc.DB.Migrator().HasColumn(&csstModel.ClassSectionSubjectTeacherModel{}, "class_section_subject_teacher_teacher_snapshot")
 		hasAssistantSnap := uc.DB.Migrator().HasColumn(&csstModel.ClassSectionSubjectTeacherModel{}, "class_section_subject_teacher_assistant_teacher_snapshot")
 		hasTeacherID := uc.DB.Migrator().HasColumn(&csstModel.ClassSectionSubjectTeacherModel{}, "class_section_subject_teacher_teacher_id")
@@ -638,7 +646,6 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 		if !(hasTeacherSnap || hasAssistantSnap) {
 			log.Printf("[user-teacher#patch] CSST snapshot columns not found — skip sync to class_section_subject_teachers")
 		} else {
-			// Ambil semua school_teacher_id milik user_teacher ini (yang belum terhapus)
 			var mtIDs []uuid.UUID
 			if err := uc.DB.
 				Model(&schoolTeacherModel.SchoolTeacherModel{}).
@@ -648,7 +655,6 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 			}
 
 			if len(mtIDs) > 0 {
-				// Build snapshot JSONB kecil (hemat I/O)
 				type teacherMiniSnap struct {
 					UserTeacherID uuid.UUID `json:"user_teacher_id"`
 					Name          string    `json:"name"`
@@ -660,7 +666,7 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 				}
 				minSnap := teacherMiniSnap{
 					UserTeacherID: m.UserTeacherID,
-					Name:          m.UserTeacherName,
+					Name:          m.UserTeacherNameSnapshot,
 					AvatarURL:     m.UserTeacherAvatarURL,
 					WhatsappURL:   m.UserTeacherWhatsappURL,
 					TitlePrefix:   m.UserTeacherTitlePrefix,
@@ -670,7 +676,6 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 				b, _ := json.Marshal(minSnap)
 				jsonb := datatypes.JSON(b)
 
-				// Set kolom update
 				setTeacher := map[string]any{}
 				setAssistant := map[string]any{}
 				if hasTeacherSnap {
@@ -679,13 +684,11 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 				if hasAssistantSnap {
 					setAssistant["class_section_subject_teacher_assistant_teacher_snapshot"] = jsonb
 				}
-				// pastikan updated_at ikut bergerak
 				if hasUpdatedAt {
 					setTeacher["class_section_subject_teacher_updated_at"] = now
 					setAssistant["class_section_subject_teacher_updated_at"] = now
 				}
 
-				// Update untuk kolom TEACHER
 				if hasTeacherSnap && hasTeacherID {
 					if err := uc.DB.
 						Model(&csstModel.ClassSectionSubjectTeacherModel{}).
@@ -695,7 +698,6 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 					}
 				}
 
-				// Update untuk kolom ASSISTANT (jika memang ada ID-nya)
 				if hasAssistantSnap && hasAssistantID {
 					if err := uc.DB.
 						Model(&csstModel.ClassSectionSubjectTeacherModel{}).
