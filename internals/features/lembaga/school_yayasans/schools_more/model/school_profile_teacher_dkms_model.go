@@ -6,8 +6,8 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	School "schoolku_backend/internals/features/lembaga/school_yayasans/schools/model"
-	User "schoolku_backend/internals/features/users/users/model"
+	School "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/model"
+	User "madinahsalam_backend/internals/features/users/users/model"
 )
 
 type SchoolProfileTeacherDkmModel struct {

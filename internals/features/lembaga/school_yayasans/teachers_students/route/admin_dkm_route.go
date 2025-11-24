@@ -1,10 +1,10 @@
 package route
 
 import (
-	"schoolku_backend/internals/constants"
-	adminTeacherCtrl "schoolku_backend/internals/features/lembaga/school_yayasans/teachers_students/controller"
-	authMiddleware "schoolku_backend/internals/middlewares/auth"
-	schoolkuMiddleware "schoolku_backend/internals/middlewares/features"
+	"madinahsalam_backend/internals/constants"
+	adminTeacherCtrl "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/controller"
+	authMiddleware "madinahsalam_backend/internals/middlewares/auth"
+	schoolkuMiddleware "madinahsalam_backend/internals/middlewares/features"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"

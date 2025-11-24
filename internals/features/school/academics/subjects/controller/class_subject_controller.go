@@ -13,13 +13,13 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	classSubjectBookModel "schoolku_backend/internals/features/school/academics/books/model"
-	csDTO "schoolku_backend/internals/features/school/academics/subjects/dto"
-	csModel "schoolku_backend/internals/features/school/academics/subjects/model"
-	snapshotSubject "schoolku_backend/internals/features/school/academics/subjects/snapshot"
+	classSubjectBookModel "madinahsalam_backend/internals/features/school/academics/books/model"
+	csDTO "madinahsalam_backend/internals/features/school/academics/subjects/dto"
+	csModel "madinahsalam_backend/internals/features/school/academics/subjects/model"
+	snapshotSubject "madinahsalam_backend/internals/features/school/academics/subjects/snapshot"
 
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 type ClassSubjectController struct {

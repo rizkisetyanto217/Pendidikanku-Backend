@@ -4,7 +4,7 @@ package dto
 import (
 	"time"
 
-	m "schoolku_backend/internals/features/finance/general_billings/model"
+	m "madinahsalam_backend/internals/features/finance/general_billings/model"
 
 	"github.com/google/uuid"
 )

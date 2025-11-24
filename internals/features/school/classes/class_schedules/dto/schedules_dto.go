@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 
-	sessModel "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
-	model "schoolku_backend/internals/features/school/classes/class_schedules/model"
+	sessModel "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/model"
+	model "madinahsalam_backend/internals/features/school/classes/class_schedules/model"
 )
 
 /* =========================================================

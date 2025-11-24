@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"schoolku_backend/internals/features/lembaga/ui/theme/model"
+	"madinahsalam_backend/internals/features/lembaga/ui/theme/model"
 
 	"github.com/google/uuid"
 	"gorm.io/datatypes"

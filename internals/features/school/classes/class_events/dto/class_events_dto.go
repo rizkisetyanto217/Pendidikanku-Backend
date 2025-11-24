@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
-	m "schoolku_backend/internals/features/school/classes/class_events/model"
+	m "madinahsalam_backend/internals/features/school/classes/class_events/model"
 )
 
 /* =========================================================

@@ -7,10 +7,10 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	tsModel "schoolku_backend/internals/features/users/user_teachers/model"
-	userModel "schoolku_backend/internals/features/users/users/model"
-	helper "schoolku_backend/internals/helpers"
-	helpersAuth "schoolku_backend/internals/helpers/auth"
+	tsModel "madinahsalam_backend/internals/features/users/user_teachers/model"
+	userModel "madinahsalam_backend/internals/features/users/users/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helpersAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 type ProfileCompletionStatus struct {

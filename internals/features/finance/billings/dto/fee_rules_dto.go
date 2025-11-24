@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	// ✅ Model FeeRule yang benar (bukan billings)
-	fee "schoolku_backend/internals/features/finance/billings/model"
+	fee "madinahsalam_backend/internals/features/finance/billings/model"
 )
 
 ////////////////////////////////////////////////////////////////////////////////

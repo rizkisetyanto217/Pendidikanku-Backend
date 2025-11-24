@@ -5,11 +5,11 @@ import (
 	"errors"
 	"strings"
 
-	bookModel "schoolku_backend/internals/features/school/academics/books/model"
-	classSubjectDTO "schoolku_backend/internals/features/school/academics/subjects/dto"
-	csModel "schoolku_backend/internals/features/school/academics/subjects/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	bookModel "madinahsalam_backend/internals/features/school/academics/books/model"
+	classSubjectDTO "madinahsalam_backend/internals/features/school/academics/subjects/dto"
+	csModel "madinahsalam_backend/internals/features/school/academics/subjects/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

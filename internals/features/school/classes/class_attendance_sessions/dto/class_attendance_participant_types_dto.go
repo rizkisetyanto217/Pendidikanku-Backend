@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	model "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
+	model "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/model"
 )
 
 /* =========================================================

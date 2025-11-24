@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	classmodel "schoolku_backend/internals/features/school/classes/classes/model"
+	classmodel "madinahsalam_backend/internals/features/school/classes/classes/model"
 )
 
 /*

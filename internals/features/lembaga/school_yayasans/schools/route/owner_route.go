@@ -2,9 +2,9 @@
 package route
 
 import (
-	"schoolku_backend/internals/constants"
-	planctl "schoolku_backend/internals/features/lembaga/school_yayasans/schools/controller"
-	"schoolku_backend/internals/middlewares/auth"
+	"madinahsalam_backend/internals/constants"
+	planctl "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/controller"
+	"madinahsalam_backend/internals/middlewares/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

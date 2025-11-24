@@ -5,10 +5,10 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	"schoolku_backend/internals/constants"
-	academicTermCtl "schoolku_backend/internals/features/school/academics/academic_terms/controller"
-	authMiddleware "schoolku_backend/internals/middlewares/auth"
-	schoolkuMiddleware "schoolku_backend/internals/middlewares/features"
+	"madinahsalam_backend/internals/constants"
+	academicTermCtl "madinahsalam_backend/internals/features/school/academics/academic_terms/controller"
+	authMiddleware "madinahsalam_backend/internals/middlewares/auth"
+	schoolkuMiddleware "madinahsalam_backend/internals/middlewares/features"
 )
 
 func AcademicTermsAdminRoutes(api fiber.Router, db *gorm.DB) {

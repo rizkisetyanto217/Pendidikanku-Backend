@@ -2,9 +2,9 @@
 package details
 
 import (
-	BillingRoute "schoolku_backend/internals/features/finance/billings/routes"
-	GeneralBillingRoute "schoolku_backend/internals/features/finance/general_billings/route"
-	PaymentRoute "schoolku_backend/internals/features/finance/payments/route" // ⬅️ pastikan paketnya "router"
+	BillingRoute "madinahsalam_backend/internals/features/finance/billings/routes"
+	GeneralBillingRoute "madinahsalam_backend/internals/features/finance/general_billings/route"
+	PaymentRoute "madinahsalam_backend/internals/features/finance/payments/route" // ⬅️ pastikan paketnya "router"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

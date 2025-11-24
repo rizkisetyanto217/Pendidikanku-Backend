@@ -12,9 +12,9 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	yModel "schoolku_backend/internals/features/lembaga/school_yayasans/yayasans/model"
-	helper "schoolku_backend/internals/helpers"
-	helperOSS "schoolku_backend/internals/helpers/oss"
+	yModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/yayasans/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperOSS "madinahsalam_backend/internals/helpers/oss"
 )
 
 /*

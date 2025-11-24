@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"schoolku_backend/internals/features/lembaga/ui/theme/dto"
-	"schoolku_backend/internals/features/lembaga/ui/theme/model"
-	helper "schoolku_backend/internals/helpers"
+	"madinahsalam_backend/internals/features/lembaga/ui/theme/dto"
+	"madinahsalam_backend/internals/features/lembaga/ui/theme/model"
+	helper "madinahsalam_backend/internals/helpers"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"

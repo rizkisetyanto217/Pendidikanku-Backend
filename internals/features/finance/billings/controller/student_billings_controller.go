@@ -11,11 +11,11 @@ import (
 	"gorm.io/gorm"
 
 	// ✅ DTO pakai paket SPP (bukan billings/dto)
-	dto "schoolku_backend/internals/features/finance/billings/dto"
+	dto "madinahsalam_backend/internals/features/finance/billings/dto"
 	// Model tetap dari billings/model
-	billing "schoolku_backend/internals/features/finance/billings/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	billing "madinahsalam_backend/internals/features/finance/billings/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 type StudentBillHandler struct {

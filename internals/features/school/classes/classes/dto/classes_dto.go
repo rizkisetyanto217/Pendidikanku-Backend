@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	model "schoolku_backend/internals/features/school/classes/classes/model"
+	model "madinahsalam_backend/internals/features/school/classes/classes/model"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

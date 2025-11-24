@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	statsModel "schoolku_backend/internals/features/lembaga/stats/lembaga_stats/model"
+	statsModel "madinahsalam_backend/internals/features/lembaga/stats/lembaga_stats/model"
 )
 
 type LembagaStatsService struct{}

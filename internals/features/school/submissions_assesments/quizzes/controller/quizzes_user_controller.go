@@ -4,10 +4,10 @@ package controller
 import (
 	"strings"
 
-	dto "schoolku_backend/internals/features/school/submissions_assesments/quizzes/dto"
-	model "schoolku_backend/internals/features/school/submissions_assesments/quizzes/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	dto "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/dto"
+	model "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

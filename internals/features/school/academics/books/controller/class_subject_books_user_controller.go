@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	csbDTO "schoolku_backend/internals/features/school/academics/books/dto"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	csbDTO "madinahsalam_backend/internals/features/school/academics/books/dto"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

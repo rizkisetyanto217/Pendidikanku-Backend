@@ -2,7 +2,7 @@
 package route
 
 import (
-	teacherController "schoolku_backend/internals/features/lembaga/school_yayasans/teachers_students/controller"
+	teacherController "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/controller"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"

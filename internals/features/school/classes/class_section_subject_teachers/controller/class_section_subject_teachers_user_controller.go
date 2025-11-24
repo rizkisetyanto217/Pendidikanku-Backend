@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	modelCSST "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	modelCSST "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

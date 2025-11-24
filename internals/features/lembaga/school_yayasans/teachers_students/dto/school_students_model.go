@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	studentmodel "schoolku_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
+	studentmodel "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
 )
 
 /* =========================================================

@@ -5,7 +5,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	clsCtl "schoolku_backend/internals/features/school/academics/rooms/controller"
+	clsCtl "madinahsalam_backend/internals/features/school/academics/rooms/controller"
 )
 
 // RoomsAdminRoutes — route khusus ADMIN (CRUD penuh + restore).

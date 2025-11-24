@@ -10,8 +10,8 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	dto "schoolku_backend/internals/features/finance/payments/dto"
-	model "schoolku_backend/internals/features/finance/payments/model"
+	dto "madinahsalam_backend/internals/features/finance/payments/dto"
+	model "madinahsalam_backend/internals/features/finance/payments/model"
 )
 
 /* =======================================================================

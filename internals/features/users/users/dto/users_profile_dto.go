@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	profilemodel "schoolku_backend/internals/features/users/users/model"
+	profilemodel "madinahsalam_backend/internals/features/users/users/model"
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"

@@ -4,7 +4,7 @@ package dto
 import (
 	"time"
 
-	"schoolku_backend/internals/features/users/user_teachers/model"
+	"madinahsalam_backend/internals/features/users/user_teachers/model"
 
 	"github.com/google/uuid"
 	"gorm.io/datatypes"

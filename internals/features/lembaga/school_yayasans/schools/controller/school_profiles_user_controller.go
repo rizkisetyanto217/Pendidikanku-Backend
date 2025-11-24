@@ -2,9 +2,9 @@
 package controller
 
 import (
-	d "schoolku_backend/internals/features/lembaga/school_yayasans/schools/dto"
-	m "schoolku_backend/internals/features/lembaga/school_yayasans/schools/model"
-	helper "schoolku_backend/internals/helpers"
+	d "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/dto"
+	m "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/model"
+	helper "madinahsalam_backend/internals/helpers"
 	"strconv"
 	"strings"
 

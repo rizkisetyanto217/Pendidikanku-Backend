@@ -10,10 +10,10 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	dto "schoolku_backend/internals/features/school/classes/classes/dto"
-	model "schoolku_backend/internals/features/school/classes/classes/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	dto "madinahsalam_backend/internals/features/school/classes/classes/dto"
+	model "madinahsalam_backend/internals/features/school/classes/classes/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 // =====================================================

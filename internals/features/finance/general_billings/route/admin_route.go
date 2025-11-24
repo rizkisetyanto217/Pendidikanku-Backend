@@ -6,7 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	// Controller untuk GENERAL BILLINGS (finance/general_billings)
-	gbController "schoolku_backend/internals/features/finance/general_billings/controller"
+	gbController "madinahsalam_backend/internals/features/finance/general_billings/controller"
 )
 
 func AdminGeneralBillingRoutes(r fiber.Router, db *gorm.DB) {

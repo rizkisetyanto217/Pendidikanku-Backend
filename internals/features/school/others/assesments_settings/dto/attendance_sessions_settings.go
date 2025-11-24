@@ -1,7 +1,7 @@
 package dto
 
 import (
-	"schoolku_backend/internals/features/school/others/assesments_settings/model"
+	"madinahsalam_backend/internals/features/school/others/assesments_settings/model"
 	"time"
 
 	"github.com/google/uuid"

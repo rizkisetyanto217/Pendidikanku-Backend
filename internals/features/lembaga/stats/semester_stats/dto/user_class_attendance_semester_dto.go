@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
-	m "schoolku_backend/internals/features/lembaga/stats/semester_stats/model"
+	m "madinahsalam_backend/internals/features/lembaga/stats/semester_stats/model"
 )
 
 /* ===================== REQUESTS ===================== */

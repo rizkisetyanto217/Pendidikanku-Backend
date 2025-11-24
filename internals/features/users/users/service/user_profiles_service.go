@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	userModel "schoolku_backend/internals/features/users/users/model"
+	userModel "madinahsalam_backend/internals/features/users/users/model"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"

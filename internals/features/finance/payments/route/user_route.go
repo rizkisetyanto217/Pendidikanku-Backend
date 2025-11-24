@@ -7,7 +7,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	paymentctl "schoolku_backend/internals/features/finance/payments/controller"
+	paymentctl "madinahsalam_backend/internals/features/finance/payments/controller"
 )
 
 // file: internals/routes/finance_payment_routes.go

@@ -12,11 +12,11 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
-	yDTO "schoolku_backend/internals/features/lembaga/school_yayasans/teachers_students/dto"
-	yModel "schoolku_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
+	yDTO "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/dto"
+	yModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
 )
 
 // ===== ganti struct row-nya biar cocok dgn tabel schools =====

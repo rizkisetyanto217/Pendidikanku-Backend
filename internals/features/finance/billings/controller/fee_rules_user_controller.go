@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time" // ⬅️ NEW
 
-	"schoolku_backend/internals/features/finance/billings/dto"
-	model "schoolku_backend/internals/features/finance/billings/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	"madinahsalam_backend/internals/features/finance/billings/dto"
+	model "madinahsalam_backend/internals/features/finance/billings/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

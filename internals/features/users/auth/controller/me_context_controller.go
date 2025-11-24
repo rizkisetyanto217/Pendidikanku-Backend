@@ -10,12 +10,12 @@ import (
 	"gorm.io/gorm"
 
 	// ✅ path school sesuai struktur terbaru kamu
-	schoolModel "schoolku_backend/internals/features/lembaga/school_yayasans/schools/model"
-	classModel "schoolku_backend/internals/features/school/classes/class_sections/model"
-	userModel "schoolku_backend/internals/features/users/users/model"
+	schoolModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/model"
+	classModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
+	userModel "madinahsalam_backend/internals/features/users/users/model"
 
 	// ✅ helpers
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 /* =============== Lightweight link models (disesuaikan kolom) =============== */

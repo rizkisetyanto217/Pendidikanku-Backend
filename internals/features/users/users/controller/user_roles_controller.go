@@ -13,9 +13,9 @@ import (
 	pq "github.com/lib/pq"
 	"gorm.io/gorm"
 
-	"schoolku_backend/internals/features/users/users/dto"
-	"schoolku_backend/internals/features/users/users/model"
-	helper "schoolku_backend/internals/helpers"
+	"madinahsalam_backend/internals/features/users/users/dto"
+	"madinahsalam_backend/internals/features/users/users/model"
+	helper "madinahsalam_backend/internals/helpers"
 )
 
 type UserRoleController struct {

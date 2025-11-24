@@ -1,7 +1,7 @@
 package helper
 
 import (
-	"schoolku_backend/internals/constants"
+	"madinahsalam_backend/internals/constants"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"

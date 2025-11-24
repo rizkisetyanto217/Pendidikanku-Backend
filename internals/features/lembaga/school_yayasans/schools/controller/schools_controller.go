@@ -7,14 +7,14 @@ import (
 	"strings"
 	"time"
 
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
-	helperOSS "schoolku_backend/internals/helpers/oss"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
+	helperOSS "madinahsalam_backend/internals/helpers/oss"
 
-	schoolDto "schoolku_backend/internals/features/lembaga/school_yayasans/schools/dto"
-	schoolModel "schoolku_backend/internals/features/lembaga/school_yayasans/schools/model"
+	schoolDto "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/dto"
+	schoolModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/model"
 
-	classModel "schoolku_backend/internals/features/school/classes/classes/model"
+	classModel "madinahsalam_backend/internals/features/school/classes/classes/model"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"

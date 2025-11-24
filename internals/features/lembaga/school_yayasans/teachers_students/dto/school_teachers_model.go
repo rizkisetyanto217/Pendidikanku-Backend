@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	yModel "schoolku_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
+	yModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
 
 	"github.com/google/uuid"
 	"gorm.io/datatypes"

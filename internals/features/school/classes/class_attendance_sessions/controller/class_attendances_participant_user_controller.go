@@ -2,14 +2,14 @@ package controller
 
 import (
 	"errors"
-	attendanceModel "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	attendanceModel "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 	"strconv"
 	"strings"
 	"time"
 
-	attendanceDTO "schoolku_backend/internals/features/school/classes/class_attendance_sessions/dto"
+	attendanceDTO "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/dto"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

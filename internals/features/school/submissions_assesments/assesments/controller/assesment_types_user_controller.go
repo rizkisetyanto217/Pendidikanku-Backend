@@ -2,15 +2,15 @@
 package controller
 
 import (
-	dto "schoolku_backend/internals/features/school/submissions_assesments/assesments/dto"
-	assessmentModel "schoolku_backend/internals/features/school/submissions_assesments/assesments/model"
-	helper "schoolku_backend/internals/helpers"
+	dto "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/dto"
+	assessmentModel "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/model"
+	helper "madinahsalam_backend/internals/helpers"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 // GET /assessment-types?active=&q=&limit=&offset=&sort_by=&sort_dir=

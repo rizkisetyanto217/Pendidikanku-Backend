@@ -2,7 +2,7 @@
 package route
 
 import (
-	sectionctrl "schoolku_backend/internals/features/school/classes/class_sections/controller"
+	sectionctrl "madinahsalam_backend/internals/features/school/classes/class_sections/controller"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

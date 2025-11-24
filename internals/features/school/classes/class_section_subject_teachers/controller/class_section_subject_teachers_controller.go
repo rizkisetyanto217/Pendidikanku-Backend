@@ -14,20 +14,20 @@ import (
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
-	modelSchoolTeacher "schoolku_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
-	modelClassSection "schoolku_backend/internals/features/school/classes/class_sections/model"
+	modelSchoolTeacher "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
+	modelClassSection "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 
-	attendanceModel "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
-	assessmentModel "schoolku_backend/internals/features/school/submissions_assesments/assesments/model"
+	attendanceModel "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/model"
+	assessmentModel "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/model"
 
 	// DTO & Model
-	dto "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/dto"
-	modelCSST "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
+	dto "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/dto"
+	modelCSST "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 
-	roomSnapshot "schoolku_backend/internals/features/school/academics/rooms/snapshot"
-	teacherSnapshot "schoolku_backend/internals/features/users/user_teachers/snapshot"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	roomSnapshot "madinahsalam_backend/internals/features/school/academics/rooms/snapshot"
+	teacherSnapshot "madinahsalam_backend/internals/features/users/user_teachers/snapshot"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 /* ===================== Helpers kecil ===================== */

@@ -14,12 +14,12 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	roomModel "schoolku_backend/internals/features/school/academics/rooms/model"
-	sessModel "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
-	schedModel "schoolku_backend/internals/features/school/classes/class_schedules/model"
+	roomModel "madinahsalam_backend/internals/features/school/academics/rooms/model"
+	sessModel "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/model"
+	schedModel "madinahsalam_backend/internals/features/school/classes/class_schedules/model"
 
 	// Paket snapshot lama sebagai fallback
-	snapshotCSST "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/snapshot"
+	snapshotCSST "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/snapshot"
 )
 
 /* =========================

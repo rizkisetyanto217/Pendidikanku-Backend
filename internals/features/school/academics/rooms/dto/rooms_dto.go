@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"schoolku_backend/internals/features/school/academics/rooms/model"
+	"madinahsalam_backend/internals/features/school/academics/rooms/model"
 
 	"github.com/google/uuid"
 	"gorm.io/datatypes"

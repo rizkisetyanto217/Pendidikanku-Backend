@@ -6,11 +6,11 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
-	dto "schoolku_backend/internals/features/school/submissions_assesments/submissions/dto"
-	model "schoolku_backend/internals/features/school/submissions_assesments/submissions/model"
+	dto "madinahsalam_backend/internals/features/school/submissions_assesments/submissions/dto"
+	model "madinahsalam_backend/internals/features/school/submissions_assesments/submissions/model"
 
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 // GET /submissions/list (LIST — member; student hanya lihat miliknya, school via token)

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	enrollDTO "schoolku_backend/internals/features/school/classes/classes/dto"
-	emodel "schoolku_backend/internals/features/school/classes/classes/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	enrollDTO "madinahsalam_backend/internals/features/school/classes/classes/dto"
+	emodel "madinahsalam_backend/internals/features/school/classes/classes/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

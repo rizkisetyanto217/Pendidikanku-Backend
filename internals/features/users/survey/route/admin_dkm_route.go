@@ -1,9 +1,9 @@
 package route
 
 import (
-	"schoolku_backend/internals/constants"
-	surveyController "schoolku_backend/internals/features/users/survey/controller"
-	authMiddleware "schoolku_backend/internals/middlewares/auth"
+	"madinahsalam_backend/internals/constants"
+	surveyController "madinahsalam_backend/internals/features/users/survey/controller"
+	authMiddleware "madinahsalam_backend/internals/middlewares/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

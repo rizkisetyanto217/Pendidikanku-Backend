@@ -2,14 +2,14 @@
 package route
 
 import (
-	uaCtrl "schoolku_backend/internals/features/school/classes/class_attendance_sessions/controller"
+	uaCtrl "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/controller"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
 
 // Contoh penggunaan middleware auth jika ada:
-// import mw "schoolku_backend/internals/middlewares"
+// import mw "madinahsalam_backend/internals/middlewares"
 func AttendanceSessionsAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// ✅ Base group tanpa :school_id
 	base := r.Group("") // school_id diambil dari context/token di controller

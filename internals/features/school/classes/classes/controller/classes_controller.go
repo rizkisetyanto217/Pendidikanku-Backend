@@ -17,15 +17,15 @@ import (
 	"gorm.io/gorm/clause"
 
 	// Services & helpers
-	"schoolku_backend/internals/features/lembaga/stats/lembaga_stats/service"
-	academicTermsSnapshot "schoolku_backend/internals/features/school/academics/academic_terms/snapshot"
-	classSectionModel "schoolku_backend/internals/features/school/classes/class_sections/model"
-	dto "schoolku_backend/internals/features/school/classes/classes/dto"
-	classmodel "schoolku_backend/internals/features/school/classes/classes/model"
-	classParentSnapshot "schoolku_backend/internals/features/school/classes/classes/snapshot"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
-	helperOSS "schoolku_backend/internals/helpers/oss"
+	"madinahsalam_backend/internals/features/lembaga/stats/lembaga_stats/service"
+	academicTermsSnapshot "madinahsalam_backend/internals/features/school/academics/academic_terms/snapshot"
+	classSectionModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
+	dto "madinahsalam_backend/internals/features/school/classes/classes/dto"
+	classmodel "madinahsalam_backend/internals/features/school/classes/classes/model"
+	classParentSnapshot "madinahsalam_backend/internals/features/school/classes/classes/snapshot"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
+	helperOSS "madinahsalam_backend/internals/helpers/oss"
 )
 
 /* ================= Controller & Constructor ================= */

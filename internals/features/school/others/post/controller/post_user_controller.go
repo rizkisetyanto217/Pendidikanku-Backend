@@ -4,9 +4,9 @@ package controller
 // import (
 // 	"strings"
 
-// 	dto "schoolku_backend/internals/features/school/others/post/dto"
-// 	model "schoolku_backend/internals/features/school/others/post/model"
-// 	helper "schoolku_backend/internals/helpers"
+// 	dto "madinahsalam_backend/internals/features/school/others/post/dto"
+// 	model "madinahsalam_backend/internals/features/school/others/post/model"
+// 	helper "madinahsalam_backend/internals/helpers"
 
 // 	"github.com/gofiber/fiber/v2"
 // 	"github.com/google/uuid"

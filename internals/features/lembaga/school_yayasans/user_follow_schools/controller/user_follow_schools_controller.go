@@ -5,9 +5,9 @@ package controller
 // 	"strconv"
 // 	"time"
 
-// 	schoolModel "schoolku_backend/internals/features/lembaga/school_yayasans/schools/model"
-// 	"schoolku_backend/internals/features/lembaga/school_yayasans/user_follow_schools/model"
-// 	helper "schoolku_backend/internals/helpers"
+// 	schoolModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/model"
+// 	"madinahsalam_backend/internals/features/lembaga/school_yayasans/user_follow_schools/model"
+// 	helper "madinahsalam_backend/internals/helpers"
 
 // 	"github.com/gofiber/fiber/v2"
 // 	"github.com/google/uuid"

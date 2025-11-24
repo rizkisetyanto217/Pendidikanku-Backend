@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	authModel "schoolku_backend/internals/features/users/auth/model"
-	authRepo "schoolku_backend/internals/features/users/auth/repository"
-	helpers "schoolku_backend/internals/helpers"
-	helpersAuth "schoolku_backend/internals/helpers/auth"
+	authModel "madinahsalam_backend/internals/features/users/auth/model"
+	authRepo "madinahsalam_backend/internals/features/users/auth/repository"
+	helpers "madinahsalam_backend/internals/helpers"
+	helpersAuth "madinahsalam_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v4"

@@ -5,8 +5,8 @@ import (
 	"log"
 	"time"
 
-	model "schoolku_backend/internals/features/users/survey/model"
-	helper "schoolku_backend/internals/helpers"
+	model "madinahsalam_backend/internals/features/users/survey/model"
+	helper "madinahsalam_backend/internals/helpers"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

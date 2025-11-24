@@ -4,9 +4,9 @@ import (
 	"strconv"
 	"strings"
 
-	userdto "schoolku_backend/internals/features/users/user_teachers/dto"
-	"schoolku_backend/internals/features/users/user_teachers/model"
-	helper "schoolku_backend/internals/helpers"
+	userdto "madinahsalam_backend/internals/features/users/user_teachers/dto"
+	"madinahsalam_backend/internals/features/users/user_teachers/model"
+	helper "madinahsalam_backend/internals/helpers"
 
 	"github.com/gofiber/fiber/v2"
 )

@@ -8,9 +8,9 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	dto "schoolku_backend/internals/features/finance/payments/dto"
-	model "schoolku_backend/internals/features/finance/payments/model"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	dto "madinahsalam_backend/internals/features/finance/payments/dto"
+	model "madinahsalam_backend/internals/features/finance/payments/model"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 /* =========================================================

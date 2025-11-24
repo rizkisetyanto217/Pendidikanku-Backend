@@ -15,11 +15,11 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	dto "schoolku_backend/internals/features/school/academics/books/dto"
-	bookModel "schoolku_backend/internals/features/school/academics/books/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
-	helperOSS "schoolku_backend/internals/helpers/oss"
+	dto "madinahsalam_backend/internals/features/school/academics/books/dto"
+	bookModel "madinahsalam_backend/internals/features/school/academics/books/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
+	helperOSS "madinahsalam_backend/internals/helpers/oss"
 )
 
 type BooksController struct {

@@ -4,7 +4,7 @@ package dto
 import (
 	"time"
 
-	"schoolku_backend/internals/features/users/users/model"
+	"madinahsalam_backend/internals/features/users/users/model"
 
 	"github.com/google/uuid"
 )

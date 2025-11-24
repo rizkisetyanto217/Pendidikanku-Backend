@@ -60,10 +60,18 @@ type StudentClassSection struct {
 	StudentClassSectionUserProfileParentNameSnapshot        *string `gorm:"type:varchar(80);column:student_class_section_user_profile_parent_name_snapshot" json:"student_class_section_user_profile_parent_name_snapshot,omitempty"`
 	StudentClassSectionUserProfileParentWhatsappURLSnapshot *string `gorm:"type:varchar(50);column:student_class_section_user_profile_parent_whatsapp_url_snapshot" json:"student_class_section_user_profile_parent_whatsapp_url_snapshot,omitempty"`
 
-	// Jejak waktu
+	// Jejak waktu enrolment
 	StudentClassSectionAssignedAt   time.Time  `gorm:"type:date;not null;default:current_date;column:student_class_section_assigned_at" json:"student_class_section_assigned_at"`
 	StudentClassSectionUnassignedAt *time.Time `gorm:"type:date;column:student_class_section_unassigned_at" json:"student_class_section_unassigned_at,omitempty"`
 	StudentClassSectionCompletedAt  *time.Time `gorm:"type:timestamptz;column:student_class_section_completed_at" json:"student_class_section_completed_at,omitempty"`
+
+	// Catatan dari siswa
+	StudentClassSectionStudentNotes          *string    `gorm:"type:text;column:student_class_section_student_notes" json:"student_class_section_student_notes,omitempty"`
+	StudentClassSectionStudentNotesUpdatedAt *time.Time `gorm:"type:timestamptz;column:student_class_section_student_notes_updated_at" json:"student_class_section_student_notes_updated_at,omitempty"`
+
+	// Catatan dari wali kelas
+	StudentClassSectionHomeroomNotes          *string    `gorm:"type:text;column:student_class_section_homeroom_notes" json:"student_class_section_homeroom_notes,omitempty"`
+	StudentClassSectionHomeroomNotesUpdatedAt *time.Time `gorm:"type:timestamptz;column:student_class_section_homeroom_notes_updated_at" json:"student_class_section_homeroom_notes_updated_at,omitempty"`
 
 	// Audit
 	StudentClassSectionCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();autoCreateTime;column:student_class_section_created_at" json:"student_class_section_created_at"`
@@ -145,7 +153,15 @@ func (s *StudentClassSection) MarkCompleted(result StudentClassSectionResult, wh
 }
 
 // SetFinalGrades mengisi nilai akhir (opsional pilih mana yang ada).
-func (s *StudentClassSection) SetFinalGrades(score *float64, letter *string, point *float64, rank *int, remarks *string, gradedBy *uuid.UUID, gradedAt *time.Time) {
+func (s *StudentClassSection) SetFinalGrades(
+	score *float64,
+	letter *string,
+	point *float64,
+	rank *int,
+	remarks *string,
+	gradedBy *uuid.UUID,
+	gradedAt *time.Time,
+) {
 	s.StudentClassSectionFinalScore = score
 	s.StudentClassSectionFinalGradeLetter = letter
 	s.StudentClassSectionFinalGradePoint = point

@@ -4,7 +4,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	submissionController "schoolku_backend/internals/features/school/submissions_assesments/submissions/controller"
+	submissionController "madinahsalam_backend/internals/features/school/submissions_assesments/submissions/controller"
 )
 
 // Middleware alias biar ringkas

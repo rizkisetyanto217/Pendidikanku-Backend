@@ -9,7 +9,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 
-	model "schoolku_backend/internals/features/school/submissions_assesments/submissions/model"
+	model "madinahsalam_backend/internals/features/school/submissions_assesments/submissions/model"
 )
 
 var validate = validator.New()

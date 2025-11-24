@@ -6,8 +6,8 @@ import (
 
 	"github.com/google/uuid"
 
-	linkModel "schoolku_backend/internals/features/school/academics/books/model"
-	csModel "schoolku_backend/internals/features/school/academics/subjects/model"
+	linkModel "madinahsalam_backend/internals/features/school/academics/books/model"
+	csModel "madinahsalam_backend/internals/features/school/academics/subjects/model"
 )
 
 /* =========================================================

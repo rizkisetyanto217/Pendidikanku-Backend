@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	qmodel "schoolku_backend/internals/features/school/submissions_assesments/quizzes/model"
+	qmodel "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/model"
 
 	"github.com/google/uuid"
 	"gorm.io/datatypes"

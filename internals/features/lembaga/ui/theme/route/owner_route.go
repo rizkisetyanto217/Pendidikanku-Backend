@@ -2,8 +2,8 @@
 package route
 
 import (
-	uictl "schoolku_backend/internals/features/lembaga/ui/theme/controller"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	uictl "madinahsalam_backend/internals/features/lembaga/ui/theme/controller"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

@@ -13,16 +13,16 @@ import (
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
-	csstModel "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
-	"schoolku_backend/internals/features/school/classes/class_section_subject_teachers/snapshot"
-	dto "schoolku_backend/internals/features/school/submissions_assesments/assesments/dto"
-	model "schoolku_backend/internals/features/school/submissions_assesments/assesments/model"
+	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
+	"madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/snapshot"
+	dto "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/dto"
+	model "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/model"
 
-	quizDTO "schoolku_backend/internals/features/school/submissions_assesments/quizzes/dto"
-	quizModel "schoolku_backend/internals/features/school/submissions_assesments/quizzes/model"
-	submissionsModel "schoolku_backend/internals/features/school/submissions_assesments/submissions/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	quizDTO "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/dto"
+	quizModel "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/model"
+	submissionsModel "madinahsalam_backend/internals/features/school/submissions_assesments/submissions/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 /*

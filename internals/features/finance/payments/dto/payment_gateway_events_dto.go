@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 
-	model "schoolku_backend/internals/features/finance/payments/model"
+	model "madinahsalam_backend/internals/features/finance/payments/model"
 )
 
 /* =========================================================

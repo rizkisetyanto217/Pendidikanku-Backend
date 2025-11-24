@@ -2,7 +2,7 @@
 package route
 
 import (
-	academicTermCtl "schoolku_backend/internals/features/school/academics/academic_terms/controller"
+	academicTermCtl "madinahsalam_backend/internals/features/school/academics/academic_terms/controller"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

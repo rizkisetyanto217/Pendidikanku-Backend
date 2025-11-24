@@ -17,16 +17,16 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
-	classSectionModel "schoolku_backend/internals/features/school/classes/class_sections/model"
+	classSectionModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 
-	csstModel "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
+	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 
-	dto "schoolku_backend/internals/features/school/academics/rooms/dto"
-	model "schoolku_backend/internals/features/school/academics/rooms/model"
-	helperOSS "schoolku_backend/internals/helpers/oss"
+	dto "madinahsalam_backend/internals/features/school/academics/rooms/dto"
+	model "madinahsalam_backend/internals/features/school/academics/rooms/model"
+	helperOSS "madinahsalam_backend/internals/helpers/oss"
 )
 
 /* =======================================================

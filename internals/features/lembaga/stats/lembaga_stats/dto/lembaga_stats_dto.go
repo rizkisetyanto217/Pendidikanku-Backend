@@ -4,7 +4,7 @@ package dto
 import (
 	"time"
 
-	model "schoolku_backend/internals/features/lembaga/stats/lembaga_stats/model"
+	model "madinahsalam_backend/internals/features/lembaga/stats/lembaga_stats/model"
 
 	"github.com/google/uuid"
 )

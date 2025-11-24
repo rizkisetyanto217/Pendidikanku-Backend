@@ -5,7 +5,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	statsCtl "schoolku_backend/internals/features/lembaga/stats/semester_stats/controller"
+	statsCtl "madinahsalam_backend/internals/features/lembaga/stats/semester_stats/controller"
 )
 
 func UserClassAttendanceSemesterUserRoutes(r fiber.Router, db *gorm.DB) {

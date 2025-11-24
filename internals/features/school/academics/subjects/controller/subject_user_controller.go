@@ -3,10 +3,10 @@ package controller
 
 import (
 	"errors"
-	subjectDTO "schoolku_backend/internals/features/school/academics/subjects/dto"
-	subjectModel "schoolku_backend/internals/features/school/academics/subjects/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	subjectDTO "madinahsalam_backend/internals/features/school/academics/subjects/dto"
+	subjectModel "madinahsalam_backend/internals/features/school/academics/subjects/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"

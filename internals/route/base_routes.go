@@ -4,7 +4,7 @@ import (
 	"os"
 	"time"
 
-	databases "schoolku_backend/internals/databases"
+	databases "madinahsalam_backend/internals/databases"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

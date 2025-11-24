@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	yModel "schoolku_backend/internals/features/lembaga/school_yayasans/yayasans/model"
+	yModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/yayasans/model"
 
 	"github.com/google/uuid"
 )

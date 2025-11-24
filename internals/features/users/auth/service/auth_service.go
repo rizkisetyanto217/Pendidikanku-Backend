@@ -23,15 +23,15 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"schoolku_backend/internals/configs"
-	authHelper "schoolku_backend/internals/features/users/auth/helper"
-	authModel "schoolku_backend/internals/features/users/auth/model"
-	authRepo "schoolku_backend/internals/features/users/auth/repository"
-	userTeacherService "schoolku_backend/internals/features/users/user_teachers/service"
-	userModel "schoolku_backend/internals/features/users/users/model"
-	userProfileService "schoolku_backend/internals/features/users/users/service"
-	helpers "schoolku_backend/internals/helpers"
-	helpersAuth "schoolku_backend/internals/helpers/auth"
+	"madinahsalam_backend/internals/configs"
+	authHelper "madinahsalam_backend/internals/features/users/auth/helper"
+	authModel "madinahsalam_backend/internals/features/users/auth/model"
+	authRepo "madinahsalam_backend/internals/features/users/auth/repository"
+	userTeacherService "madinahsalam_backend/internals/features/users/user_teachers/service"
+	userModel "madinahsalam_backend/internals/features/users/users/model"
+	userProfileService "madinahsalam_backend/internals/features/users/users/service"
+	helpers "madinahsalam_backend/internals/helpers"
+	helpersAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 /* ==========================

@@ -10,15 +10,15 @@ import (
 	"strings"
 	"time"
 
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
-	attendanceDTO "schoolku_backend/internals/features/school/classes/class_attendance_sessions/dto"
-	attendanceModel "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
-	helperOSS "schoolku_backend/internals/helpers/oss"
+	attendanceDTO "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/dto"
+	attendanceModel "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/model"
+	helperOSS "madinahsalam_backend/internals/helpers/oss"
 
-	serviceSchedule "schoolku_backend/internals/features/school/classes/class_schedules/services"
-	snapshotCSST "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/snapshot"
+	serviceSchedule "madinahsalam_backend/internals/features/school/classes/class_schedules/services"
+	snapshotCSST "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/snapshot"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"

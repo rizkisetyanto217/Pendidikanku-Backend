@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	userTeacherModel "schoolku_backend/internals/features/users/user_teachers/model"
-	userModel "schoolku_backend/internals/features/users/users/model"
-	userProfileService "schoolku_backend/internals/features/users/users/service"
+	userTeacherModel "madinahsalam_backend/internals/features/users/user_teachers/model"
+	userModel "madinahsalam_backend/internals/features/users/users/model"
+	userProfileService "madinahsalam_backend/internals/features/users/users/service"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"

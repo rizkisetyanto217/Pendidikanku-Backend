@@ -5,10 +5,10 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	userdto "schoolku_backend/internals/features/users/users/dto"
-	"schoolku_backend/internals/features/users/users/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	userdto "madinahsalam_backend/internals/features/users/users/dto"
+	"madinahsalam_backend/internals/features/users/users/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 // ==============================

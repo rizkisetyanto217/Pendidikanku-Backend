@@ -1,9 +1,9 @@
 package route
 
 import (
-	"schoolku_backend/internals/constants"
-	cbController "schoolku_backend/internals/features/school/academics/books/controller"
-	"schoolku_backend/internals/middlewares/auth"
+	"madinahsalam_backend/internals/constants"
+	cbController "madinahsalam_backend/internals/features/school/academics/books/controller"
+	"madinahsalam_backend/internals/middlewares/auth"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"

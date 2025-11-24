@@ -13,11 +13,11 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
-	d "schoolku_backend/internals/features/school/classes/class_events/dto"
-	m "schoolku_backend/internals/features/school/classes/class_events/model"
+	d "madinahsalam_backend/internals/features/school/classes/class_events/dto"
+	m "madinahsalam_backend/internals/features/school/classes/class_events/model"
 )
 
 /* =========================

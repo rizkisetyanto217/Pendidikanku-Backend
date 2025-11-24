@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	csstModel "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
+	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 
 	"github.com/google/uuid"
 	"gorm.io/datatypes"

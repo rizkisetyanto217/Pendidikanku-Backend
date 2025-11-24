@@ -10,9 +10,9 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	userdto "schoolku_backend/internals/features/users/users/dto"
-	"schoolku_backend/internals/features/users/users/model"
-	helper "schoolku_backend/internals/helpers"
+	userdto "madinahsalam_backend/internals/features/users/users/dto"
+	"madinahsalam_backend/internals/features/users/users/model"
+	helper "madinahsalam_backend/internals/helpers"
 )
 
 type AdminUserController struct {

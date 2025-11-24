@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	attendanceModel "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
-	attendanceDTO "schoolku_backend/internals/features/school/classes/class_attendance_sessions/dto"
+	attendanceModel "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/model"
+	attendanceDTO "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/dto"
 
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
-	helperOSS "schoolku_backend/internals/helpers/oss"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
+	helperOSS "madinahsalam_backend/internals/helpers/oss"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"

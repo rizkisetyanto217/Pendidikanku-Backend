@@ -17,20 +17,20 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
-	helperOSS "schoolku_backend/internals/helpers/oss"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
+	helperOSS "madinahsalam_backend/internals/helpers/oss"
 
-	semstats "schoolku_backend/internals/features/lembaga/stats/semester_stats/service"
-	csstModel "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
-	secDTO "schoolku_backend/internals/features/school/classes/class_sections/dto"
-	secModel "schoolku_backend/internals/features/school/classes/class_sections/model"
-	classModel "schoolku_backend/internals/features/school/classes/classes/model"
+	semstats "madinahsalam_backend/internals/features/lembaga/stats/semester_stats/service"
+	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
+	secDTO "madinahsalam_backend/internals/features/school/classes/class_sections/dto"
+	secModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
+	classModel "madinahsalam_backend/internals/features/school/classes/classes/model"
 
 	// Snapshot (section room snapshot)
-	sectionroomsnap "schoolku_backend/internals/features/school/classes/class_sections/snapshot"
+	sectionroomsnap "madinahsalam_backend/internals/features/school/classes/class_sections/snapshot"
 
-	teachersnap "schoolku_backend/internals/features/lembaga/school_yayasans/teachers_students/snapshot"
+	teachersnap "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/snapshot"
 )
 
 /* =========================================================

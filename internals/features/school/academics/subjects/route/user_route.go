@@ -2,7 +2,7 @@
 package router
 
 import (
-	subjectsController "schoolku_backend/internals/features/school/academics/subjects/controller"
+	subjectsController "madinahsalam_backend/internals/features/school/academics/subjects/controller"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

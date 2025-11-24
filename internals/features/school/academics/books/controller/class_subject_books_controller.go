@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"strings"
 
-	csbDTO "schoolku_backend/internals/features/school/academics/books/dto"
-	csbModel "schoolku_backend/internals/features/school/academics/books/model"
-	bookSnap "schoolku_backend/internals/features/school/academics/books/snapshot"
-	csstModel "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
+	csbDTO "madinahsalam_backend/internals/features/school/academics/books/dto"
+	csbModel "madinahsalam_backend/internals/features/school/academics/books/model"
+	bookSnap "madinahsalam_backend/internals/features/school/academics/books/snapshot"
+	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"

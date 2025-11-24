@@ -2,9 +2,9 @@ package controller
 
 import (
 	"errors"
-	secModel "schoolku_backend/internals/features/school/classes/class_sections/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	secModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 	"strings"
 	"time"
 

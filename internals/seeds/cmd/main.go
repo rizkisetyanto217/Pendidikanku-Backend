@@ -5,12 +5,12 @@ import (
 	"os"
 	"strings"
 
-	"schoolku_backend/internals/configs"
-	"schoolku_backend/internals/seeds"
+	"madinahsalam_backend/internals/configs"
+	"madinahsalam_backend/internals/seeds"
 
-	// users "schoolku_backend/internals/seeds/users/auth"
-	survey "schoolku_backend/internals/seeds/users/surveys/survey_questions"
-	user_survey "schoolku_backend/internals/seeds/users/surveys/user_surveys"
+	// users "madinahsalam_backend/internals/seeds/users/auth"
+	survey "madinahsalam_backend/internals/seeds/users/surveys/survey_questions"
+	user_survey "madinahsalam_backend/internals/seeds/users/surveys/user_surveys"
 )
 
 func main() {

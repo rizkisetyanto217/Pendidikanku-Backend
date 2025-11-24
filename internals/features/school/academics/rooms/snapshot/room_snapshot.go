@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	secModel "schoolku_backend/internals/features/school/classes/class_sections/model"
+	secModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

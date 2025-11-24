@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	model "schoolku_backend/internals/features/finance/general_billings/model"
+	model "madinahsalam_backend/internals/features/finance/general_billings/model"
 )
 
 /* =========================================================

@@ -3,7 +3,7 @@ package school
 // import (
 // 	"encoding/json"
 // 	"log"
-// 	"schoolku_backend/internals/features/schools/schools/model"
+// 	"madinahsalam_backend/internals/features/schools/schools/model"
 // 	"os"
 // 	"time"
 

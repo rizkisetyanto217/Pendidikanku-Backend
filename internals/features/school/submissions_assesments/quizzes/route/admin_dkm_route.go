@@ -4,7 +4,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	quizcontroller "schoolku_backend/internals/features/school/submissions_assesments/quizzes/controller"
+	quizcontroller "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/controller"
 )
 
 /*

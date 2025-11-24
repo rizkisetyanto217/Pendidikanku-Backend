@@ -5,8 +5,8 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	clsCtl "schoolku_backend/internals/features/school/academics/rooms/controller"
-	schoolkuMiddleware "schoolku_backend/internals/middlewares/features"
+	clsCtl "madinahsalam_backend/internals/features/school/academics/rooms/controller"
+	schoolkuMiddleware "madinahsalam_backend/internals/middlewares/features"
 )
 
 // RoomsUserRoutes — route USER (read-only).

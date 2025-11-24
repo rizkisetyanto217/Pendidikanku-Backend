@@ -6,14 +6,14 @@ import (
 	"reflect"
 	"strings"
 
-	dto "schoolku_backend/internals/features/school/classes/classes/dto"
-	emodel "schoolku_backend/internals/features/school/classes/classes/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	dto "madinahsalam_backend/internals/features/school/classes/classes/dto"
+	emodel "madinahsalam_backend/internals/features/school/classes/classes/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
-	csstModel "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
-	csDTO "schoolku_backend/internals/features/school/classes/class_sections/dto"
-	csModel "schoolku_backend/internals/features/school/classes/class_sections/model"
+	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
+	csDTO "madinahsalam_backend/internals/features/school/classes/class_sections/dto"
+	csModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

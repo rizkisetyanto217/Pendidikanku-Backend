@@ -6,11 +6,11 @@ import (
 	"strings"
 	"time"
 
-	dto "schoolku_backend/internals/features/school/academics/rooms/dto"
-	model "schoolku_backend/internals/features/school/academics/rooms/model"
+	dto "madinahsalam_backend/internals/features/school/academics/rooms/dto"
+	model "madinahsalam_backend/internals/features/school/academics/rooms/model"
 
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

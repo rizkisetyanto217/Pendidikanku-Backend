@@ -1,10 +1,10 @@
 package controller
 
 import (
-	cpdto "schoolku_backend/internals/features/school/classes/classes/dto"
-	cpmodel "schoolku_backend/internals/features/school/classes/classes/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	cpdto "madinahsalam_backend/internals/features/school/classes/classes/dto"
+	cpmodel "madinahsalam_backend/internals/features/school/classes/classes/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"

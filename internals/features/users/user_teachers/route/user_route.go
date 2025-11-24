@@ -2,7 +2,7 @@
 package route
 
 import (
-	userTeachersCtl "schoolku_backend/internals/features/users/user_teachers/controller"
+	userTeachersCtl "madinahsalam_backend/internals/features/users/user_teachers/controller"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"

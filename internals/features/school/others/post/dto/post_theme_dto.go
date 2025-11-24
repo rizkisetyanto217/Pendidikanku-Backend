@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
-	model "schoolku_backend/internals/features/school/others/post/model"
+	model "madinahsalam_backend/internals/features/school/others/post/model"
 )
 
 /* =========================================================

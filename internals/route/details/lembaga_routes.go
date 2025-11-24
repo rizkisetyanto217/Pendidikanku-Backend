@@ -4,20 +4,20 @@ package details
 import (
 	// ====== Lembaga features ======
 
-	// CertificateRoutes "schoolku_backend/internals/features/school/academics/certificates/route"
+	// CertificateRoutes "madinahsalam_backend/internals/features/school/academics/certificates/route"
 
-	ScheduleRoutes "schoolku_backend/internals/features/school/classes/class_schedules/route"
+	ScheduleRoutes "madinahsalam_backend/internals/features/school/classes/class_schedules/route"
 
-	LembagaRoutes "schoolku_backend/internals/features/lembaga/school_yayasans/schools/route"
+	LembagaRoutes "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/route"
 
-	LembagaSchoolTeacher "schoolku_backend/internals/features/lembaga/school_yayasans/teachers_students/route"
+	LembagaSchoolTeacher "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/route"
 
 	// Tambahkan import route lain di sini saat modul siap:
-	// SectionRoutes "schoolku_backend/internals/features/lembaga/sections/main/route"
-	// StudentRoutes "schoolku_backend/internals/features/lembaga/students/main/route"
-	// TeacherRoutes "schoolku_backend/internals/features/lembaga/teachers/main/route"
-	// ScheduleRoutes "schoolku_backend/internals/features/lembaga/schedules/main/route"
-	// FinanceRoutes  "schoolku_backend/internals/features/lembaga/finance/main/route"
+	// SectionRoutes "madinahsalam_backend/internals/features/lembaga/sections/main/route"
+	// StudentRoutes "madinahsalam_backend/internals/features/lembaga/students/main/route"
+	// TeacherRoutes "madinahsalam_backend/internals/features/lembaga/teachers/main/route"
+	// ScheduleRoutes "madinahsalam_backend/internals/features/lembaga/schedules/main/route"
+	// FinanceRoutes  "madinahsalam_backend/internals/features/lembaga/finance/main/route"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

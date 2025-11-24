@@ -1,8 +1,8 @@
 package route
 
 import (
-	controller "schoolku_backend/internals/features/users/auth/controller"
-	rateLimiter "schoolku_backend/internals/middlewares"
+	controller "madinahsalam_backend/internals/features/users/auth/controller"
+	rateLimiter "madinahsalam_backend/internals/middlewares"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

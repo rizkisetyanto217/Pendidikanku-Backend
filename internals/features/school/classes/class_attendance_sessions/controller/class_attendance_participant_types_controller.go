@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	dto "schoolku_backend/internals/features/school/classes/class_attendance_sessions/dto"
-	model "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	dto "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/dto"
+	model "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"

@@ -4,7 +4,7 @@ package routes
 // 	"github.com/gofiber/fiber/v2"
 // 	"gorm.io/gorm"
 
-// 	annCtl "schoolku_backend/internals/features/school/others/post/controller"
+// 	annCtl "madinahsalam_backend/internals/features/school/others/post/controller"
 // )
 
 // // Rute USER (bisa juga dipakai Admin/Teacher tergantung middleware di atas 'r')

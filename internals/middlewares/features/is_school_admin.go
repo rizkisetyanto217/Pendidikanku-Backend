@@ -11,8 +11,8 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
-	"schoolku_backend/internals/constants"
-	helper "schoolku_backend/internals/helpers/auth"
+	"madinahsalam_backend/internals/constants"
+	helper "madinahsalam_backend/internals/helpers/auth"
 )
 
 // baca slice string dari Locals apapun tipenya

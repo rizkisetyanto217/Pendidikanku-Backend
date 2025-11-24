@@ -6,15 +6,15 @@ import (
 	"log"
 	"strings"
 
-	sectionModel "schoolku_backend/internals/features/school/classes/class_sections/model"
-	dto "schoolku_backend/internals/features/school/classes/classes/dto"
-	enrollModel "schoolku_backend/internals/features/school/classes/classes/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	sectionModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
+	dto "madinahsalam_backend/internals/features/school/classes/classes/dto"
+	enrollModel "madinahsalam_backend/internals/features/school/classes/classes/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
-	studentModel "schoolku_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
-	csstModel "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
-	snapsvc "schoolku_backend/internals/features/users/users/snapshot"
+	studentModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
+	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
+	snapsvc "madinahsalam_backend/internals/features/users/users/snapshot"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

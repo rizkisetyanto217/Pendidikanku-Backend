@@ -11,13 +11,13 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	dto "schoolku_backend/internals/features/school/academics/academic_terms/dto"
+	dto "madinahsalam_backend/internals/features/school/academics/academic_terms/dto"
 
-	termModel "schoolku_backend/internals/features/school/academics/academic_terms/model"
-	classSectionModel "schoolku_backend/internals/features/school/classes/class_sections/model"
-	classModel "schoolku_backend/internals/features/school/classes/classes/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	termModel "madinahsalam_backend/internals/features/school/academics/academic_terms/model"
+	classSectionModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
+	classModel "madinahsalam_backend/internals/features/school/classes/classes/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 /* ============================================

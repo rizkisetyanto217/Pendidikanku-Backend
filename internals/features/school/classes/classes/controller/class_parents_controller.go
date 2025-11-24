@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	cpdto "schoolku_backend/internals/features/school/classes/classes/dto"
-	classModel "schoolku_backend/internals/features/school/classes/classes/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
-	helperOSS "schoolku_backend/internals/helpers/oss"
+	cpdto "madinahsalam_backend/internals/features/school/classes/classes/dto"
+	classModel "madinahsalam_backend/internals/features/school/classes/classes/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
+	helperOSS "madinahsalam_backend/internals/helpers/oss"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

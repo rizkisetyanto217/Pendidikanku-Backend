@@ -14,11 +14,11 @@ import (
 	"gorm.io/gorm/clause"
 
 	// ==== Import yang benar ====
-	dto "schoolku_backend/internals/features/finance/billings/dto"
-	model "schoolku_backend/internals/features/finance/billings/model"
-	"schoolku_backend/internals/features/finance/general_billings/snapshot"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	dto "madinahsalam_backend/internals/features/finance/billings/dto"
+	model "madinahsalam_backend/internals/features/finance/billings/model"
+	"madinahsalam_backend/internals/features/finance/general_billings/snapshot"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 /* =======================================================

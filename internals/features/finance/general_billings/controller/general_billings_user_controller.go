@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	dto "schoolku_backend/internals/features/finance/general_billings/dto"
-	model "schoolku_backend/internals/features/finance/general_billings/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	dto "madinahsalam_backend/internals/features/finance/general_billings/dto"
+	model "madinahsalam_backend/internals/features/finance/general_billings/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

@@ -17,13 +17,13 @@ import (
 	"gorm.io/gorm"
 
 	// DTO & Model (users/profile)
-	"schoolku_backend/internals/features/users/user_profiles/dto"
-	"schoolku_backend/internals/features/users/user_profiles/model"
+	"madinahsalam_backend/internals/features/users/user_profiles/dto"
+	"madinahsalam_backend/internals/features/users/user_profiles/model"
 
 	// Helpers
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
-	helperOSS "schoolku_backend/internals/helpers/oss"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
+	helperOSS "madinahsalam_backend/internals/helpers/oss"
 
 	"github.com/go-playground/validator/v10"
 )

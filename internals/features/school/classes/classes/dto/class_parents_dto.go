@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 
-	m "schoolku_backend/internals/features/school/classes/classes/model"
+	m "madinahsalam_backend/internals/features/school/classes/classes/model"
 )
 
 /*

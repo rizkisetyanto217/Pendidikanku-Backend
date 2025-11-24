@@ -1,7 +1,7 @@
 package model
 
 import (
-	School "schoolku_backend/internals/features/lembaga/school_yayasans/schools/model"
+	School "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/model"
 	"time"
 
 	"github.com/google/uuid"

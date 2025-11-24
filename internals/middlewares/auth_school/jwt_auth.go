@@ -7,7 +7,7 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/google/uuid"
 
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 type AuthJWTOpts struct {

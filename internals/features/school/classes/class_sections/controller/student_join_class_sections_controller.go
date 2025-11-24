@@ -16,13 +16,13 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	dto "schoolku_backend/internals/features/school/classes/class_sections/dto"
-	model "schoolku_backend/internals/features/school/classes/class_sections/model"
+	dto "madinahsalam_backend/internals/features/school/classes/class_sections/dto"
+	model "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
-	userProfileSnapshot "schoolku_backend/internals/features/users/users/snapshot"
+	userProfileSnapshot "madinahsalam_backend/internals/features/users/users/snapshot"
 )
 
 /* =========================

@@ -70,6 +70,13 @@ CREATE TABLE IF NOT EXISTS student_class_sections (
   student_class_section_unassigned_at DATE,
   student_class_section_completed_at  TIMESTAMPTZ,
 
+  student_class_section_student_notes TEXT,
+  student_class_section_student_notes_updated_at TIMESTAMPTZ,
+
+  -- Catatan dari wali kelas
+  student_class_section_homeroom_notes TEXT,
+  student_class_section_homeroom_notes_updated_at TIMESTAMPTZ;
+
   -- audit
   student_class_section_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   student_class_section_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

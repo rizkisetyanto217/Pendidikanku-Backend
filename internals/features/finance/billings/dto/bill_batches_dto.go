@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	// ganti path sesuai modelmu
-	billing "schoolku_backend/internals/features/finance/billings/model"
+	billing "madinahsalam_backend/internals/features/finance/billings/model"
 )
 
 ////////////////////////////////////////////////////////////////////////////////

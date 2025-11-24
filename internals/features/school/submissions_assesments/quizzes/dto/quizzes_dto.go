@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	model "schoolku_backend/internals/features/school/submissions_assesments/quizzes/model"
+	model "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/model"
 )
 
 /* ==============================

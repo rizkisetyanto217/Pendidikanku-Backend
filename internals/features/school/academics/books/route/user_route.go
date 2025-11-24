@@ -1,7 +1,7 @@
 package route
 
 import (
-	cbController "schoolku_backend/internals/features/school/academics/books/controller"
+	cbController "madinahsalam_backend/internals/features/school/academics/books/controller"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

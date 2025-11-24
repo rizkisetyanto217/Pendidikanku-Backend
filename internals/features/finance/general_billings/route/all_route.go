@@ -6,7 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	// General Billings controller (create/patch/delete/get/list)
-	gbController "schoolku_backend/internals/features/finance/general_billings/controller"
+	gbController "madinahsalam_backend/internals/features/finance/general_billings/controller"
 )
 
 // AFTER

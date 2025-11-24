@@ -11,9 +11,9 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	dto "schoolku_backend/internals/features/finance/general_billings/dto"
-	model "schoolku_backend/internals/features/finance/general_billings/model"
-	helper "schoolku_backend/internals/helpers" // <- pastikan path-nya sesuai lokasi Json* helper kamu
+	dto "madinahsalam_backend/internals/features/finance/general_billings/dto"
+	model "madinahsalam_backend/internals/features/finance/general_billings/model"
+	helper "madinahsalam_backend/internals/helpers" // <- pastikan path-nya sesuai lokasi Json* helper kamu
 )
 
 /* ========================================================

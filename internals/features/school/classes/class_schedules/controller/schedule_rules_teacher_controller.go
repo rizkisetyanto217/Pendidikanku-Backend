@@ -10,11 +10,11 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
-	ruleDTO "schoolku_backend/internals/features/school/classes/class_schedules/dto"
-	ruleModel "schoolku_backend/internals/features/school/classes/class_schedules/model"
+	ruleDTO "madinahsalam_backend/internals/features/school/classes/class_schedules/dto"
+	ruleModel "madinahsalam_backend/internals/features/school/classes/class_schedules/model"
 )
 
 type ClassScheduleRuleListController struct{ DB *gorm.DB }

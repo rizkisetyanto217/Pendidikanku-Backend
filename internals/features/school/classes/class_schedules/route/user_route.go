@@ -2,7 +2,7 @@
 package routes
 
 import (
-	nhctl "schoolku_backend/internals/features/school/classes/class_schedules/controller"
+	nhctl "madinahsalam_backend/internals/features/school/classes/class_schedules/controller"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"

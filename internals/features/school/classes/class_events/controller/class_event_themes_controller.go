@@ -14,11 +14,11 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
-	dto "schoolku_backend/internals/features/school/classes/class_events/dto"
-	model "schoolku_backend/internals/features/school/classes/class_events/model"
+	dto "madinahsalam_backend/internals/features/school/classes/class_events/dto"
+	model "madinahsalam_backend/internals/features/school/classes/class_events/model"
 )
 
 /* =========================

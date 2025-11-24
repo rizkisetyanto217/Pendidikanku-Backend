@@ -2,8 +2,8 @@
 package route
 
 import (
-	uictl "schoolku_backend/internals/features/lembaga/ui/theme/controller"
-	schoolkuMiddleware "schoolku_backend/internals/middlewares/features"
+	uictl "madinahsalam_backend/internals/features/lembaga/ui/theme/controller"
+	schoolkuMiddleware "madinahsalam_backend/internals/middlewares/features"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

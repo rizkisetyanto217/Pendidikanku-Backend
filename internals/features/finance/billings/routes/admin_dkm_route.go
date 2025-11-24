@@ -4,7 +4,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	sppapi "schoolku_backend/internals/features/finance/billings/controller"
+	sppapi "madinahsalam_backend/internals/features/finance/billings/controller"
 )
 
 /*

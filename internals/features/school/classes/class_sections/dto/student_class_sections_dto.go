@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	model "schoolku_backend/internals/features/school/classes/class_sections/model"
+	model "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 
 	"github.com/google/uuid"
 )
@@ -72,6 +72,14 @@ type StudentClassSectionCreateReq struct {
 	StudentClassSectionAssignedAt   *time.Time `json:"student_class_section_assigned_at,omitempty"`
 	StudentClassSectionUnassignedAt *time.Time `json:"student_class_section_unassigned_at,omitempty"`
 	StudentClassSectionCompletedAt  *time.Time `json:"student_class_section_completed_at,omitempty"`
+
+	// Catatan dari siswa
+	StudentClassSectionStudentNotes          *string    `json:"student_class_section_student_notes,omitempty"`
+	StudentClassSectionStudentNotesUpdatedAt *time.Time `json:"student_class_section_student_notes_updated_at,omitempty"`
+
+	// Catatan dari wali kelas
+	StudentClassSectionHomeroomNotes          *string    `json:"student_class_section_homeroom_notes,omitempty"`
+	StudentClassSectionHomeroomNotesUpdatedAt *time.Time `json:"student_class_section_homeroom_notes_updated_at,omitempty"`
 }
 
 func (r *StudentClassSectionCreateReq) Normalize() {
@@ -96,6 +104,10 @@ func (r *StudentClassSectionCreateReq) Normalize() {
 	r.StudentClassSectionUserProfileWhatsappURLSnapshot = trimPtr(r.StudentClassSectionUserProfileWhatsappURLSnapshot)
 	r.StudentClassSectionUserProfileParentNameSnapshot = trimPtr(r.StudentClassSectionUserProfileParentNameSnapshot)
 	r.StudentClassSectionUserProfileParentWhatsappURLSnapshot = trimPtr(r.StudentClassSectionUserProfileParentWhatsappURLSnapshot)
+
+	// trim notes (optional, biar rapi)
+	r.StudentClassSectionStudentNotes = trimPtr(r.StudentClassSectionStudentNotes)
+	r.StudentClassSectionHomeroomNotes = trimPtr(r.StudentClassSectionHomeroomNotes)
 }
 
 func (r *StudentClassSectionCreateReq) Validate() error {
@@ -209,6 +221,13 @@ func (r *StudentClassSectionCreateReq) ToModel() *model.StudentClassSection {
 	}
 	m.StudentClassSectionUnassignedAt = r.StudentClassSectionUnassignedAt
 	m.StudentClassSectionCompletedAt = r.StudentClassSectionCompletedAt
+
+	// notes
+	m.StudentClassSectionStudentNotes = r.StudentClassSectionStudentNotes
+	m.StudentClassSectionStudentNotesUpdatedAt = r.StudentClassSectionStudentNotesUpdatedAt
+	m.StudentClassSectionHomeroomNotes = r.StudentClassSectionHomeroomNotes
+	m.StudentClassSectionHomeroomNotesUpdatedAt = r.StudentClassSectionHomeroomNotesUpdatedAt
+
 	return m
 }
 
@@ -246,6 +265,13 @@ type StudentClassSectionPatchReq struct {
 	StudentClassSectionAssignedAt   *PatchField[*time.Time] `json:"student_class_section_assigned_at,omitempty"`
 	StudentClassSectionUnassignedAt *PatchField[*time.Time] `json:"student_class_section_unassigned_at,omitempty"`
 	StudentClassSectionCompletedAt  *PatchField[*time.Time] `json:"student_class_section_completed_at,omitempty"`
+
+	// Catatan siswa/guru (patchable)
+	StudentClassSectionStudentNotes          *PatchField[*string]    `json:"student_class_section_student_notes,omitempty"`
+	StudentClassSectionStudentNotesUpdatedAt *PatchField[*time.Time] `json:"student_class_section_student_notes_updated_at,omitempty"`
+
+	StudentClassSectionHomeroomNotes          *PatchField[*string]    `json:"student_class_section_homeroom_notes,omitempty"`
+	StudentClassSectionHomeroomNotesUpdatedAt *PatchField[*time.Time] `json:"student_class_section_homeroom_notes_updated_at,omitempty"`
 }
 
 func (r *StudentClassSectionPatchReq) Normalize() {
@@ -276,6 +302,14 @@ func (r *StudentClassSectionPatchReq) Normalize() {
 	}
 	if r.StudentClassSectionUserProfileParentWhatsappURLSnapshot != nil && r.StudentClassSectionUserProfileParentWhatsappURLSnapshot.Set {
 		r.StudentClassSectionUserProfileParentWhatsappURLSnapshot.Value = trimPtr(r.StudentClassSectionUserProfileParentWhatsappURLSnapshot.Value)
+	}
+
+	// trim notes
+	if r.StudentClassSectionStudentNotes != nil && r.StudentClassSectionStudentNotes.Set {
+		r.StudentClassSectionStudentNotes.Value = trimPtr(r.StudentClassSectionStudentNotes.Value)
+	}
+	if r.StudentClassSectionHomeroomNotes != nil && r.StudentClassSectionHomeroomNotes.Set {
+		r.StudentClassSectionHomeroomNotes.Value = trimPtr(r.StudentClassSectionHomeroomNotes.Value)
 	}
 }
 
@@ -435,6 +469,20 @@ func (r *StudentClassSectionPatchReq) Apply(m *model.StudentClassSection) {
 	if r.StudentClassSectionCompletedAt != nil && r.StudentClassSectionCompletedAt.Set {
 		m.StudentClassSectionCompletedAt = r.StudentClassSectionCompletedAt.Value
 	}
+
+	// notes
+	if r.StudentClassSectionStudentNotes != nil && r.StudentClassSectionStudentNotes.Set {
+		m.StudentClassSectionStudentNotes = r.StudentClassSectionStudentNotes.Value
+	}
+	if r.StudentClassSectionStudentNotesUpdatedAt != nil && r.StudentClassSectionStudentNotesUpdatedAt.Set {
+		m.StudentClassSectionStudentNotesUpdatedAt = r.StudentClassSectionStudentNotesUpdatedAt.Value
+	}
+	if r.StudentClassSectionHomeroomNotes != nil && r.StudentClassSectionHomeroomNotes.Set {
+		m.StudentClassSectionHomeroomNotes = r.StudentClassSectionHomeroomNotes.Value
+	}
+	if r.StudentClassSectionHomeroomNotesUpdatedAt != nil && r.StudentClassSectionHomeroomNotesUpdatedAt.Set {
+		m.StudentClassSectionHomeroomNotesUpdatedAt = r.StudentClassSectionHomeroomNotesUpdatedAt.Value
+	}
 }
 
 /* =========================================================
@@ -472,6 +520,12 @@ type StudentClassSectionResp struct {
 	StudentClassSectionAssignedAt   time.Time  `json:"student_class_section_assigned_at"`
 	StudentClassSectionUnassignedAt *time.Time `json:"student_class_section_unassigned_at,omitempty"`
 	StudentClassSectionCompletedAt  *time.Time `json:"student_class_section_completed_at,omitempty"`
+
+	// Notes
+	StudentClassSectionStudentNotes           *string    `json:"student_class_section_student_notes,omitempty"`
+	StudentClassSectionStudentNotesUpdatedAt  *time.Time `json:"student_class_section_student_notes_updated_at,omitempty"`
+	StudentClassSectionHomeroomNotes          *string    `json:"student_class_section_homeroom_notes,omitempty"`
+	StudentClassSectionHomeroomNotesUpdatedAt *time.Time `json:"student_class_section_homeroom_notes_updated_at,omitempty"`
 
 	StudentClassSectionCreatedAt time.Time  `json:"student_class_section_created_at"`
 	StudentClassSectionUpdatedAt time.Time  `json:"student_class_section_updated_at"`
@@ -519,6 +573,11 @@ func FromModel(m *model.StudentClassSection) StudentClassSectionResp {
 		StudentClassSectionAssignedAt:   m.StudentClassSectionAssignedAt,
 		StudentClassSectionUnassignedAt: m.StudentClassSectionUnassignedAt,
 		StudentClassSectionCompletedAt:  m.StudentClassSectionCompletedAt,
+
+		StudentClassSectionStudentNotes:           m.StudentClassSectionStudentNotes,
+		StudentClassSectionStudentNotesUpdatedAt:  m.StudentClassSectionStudentNotesUpdatedAt,
+		StudentClassSectionHomeroomNotes:          m.StudentClassSectionHomeroomNotes,
+		StudentClassSectionHomeroomNotesUpdatedAt: m.StudentClassSectionHomeroomNotesUpdatedAt,
 
 		StudentClassSectionCreatedAt: m.StudentClassSectionCreatedAt,
 		StudentClassSectionUpdatedAt: m.StudentClassSectionUpdatedAt,

@@ -11,15 +11,15 @@ import (
 	"strings"
 	"time"
 
-	schoolTeacherModel "schoolku_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
-	classsectionModel "schoolku_backend/internals/features/school/classes/class_sections/model"
-	userdto "schoolku_backend/internals/features/users/user_teachers/dto"
-	"schoolku_backend/internals/features/users/user_teachers/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
-	helperOSS "schoolku_backend/internals/helpers/oss"
+	schoolTeacherModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
+	classsectionModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
+	userdto "madinahsalam_backend/internals/features/users/user_teachers/dto"
+	"madinahsalam_backend/internals/features/users/user_teachers/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
+	helperOSS "madinahsalam_backend/internals/helpers/oss"
 
-	csstModel "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
+	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"

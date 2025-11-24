@@ -12,11 +12,11 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	d "schoolku_backend/internals/features/lembaga/school_yayasans/schools/dto"
-	m "schoolku_backend/internals/features/lembaga/school_yayasans/schools/model"
+	d "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/dto"
+	m "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/model"
 
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 /* =======================================================

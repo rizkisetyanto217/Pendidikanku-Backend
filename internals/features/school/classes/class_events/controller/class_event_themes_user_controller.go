@@ -7,9 +7,9 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	dto "schoolku_backend/internals/features/school/classes/class_events/dto"
-	model "schoolku_backend/internals/features/school/classes/class_events/model"
-	helper "schoolku_backend/internals/helpers"
+	dto "madinahsalam_backend/internals/features/school/classes/class_events/dto"
+	model "madinahsalam_backend/internals/features/school/classes/class_events/model"
+	helper "madinahsalam_backend/internals/helpers"
 )
 
 /*

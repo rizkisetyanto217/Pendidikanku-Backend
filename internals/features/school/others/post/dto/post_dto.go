@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 
-	smodel "schoolku_backend/internals/features/school/others/post/model"
+	smodel "madinahsalam_backend/internals/features/school/others/post/model"
 )
 
 /* ==============================

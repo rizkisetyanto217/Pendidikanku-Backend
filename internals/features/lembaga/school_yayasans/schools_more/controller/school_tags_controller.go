@@ -4,9 +4,9 @@ import (
 	"errors"
 	"strings"
 
-	"schoolku_backend/internals/features/lembaga/school_yayasans/schools_more/dto"
-	"schoolku_backend/internals/features/lembaga/school_yayasans/schools_more/model"
-	helper "schoolku_backend/internals/helpers"
+	"madinahsalam_backend/internals/features/lembaga/school_yayasans/schools_more/dto"
+	"madinahsalam_backend/internals/features/lembaga/school_yayasans/schools_more/model"
+	helper "madinahsalam_backend/internals/helpers"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

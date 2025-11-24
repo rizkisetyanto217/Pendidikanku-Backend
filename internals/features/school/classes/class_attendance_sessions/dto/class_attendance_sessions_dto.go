@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	model "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
+	model "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/model"
 
 	"github.com/google/uuid"
 )

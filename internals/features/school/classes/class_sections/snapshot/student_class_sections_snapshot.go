@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	scsModel "schoolku_backend/internals/features/school/classes/class_sections/model"
+	scsModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 )
 
 // Input minimal agar tidak import ke package profiles (hindari cycle).

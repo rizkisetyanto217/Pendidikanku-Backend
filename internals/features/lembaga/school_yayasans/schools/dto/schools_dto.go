@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"schoolku_backend/internals/features/lembaga/school_yayasans/schools/model"
+	"madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/model"
 
 	"github.com/google/uuid"
 	"gorm.io/datatypes"

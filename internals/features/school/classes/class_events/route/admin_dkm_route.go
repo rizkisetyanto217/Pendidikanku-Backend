@@ -2,7 +2,7 @@
 package routes
 
 import (
-	evCtl "schoolku_backend/internals/features/school/classes/class_events/controller"
+	evCtl "madinahsalam_backend/internals/features/school/classes/class_events/controller"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

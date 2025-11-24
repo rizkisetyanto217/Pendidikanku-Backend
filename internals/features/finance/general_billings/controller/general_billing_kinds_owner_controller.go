@@ -9,9 +9,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	dto "schoolku_backend/internals/features/finance/general_billings/dto"
-	m "schoolku_backend/internals/features/finance/general_billings/model"
-	helper "schoolku_backend/internals/helpers"
+	dto "madinahsalam_backend/internals/features/finance/general_billings/dto"
+	m "madinahsalam_backend/internals/features/finance/general_billings/model"
+	helper "madinahsalam_backend/internals/helpers"
 )
 
 /* ======================

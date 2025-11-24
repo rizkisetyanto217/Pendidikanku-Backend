@@ -1,7 +1,7 @@
 package route
 
 import (
-	surveyController "schoolku_backend/internals/features/users/survey/controller"
+	surveyController "madinahsalam_backend/internals/features/users/survey/controller"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

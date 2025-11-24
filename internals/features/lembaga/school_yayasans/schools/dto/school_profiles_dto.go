@@ -5,7 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
-	m "schoolku_backend/internals/features/lembaga/school_yayasans/schools/model"
+	m "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/model"
 )
 
 /* =======================================================

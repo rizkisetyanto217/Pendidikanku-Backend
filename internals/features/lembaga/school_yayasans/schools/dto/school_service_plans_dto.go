@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	mModel "schoolku_backend/internals/features/lembaga/school_yayasans/schools/model"
+	mModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/model"
 
 	"github.com/google/uuid"
 )

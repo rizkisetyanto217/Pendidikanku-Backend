@@ -12,8 +12,8 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
-	m "schoolku_backend/internals/features/school/academics/subjects/model"
-	helper "schoolku_backend/internals/helpers"
+	m "madinahsalam_backend/internals/features/school/academics/subjects/model"
+	helper "madinahsalam_backend/internals/helpers"
 )
 
 /* =========================================================

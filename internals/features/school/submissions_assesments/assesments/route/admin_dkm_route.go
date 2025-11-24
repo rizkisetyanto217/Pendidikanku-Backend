@@ -4,7 +4,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	ctr "schoolku_backend/internals/features/school/submissions_assesments/assesments/controller"
+	ctr "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/controller"
 )
 
 // AssessmentAdminRoutes mendaftarkan route ADMIN untuk assessments

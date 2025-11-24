@@ -1,10 +1,10 @@
 package route
 
 import (
-	"schoolku_backend/internals/constants"
-	"schoolku_backend/internals/features/lembaga/school_yayasans/schools_more/controller"
-	authMiddleware "schoolku_backend/internals/middlewares/auth"
-	schoolkuMiddleware "schoolku_backend/internals/middlewares/features"
+	"madinahsalam_backend/internals/constants"
+	"madinahsalam_backend/internals/features/lembaga/school_yayasans/schools_more/controller"
+	authMiddleware "madinahsalam_backend/internals/middlewares/auth"
+	schoolkuMiddleware "madinahsalam_backend/internals/middlewares/features"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

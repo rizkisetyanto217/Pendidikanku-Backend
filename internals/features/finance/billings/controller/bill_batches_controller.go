@@ -13,10 +13,10 @@ import (
 	"gorm.io/gorm/clause"
 
 	// ganti sesuai struktur projectmu
-	"schoolku_backend/internals/features/finance/billings/dto"
-	billing "schoolku_backend/internals/features/finance/billings/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	"madinahsalam_backend/internals/features/finance/billings/dto"
+	billing "madinahsalam_backend/internals/features/finance/billings/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 // =======================================================

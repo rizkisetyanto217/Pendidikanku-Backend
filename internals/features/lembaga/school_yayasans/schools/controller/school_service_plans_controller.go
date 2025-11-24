@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	dto "schoolku_backend/internals/features/lembaga/school_yayasans/schools/dto"
-	mModel "schoolku_backend/internals/features/lembaga/school_yayasans/schools/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
-	helperOSS "schoolku_backend/internals/helpers/oss"
+	dto "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/dto"
+	mModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
+	helperOSS "madinahsalam_backend/internals/helpers/oss"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

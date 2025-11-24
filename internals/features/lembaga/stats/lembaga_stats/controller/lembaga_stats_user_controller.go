@@ -2,8 +2,8 @@ package controller
 
 import (
 	"net/http"
-	dto "schoolku_backend/internals/features/lembaga/stats/lembaga_stats/dto"
-	model "schoolku_backend/internals/features/lembaga/stats/lembaga_stats/model"
+	dto "madinahsalam_backend/internals/features/lembaga/stats/lembaga_stats/dto"
+	model "madinahsalam_backend/internals/features/lembaga/stats/lembaga_stats/model"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

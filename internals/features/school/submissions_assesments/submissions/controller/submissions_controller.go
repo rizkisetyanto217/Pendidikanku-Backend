@@ -17,12 +17,12 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	dto "schoolku_backend/internals/features/school/submissions_assesments/submissions/dto"
-	model "schoolku_backend/internals/features/school/submissions_assesments/submissions/model"
+	dto "madinahsalam_backend/internals/features/school/submissions_assesments/submissions/dto"
+	model "madinahsalam_backend/internals/features/school/submissions_assesments/submissions/model"
 
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
-	helperOSS "schoolku_backend/internals/helpers/oss"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
+	helperOSS "madinahsalam_backend/internals/helpers/oss"
 )
 
 type SubmissionController struct {

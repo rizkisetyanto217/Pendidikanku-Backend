@@ -12,8 +12,8 @@ import (
 	"github.com/google/uuid"
 
 	// models
-	csstModel "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
-	m "schoolku_backend/internals/features/school/classes/class_sections/model"
+	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
+	m "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 )
 
 /* =========================================================

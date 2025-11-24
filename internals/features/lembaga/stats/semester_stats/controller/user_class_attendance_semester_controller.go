@@ -8,8 +8,8 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	dto "schoolku_backend/internals/features/lembaga/stats/semester_stats/dto"
-	m "schoolku_backend/internals/features/lembaga/stats/semester_stats/model"
+	dto "madinahsalam_backend/internals/features/lembaga/stats/semester_stats/dto"
+	m "madinahsalam_backend/internals/features/lembaga/stats/semester_stats/model"
 )
 
 // ====================== CONTROLLER ======================

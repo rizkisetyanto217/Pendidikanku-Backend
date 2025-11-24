@@ -1,1 +1,1 @@
-/Users/muhammadrizkisetyanto/Documents/schoolku_backend/internals/databases/migrations/20250430232248_create-table-subcategories.down.sql
+/Users/muhammadrizkisetyanto/Documents/madinahsalam_backend/internals/databases/migrations/20250430232248_create-table-subcategories.down.sql

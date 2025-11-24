@@ -6,8 +6,8 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	nhctl "schoolku_backend/internals/features/school/classes/class_schedules/controller"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	nhctl "madinahsalam_backend/internals/features/school/classes/class_schedules/controller"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 // NationalHolidayAdminRoutes: owner-only CRUD (POST/PATCH/DELETE)

@@ -3,8 +3,8 @@ package model
 import (
 	"time"
 
-	// School "schoolku_backend/internals/features/schools/schools/model"
-	// User "schoolku_backend/internals/features/users/user/model"
+	// School "madinahsalam_backend/internals/features/schools/schools/model"
+	// User "madinahsalam_backend/internals/features/users/user/model"
 
 	"github.com/google/uuid"
 )

@@ -8,7 +8,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
-	model "schoolku_backend/internals/features/users/user_profiles/model"
+	model "madinahsalam_backend/internals/features/users/user_profiles/model"
 )
 
 /* =========================

@@ -9,8 +9,8 @@ import (
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
-	ars "schoolku_backend/internals/features/school/academics/rooms/snapshot"
-	secModel "schoolku_backend/internals/features/school/classes/class_sections/model"
+	ars "madinahsalam_backend/internals/features/school/academics/rooms/snapshot"
+	secModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 )
 
 /*

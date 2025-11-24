@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	helper "schoolku_backend/internals/helpers"
+	helper "madinahsalam_backend/internals/helpers"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

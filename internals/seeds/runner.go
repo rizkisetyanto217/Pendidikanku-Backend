@@ -1,32 +1,32 @@
 package seeds
 
 import (
-	// categories "schoolku_backend/internals/seeds/lessons/categories/categories"
-	// categories_news "schoolku_backend/internals/seeds/lessons/categories/categories_news"
+	// categories "madinahsalam_backend/internals/seeds/lessons/categories/categories"
+	// categories_news "madinahsalam_backend/internals/seeds/lessons/categories/categories_news"
 
-	// difficulties "schoolku_backend/internals/seeds/lessons/difficulties/difficulties"
-	// difficulties_news "schoolku_backend/internals/seeds/lessons/difficulties/difficulties_news"
+	// difficulties "madinahsalam_backend/internals/seeds/lessons/difficulties/difficulties"
+	// difficulties_news "madinahsalam_backend/internals/seeds/lessons/difficulties/difficulties_news"
 
-	// subcategories "schoolku_backend/internals/seeds/lessons/subcategories/subcategories"
-	// subcategories_news "schoolku_backend/internals/seeds/lessons/subcategories/subcategories_news"
+	// subcategories "madinahsalam_backend/internals/seeds/lessons/subcategories/subcategories"
+	// subcategories_news "madinahsalam_backend/internals/seeds/lessons/subcategories/subcategories_news"
 
-	// themes_or_levels "schoolku_backend/internals/seeds/lessons/themes_or_levels/themes_or_levels"
-	// themes_or_levels_news "schoolku_backend/internals/seeds/lessons/themes_or_levels/themes_or_levels_news"
+	// themes_or_levels "madinahsalam_backend/internals/seeds/lessons/themes_or_levels/themes_or_levels"
+	// themes_or_levels_news "madinahsalam_backend/internals/seeds/lessons/themes_or_levels/themes_or_levels_news"
 
-	// units "schoolku_backend/internals/seeds/lessons/units/units"
-	// units_news "schoolku_backend/internals/seeds/lessons/units/units_news"
+	// units "madinahsalam_backend/internals/seeds/lessons/units/units"
+	// units_news "madinahsalam_backend/internals/seeds/lessons/units/units_news"
 
-	// evaluations "schoolku_backend/internals/seeds/quizzes/evaluations"
-	// exams "schoolku_backend/internals/seeds/quizzes/exams"
-	// questions "schoolku_backend/internals/seeds/quizzes/questions"
-	// quizzes "schoolku_backend/internals/seeds/quizzes/quizzes"
-	// reading "schoolku_backend/internals/seeds/quizzes/readings"
-	// section_quizzes "schoolku_backend/internals/seeds/quizzes/section_quizzes"
+	// evaluations "madinahsalam_backend/internals/seeds/quizzes/evaluations"
+	// exams "madinahsalam_backend/internals/seeds/quizzes/exams"
+	// questions "madinahsalam_backend/internals/seeds/quizzes/questions"
+	// quizzes "madinahsalam_backend/internals/seeds/quizzes/quizzes"
+	// reading "madinahsalam_backend/internals/seeds/quizzes/readings"
+	// section_quizzes "madinahsalam_backend/internals/seeds/quizzes/section_quizzes"
 
-	// level "schoolku_backend/internals/seeds/progress/levels"
-	// rank "schoolku_backend/internals/seeds/progress/ranks"
+	// level "madinahsalam_backend/internals/seeds/progress/levels"
+	// rank "madinahsalam_backend/internals/seeds/progress/ranks"
 
-	// users "schoolku_backend/internals/seeds/users/auth"
+	// users "madinahsalam_backend/internals/seeds/users/auth"
 
 	"gorm.io/gorm"
 )

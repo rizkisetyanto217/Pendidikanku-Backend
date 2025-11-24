@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	yDTO "schoolku_backend/internals/features/lembaga/school_yayasans/teachers_students/dto"
-	yModel "schoolku_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	yDTO "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/dto"
+	yModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
-	statsSvc "schoolku_backend/internals/features/lembaga/stats/lembaga_stats/service"
+	statsSvc "madinahsalam_backend/internals/features/lembaga/stats/lembaga_stats/service"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"

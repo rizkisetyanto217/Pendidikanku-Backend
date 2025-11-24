@@ -7,9 +7,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	dto "schoolku_backend/internals/features/lembaga/stats/lembaga_stats/dto"
-	model "schoolku_backend/internals/features/lembaga/stats/lembaga_stats/model"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	dto "madinahsalam_backend/internals/features/lembaga/stats/lembaga_stats/dto"
+	model "madinahsalam_backend/internals/features/lembaga/stats/lembaga_stats/model"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 type LembagaStatsController struct {

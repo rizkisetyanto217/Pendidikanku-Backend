@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
-	"schoolku_backend/internals/features/users/survey/model"
+	"madinahsalam_backend/internals/features/users/survey/model"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"

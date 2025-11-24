@@ -8,8 +8,8 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	authModel "schoolku_backend/internals/features/users/auth/model"
-	userModel "schoolku_backend/internals/features/users/users/model"
+	authModel "madinahsalam_backend/internals/features/users/auth/model"
+	userModel "madinahsalam_backend/internals/features/users/users/model"
 )
 
 /* ====================== USER ====================== */

@@ -9,8 +9,8 @@ import (
 
 	// Controller untuk GENERAL BILLINGS (finance/general_billings)
 
-	gbController "schoolku_backend/internals/features/finance/general_billings/controller"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	gbController "madinahsalam_backend/internals/features/finance/general_billings/controller"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 func OwnerGeneralBillingRoutes(r fiber.Router, db *gorm.DB) {

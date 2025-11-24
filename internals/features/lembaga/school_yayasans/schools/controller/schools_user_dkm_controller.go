@@ -12,12 +12,12 @@ import (
 	"strings"
 	"time"
 
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
-	helperOSS "schoolku_backend/internals/helpers/oss"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
+	helperOSS "madinahsalam_backend/internals/helpers/oss"
 
-	schoolDto "schoolku_backend/internals/features/lembaga/school_yayasans/schools/dto"
-	schoolModel "schoolku_backend/internals/features/lembaga/school_yayasans/schools/model"
+	schoolDto "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/dto"
+	schoolModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/model"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

@@ -5,7 +5,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	yCtrl "schoolku_backend/internals/features/lembaga/school_yayasans/yayasans/controller"
+	yCtrl "madinahsalam_backend/internals/features/lembaga/school_yayasans/yayasans/controller"
 )
 
 func AllYayasanRoutes(r fiber.Router, db *gorm.DB) {

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	subModel "schoolku_backend/internals/features/school/submissions_assesments/submissions/model"
+	subModel "madinahsalam_backend/internals/features/school/submissions_assesments/submissions/model"
 
 	"github.com/google/uuid"
 )

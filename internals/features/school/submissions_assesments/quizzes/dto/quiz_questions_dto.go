@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 
-	qmodel "schoolku_backend/internals/features/school/submissions_assesments/quizzes/model"
+	qmodel "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/model"
 )
 
 /* =========================================================

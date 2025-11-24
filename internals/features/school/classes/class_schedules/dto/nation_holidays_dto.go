@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	model "schoolku_backend/internals/features/school/classes/class_schedules/model"
+	model "madinahsalam_backend/internals/features/school/classes/class_schedules/model"
 )
 
 /* =========================================================

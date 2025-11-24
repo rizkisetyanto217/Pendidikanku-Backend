@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"strings"
 
-	csstModel "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
-	secDTO "schoolku_backend/internals/features/school/classes/class_sections/dto"
-	secModel "schoolku_backend/internals/features/school/classes/class_sections/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
+	secDTO "madinahsalam_backend/internals/features/school/classes/class_sections/dto"
+	secModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

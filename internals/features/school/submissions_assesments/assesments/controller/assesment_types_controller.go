@@ -12,12 +12,12 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	dto "schoolku_backend/internals/features/school/submissions_assesments/assesments/dto"
-	assessmentModel "schoolku_backend/internals/features/school/submissions_assesments/assesments/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	dto "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/dto"
+	assessmentModel "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
-	assessSvc "schoolku_backend/internals/features/school/submissions_assesments/assesments/service"
+	assessSvc "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/service"
 )
 
 /* ========================= Controller ========================= */

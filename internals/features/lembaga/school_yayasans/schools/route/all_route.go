@@ -2,7 +2,7 @@
 package route
 
 import (
-	"schoolku_backend/internals/features/lembaga/school_yayasans/schools/controller"
+	"madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/controller"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

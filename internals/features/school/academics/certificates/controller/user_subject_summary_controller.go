@@ -11,10 +11,10 @@ package controllers
 // 	"github.com/google/uuid"
 // 	"gorm.io/gorm"
 
-// 	"schoolku_backend/internals/features/school/academics/certificates/dto"
-// 	models "schoolku_backend/internals/features/school/academics/certificates/model" // sesuaikan bila path model berbeda
+// 	"madinahsalam_backend/internals/features/school/academics/certificates/dto"
+// 	models "madinahsalam_backend/internals/features/school/academics/certificates/model" // sesuaikan bila path model berbeda
 
-// 	helper "schoolku_backend/internals/helpers"
+// 	helper "madinahsalam_backend/internals/helpers"
 // )
 
 // type UserSubjectSummaryController struct {

@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
-	attendanceModel "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
+	attendanceModel "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/model"
 )
 
 /* ===================== PatchField (tri-state) ===================== */

@@ -1,7 +1,7 @@
 package dto
 
 import (
-	"schoolku_backend/internals/features/lembaga/school_yayasans/schools_more/model"
+	"madinahsalam_backend/internals/features/lembaga/school_yayasans/schools_more/model"
 
 	"github.com/google/uuid"
 )

@@ -12,11 +12,11 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	schoolModel "schoolku_backend/internals/features/lembaga/school_yayasans/schools/model"
-	userModel "schoolku_backend/internals/features/users/users/model"
+	schoolModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/model"
+	userModel "madinahsalam_backend/internals/features/users/users/model"
 
-	helper "schoolku_backend/internals/helpers" // JsonOK/JsonError
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	helper "madinahsalam_backend/internals/helpers" // JsonOK/JsonError
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 /* =============== Link models (pastikan ada, atau definisikan ringan di sini) =============== */

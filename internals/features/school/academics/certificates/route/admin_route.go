@@ -4,7 +4,7 @@ package routes
 // 	"github.com/gofiber/fiber/v2"
 // 	"gorm.io/gorm"
 
-// 	controllers "schoolku_backend/internals/features/school/academics/certificates/controller" // sesuaikan bila path model berbeda
+// 	controllers "madinahsalam_backend/internals/features/school/academics/certificates/controller" // sesuaikan bila path model berbeda
 // )
 
 // func CertificateAdminRoutes(r fiber.Router, db *gorm.DB) {

@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 
-	assessModel "schoolku_backend/internals/features/school/submissions_assesments/assesments/model"
+	assessModel "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/model"
 )
 
 /* ========================================================

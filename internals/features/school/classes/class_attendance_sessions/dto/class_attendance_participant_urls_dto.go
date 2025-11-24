@@ -9,7 +9,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 
-	model "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
+	model "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/model"
 )
 
 /* =========================================================

@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	subjectDTO "schoolku_backend/internals/features/school/academics/subjects/dto"
-	subjectModel "schoolku_backend/internals/features/school/academics/subjects/model"
+	subjectDTO "madinahsalam_backend/internals/features/school/academics/subjects/dto"
+	subjectModel "madinahsalam_backend/internals/features/school/academics/subjects/model"
 
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
-	helperOSS "schoolku_backend/internals/helpers/oss"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
+	helperOSS "madinahsalam_backend/internals/helpers/oss"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

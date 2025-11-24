@@ -1,8 +1,8 @@
 package route
 
 import (
-	paymentController "schoolku_backend/internals/features/finance/payments/controller"
-	schoolkuMiddleware "schoolku_backend/internals/middlewares/features"
+	paymentController "madinahsalam_backend/internals/features/finance/payments/controller"
+	schoolkuMiddleware "madinahsalam_backend/internals/middlewares/features"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

@@ -18,13 +18,13 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
-	sessModel "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
-	d "schoolku_backend/internals/features/school/classes/class_schedules/dto"
-	m "schoolku_backend/internals/features/school/classes/class_schedules/model"
-	svc "schoolku_backend/internals/features/school/classes/class_schedules/services"
+	sessModel "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/model"
+	d "madinahsalam_backend/internals/features/school/classes/class_schedules/dto"
+	m "madinahsalam_backend/internals/features/school/classes/class_schedules/model"
+	svc "madinahsalam_backend/internals/features/school/classes/class_schedules/services"
 )
 
 /* =========================

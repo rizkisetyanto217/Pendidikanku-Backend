@@ -4,10 +4,10 @@ import (
 	"strconv"
 	"strings"
 
-	schoolmodel "schoolku_backend/internals/features/lembaga/school_yayasans/schools/model"
-	"schoolku_backend/internals/features/lembaga/school_yayasans/schools_more/dto"
-	"schoolku_backend/internals/features/lembaga/school_yayasans/schools_more/model"
-	helper "schoolku_backend/internals/helpers"
+	schoolmodel "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/model"
+	"madinahsalam_backend/internals/features/lembaga/school_yayasans/schools_more/dto"
+	"madinahsalam_backend/internals/features/lembaga/school_yayasans/schools_more/model"
+	helper "madinahsalam_backend/internals/helpers"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"

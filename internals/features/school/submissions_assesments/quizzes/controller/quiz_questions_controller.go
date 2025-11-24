@@ -14,10 +14,10 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	qdto "schoolku_backend/internals/features/school/submissions_assesments/quizzes/dto"
-	qmodel "schoolku_backend/internals/features/school/submissions_assesments/quizzes/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	qdto "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/dto"
+	qmodel "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 /* =========================================================

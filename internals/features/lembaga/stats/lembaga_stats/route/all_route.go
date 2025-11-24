@@ -5,7 +5,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	"schoolku_backend/internals/features/lembaga/stats/lembaga_stats/controller"
+	"madinahsalam_backend/internals/features/lembaga/stats/lembaga_stats/controller"
 )
 
 func AllLembagaStatsRoutes(router fiber.Router, db *gorm.DB) {

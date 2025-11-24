@@ -1,9 +1,9 @@
 package controller
 
 import (
-	"schoolku_backend/internals/features/lembaga/school_yayasans/schools/dto"
-	mModel "schoolku_backend/internals/features/lembaga/school_yayasans/schools/model"
-	helper "schoolku_backend/internals/helpers"
+	"madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/dto"
+	mModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/model"
+	helper "madinahsalam_backend/internals/helpers"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"

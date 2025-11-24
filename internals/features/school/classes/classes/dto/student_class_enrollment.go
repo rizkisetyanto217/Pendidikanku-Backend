@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"time"
 
-	csDTO "schoolku_backend/internals/features/school/classes/class_sections/dto"
-	m "schoolku_backend/internals/features/school/classes/classes/model"
-	h "schoolku_backend/internals/helpers"
+	csDTO "madinahsalam_backend/internals/features/school/classes/class_sections/dto"
+	m "madinahsalam_backend/internals/features/school/classes/classes/model"
+	h "madinahsalam_backend/internals/helpers"
 
 	"github.com/google/uuid"
 )

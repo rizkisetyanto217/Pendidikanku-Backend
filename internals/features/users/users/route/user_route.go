@@ -3,7 +3,7 @@ package routes
 import (
 	"log"
 
-	userController "schoolku_backend/internals/features/users/users/controller"
+	userController "madinahsalam_backend/internals/features/users/users/controller"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

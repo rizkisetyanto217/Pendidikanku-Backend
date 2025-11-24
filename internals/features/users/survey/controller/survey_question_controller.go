@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"time"
 
-	"schoolku_backend/internals/features/users/survey/dto"
-	"schoolku_backend/internals/features/users/survey/model"
-	helper "schoolku_backend/internals/helpers"
+	"madinahsalam_backend/internals/features/users/survey/dto"
+	"madinahsalam_backend/internals/features/users/survey/model"
+	helper "madinahsalam_backend/internals/helpers"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

@@ -10,11 +10,11 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	dto "schoolku_backend/internals/features/lembaga/school_yayasans/teachers_students/dto"
-	model "schoolku_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
-	snapshotUserProfile "schoolku_backend/internals/features/users/users/snapshot"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	dto "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/dto"
+	model "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
+	snapshotUserProfile "madinahsalam_backend/internals/features/users/users/snapshot"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 /* =========================

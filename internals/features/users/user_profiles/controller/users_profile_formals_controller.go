@@ -6,10 +6,10 @@ import (
 	"log"
 	"net/http"
 
-	"schoolku_backend/internals/features/users/user_profiles/dto"
-	"schoolku_backend/internals/features/users/user_profiles/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	"madinahsalam_backend/internals/features/users/user_profiles/dto"
+	"madinahsalam_backend/internals/features/users/user_profiles/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

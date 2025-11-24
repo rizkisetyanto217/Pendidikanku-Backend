@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	model "schoolku_backend/internals/features/school/academics/academic_terms/model"
+	model "madinahsalam_backend/internals/features/school/academics/academic_terms/model"
 
 	"github.com/google/uuid"
 )

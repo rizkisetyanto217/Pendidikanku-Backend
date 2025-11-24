@@ -2,8 +2,8 @@
 package router
 
 import (
-	csstController "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/controller"
-	schoolkuMiddleware "schoolku_backend/internals/middlewares/features"
+	csstController "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/controller"
+	schoolkuMiddleware "madinahsalam_backend/internals/middlewares/features"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

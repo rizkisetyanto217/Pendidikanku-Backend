@@ -9,10 +9,10 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
-	d "schoolku_backend/internals/features/school/classes/class_events/dto"
-	m "schoolku_backend/internals/features/school/classes/class_events/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	d "madinahsalam_backend/internals/features/school/classes/class_events/dto"
+	m "madinahsalam_backend/internals/features/school/classes/class_events/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 /* =========================

@@ -20,14 +20,14 @@ import (
 	"gorm.io/gorm"
 
 	// tambahkan di import:
-	cendto "schoolku_backend/internals/features/school/classes/classes/dto"
-	cenmodel "schoolku_backend/internals/features/school/classes/classes/model"
+	cendto "madinahsalam_backend/internals/features/school/classes/classes/dto"
+	cenmodel "madinahsalam_backend/internals/features/school/classes/classes/model"
 
-	dto "schoolku_backend/internals/features/finance/payments/dto"
-	model "schoolku_backend/internals/features/finance/payments/model"
-	svc "schoolku_backend/internals/features/finance/payments/service"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+	dto "madinahsalam_backend/internals/features/finance/payments/dto"
+	model "madinahsalam_backend/internals/features/finance/payments/model"
+	svc "madinahsalam_backend/internals/features/finance/payments/service"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 /* =======================================================================

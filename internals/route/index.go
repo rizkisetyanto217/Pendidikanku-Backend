@@ -7,10 +7,10 @@ import (
 	"strconv" // ⬅️ tambah ini
 	"time"
 
-	schoolkuMiddleware "schoolku_backend/internals/middlewares/auth_school"
-	featuresMiddleware "schoolku_backend/internals/middlewares/features"
+	schoolkuMiddleware "madinahsalam_backend/internals/middlewares/auth_school"
+	featuresMiddleware "madinahsalam_backend/internals/middlewares/features"
 
-	routeDetails "schoolku_backend/internals/route/details"
+	routeDetails "madinahsalam_backend/internals/route/details"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
