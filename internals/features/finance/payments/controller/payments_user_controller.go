@@ -884,7 +884,86 @@ func genOrderID(prefix string) string {
 	return prefix + "-" + now + "-" + strings.ToUpper(u)
 }
 
-// ================= HANDLER: POST /payments/registration-enroll =================
+// Generate NIM untuk siswa baru berdasarkan term (diambil dari salah satu class)
+// Format: YYYYAA####  (YYYY = tahun awal akademik, AA = angkatan 2 digit, #### = sequence per sekolah+prefix)
+func (h *PaymentController) generateStudentCodeForClass(
+	ctx context.Context,
+	tx *gorm.DB,
+	schoolID uuid.UUID,
+	classID uuid.UUID,
+) (string, error) {
+	if classID == uuid.Nil {
+		return "", fmt.Errorf("class_id kosong saat generate NIM")
+	}
+
+	var row struct {
+		YearRaw     *string `gorm:"column:year"`
+		AngkatanRaw *string `gorm:"column:angkatan"`
+	}
+
+	// Ambil snapshot tahun akademik + angkatan dari tabel classes
+	if err := tx.WithContext(ctx).Raw(`
+		SELECT 
+			NULLIF(class_academic_term_academic_year_snapshot,'') AS year,
+			NULLIF(class_academic_term_angkatan_snapshot,'')      AS angkatan
+		FROM classes
+		WHERE class_id = ?
+		  AND class_school_id = ?
+		  AND class_deleted_at IS NULL
+		LIMIT 1
+	`, classID, schoolID).Scan(&row).Error; err != nil {
+		return "", fmt.Errorf("gagal select term snapshot: %w", err)
+	}
+
+	// ===== Normalisasi YEAR =====
+	var year4 string
+	if row.YearRaw != nil && strings.TrimSpace(*row.YearRaw) != "" {
+		y := strings.TrimSpace(*row.YearRaw) // contoh "2024/2025" atau "2025"
+		if len(y) >= 4 {
+			year4 = y[:4]
+		} else {
+			year4 = fmt.Sprintf("%04d", time.Now().Year())
+		}
+	} else {
+		year4 = fmt.Sprintf("%04d", time.Now().Year())
+	}
+
+	// ===== Normalisasi ANGKATAN =====
+	var angkatanInt int
+	if row.AngkatanRaw != nil && strings.TrimSpace(*row.AngkatanRaw) != "" {
+		if n, err := strconv.Atoi(strings.TrimSpace(*row.AngkatanRaw)); err == nil && n >= 0 {
+			angkatanInt = n
+		} else {
+			angkatanInt = 0
+		}
+	} else {
+		angkatanInt = 0
+	}
+
+	// prefix: YYYY + angkatan (2 digit)
+	prefix := fmt.Sprintf("%s%02d", year4, angkatanInt)
+
+	// Cari sequence terakhir untuk prefix ini di sekolah tersebut
+	var lastSeq int
+	if err := tx.WithContext(ctx).Raw(`
+		SELECT COALESCE(MAX(RIGHT(school_student_code, 4)::int), 0)
+		FROM school_students
+		WHERE school_student_school_id = ?
+		  AND school_student_code LIKE ?
+	`, schoolID, prefix+"%").Scan(&lastSeq).Error; err != nil {
+		return "", fmt.Errorf("gagal hitung sequence NIM: %w", err)
+	}
+
+	next := lastSeq + 1
+	code := fmt.Sprintf("%s%04d", prefix, next) // YYYYAA####
+
+	if strings.TrimSpace(code) == "" {
+		return "", fmt.Errorf("kode hasil generate kosong (prefix=%s, lastSeq=%d)", prefix, lastSeq)
+	}
+
+	return code, nil
+}
+
 // ================= HANDLER: POST /payments/registration-enroll =================
 func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 	// ✅ penting: supaya GetSchoolIDBySlug & helper lain bisa akses DB (kalau kepake di tempat lain)
@@ -1010,18 +1089,29 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		return nil
 	}()
 
-	// 2b) map/auto-provision SchoolStudent (isi snapshot name jika ada)
+	// ---- sebelum blok 2b ----
+	// tentukan class_id referensi untuk NIM (pakai item pertama)
+	baseClassID := uuid.Nil
+	if len(req.Items) > 0 {
+		baseClassID = req.Items[0].ClassID
+	} else if len(req.ClassIDs) > 0 {
+		baseClassID = req.ClassIDs[0]
+	} else if req.ClassID != uuid.Nil {
+		baseClassID = req.ClassID
+	}
+
+	// 2b) map/auto-provision SchoolStudent (isi snapshot name + NIM/student_code jika baru)
 	var schoolStudentID uuid.UUID
 	{
 		var sidStr string
 		if err := tx.Raw(`
-			SELECT school_student_id
-			  FROM school_students
-			 WHERE school_student_school_id       = ?
-			   AND school_student_user_profile_id = ?
-			   AND school_student_deleted_at      IS NULL
-			 LIMIT 1
-		`, schoolID, profileID).Scan(&sidStr).Error; err != nil {
+        SELECT school_student_id
+          FROM school_students
+         WHERE school_student_school_id       = ?
+           AND school_student_user_profile_id = ?
+           AND school_student_deleted_at      IS NULL
+         LIMIT 1
+    `, schoolID, profileID).Scan(&sidStr).Error; err != nil {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal cek siswa: "+err.Error())
 		}
@@ -1030,29 +1120,67 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 				schoolStudentID = sid
 			}
 		}
+
+		// 🔁 Siswa lama: kalau belum punya code dan ada baseClassID → generate WAJIB
+		if schoolStudentID != uuid.Nil && baseClassID != uuid.Nil {
+			var currentCode *string
+			if err := tx.Raw(`
+            SELECT school_student_code
+              FROM school_students
+             WHERE school_student_id = ?
+             LIMIT 1
+        `, schoolStudentID).Scan(&currentCode).Error; err != nil {
+				_ = tx.Rollback()
+				return helper.JsonError(c, fiber.StatusInternalServerError, "gagal cek kode siswa: "+err.Error())
+			}
+
+			if currentCode == nil || strings.TrimSpace(*currentCode) == "" {
+				code, er := h.generateStudentCodeForClass(c.Context(), tx, schoolID, baseClassID)
+				if er != nil {
+					_ = tx.Rollback()
+					return helper.JsonError(c, fiber.StatusInternalServerError, "gagal generate kode siswa: "+er.Error())
+				}
+				code = strings.TrimSpace(code)
+				if code == "" {
+					_ = tx.Rollback()
+					return helper.JsonError(c, fiber.StatusInternalServerError, "generate kode siswa kosong")
+				}
+
+				if err := tx.Exec(`
+                UPDATE school_students
+                   SET school_student_code      = ?,
+                       school_student_updated_at = NOW()
+                 WHERE school_student_id        = ?
+            `, code, schoolStudentID).Error; err != nil {
+					_ = tx.Rollback()
+					return helper.JsonError(c, fiber.StatusInternalServerError, "gagal update kode siswa: "+err.Error())
+				}
+			}
+		}
+
+		// Kalau belum ada (aktif maupun restore), cek dulu yang soft-deleted
 		if schoolStudentID == uuid.Nil {
-			// restore?
 			var delStr string
 			if er := tx.Raw(`
-				SELECT school_student_id
-				  FROM school_students
-				 WHERE school_student_school_id       = ?
-				   AND school_student_user_profile_id = ?
-				   AND school_student_deleted_at      IS NOT NULL
-				 LIMIT 1
-			`, schoolID, profileID).Scan(&delStr).Error; er != nil {
+			SELECT school_student_id
+			  FROM school_students
+			 WHERE school_student_school_id       = ?
+			   AND school_student_user_profile_id = ?
+			   AND school_student_deleted_at      IS NOT NULL
+			 LIMIT 1
+		`, schoolID, profileID).Scan(&delStr).Error; er != nil {
 				_ = tx.Rollback()
 				return helper.JsonError(c, fiber.StatusInternalServerError, "gagal cek siswa (deleted): "+er.Error())
 			}
 			if s := strings.TrimSpace(delStr); s != "" {
 				if did, er := uuid.Parse(s); er == nil && did != uuid.Nil {
 					if er2 := tx.Exec(`
-						UPDATE school_students
-						   SET school_student_deleted_at = NULL,
-						       school_student_status     = COALESCE(school_student_status, 'active'),
-						       school_student_updated_at = NOW()
-						 WHERE school_student_id = ?
-					`, did).Error; er2 != nil {
+					UPDATE school_students
+					   SET school_student_deleted_at = NULL,
+					       school_student_status     = COALESCE(school_student_status, 'active'),
+					       school_student_updated_at = NOW()
+					 WHERE school_student_id = ?
+				`, did).Error; er2 != nil {
 						_ = tx.Rollback()
 						return helper.JsonError(c, fiber.StatusInternalServerError, "gagal restore siswa: "+er2.Error())
 					}
@@ -1060,7 +1188,23 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 				}
 			}
 		}
+
+		// Jika masih belum ada → buat baru + generate NIM (student_code) dari term pertama
 		if schoolStudentID == uuid.Nil {
+			var newStudentCode *string
+			if baseClassID != uuid.Nil {
+				code, er := h.generateStudentCodeForClass(c.Context(), tx, schoolID, baseClassID)
+				if er != nil {
+					_ = tx.Rollback()
+					return helper.JsonError(c, fiber.StatusInternalServerError, "gagal generate kode siswa (baru): "+er.Error())
+				}
+				code = strings.TrimSpace(code)
+				if code != "" {
+					cc := code
+					newStudentCode = &cc
+				}
+			}
+
 			shortUID := strings.ReplaceAll(userID.String(), "-", "")
 			if len(shortUID) > 8 {
 				shortUID = shortUID[:8]
@@ -1071,34 +1215,48 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 			var newIDStr string
 			if pickProfileName != nil {
 				if er := tx.Raw(`
-					INSERT INTO school_students (
-						school_student_school_id,
-						school_student_user_profile_id,
-						school_student_slug,
-						school_student_status,
-						school_student_class_sections,
-						school_student_user_profile_name_snapshot
-					) VALUES (?, ?, ?, 'active', '[]'::jsonb, ?)
-					RETURNING school_student_id
-				`, schoolID, profileID, genSlug, *pickProfileName).Scan(&newIDStr).Error; er != nil {
+				INSERT INTO school_students (
+					school_student_school_id,
+					school_student_user_profile_id,
+					school_student_slug,
+					school_student_status,
+					school_student_class_sections,
+					school_student_user_profile_name_snapshot,
+					school_student_code
+				) VALUES (?, ?, ?, 'active', '[]'::jsonb, ?, ?)
+				RETURNING school_student_id
+			`,
+					schoolID,
+					profileID,
+					genSlug,
+					*pickProfileName,
+					newStudentCode,
+				).Scan(&newIDStr).Error; er != nil {
 					_ = tx.Rollback()
 					return helper.JsonError(c, fiber.StatusInternalServerError, "gagal membuat siswa: "+er.Error())
 				}
 			} else {
 				if er := tx.Raw(`
-					INSERT INTO school_students (
-						school_student_school_id,
-						school_student_user_profile_id,
-						school_student_slug,
-						school_student_status,
-						school_student_class_sections
-					) VALUES (?, ?, ?, 'active', '[]'::jsonb)
-					RETURNING school_student_id
-				`, schoolID, profileID, genSlug).Scan(&newIDStr).Error; er != nil {
+				INSERT INTO school_students (
+					school_student_school_id,
+					school_student_user_profile_id,
+					school_student_slug,
+					school_student_status,
+					school_student_class_sections,
+					school_student_code
+				) VALUES (?, ?, ?, 'active', '[]'::jsonb, ?)
+				RETURNING school_student_id
+			`,
+					schoolID,
+					profileID,
+					genSlug,
+					newStudentCode,
+				).Scan(&newIDStr).Error; er != nil {
 					_ = tx.Rollback()
 					return helper.JsonError(c, fiber.StatusInternalServerError, "gagal membuat siswa: "+er.Error())
 				}
 			}
+
 			nid, er := uuid.Parse(strings.TrimSpace(newIDStr))
 			if er != nil || nid == uuid.Nil {
 				_ = tx.Rollback()
@@ -1648,5 +1806,4 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		Enrollments: enrollDTOs,
 		Payment:     dto.FromModel(pm),
 	})
-
 }

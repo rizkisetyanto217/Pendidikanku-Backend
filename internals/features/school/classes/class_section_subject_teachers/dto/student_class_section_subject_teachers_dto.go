@@ -1,3 +1,4 @@
+// file: internals/features/school/sectionsubjectteachers/dto/student_class_section_subject_teacher_dto.go
 package dto
 
 import (
@@ -9,7 +10,7 @@ import (
 
 /* =========================================================
    UTIL & COMMON
-   ========================================================= */
+========================================================= */
 
 // PatchFieldStudentCSST → tri-state update
 type PatchFieldStudentCSST[T any] struct {
@@ -26,7 +27,7 @@ func PFUnset[T any]() PatchFieldStudentCSST[T] { return PatchFieldStudentCSST[T]
 
 /* =========================================================
    REQUEST: PATH / BODY HELPERS
-   ========================================================= */
+========================================================= */
 
 type IDParam struct {
 	ID uuid.UUID `json:"id" params:"id" validate:"required"`
@@ -38,7 +39,7 @@ type BulkIDsRequest struct {
 
 /* =========================================================
    CREATE / UPSERT
-   ========================================================= */
+========================================================= */
 
 type StudentCSSTCreateRequest struct {
 	CSSTID    uuid.UUID  `json:"csst_id" validate:"required"`
@@ -46,6 +47,11 @@ type StudentCSSTCreateRequest struct {
 	IsActive  *bool      `json:"is_active,omitempty"`
 	From      *time.Time `json:"from,omitempty"`
 	To        *time.Time `json:"to,omitempty"`
+
+	// optional notes on create
+	StudentNotes        *string `json:"student_notes,omitempty"`
+	HomeroomNotes       *string `json:"homeroom_notes,omitempty"`
+	SubjectTeacherNotes *string `json:"subject_teacher_notes,omitempty"`
 
 	IdempotencyKey *string `json:"idempotency_key,omitempty" validate:"omitempty,max=120"`
 }
@@ -56,7 +62,13 @@ type StudentCSSTBulkCreateItem struct {
 	IsActive  *bool      `json:"is_active,omitempty"`
 	From      *time.Time `json:"from,omitempty"`
 	To        *time.Time `json:"to,omitempty"`
-	ClientRef *string    `json:"client_ref,omitempty" validate:"omitempty,max=120"`
+
+	// optional notes for bulk create
+	StudentNotes        *string `json:"student_notes,omitempty"`
+	HomeroomNotes       *string `json:"homeroom_notes,omitempty"`
+	SubjectTeacherNotes *string `json:"subject_teacher_notes,omitempty"`
+
+	ClientRef *string `json:"client_ref,omitempty" validate:"omitempty,max=120"`
 }
 
 type StudentCSSTBulkCreateRequest struct {
@@ -72,11 +84,16 @@ type StudentCSSTUpsertRequest struct {
 	IsActive  *bool      `json:"is_active,omitempty"`
 	From      *time.Time `json:"from,omitempty"`
 	To        *time.Time `json:"to,omitempty"`
+
+	// optional notes on upsert
+	StudentNotes        *string `json:"student_notes,omitempty"`
+	HomeroomNotes       *string `json:"homeroom_notes,omitempty"`
+	SubjectTeacherNotes *string `json:"subject_teacher_notes,omitempty"`
 }
 
 /* =========================================================
    UPDATE / PATCH
-   ========================================================= */
+========================================================= */
 
 type StudentCSSTPatchRequest struct {
 	CSSTID    PatchFieldStudentCSST[uuid.UUID]  `json:"csst_id,omitempty"`
@@ -84,6 +101,11 @@ type StudentCSSTPatchRequest struct {
 	IsActive  PatchFieldStudentCSST[bool]       `json:"is_active,omitempty"`
 	From      PatchFieldStudentCSST[*time.Time] `json:"from,omitempty"`
 	To        PatchFieldStudentCSST[*time.Time] `json:"to,omitempty"`
+
+	// notes patch (tri-state)
+	StudentNotes        PatchFieldStudentCSST[*string] `json:"student_notes,omitempty"`
+	HomeroomNotes       PatchFieldStudentCSST[*string] `json:"homeroom_notes,omitempty"`
+	SubjectTeacherNotes PatchFieldStudentCSST[*string] `json:"subject_teacher_notes,omitempty"`
 }
 
 type StudentCSSTBulkPatchRequest struct {
@@ -102,7 +124,7 @@ type StudentCSSTBulkToggleActiveRequest struct {
 
 /* =========================================================
    DELETE / RESTORE
-   ========================================================= */
+========================================================= */
 
 type StudentCSSTDeleteRequest struct {
 	Force bool `json:"force,omitempty"`
@@ -114,7 +136,7 @@ type StudentCSSTRestoreRequest struct {
 
 /* =========================================================
    LIST / QUERY PARAMS
-   ========================================================= */
+========================================================= */
 
 const (
 	StudentCSSTSortCreatedAt = "created_at"
@@ -144,7 +166,7 @@ type StudentCSSTListQuery struct {
 
 /* =========================================================
    RESPONSE MODELS (EXPANDED RELATIONS)
-   ========================================================= */
+========================================================= */
 
 type StudentBrief struct {
 	ID       uuid.UUID `json:"id"`
@@ -174,7 +196,7 @@ type TeacherBrief struct {
 
 /* =========================================================
    MAIN ITEM — FULL MIRROR OF MODEL
-   ========================================================= */
+========================================================= */
 
 type StudentCSSTItem struct {
 	StudentClassSectionSubjectTeacherID uuid.UUID `json:"student_class_section_subject_teacher_id"`
@@ -200,8 +222,17 @@ type StudentCSSTItem struct {
 	StudentClassSectionSubjectTeacherUserProfileWhatsappURLSnapshot       *string `json:"student_class_section_subject_teacher_user_profile_whatsapp_url_snapshot,omitempty"`
 	StudentClassSectionSubjectTeacherUserProfileParentNameSnapshot        *string `json:"student_class_section_subject_teacher_user_profile_parent_name_snapshot,omitempty"`
 	StudentClassSectionSubjectTeacherUserProfileParentWhatsappURLSnapshot *string `json:"student_class_section_subject_teacher_user_profile_parent_whatsapp_url_snapshot,omitempty"`
+	StudentClassSectionSubjectTeacherUserProfileGenderSnapshot            *string `json:"student_class_section_subject_teacher_user_profile_gender_snapshot,omitempty"`
 
 	StudentClassSectionSubjectTeacherEditsHistory datatypes.JSON `json:"student_class_section_subject_teacher_edits_history"`
+
+	// NOTES (mirror model)
+	StudentClassSectionSubjectTeacherStudentNotes                 *string    `json:"student_class_section_subject_teacher_student_notes,omitempty"`
+	StudentClassSectionSubjectTeacherStudentNotesUpdatedAt        *time.Time `json:"student_class_section_subject_teacher_student_notes_updated_at,omitempty"`
+	StudentClassSectionSubjectTeacherHomeroomNotes                *string    `json:"student_class_section_subject_teacher_homeroom_notes,omitempty"`
+	StudentClassSectionSubjectTeacherHomeroomNotesUpdatedAt       *time.Time `json:"student_class_section_subject_teacher_homeroom_notes_updated_at,omitempty"`
+	StudentClassSectionSubjectTeacherSubjectTeacherNotes          *string    `json:"student_class_section_subject_teacher_subject_teacher_notes,omitempty"`
+	StudentClassSectionSubjectTeacherSubjectTeacherNotesUpdatedAt *time.Time `json:"student_class_section_subject_teacher_subject_teacher_notes_updated_at,omitempty"`
 
 	StudentClassSectionSubjectTeacherSlug *string        `json:"student_class_section_subject_teacher_slug,omitempty"`
 	StudentClassSectionSubjectTeacherMeta datatypes.JSON `json:"student_class_section_subject_teacher_meta"`
@@ -219,7 +250,7 @@ type StudentCSSTItem struct {
 
 /* =========================================================
    RESPONSE WRAPPERS
-   ========================================================= */
+========================================================= */
 
 type PageMeta struct {
 	Total       int64 `json:"total"`
@@ -264,7 +295,7 @@ type AffectedResponse struct {
 
 /* =========================================================
    ERROR
-   ========================================================= */
+========================================================= */
 
 type FieldError struct {
 	Field   string `json:"field"`
@@ -275,4 +306,16 @@ type ErrorResponse struct {
 	Error       string       `json:"error"`
 	Description string       `json:"description,omitempty"`
 	Fields      []FieldError `json:"fields,omitempty"`
+}
+
+/* =========================================================
+   UPDATE NOTES REQUEST
+========================================================= */
+
+type StudentCSSTUpdateNotesRequest struct {
+	// Notes:
+	// - Jika diisi string -> set isi notes
+	// - Jika dikirim null -> clear (set NULL di DB)
+	// - Jika field tidak dikirim -> anggap invalid (wajib ada key-nya)
+	Notes *string `json:"notes"` // optional: string atau null
 }

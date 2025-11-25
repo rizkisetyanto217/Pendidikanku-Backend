@@ -40,9 +40,18 @@ type StudentClassSectionSubjectTeacher struct {
 	StudentClassSectionSubjectTeacherUserProfileWhatsappURLSnapshot       *string `gorm:"type:varchar(50);column:student_class_section_subject_teacher_user_profile_whatsapp_url_snapshot" json:"student_class_section_subject_teacher_user_profile_whatsapp_url_snapshot,omitempty"`
 	StudentClassSectionSubjectTeacherUserProfileParentNameSnapshot        *string `gorm:"type:varchar(80);column:student_class_section_subject_teacher_user_profile_parent_name_snapshot" json:"student_class_section_subject_teacher_user_profile_parent_name_snapshot,omitempty"`
 	StudentClassSectionSubjectTeacherUserProfileParentWhatsappURLSnapshot *string `gorm:"type:varchar(50);column:student_class_section_subject_teacher_user_profile_parent_whatsapp_url_snapshot" json:"student_class_section_subject_teacher_user_profile_parent_whatsapp_url_snapshot,omitempty"`
+	StudentClassSectionSubjectTeacherUserProfileGenderSnapshot            *string `gorm:"type:varchar(20);column:student_class_section_subject_teacher_user_profile_gender_snapshot" json:"student_class_section_subject_teacher_user_profile_gender_snapshot,omitempty"` // NEW
 
 	// Riwayat intervensi/remedial (append-only JSONB)
 	StudentClassSectionSubjectTeacherEditsHistory datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'::jsonb;column:student_class_section_subject_teacher_edits_history" json:"student_class_section_subject_teacher_edits_history"`
+
+	// NOTES
+	StudentClassSectionSubjectTeacherStudentNotes                 *string    `gorm:"type:text;column:student_class_section_subject_teacher_student_notes" json:"student_class_section_subject_teacher_student_notes,omitempty"`
+	StudentClassSectionSubjectTeacherStudentNotesUpdatedAt        *time.Time `gorm:"type:timestamptz;column:student_class_section_subject_teacher_student_notes_updated_at" json:"student_class_section_subject_teacher_student_notes_updated_at,omitempty"`
+	StudentClassSectionSubjectTeacherHomeroomNotes                *string    `gorm:"type:text;column:student_class_section_subject_teacher_homeroom_notes" json:"student_class_section_subject_teacher_homeroom_notes,omitempty"`
+	StudentClassSectionSubjectTeacherHomeroomNotesUpdatedAt       *time.Time `gorm:"type:timestamptz;column:student_class_section_subject_teacher_homeroom_notes_updated_at" json:"student_class_section_subject_teacher_homeroom_notes_updated_at,omitempty"`
+	StudentClassSectionSubjectTeacherSubjectTeacherNotes          *string    `gorm:"type:text;column:student_class_section_subject_teacher_subject_teacher_notes" json:"student_class_section_subject_teacher_subject_teacher_notes,omitempty"`
+	StudentClassSectionSubjectTeacherSubjectTeacherNotesUpdatedAt *time.Time `gorm:"type:timestamptz;column:student_class_section_subject_teacher_subject_teacher_notes_updated_at" json:"student_class_section_subject_teacher_subject_teacher_notes_updated_at,omitempty"`
 
 	// Admin & meta
 	StudentClassSectionSubjectTeacherSlug *string        `gorm:"type:varchar(160);column:student_class_section_subject_teacher_slug" json:"student_class_section_subject_teacher_slug,omitempty"`

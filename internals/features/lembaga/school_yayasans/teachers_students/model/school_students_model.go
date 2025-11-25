@@ -79,6 +79,7 @@ type SchoolStudentModel struct {
 	SchoolStudentUserProfileWhatsappURLSnapshot       *string `gorm:"column:school_student_user_profile_whatsapp_url_snapshot;type:varchar(50)" json:"school_student_user_profile_whatsapp_url_snapshot,omitempty"`
 	SchoolStudentUserProfileParentNameSnapshot        *string `gorm:"column:school_student_user_profile_parent_name_snapshot;type:varchar(80)" json:"school_student_user_profile_parent_name_snapshot,omitempty"`
 	SchoolStudentUserProfileParentWhatsappURLSnapshot *string `gorm:"column:school_student_user_profile_parent_whatsapp_url_snapshot;type:varchar(50)" json:"school_student_user_profile_parent_whatsapp_url_snapshot,omitempty"`
+	SchoolStudentUserProfileGenderSnapshot            *string `gorm:"column:school_student_user_profile_gender_snapshot;type:varchar(20)" json:"school_student_user_profile_gender_snapshot,omitempty"` // NEW
 
 	// ===== SCHOOL SNAPSHOT (/me render cepat) =====
 	SchoolStudentSchoolNameSnapshot          *string `gorm:"column:school_student_school_name_snapshot;type:varchar(100)" json:"school_student_school_name_snapshot,omitempty"`

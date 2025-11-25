@@ -87,6 +87,7 @@ type SchoolStudentCreateReq struct {
 	SchoolStudentUserProfileWhatsappURLSnapshot       *string `json:"school_student_user_profile_whatsapp_url_snapshot,omitempty"`
 	SchoolStudentUserProfileParentNameSnapshot        *string `json:"school_student_user_profile_parent_name_snapshot,omitempty"`
 	SchoolStudentUserProfileParentWhatsappURLSnapshot *string `json:"school_student_user_profile_parent_whatsapp_url_snapshot,omitempty"`
+	SchoolStudentUserProfileGenderSnapshot            *string `json:"school_student_user_profile_gender_snapshot,omitempty"` // NEW
 
 	// MASJID SNAPSHOT (sinkron model; opsional)
 	SchoolStudentSchoolNameSnapshot          *string `json:"school_student_school_name_snapshot,omitempty"`
@@ -163,6 +164,7 @@ func (r *SchoolStudentCreateReq) ToModel() *studentmodel.SchoolStudentModel {
 		SchoolStudentUserProfileWhatsappURLSnapshot:       r.SchoolStudentUserProfileWhatsappURLSnapshot,
 		SchoolStudentUserProfileParentNameSnapshot:        r.SchoolStudentUserProfileParentNameSnapshot,
 		SchoolStudentUserProfileParentWhatsappURLSnapshot: r.SchoolStudentUserProfileParentWhatsappURLSnapshot,
+		SchoolStudentUserProfileGenderSnapshot:            r.SchoolStudentUserProfileGenderSnapshot,
 
 		// MASJID SNAPSHOT (baru)
 		SchoolStudentSchoolNameSnapshot:          r.SchoolStudentSchoolNameSnapshot,
@@ -192,6 +194,7 @@ type SchoolStudentUpdateReq struct {
 	SchoolStudentUserProfileWhatsappURLSnapshot       *string `json:"school_student_user_profile_whatsapp_url_snapshot,omitempty"`
 	SchoolStudentUserProfileParentNameSnapshot        *string `json:"school_student_user_profile_parent_name_snapshot,omitempty"`
 	SchoolStudentUserProfileParentWhatsappURLSnapshot *string `json:"school_student_user_profile_parent_whatsapp_url_snapshot,omitempty"`
+	SchoolStudentUserProfileGenderSnapshot            *string `json:"school_student_user_profile_gender_snapshot,omitempty"` // NEW
 
 	// MASJID SNAPSHOT (baru)
 	SchoolStudentSchoolNameSnapshot          *string `json:"school_student_school_name_snapshot,omitempty"`
@@ -250,6 +253,7 @@ func (r *SchoolStudentUpdateReq) Apply(m *studentmodel.SchoolStudentModel) {
 	m.SchoolStudentUserProfileWhatsappURLSnapshot = r.SchoolStudentUserProfileWhatsappURLSnapshot
 	m.SchoolStudentUserProfileParentNameSnapshot = r.SchoolStudentUserProfileParentNameSnapshot
 	m.SchoolStudentUserProfileParentWhatsappURLSnapshot = r.SchoolStudentUserProfileParentWhatsappURLSnapshot
+	m.SchoolStudentUserProfileGenderSnapshot = r.SchoolStudentUserProfileGenderSnapshot
 
 	// MASJID SNAPSHOT
 	m.SchoolStudentSchoolNameSnapshot = r.SchoolStudentSchoolNameSnapshot
@@ -278,6 +282,7 @@ type SchoolStudentPatchReq struct {
 	SchoolStudentUserProfileWhatsappURLSnapshot       *PatchField[*string] `json:"school_student_user_profile_whatsapp_url_snapshot,omitempty"`
 	SchoolStudentUserProfileParentNameSnapshot        *PatchField[*string] `json:"school_student_user_profile_parent_name_snapshot,omitempty"`
 	SchoolStudentUserProfileParentWhatsappURLSnapshot *PatchField[*string] `json:"school_student_user_profile_parent_whatsapp_url_snapshot,omitempty"`
+	SchoolStudentUserProfileGenderSnapshot            *PatchField[*string] `json:"school_student_user_profile_gender_snapshot,omitempty"` // NEW
 
 	// MASJID SNAPSHOT (baru)
 	SchoolStudentSchoolNameSnapshot          *PatchField[*string] `json:"school_student_school_name_snapshot,omitempty"`
@@ -308,6 +313,13 @@ func (r *SchoolStudentPatchReq) Normalize() {
 			r.SchoolStudentNote.Value = nil
 		} else {
 			r.SchoolStudentNote.Value = &n
+		}
+	}
+	if r.SchoolStudentUserProfileGenderSnapshot != nil && r.SchoolStudentUserProfileGenderSnapshot.Set && r.SchoolStudentUserProfileGenderSnapshot.Value != nil {
+		if g := strings.TrimSpace(*r.SchoolStudentUserProfileGenderSnapshot.Value); g == "" {
+			r.SchoolStudentUserProfileGenderSnapshot.Value = nil
+		} else {
+			r.SchoolStudentUserProfileGenderSnapshot.Value = &g
 		}
 	}
 }
@@ -368,6 +380,9 @@ func (r *SchoolStudentPatchReq) Apply(m *studentmodel.SchoolStudentModel) {
 	if r.SchoolStudentUserProfileParentWhatsappURLSnapshot != nil && r.SchoolStudentUserProfileParentWhatsappURLSnapshot.Set {
 		m.SchoolStudentUserProfileParentWhatsappURLSnapshot = r.SchoolStudentUserProfileParentWhatsappURLSnapshot.Value
 	}
+	if r.SchoolStudentUserProfileGenderSnapshot != nil && r.SchoolStudentUserProfileGenderSnapshot.Set {
+		m.SchoolStudentUserProfileGenderSnapshot = r.SchoolStudentUserProfileGenderSnapshot.Value
+	}
 
 	// MASJID SNAPSHOT
 	if r.SchoolStudentSchoolNameSnapshot != nil && r.SchoolStudentSchoolNameSnapshot.Set {
@@ -413,6 +428,7 @@ type SchoolStudentResp struct {
 	SchoolStudentUserProfileWhatsappURLSnapshot       *string `json:"school_student_user_profile_whatsapp_url_snapshot,omitempty"`
 	SchoolStudentUserProfileParentNameSnapshot        *string `json:"school_student_user_profile_parent_name_snapshot,omitempty"`
 	SchoolStudentUserProfileParentWhatsappURLSnapshot *string `json:"school_student_user_profile_parent_whatsapp_url_snapshot,omitempty"`
+	SchoolStudentUserProfileGenderSnapshot            *string `json:"school_student_user_profile_gender_snapshot,omitempty"` // NEW
 
 	// MASJID SNAPSHOT
 	SchoolStudentSchoolNameSnapshot          *string `json:"school_student_school_name_snapshot,omitempty"`
@@ -463,6 +479,7 @@ func FromModel(m *studentmodel.SchoolStudentModel) SchoolStudentResp {
 		SchoolStudentUserProfileWhatsappURLSnapshot:       m.SchoolStudentUserProfileWhatsappURLSnapshot,
 		SchoolStudentUserProfileParentNameSnapshot:        m.SchoolStudentUserProfileParentNameSnapshot,
 		SchoolStudentUserProfileParentWhatsappURLSnapshot: m.SchoolStudentUserProfileParentWhatsappURLSnapshot,
+		SchoolStudentUserProfileGenderSnapshot:            m.SchoolStudentUserProfileGenderSnapshot,
 
 		// MASJID SNAPSHOT
 		SchoolStudentSchoolNameSnapshot:          m.SchoolStudentSchoolNameSnapshot,

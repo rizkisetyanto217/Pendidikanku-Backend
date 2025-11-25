@@ -16,7 +16,12 @@ Mount:
 
 Endpoint:
 
-	GET /api/u/class-section-subject-teachers/list
+	GET   /api/u/class-section-subject-teachers/list
+
+	GET   /api/u/student-class-section-subject-teachers/list
+	PATCH /api/u/student-class-section-subject-teachers/:id/student-notes
+	PATCH /api/u/student-class-section-subject-teachers/:id/homeroom-notes
+	PATCH /api/u/student-class-section-subject-teachers/:id/subject-teacher-notes
 */
 func CSSTUserRoutes(r fiber.Router, db *gorm.DB) {
 	csstCtl := &csstController.ClassSectionSubjectTeacherController{DB: db}
@@ -32,4 +37,9 @@ func CSSTUserRoutes(r fiber.Router, db *gorm.DB) {
 
 	// Satu route saja: list mapping murid ↔ CSST, filter via query params
 	stu.Get("/list", stuCtl.List)
+
+	// ====== NOTES ENDPOINTS (PATCH) ======
+	stu.Patch("/:id/student-notes", stuCtl.UpdateStudentNotes)
+	stu.Patch("/:id/homeroom-notes", stuCtl.UpdateHomeroomNotes)
+	stu.Patch("/:id/subject-teacher-notes", stuCtl.UpdateSubjectTeacherNotes)
 }

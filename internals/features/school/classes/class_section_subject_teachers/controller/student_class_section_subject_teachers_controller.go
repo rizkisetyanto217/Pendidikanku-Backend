@@ -62,6 +62,14 @@ func toStudentCSSTItem(m *model.StudentClassSectionSubjectTeacher) dto.StudentCS
 
 		StudentClassSectionSubjectTeacherEditsHistory: m.StudentClassSectionSubjectTeacherEditsHistory,
 
+		// NOTES
+		StudentClassSectionSubjectTeacherStudentNotes:                 m.StudentClassSectionSubjectTeacherStudentNotes,
+		StudentClassSectionSubjectTeacherStudentNotesUpdatedAt:        m.StudentClassSectionSubjectTeacherStudentNotesUpdatedAt,
+		StudentClassSectionSubjectTeacherHomeroomNotes:                m.StudentClassSectionSubjectTeacherHomeroomNotes,
+		StudentClassSectionSubjectTeacherHomeroomNotesUpdatedAt:       m.StudentClassSectionSubjectTeacherHomeroomNotesUpdatedAt,
+		StudentClassSectionSubjectTeacherSubjectTeacherNotes:          m.StudentClassSectionSubjectTeacherSubjectTeacherNotes,
+		StudentClassSectionSubjectTeacherSubjectTeacherNotesUpdatedAt: m.StudentClassSectionSubjectTeacherSubjectTeacherNotesUpdatedAt,
+
 		StudentClassSectionSubjectTeacherSlug: m.StudentClassSectionSubjectTeacherSlug,
 		StudentClassSectionSubjectTeacherMeta: m.StudentClassSectionSubjectTeacherMeta,
 
@@ -108,6 +116,8 @@ func (ctl *StudentCSSTController) Create(c *fiber.Ctx) error {
 		}
 	}()
 
+	now := time.Now()
+
 	m := model.StudentClassSectionSubjectTeacher{
 		StudentClassSectionSubjectTeacherSchoolID:  schoolID,
 		StudentClassSectionSubjectTeacherStudentID: req.StudentID,
@@ -122,6 +132,20 @@ func (ctl *StudentCSSTController) Create(c *fiber.Ctx) error {
 	}
 	if req.To != nil {
 		m.StudentClassSectionSubjectTeacherTo = req.To
+	}
+
+	// Notes (opsional) + updated_at
+	if req.StudentNotes != nil {
+		m.StudentClassSectionSubjectTeacherStudentNotes = req.StudentNotes
+		m.StudentClassSectionSubjectTeacherStudentNotesUpdatedAt = &now
+	}
+	if req.HomeroomNotes != nil {
+		m.StudentClassSectionSubjectTeacherHomeroomNotes = req.HomeroomNotes
+		m.StudentClassSectionSubjectTeacherHomeroomNotesUpdatedAt = &now
+	}
+	if req.SubjectTeacherNotes != nil {
+		m.StudentClassSectionSubjectTeacherSubjectTeacherNotes = req.SubjectTeacherNotes
+		m.StudentClassSectionSubjectTeacherSubjectTeacherNotesUpdatedAt = &now
 	}
 
 	if err := tx.Create(&m).Error; err != nil {
@@ -209,6 +233,8 @@ func (ctl *StudentCSSTController) BulkCreate(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal cek duplikat mapping student-csst")
 		}
 
+		now := time.Now()
+
 		m := model.StudentClassSectionSubjectTeacher{
 			StudentClassSectionSubjectTeacherSchoolID:  schoolID,
 			StudentClassSectionSubjectTeacherStudentID: it.StudentID,
@@ -222,6 +248,20 @@ func (ctl *StudentCSSTController) BulkCreate(c *fiber.Ctx) error {
 		}
 		if it.To != nil {
 			m.StudentClassSectionSubjectTeacherTo = it.To
+		}
+
+		// Notes (opsional) + updated_at
+		if it.StudentNotes != nil {
+			m.StudentClassSectionSubjectTeacherStudentNotes = it.StudentNotes
+			m.StudentClassSectionSubjectTeacherStudentNotesUpdatedAt = &now
+		}
+		if it.HomeroomNotes != nil {
+			m.StudentClassSectionSubjectTeacherHomeroomNotes = it.HomeroomNotes
+			m.StudentClassSectionSubjectTeacherHomeroomNotesUpdatedAt = &now
+		}
+		if it.SubjectTeacherNotes != nil {
+			m.StudentClassSectionSubjectTeacherSubjectTeacherNotes = it.SubjectTeacherNotes
+			m.StudentClassSectionSubjectTeacherSubjectTeacherNotesUpdatedAt = &now
 		}
 
 		if err := tx.Create(&m).Error; err != nil {
@@ -286,6 +326,8 @@ func (ctl *StudentCSSTController) Upsert(c *fiber.Ctx) error {
 		}
 	}()
 
+	now := time.Now()
+
 	var m model.StudentClassSectionSubjectTeacher
 	err = tx.
 		Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -311,6 +353,20 @@ func (ctl *StudentCSSTController) Upsert(c *fiber.Ctx) error {
 			m.StudentClassSectionSubjectTeacherTo = req.To
 		}
 
+		// Notes (opsional) + updated_at
+		if req.StudentNotes != nil {
+			m.StudentClassSectionSubjectTeacherStudentNotes = req.StudentNotes
+			m.StudentClassSectionSubjectTeacherStudentNotesUpdatedAt = &now
+		}
+		if req.HomeroomNotes != nil {
+			m.StudentClassSectionSubjectTeacherHomeroomNotes = req.HomeroomNotes
+			m.StudentClassSectionSubjectTeacherHomeroomNotesUpdatedAt = &now
+		}
+		if req.SubjectTeacherNotes != nil {
+			m.StudentClassSectionSubjectTeacherSubjectTeacherNotes = req.SubjectTeacherNotes
+			m.StudentClassSectionSubjectTeacherSubjectTeacherNotesUpdatedAt = &now
+		}
+
 		if err := tx.Create(&m).Error; err != nil {
 			tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal membuat mapping student-csst")
@@ -328,6 +384,20 @@ func (ctl *StudentCSSTController) Upsert(c *fiber.Ctx) error {
 		}
 		if req.To != nil {
 			m.StudentClassSectionSubjectTeacherTo = req.To
+		}
+
+		// Notes: di-upsert hanya kalau dikirim (non-nil)
+		if req.StudentNotes != nil {
+			m.StudentClassSectionSubjectTeacherStudentNotes = req.StudentNotes
+			m.StudentClassSectionSubjectTeacherStudentNotesUpdatedAt = &now
+		}
+		if req.HomeroomNotes != nil {
+			m.StudentClassSectionSubjectTeacherHomeroomNotes = req.HomeroomNotes
+			m.StudentClassSectionSubjectTeacherHomeroomNotesUpdatedAt = &now
+		}
+		if req.SubjectTeacherNotes != nil {
+			m.StudentClassSectionSubjectTeacherSubjectTeacherNotes = req.SubjectTeacherNotes
+			m.StudentClassSectionSubjectTeacherSubjectTeacherNotesUpdatedAt = &now
 		}
 
 		if err := tx.Save(&m).Error; err != nil {

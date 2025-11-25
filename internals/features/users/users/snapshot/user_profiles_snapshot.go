@@ -22,6 +22,7 @@ type UserProfileSnapshot struct {
 	Slug              *string   `json:"slug,omitempty"`
 	DonationName      *string   `json:"donation_name,omitempty"`
 	Location          *string   `json:"location,omitempty"` // ← pakai user_profile_location
+	Gender            *string   `json:"gender,omitempty"`   // ← NEW: user_profile_gender
 }
 
 // BuildUserProfileSnapshotByUserID membuat snapshot berdasar user_profile_user_id
@@ -41,6 +42,7 @@ func BuildUserProfileSnapshotByUserID(
 		ParentName        *string
 		ParentWhatsappURL *string
 		Location          *string
+		Gender            *string
 	}
 
 	if err := tx.WithContext(ctx).Raw(`
@@ -54,7 +56,8 @@ func BuildUserProfileSnapshotByUserID(
 			user_profile_whatsapp_url        AS whatsapp_url,
 			user_profile_parent_name         AS parent_name,
 			user_profile_parent_whatsapp_url AS parent_whatsapp_url,
-			user_profile_location            AS location
+			user_profile_location            AS location,
+			user_profile_gender              AS gender
 		FROM user_profiles
 		WHERE user_profile_user_id = ?
 		  AND user_profile_deleted_at IS NULL
@@ -96,6 +99,7 @@ func BuildUserProfileSnapshotByUserID(
 		Slug:              nz(row.Slug),
 		DonationName:      nz(row.DonationName),
 		Location:          nz(row.Location),
+		Gender:            nz(row.Gender),
 	}, nil
 }
 
@@ -116,6 +120,7 @@ func BuildUserProfileSnapshotByProfileID(
 		ParentName        *string
 		ParentWhatsappURL *string
 		Location          *string
+		Gender            *string
 	}
 
 	if err := tx.WithContext(ctx).Raw(`
@@ -129,7 +134,8 @@ func BuildUserProfileSnapshotByProfileID(
 			user_profile_whatsapp_url        AS whatsapp_url,
 			user_profile_parent_name         AS parent_name,
 			user_profile_parent_whatsapp_url AS parent_whatsapp_url,
-			user_profile_location            AS location
+			user_profile_location            AS location,
+			user_profile_gender              AS gender
 		FROM user_profiles
 		WHERE user_profile_id = ?
 		  AND user_profile_deleted_at IS NULL
@@ -171,5 +177,6 @@ func BuildUserProfileSnapshotByProfileID(
 		Slug:              nz(row.Slug),
 		DonationName:      nz(row.DonationName),
 		Location:          nz(row.Location),
+		Gender:            nz(row.Gender),
 	}, nil
 }

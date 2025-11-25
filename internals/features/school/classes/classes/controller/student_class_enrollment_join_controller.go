@@ -251,6 +251,7 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 			scs.StudentClassSectionUserProfileWhatsappURLSnapshot = userProfileSnap.WhatsappURL
 			scs.StudentClassSectionUserProfileParentNameSnapshot = userProfileSnap.ParentName
 			scs.StudentClassSectionUserProfileParentWhatsappURLSnapshot = userProfileSnap.ParentWhatsappURL
+			scs.StudentClassSectionUserProfileGenderSnapshot = userProfileSnap.Gender // ← NEW
 			log.Printf("[JoinSectionCSST] filled student_class_section user_profile snapshot: name=%s", name)
 		}
 
@@ -339,6 +340,8 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 			newLink.StudentClassSectionSubjectTeacherUserProfileWhatsappURLSnapshot = userProfileSnap.WhatsappURL
 			newLink.StudentClassSectionSubjectTeacherUserProfileParentNameSnapshot = userProfileSnap.ParentName
 			newLink.StudentClassSectionSubjectTeacherUserProfileParentWhatsappURLSnapshot = userProfileSnap.ParentWhatsappURL
+			newLink.StudentClassSectionSubjectTeacherUserProfileGenderSnapshot = userProfileSnap.Gender // NEW
+
 			log.Printf("[JoinSectionCSST] filled CSST mapping user_profile snapshot: name=%s", name)
 		}
 

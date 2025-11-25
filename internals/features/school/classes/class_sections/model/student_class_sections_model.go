@@ -27,6 +27,8 @@ const (
 
 // ========================= MODEL =========================
 
+// file: internals/features/school/academics/sections/model/student_class_section_model.go
+
 type StudentClassSection struct {
 	StudentClassSectionID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:student_class_section_id" json:"student_class_section_id"`
 
@@ -59,6 +61,7 @@ type StudentClassSection struct {
 	StudentClassSectionUserProfileWhatsappURLSnapshot       *string `gorm:"type:varchar(50);column:student_class_section_user_profile_whatsapp_url_snapshot" json:"student_class_section_user_profile_whatsapp_url_snapshot,omitempty"`
 	StudentClassSectionUserProfileParentNameSnapshot        *string `gorm:"type:varchar(80);column:student_class_section_user_profile_parent_name_snapshot" json:"student_class_section_user_profile_parent_name_snapshot,omitempty"`
 	StudentClassSectionUserProfileParentWhatsappURLSnapshot *string `gorm:"type:varchar(50);column:student_class_section_user_profile_parent_whatsapp_url_snapshot" json:"student_class_section_user_profile_parent_whatsapp_url_snapshot,omitempty"`
+	StudentClassSectionUserProfileGenderSnapshot            *string `gorm:"type:varchar(20);column:student_class_section_user_profile_gender_snapshot" json:"student_class_section_user_profile_gender_snapshot,omitempty"` // ← NEW
 
 	// Jejak waktu enrolment
 	StudentClassSectionAssignedAt   time.Time  `gorm:"type:date;not null;default:current_date;column:student_class_section_assigned_at" json:"student_class_section_assigned_at"`
