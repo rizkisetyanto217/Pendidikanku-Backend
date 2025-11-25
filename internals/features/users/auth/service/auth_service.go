@@ -531,23 +531,6 @@ func deriveSchoolIDsFromRolesClaim(rc helpersAuth.RolesClaim) []string {
 	return out
 }
 
-/*
-	==========================
-	  REGISTER (refactor: tx + upsert profile + optional auto guru)
-
-	FE:
-	POST /api/:school_slug/auth/register
-	{
-	  "user_name": "xxx",
-	  "full_name": "yyy",
-	  "email": "zzz",
-	  "password": "Password1234",
-	  "confirm_password": "Password1234",
-	  "register_as": "student" | "teacher"  // optional, default "student"
-	}
-
-==========================
-*/
 func Register(db *gorm.DB, c *fiber.Ctx) error {
 	// input khusus register:
 	// - embed UserModel untuk pakai Validate()
@@ -555,6 +538,7 @@ func Register(db *gorm.DB, c *fiber.Ctx) error {
 	var input struct {
 		userModel.UserModel
 		RegisterAs string `json:"register_as"`
+		Gender     string `json:"gender"` // ⬅️ NEW
 	}
 
 	if err := c.BodyParser(&input); err != nil {
@@ -566,6 +550,7 @@ func Register(db *gorm.DB, c *fiber.Ctx) error {
 	// ---------- Normalisasi ringan ----------
 	u.UserName = strings.TrimSpace(u.UserName)
 	u.Email = strings.TrimSpace(strings.ToLower(u.Email))
+	input.Gender = strings.ToLower(strings.TrimSpace(input.Gender)) // ⬅️ normalize gender
 
 	if u.FullName != nil {
 		f := strings.TrimSpace(*u.FullName)
@@ -643,18 +628,44 @@ func Register(db *gorm.DB, c *fiber.Ctx) error {
 
 		log.Printf("[register] ensure user_profiles OK for user_id=%s", u.ID)
 
-		// 2) kalau daftar sebagai TEACHER → auto buat user_teachers
+		// ⬇️ 1.5) SIMPAN GENDER KE user_profiles (BERLAKU UNTUK STUDENT & TEACHER)
+		g := strings.ToLower(strings.TrimSpace(input.Gender))
+		if g == "male" || g == "female" {
+			if err := tx.Exec(`
+				UPDATE user_profiles
+				SET user_profile_gender = ?, user_profile_updated_at = NOW()
+				WHERE user_profile_user_id = ? AND user_profile_deleted_at IS NULL
+			`, g, u.ID).Error; err != nil {
+				log.Printf("[register] update user_profile_gender ERROR: %v", err)
+				return fiber.NewError(fiber.StatusInternalServerError, "Failed to initialize profile gender")
+			}
+		}
+
+		// 2) kalau daftar sebagai TEACHER → auto buat user_teachers (+ gender)
 		if regAs == "teacher" {
-			if _, err := userTeacherService.EnsureUserTeacherFromUser(c.Context(), tx, u); err != nil {
+			ut, err := userTeacherService.EnsureUserTeacherFromUser(c.Context(), tx, u)
+			if err != nil {
 				log.Printf("[register] ensure user_teacher ERROR: %v", err)
 				return fiber.NewError(fiber.StatusInternalServerError, "Failed to initialize teacher profile")
+			}
+
+			// ⬇️ kalau ada gender valid → simpan ke user_teachers.user_teacher_gender
+			if g == "male" || g == "female" {
+				if err := tx.Exec(`
+					UPDATE user_teachers
+					SET user_teacher_gender = ?, user_teacher_updated_at = NOW()
+					WHERE user_teacher_id = ? AND user_teacher_deleted_at IS NULL
+				`, g, ut.UserTeacherID).Error; err != nil {
+					log.Printf("[register] update user_teacher_gender ERROR: %v", err)
+					return fiber.NewError(fiber.StatusInternalServerError, "Failed to initialize teacher gender")
+				}
 			}
 		}
 
 		// 3) Grant default role "user"
 		if err := grantDefaultUserRole(c.Context(), tx, u.ID); err != nil {
 			log.Printf("[register] grant default role 'user' failed: %v", err)
-			// tidak fatal, tapi boleh dianggap gagal kalau mau strict
+			// tidak fatal
 		}
 
 		return nil

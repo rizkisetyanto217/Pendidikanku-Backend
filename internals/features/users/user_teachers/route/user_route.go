@@ -19,7 +19,7 @@ func UserTeachersRoute(userRoute fiber.Router, db *gorm.DB) {
 	ut := userRoute.Group("/user-teachers")
 	ut.Get("/", utc.List)         // GET    /api/u/user-teachers
 	ut.Post("/", utc.Create)          // POST   /api/u/user-teachers
-	ut.Patch("/me", utc.PatchMe)      // PATCH  /api/u/user-teachers/me
+	ut.Patch("/", utc.PatchMe)      // PATCH  /api/u/user-teachers/me
 	ut.Patch("/:id", utc.Patch)       // PATCH  /api/u/user-teachers/:id
 	ut.Delete("/:id", utc.DeleteFile) // DELETE /api/u/user-teachers/:id/files
 

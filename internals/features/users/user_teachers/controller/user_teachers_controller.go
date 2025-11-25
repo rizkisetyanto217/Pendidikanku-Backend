@@ -2,6 +2,7 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -715,21 +716,107 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 	})
 }
 
-// ========================= PATCH WRAPPERS =========================
-
+// PATCH /user-teachers/me
+// - Selalu update profil pengajar milik user dari token (user_teacher_user_id)
+// - Mendukung:
+//   - JSON biasa (Content-Type: application/json)
+//   - multipart/form-data dengan field "payload" (JSON string) + file image (avatar)
 func (uc *UserTeacherController) PatchMe(c *fiber.Ctx) error {
 	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
-	var m model.UserTeacherModel
-	if err := uc.DB.First(&m, "user_teacher_user_id = ?", userID).Error; err != nil {
+
+	// Ambil existing row by user_id
+	var before model.UserTeacherModel
+	if err := uc.DB.First(&before, "user_teacher_user_id = ?", userID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Profil pengajar tidak ditemukan")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
-	return uc.applyPatch(c, &m, false)
+
+	ct := strings.ToLower(strings.TrimSpace(c.Get(fiber.HeaderContentType)))
+	isMultipart := strings.HasPrefix(ct, "multipart/form-data")
+
+	var in userdto.UpdateUserTeacherRequest
+
+	// =========== PARSE PAYLOAD ===========
+	if isMultipart {
+		// Prioritas: payload JSON string (sama pola dengan user profile)
+		if s := strings.TrimSpace(c.FormValue("payload")); s != "" {
+			if err := c.App().Config().JSONDecoder([]byte(s), &in); err != nil {
+				return helper.JsonError(c, fiber.StatusBadRequest, "Invalid payload JSON")
+			}
+		} else {
+			// Langsung bind form-data → struct (pakai tag form:"...")
+			if err := c.BodyParser(&in); err != nil {
+				log.Println("[WARN] multipart BodyParser error:", err)
+				// kalau mau, bisa lanjut fallback manual, tapi untuk teacher biasanya cukup
+			}
+		}
+	} else {
+		// JSON biasa
+		if err := c.BodyParser(&in); err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Invalid request format")
+		}
+	}
+
+	// =========== APPLY PATCH KE MODEL ===========
+	// Mulai dari kondisi "before"
+	after := before
+	in.ApplyPatch(&after)
+
+	now := time.Now()
+	after.UserTeacherUpdatedAt = now
+
+	// =========== HANDLE AVATAR (FILE) via MULTIPART ===========
+	if isMultipart {
+		svc, err := uc.ensureOSS()
+		if err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "OSS belum terkonfigurasi")
+		}
+
+		// Asumsi getImageFormFile akan ambil file dari field standar (misal: "avatar")
+		if fh, err := getImageFormFile(c); err == nil && fh != nil {
+			ctx, cancel := context.WithTimeout(c.Context(), 30*time.Second)
+			defer cancel()
+
+			// folder/category pakai "teacher-avatar" biar beda dengan user profile
+			url, upErr := helperOSS.UploadImageToOSS(ctx, svc, userID, "teacher-avatar", fh)
+			if upErr != nil {
+				return helper.JsonError(c, fiber.StatusBadRequest, upErr.Error())
+			}
+			key, kerr := helperOSS.KeyFromPublicURL(url)
+			if kerr != nil {
+				return helper.JsonError(c, fiber.StatusBadRequest, "Gagal ekstrak object key (avatar)")
+			}
+
+			// 2-slot (old → pending delete), pakai nilai sebelum update
+			if before.UserTeacherAvatarURL != nil && *before.UserTeacherAvatarURL != "" {
+				due := now.Add(helperOSS.GetRetentionDuration())
+				after.UserTeacherAvatarURLOld = before.UserTeacherAvatarURL
+				after.UserTeacherAvatarObjectKeyOld = before.UserTeacherAvatarObjectKey
+				after.UserTeacherAvatarDeletePendingUntil = &due
+			}
+
+			// Set avatar baru
+			after.UserTeacherAvatarURL = &url
+			after.UserTeacherAvatarObjectKey = &key
+		}
+	}
+
+	// TODO (kalau mau): auto logic is_completed, misal:
+	// - WA + field tertentu terisi → completed
+	// - kalau belum, turunkan flag
+
+	// =========== SAVE ===========
+	if err := uc.DB.Save(&after).Error; err != nil {
+		log.Println("[ERROR] Failed to save user_teacher:", err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan profil pengajar")
+	}
+
+	return helper.JsonUpdated(c, "Profil pengajar diperbarui", userdto.ToUserTeacherResponse(after))
 }
 
 func (uc *UserTeacherController) Patch(c *fiber.Ctx) error {
@@ -806,4 +893,26 @@ func (uc *UserTeacherController) DeleteFile(c *fiber.Ctx) error {
 		"from_url": body.URL,
 		"spam_url": spamURL,
 	})
+}
+
+func getImageFormFile(c *fiber.Ctx) (*multipart.FileHeader, error) {
+	names := []string{"avatar", "image", "file", "photo", "picture"}
+	for _, n := range names {
+		if fh, err := c.FormFile(n); err == nil && fh != nil {
+			return fh, nil
+		}
+	}
+	return nil, errors.New("gambar tidak ditemukan")
+}
+
+func (upc *UserTeacherController) ensureOSS() (*helperOSS.OSSService, error) {
+	if upc.OSS != nil {
+		return upc.OSS, nil
+	}
+	svc, err := helperOSS.NewOSSServiceFromEnv("")
+	if err != nil {
+		return nil, err
+	}
+	upc.OSS = svc
+	return svc, nil
 }
