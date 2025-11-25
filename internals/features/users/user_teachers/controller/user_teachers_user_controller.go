@@ -1,36 +1,25 @@
 package controller
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 
 	userdto "madinahsalam_backend/internals/features/users/user_teachers/dto"
 	"madinahsalam_backend/internals/features/users/user_teachers/model"
 	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
+	"gorm.io/gorm"
 )
 
-// GET /api/user-teachers
-// Query params:
-//
-//	q            : string (opsional) -> cari di user_teacher_name
-//	page         : int (default 1)
-//	per_page     : int (default 25, max 200)  -- sesuai DefaultOpts
-//	sort_by      : "created_at" (default) | "name" | "completed" | "verified"
-//	order        : "asc" | "desc" (default "desc")
-//	is_active    : "true"/"false" (opsional, default: semua)
-//	is_verified  : "true"/"false" (opsional)
-//	is_completed : "true"/"false" (opsional)
-//
-//	(alias lama: limit/offset/sort juga masih didukung via ParseFiber)
 func (uc *UserTeacherController) List(c *fiber.Ctx) error {
 	q := strings.TrimSpace(c.Query("q"))
 
-	// Pakai preset default; kalau admin/ekspor tinggal ganti ke helper.AdminOpts / helper.ExportOpts
+	// Masih pakai helper ParseFiber untuk baca sort_by & order
 	params := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
 
-	// Whitelist kolom yang boleh disort
 	allowed := map[string]string{
 		"created_at": "user_teacher_created_at",
 		"name":       "user_teacher_name",
@@ -42,13 +31,18 @@ func (uc *UserTeacherController) List(c *fiber.Ctx) error {
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Sort tidak valid")
 	}
-	// SafeOrderClause menghasilkan "ORDER BY <col> <DIR>", sedangkan GORM.Order butuh tanpa prefix "ORDER BY "
 	orderBy := strings.TrimPrefix(orderClause, "ORDER BY ")
 
 	db := uc.DB.Model(&model.UserTeacherModel{})
 
-	// ================== FILTER OPSIONAL: STATUS ==================
+	// 🔒 Hanya data milik user ini (by user_id token)
+	userID, err := helperAuth.GetUserIDFromToken(c)
+	if err != nil {
+		return err
+	}
+	db = db.Where("user_teacher_user_id = ?", userID)
 
+	// ================== FILTER OPSIONAL: STATUS ==================
 	// is_active
 	if raw := strings.TrimSpace(c.Query("is_active")); raw != "" {
 		val, err := strconv.ParseBool(raw)
@@ -77,7 +71,6 @@ func (uc *UserTeacherController) List(c *fiber.Ctx) error {
 	}
 
 	// ================== SEARCH ==================
-	// Search by name (ILIKE %q%)
 	if q != "" {
 		if len([]rune(q)) < 2 {
 			return helper.JsonError(c, fiber.StatusBadRequest, "Panjang kata kunci minimal 2 karakter")
@@ -85,38 +78,18 @@ func (uc *UserTeacherController) List(c *fiber.Ctx) error {
 		db = db.Where("user_teacher_name ILIKE ?", "%"+q+"%")
 	}
 
-	// ================== COUNT ==================
-	var total int64
-	if err := db.Count(&total).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data")
-	}
-
-	// ================== PAGINATION + SORTING ==================
-	if !params.All { // kalau per_page=all, biarkan limit dari preset (AllHardCap) via params.Limit()
-		db = db.Limit(params.Limit()).Offset(params.Offset())
-	} else {
-		db = db.Limit(params.Limit()).Offset(0)
-	}
-	db = db.Order(orderBy)
-
-	// ================== FETCH ==================
-	var rows []model.UserTeacherModel
-	if err := db.Find(&rows).Error; err != nil {
+	// ================== SINGLE RECORD ==================
+	var row model.UserTeacherModel
+	if err := db.Order(orderBy).Limit(1).First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// Konsisten: kalau belum punya profil teacher
+			return helper.JsonError(c, fiber.StatusNotFound, "Profil guru belum ditemukan")
+		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Map response items
-	items := make([]userdto.UserTeacherResponse, 0, len(rows))
-	for _, r := range rows {
-		items = append(items, userdto.ToUserTeacherResponse(r))
-	}
+	resp := userdto.ToUserTeacherResponse(row)
 
-	// Meta
-	meta := helper.BuildMeta(total, params)
-
-	return helper.JsonOK(c, "Berhasil", fiber.Map{
-		"items": items,
-		"meta":  meta,
-		"q":     q,
-	})
+	// 👇 LANGSUNG kirim objek, TANPA "item", TANPA "items", TANPA "meta"
+	return helper.JsonOK(c, "Berhasil", resp)
 }
