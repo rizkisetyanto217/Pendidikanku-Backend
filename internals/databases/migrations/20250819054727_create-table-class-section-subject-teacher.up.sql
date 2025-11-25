@@ -371,6 +371,7 @@ CREATE INDEX IF NOT EXISTS gin_csst_subject_slug_snapshot_trgm_alive
   WHERE class_section_subject_teacher_deleted_at IS NULL
     AND class_section_subject_teacher_subject_slug_snapshot IS NOT NULL;
 
+
 -- =========================================================
 -- TABLE: student_class_section_subject_teachers (SCSST)
 -- =========================================================
@@ -408,12 +409,14 @@ CREATE TABLE IF NOT EXISTS student_class_section_subject_teachers (
   student_class_section_subject_teacher_grade_point      NUMERIC(3,2),
   student_class_section_subject_teacher_is_passed        BOOLEAN,
 
-  -- Snapshot user profile
+  -- Snapshot user profile & siswa
   student_class_section_subject_teacher_user_profile_name_snapshot                 VARCHAR(80),
   student_class_section_subject_teacher_user_profile_avatar_url_snapshot           VARCHAR(255),
   student_class_section_subject_teacher_user_profile_whatsapp_url_snapshot         VARCHAR(50),
   student_class_section_subject_teacher_user_profile_parent_name_snapshot          VARCHAR(80),
   student_class_section_subject_teacher_user_profile_parent_whatsapp_url_snapshot  VARCHAR(50),
+  student_class_section_subject_teacher_user_profile_gender_snapshot               VARCHAR(20),  -- NEW
+  student_class_section_subject_teacher_student_code_snapshot                      VARCHAR(50),  -- NEW
 
   -- Riwayat intervensi/remedial
   student_class_section_subject_teacher_edits_history JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -421,17 +424,17 @@ CREATE TABLE IF NOT EXISTS student_class_section_subject_teachers (
     jsonb_typeof(student_class_section_subject_teacher_edits_history) = 'array'
   ),
 
-    -- NOTES
-    student_class_section_subject_teacher_student_notes TEXT,
-    student_class_section_subject_teacher_student_notes_updated_at TIMESTAMPTZ,
+  -- NOTES
+  student_class_section_subject_teacher_student_notes TEXT,
+  student_class_section_subject_teacher_student_notes_updated_at TIMESTAMPTZ,
 
   -- Catatan dari wali kelas (homeroom)
-    student_class_section_subject_teacher_homeroom_notes TEXT,
-    student_class_section_subject_teacher_homeroom_notes_updated_at TIMESTAMPTZ,
+  student_class_section_subject_teacher_homeroom_notes TEXT,
+  student_class_section_subject_teacher_homeroom_notes_updated_at TIMESTAMPTZ,
 
   -- Catatan dari guru mapel (subject teacher)
-    student_class_section_subject_teacher_subject_teacher_notes TEXT,
-    student_class_section_subject_teacher_subject_teacher_notes_updated_at TIMESTAMPTZ,
+  student_class_section_subject_teacher_subject_teacher_notes TEXT,
+  student_class_section_subject_teacher_subject_teacher_notes_updated_at TIMESTAMPTZ,
 
   -- Admin & meta
   student_class_section_subject_teacher_slug VARCHAR(160),
@@ -511,4 +514,5 @@ CREATE INDEX IF NOT EXISTS gin_scsst_edits_history
   ON student_class_section_subject_teachers
   USING GIN (student_class_section_subject_teacher_edits_history jsonb_path_ops);
 
+  
 COMMIT;

@@ -88,13 +88,6 @@ type SchoolStudentCreateReq struct {
 	SchoolStudentUserProfileParentNameSnapshot        *string `json:"school_student_user_profile_parent_name_snapshot,omitempty"`
 	SchoolStudentUserProfileParentWhatsappURLSnapshot *string `json:"school_student_user_profile_parent_whatsapp_url_snapshot,omitempty"`
 	SchoolStudentUserProfileGenderSnapshot            *string `json:"school_student_user_profile_gender_snapshot,omitempty"` // NEW
-
-	// MASJID SNAPSHOT (sinkron model; opsional)
-	SchoolStudentSchoolNameSnapshot          *string `json:"school_student_school_name_snapshot,omitempty"`
-	SchoolStudentSchoolSlugSnapshot          *string `json:"school_student_school_slug_snapshot,omitempty"`
-	SchoolStudentSchoolLogoURLSnapshot       *string `json:"school_student_school_logo_url_snapshot,omitempty"`
-	SchoolStudentSchoolIconURLSnapshot       *string `json:"school_student_school_icon_url_snapshot,omitempty"`
-	SchoolStudentSchoolBackgroundURLSnapshot *string `json:"school_student_school_background_url_snapshot,omitempty"`
 }
 
 func (r *SchoolStudentCreateReq) Normalize() {
@@ -165,13 +158,6 @@ func (r *SchoolStudentCreateReq) ToModel() *studentmodel.SchoolStudentModel {
 		SchoolStudentUserProfileParentNameSnapshot:        r.SchoolStudentUserProfileParentNameSnapshot,
 		SchoolStudentUserProfileParentWhatsappURLSnapshot: r.SchoolStudentUserProfileParentWhatsappURLSnapshot,
 		SchoolStudentUserProfileGenderSnapshot:            r.SchoolStudentUserProfileGenderSnapshot,
-
-		// MASJID SNAPSHOT (baru)
-		SchoolStudentSchoolNameSnapshot:          r.SchoolStudentSchoolNameSnapshot,
-		SchoolStudentSchoolSlugSnapshot:          r.SchoolStudentSchoolSlugSnapshot,
-		SchoolStudentSchoolLogoURLSnapshot:       r.SchoolStudentSchoolLogoURLSnapshot,
-		SchoolStudentSchoolIconURLSnapshot:       r.SchoolStudentSchoolIconURLSnapshot,
-		SchoolStudentSchoolBackgroundURLSnapshot: r.SchoolStudentSchoolBackgroundURLSnapshot,
 	}
 }
 
@@ -195,13 +181,6 @@ type SchoolStudentUpdateReq struct {
 	SchoolStudentUserProfileParentNameSnapshot        *string `json:"school_student_user_profile_parent_name_snapshot,omitempty"`
 	SchoolStudentUserProfileParentWhatsappURLSnapshot *string `json:"school_student_user_profile_parent_whatsapp_url_snapshot,omitempty"`
 	SchoolStudentUserProfileGenderSnapshot            *string `json:"school_student_user_profile_gender_snapshot,omitempty"` // NEW
-
-	// MASJID SNAPSHOT (baru)
-	SchoolStudentSchoolNameSnapshot          *string `json:"school_student_school_name_snapshot,omitempty"`
-	SchoolStudentSchoolSlugSnapshot          *string `json:"school_student_school_slug_snapshot,omitempty"`
-	SchoolStudentSchoolLogoURLSnapshot       *string `json:"school_student_school_logo_url_snapshot,omitempty"`
-	SchoolStudentSchoolIconURLSnapshot       *string `json:"school_student_school_icon_url_snapshot,omitempty"`
-	SchoolStudentSchoolBackgroundURLSnapshot *string `json:"school_student_school_background_url_snapshot,omitempty"`
 }
 
 func (r *SchoolStudentUpdateReq) Normalize() {
@@ -254,13 +233,6 @@ func (r *SchoolStudentUpdateReq) Apply(m *studentmodel.SchoolStudentModel) {
 	m.SchoolStudentUserProfileParentNameSnapshot = r.SchoolStudentUserProfileParentNameSnapshot
 	m.SchoolStudentUserProfileParentWhatsappURLSnapshot = r.SchoolStudentUserProfileParentWhatsappURLSnapshot
 	m.SchoolStudentUserProfileGenderSnapshot = r.SchoolStudentUserProfileGenderSnapshot
-
-	// MASJID SNAPSHOT
-	m.SchoolStudentSchoolNameSnapshot = r.SchoolStudentSchoolNameSnapshot
-	m.SchoolStudentSchoolSlugSnapshot = r.SchoolStudentSchoolSlugSnapshot
-	m.SchoolStudentSchoolLogoURLSnapshot = r.SchoolStudentSchoolLogoURLSnapshot
-	m.SchoolStudentSchoolIconURLSnapshot = r.SchoolStudentSchoolIconURLSnapshot
-	m.SchoolStudentSchoolBackgroundURLSnapshot = r.SchoolStudentSchoolBackgroundURLSnapshot
 }
 
 /* =========================================================
@@ -283,13 +255,6 @@ type SchoolStudentPatchReq struct {
 	SchoolStudentUserProfileParentNameSnapshot        *PatchField[*string] `json:"school_student_user_profile_parent_name_snapshot,omitempty"`
 	SchoolStudentUserProfileParentWhatsappURLSnapshot *PatchField[*string] `json:"school_student_user_profile_parent_whatsapp_url_snapshot,omitempty"`
 	SchoolStudentUserProfileGenderSnapshot            *PatchField[*string] `json:"school_student_user_profile_gender_snapshot,omitempty"` // NEW
-
-	// MASJID SNAPSHOT (baru)
-	SchoolStudentSchoolNameSnapshot          *PatchField[*string] `json:"school_student_school_name_snapshot,omitempty"`
-	SchoolStudentSchoolSlugSnapshot          *PatchField[*string] `json:"school_student_school_slug_snapshot,omitempty"`
-	SchoolStudentSchoolLogoURLSnapshot       *PatchField[*string] `json:"school_student_school_logo_url_snapshot,omitempty"`
-	SchoolStudentSchoolIconURLSnapshot       *PatchField[*string] `json:"school_student_school_icon_url_snapshot,omitempty"`
-	SchoolStudentSchoolBackgroundURLSnapshot *PatchField[*string] `json:"school_student_school_background_url_snapshot,omitempty"`
 }
 
 func (r *SchoolStudentPatchReq) Normalize() {
@@ -383,23 +348,6 @@ func (r *SchoolStudentPatchReq) Apply(m *studentmodel.SchoolStudentModel) {
 	if r.SchoolStudentUserProfileGenderSnapshot != nil && r.SchoolStudentUserProfileGenderSnapshot.Set {
 		m.SchoolStudentUserProfileGenderSnapshot = r.SchoolStudentUserProfileGenderSnapshot.Value
 	}
-
-	// MASJID SNAPSHOT
-	if r.SchoolStudentSchoolNameSnapshot != nil && r.SchoolStudentSchoolNameSnapshot.Set {
-		m.SchoolStudentSchoolNameSnapshot = r.SchoolStudentSchoolNameSnapshot.Value
-	}
-	if r.SchoolStudentSchoolSlugSnapshot != nil && r.SchoolStudentSchoolSlugSnapshot.Set {
-		m.SchoolStudentSchoolSlugSnapshot = r.SchoolStudentSchoolSlugSnapshot.Value
-	}
-	if r.SchoolStudentSchoolLogoURLSnapshot != nil && r.SchoolStudentSchoolLogoURLSnapshot.Set {
-		m.SchoolStudentSchoolLogoURLSnapshot = r.SchoolStudentSchoolLogoURLSnapshot.Value
-	}
-	if r.SchoolStudentSchoolIconURLSnapshot != nil && r.SchoolStudentSchoolIconURLSnapshot.Set {
-		m.SchoolStudentSchoolIconURLSnapshot = r.SchoolStudentSchoolIconURLSnapshot.Value
-	}
-	if r.SchoolStudentSchoolBackgroundURLSnapshot != nil && r.SchoolStudentSchoolBackgroundURLSnapshot.Set {
-		m.SchoolStudentSchoolBackgroundURLSnapshot = r.SchoolStudentSchoolBackgroundURLSnapshot.Value
-	}
 }
 
 /* =========================================================
@@ -429,13 +377,6 @@ type SchoolStudentResp struct {
 	SchoolStudentUserProfileParentNameSnapshot        *string `json:"school_student_user_profile_parent_name_snapshot,omitempty"`
 	SchoolStudentUserProfileParentWhatsappURLSnapshot *string `json:"school_student_user_profile_parent_whatsapp_url_snapshot,omitempty"`
 	SchoolStudentUserProfileGenderSnapshot            *string `json:"school_student_user_profile_gender_snapshot,omitempty"` // NEW
-
-	// MASJID SNAPSHOT
-	SchoolStudentSchoolNameSnapshot          *string `json:"school_student_school_name_snapshot,omitempty"`
-	SchoolStudentSchoolSlugSnapshot          *string `json:"school_student_school_slug_snapshot,omitempty"`
-	SchoolStudentSchoolLogoURLSnapshot       *string `json:"school_student_school_logo_url_snapshot,omitempty"`
-	SchoolStudentSchoolIconURLSnapshot       *string `json:"school_student_school_icon_url_snapshot,omitempty"`
-	SchoolStudentSchoolBackgroundURLSnapshot *string `json:"school_student_school_background_url_snapshot,omitempty"`
 
 	// Class sections (read-only dari backend)
 	SchoolStudentSections []SchoolStudentSectionItem `json:"school_student_class_sections"`
@@ -480,13 +421,6 @@ func FromModel(m *studentmodel.SchoolStudentModel) SchoolStudentResp {
 		SchoolStudentUserProfileParentNameSnapshot:        m.SchoolStudentUserProfileParentNameSnapshot,
 		SchoolStudentUserProfileParentWhatsappURLSnapshot: m.SchoolStudentUserProfileParentWhatsappURLSnapshot,
 		SchoolStudentUserProfileGenderSnapshot:            m.SchoolStudentUserProfileGenderSnapshot,
-
-		// MASJID SNAPSHOT
-		SchoolStudentSchoolNameSnapshot:          m.SchoolStudentSchoolNameSnapshot,
-		SchoolStudentSchoolSlugSnapshot:          m.SchoolStudentSchoolSlugSnapshot,
-		SchoolStudentSchoolLogoURLSnapshot:       m.SchoolStudentSchoolLogoURLSnapshot,
-		SchoolStudentSchoolIconURLSnapshot:       m.SchoolStudentSchoolIconURLSnapshot,
-		SchoolStudentSchoolBackgroundURLSnapshot: m.SchoolStudentSchoolBackgroundURLSnapshot,
 
 		SchoolStudentSections: sections,
 

@@ -48,6 +48,9 @@ type StudentClassSectionCreateReq struct {
 	// biasanya diisi service dari class_sections; tetap disediakan optional kalau mau override
 	StudentClassSectionSectionSlugSnapshot *string `json:"student_class_section_section_slug_snapshot,omitempty"`
 
+	// NEW: snapshot NIS / kode siswa
+	StudentClassSectionStudentCodeSnapshot *string `json:"student_class_section_student_code_snapshot,omitempty"`
+
 	StudentClassSectionStatus string  `json:"student_class_section_status,omitempty"` // default: active
 	StudentClassSectionResult *string `json:"student_class_section_result,omitempty"`
 
@@ -68,7 +71,7 @@ type StudentClassSectionCreateReq struct {
 	StudentClassSectionUserProfileWhatsappURLSnapshot       *string `json:"student_class_section_user_profile_whatsapp_url_snapshot,omitempty"`
 	StudentClassSectionUserProfileParentNameSnapshot        *string `json:"student_class_section_user_profile_parent_name_snapshot,omitempty"`
 	StudentClassSectionUserProfileParentWhatsappURLSnapshot *string `json:"student_class_section_user_profile_parent_whatsapp_url_snapshot,omitempty"`
-	StudentClassSectionUserProfileGenderSnapshot            *string `json:"student_class_section_user_profile_gender_snapshot,omitempty"` // ← NEW
+	StudentClassSectionUserProfileGenderSnapshot            *string `json:"student_class_section_user_profile_gender_snapshot,omitempty"` // NEW
 
 	StudentClassSectionAssignedAt   *time.Time `json:"student_class_section_assigned_at,omitempty"`
 	StudentClassSectionUnassignedAt *time.Time `json:"student_class_section_unassigned_at,omitempty"`
@@ -100,12 +103,14 @@ func (r *StudentClassSectionCreateReq) Normalize() {
 
 	// trim snapshots
 	r.StudentClassSectionSectionSlugSnapshot = trimPtr(r.StudentClassSectionSectionSlugSnapshot)
+	r.StudentClassSectionStudentCodeSnapshot = trimPtr(r.StudentClassSectionStudentCodeSnapshot) // NEW
+
 	r.StudentClassSectionUserProfileNameSnapshot = trimPtr(r.StudentClassSectionUserProfileNameSnapshot)
 	r.StudentClassSectionUserProfileAvatarURLSnapshot = trimPtr(r.StudentClassSectionUserProfileAvatarURLSnapshot)
 	r.StudentClassSectionUserProfileWhatsappURLSnapshot = trimPtr(r.StudentClassSectionUserProfileWhatsappURLSnapshot)
 	r.StudentClassSectionUserProfileParentNameSnapshot = trimPtr(r.StudentClassSectionUserProfileParentNameSnapshot)
 	r.StudentClassSectionUserProfileParentWhatsappURLSnapshot = trimPtr(r.StudentClassSectionUserProfileParentWhatsappURLSnapshot)
-	r.StudentClassSectionUserProfileGenderSnapshot = trimPtr(r.StudentClassSectionUserProfileGenderSnapshot) // ← NEW
+	r.StudentClassSectionUserProfileGenderSnapshot = trimPtr(r.StudentClassSectionUserProfileGenderSnapshot) // NEW
 
 	// trim notes (optional, biar rapi)
 	r.StudentClassSectionStudentNotes = trimPtr(r.StudentClassSectionStudentNotes)
@@ -195,6 +200,11 @@ func (r *StudentClassSectionCreateReq) ToModel() *model.StudentClassSection {
 		m.StudentClassSectionSectionSlugSnapshot = *r.StudentClassSectionSectionSlugSnapshot
 	}
 
+	// NEW: student code snapshot
+	if r.StudentClassSectionStudentCodeSnapshot != nil {
+		m.StudentClassSectionStudentCodeSnapshot = r.StudentClassSectionStudentCodeSnapshot
+	}
+
 	// result
 	if r.StudentClassSectionResult != nil {
 		res := model.StudentClassSectionResult(*r.StudentClassSectionResult)
@@ -216,7 +226,7 @@ func (r *StudentClassSectionCreateReq) ToModel() *model.StudentClassSection {
 	m.StudentClassSectionUserProfileWhatsappURLSnapshot = r.StudentClassSectionUserProfileWhatsappURLSnapshot
 	m.StudentClassSectionUserProfileParentNameSnapshot = r.StudentClassSectionUserProfileParentNameSnapshot
 	m.StudentClassSectionUserProfileParentWhatsappURLSnapshot = r.StudentClassSectionUserProfileParentWhatsappURLSnapshot
-	m.StudentClassSectionUserProfileGenderSnapshot = r.StudentClassSectionUserProfileGenderSnapshot // ← NEW
+	m.StudentClassSectionUserProfileGenderSnapshot = r.StudentClassSectionUserProfileGenderSnapshot // NEW
 
 	// waktu
 	if r.StudentClassSectionAssignedAt != nil {
@@ -264,7 +274,10 @@ type StudentClassSectionPatchReq struct {
 	StudentClassSectionUserProfileWhatsappURLSnapshot       *PatchField[*string] `json:"student_class_section_user_profile_whatsapp_url_snapshot,omitempty"`
 	StudentClassSectionUserProfileParentNameSnapshot        *PatchField[*string] `json:"student_class_section_user_profile_parent_name_snapshot,omitempty"`
 	StudentClassSectionUserProfileParentWhatsappURLSnapshot *PatchField[*string] `json:"student_class_section_user_profile_parent_whatsapp_url_snapshot,omitempty"`
-	StudentClassSectionUserProfileGenderSnapshot            *PatchField[*string] `json:"student_class_section_user_profile_gender_snapshot,omitempty"` // ← NEW
+	StudentClassSectionUserProfileGenderSnapshot            *PatchField[*string] `json:"student_class_section_user_profile_gender_snapshot,omitempty"` // NEW
+
+	// NEW: student code snapshot
+	StudentClassSectionStudentCodeSnapshot *PatchField[*string] `json:"student_class_section_student_code_snapshot,omitempty"`
 
 	StudentClassSectionAssignedAt   *PatchField[*time.Time] `json:"student_class_section_assigned_at,omitempty"`
 	StudentClassSectionUnassignedAt *PatchField[*time.Time] `json:"student_class_section_unassigned_at,omitempty"`
@@ -307,9 +320,12 @@ func (r *StudentClassSectionPatchReq) Normalize() {
 	if r.StudentClassSectionUserProfileParentWhatsappURLSnapshot != nil && r.StudentClassSectionUserProfileParentWhatsappURLSnapshot.Set {
 		r.StudentClassSectionUserProfileParentWhatsappURLSnapshot.Value = trimPtr(r.StudentClassSectionUserProfileParentWhatsappURLSnapshot.Value)
 	}
-
-	if r.StudentClassSectionUserProfileGenderSnapshot != nil && r.StudentClassSectionUserProfileGenderSnapshot.Set { // ← NEW
+	if r.StudentClassSectionUserProfileGenderSnapshot != nil && r.StudentClassSectionUserProfileGenderSnapshot.Set {
 		r.StudentClassSectionUserProfileGenderSnapshot.Value = trimPtr(r.StudentClassSectionUserProfileGenderSnapshot.Value)
+	}
+
+	if r.StudentClassSectionStudentCodeSnapshot != nil && r.StudentClassSectionStudentCodeSnapshot.Set { // NEW
+		r.StudentClassSectionStudentCodeSnapshot.Value = trimPtr(r.StudentClassSectionStudentCodeSnapshot.Value)
 	}
 
 	// trim notes
@@ -466,8 +482,11 @@ func (r *StudentClassSectionPatchReq) Apply(m *model.StudentClassSection) {
 	if r.StudentClassSectionUserProfileParentWhatsappURLSnapshot != nil && r.StudentClassSectionUserProfileParentWhatsappURLSnapshot.Set {
 		m.StudentClassSectionUserProfileParentWhatsappURLSnapshot = r.StudentClassSectionUserProfileParentWhatsappURLSnapshot.Value
 	}
-	if r.StudentClassSectionUserProfileGenderSnapshot != nil && r.StudentClassSectionUserProfileGenderSnapshot.Set { // ← NEW
+	if r.StudentClassSectionUserProfileGenderSnapshot != nil && r.StudentClassSectionUserProfileGenderSnapshot.Set {
 		m.StudentClassSectionUserProfileGenderSnapshot = r.StudentClassSectionUserProfileGenderSnapshot.Value
+	}
+	if r.StudentClassSectionStudentCodeSnapshot != nil && r.StudentClassSectionStudentCodeSnapshot.Set { // NEW
+		m.StudentClassSectionStudentCodeSnapshot = r.StudentClassSectionStudentCodeSnapshot.Value
 	}
 
 	// waktu
@@ -507,7 +526,8 @@ type StudentClassSectionResp struct {
 	StudentClassSectionSectionID       uuid.UUID `json:"student_class_section_section_id"`
 	StudentClassSectionSchoolID        uuid.UUID `json:"student_class_section_school_id"`
 
-	StudentClassSectionSectionSlugSnapshot string `json:"student_class_section_section_slug_snapshot"`
+	StudentClassSectionSectionSlugSnapshot string  `json:"student_class_section_section_slug_snapshot"`
+	StudentClassSectionStudentCodeSnapshot *string `json:"student_class_section_student_code_snapshot,omitempty"` // NEW
 
 	StudentClassSectionStatus string  `json:"student_class_section_status"`
 	StudentClassSectionResult *string `json:"student_class_section_result,omitempty"`
@@ -527,7 +547,7 @@ type StudentClassSectionResp struct {
 	StudentClassSectionUserProfileWhatsappURLSnapshot       *string `json:"student_class_section_user_profile_whatsapp_url_snapshot,omitempty"`
 	StudentClassSectionUserProfileParentNameSnapshot        *string `json:"student_class_section_user_profile_parent_name_snapshot,omitempty"`
 	StudentClassSectionUserProfileParentWhatsappURLSnapshot *string `json:"student_class_section_user_profile_parent_whatsapp_url_snapshot,omitempty"`
-	StudentClassSectionUserProfileGenderSnapshot            *string `json:"student_class_section_user_profile_gender_snapshot,omitempty"` // ← NEW
+	StudentClassSectionUserProfileGenderSnapshot            *string `json:"student_class_section_user_profile_gender_snapshot,omitempty"` // NEW
 
 	StudentClassSectionAssignedAt   time.Time  `json:"student_class_section_assigned_at"`
 	StudentClassSectionUnassignedAt *time.Time `json:"student_class_section_unassigned_at,omitempty"`
@@ -564,6 +584,7 @@ func FromModel(m *model.StudentClassSection) StudentClassSectionResp {
 		StudentClassSectionSchoolID:        m.StudentClassSectionSchoolID,
 
 		StudentClassSectionSectionSlugSnapshot: m.StudentClassSectionSectionSlugSnapshot,
+		StudentClassSectionStudentCodeSnapshot: m.StudentClassSectionStudentCodeSnapshot, // NEW
 
 		StudentClassSectionStatus: string(m.StudentClassSectionStatus),
 		StudentClassSectionResult: res,
@@ -581,7 +602,7 @@ func FromModel(m *model.StudentClassSection) StudentClassSectionResp {
 		StudentClassSectionUserProfileWhatsappURLSnapshot:       m.StudentClassSectionUserProfileWhatsappURLSnapshot,
 		StudentClassSectionUserProfileParentNameSnapshot:        m.StudentClassSectionUserProfileParentNameSnapshot,
 		StudentClassSectionUserProfileParentWhatsappURLSnapshot: m.StudentClassSectionUserProfileParentWhatsappURLSnapshot,
-		StudentClassSectionUserProfileGenderSnapshot:            m.StudentClassSectionUserProfileGenderSnapshot, // ← NEW
+		StudentClassSectionUserProfileGenderSnapshot:            m.StudentClassSectionUserProfileGenderSnapshot,
 
 		StudentClassSectionAssignedAt:   m.StudentClassSectionAssignedAt,
 		StudentClassSectionUnassignedAt: m.StudentClassSectionUnassignedAt,

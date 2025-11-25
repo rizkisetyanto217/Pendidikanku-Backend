@@ -152,6 +152,12 @@ func getOrCreateSchoolStudentWithSnapshots(
 			if v := nzTrim(profileSnap.ParentWhatsappURL); v != nil {
 				updates["school_student_user_profile_parent_whatsapp_url_snapshot"] = *v
 			}
+			// NEW: gender snapshot di school_students
+			if profileSnap.Gender != nil {
+				if g := strings.TrimSpace(*profileSnap.Gender); g != "" {
+					updates["school_student_user_profile_gender_snapshot"] = g
+				}
+			}
 		}
 		if v := nzTrim(mName); v != nil {
 			updates["school_student_school_name_snapshot"] = *v
@@ -204,6 +210,12 @@ func getOrCreateSchoolStudentWithSnapshots(
 		}
 		if v := nzTrim(profileSnap.ParentWhatsappURL); v != nil {
 			values["school_student_user_profile_parent_whatsapp_url_snapshot"] = *v
+		}
+		// NEW: gender snapshot di create
+		if profileSnap.Gender != nil {
+			if g := strings.TrimSpace(*profileSnap.Gender); g != "" {
+				values["school_student_user_profile_gender_snapshot"] = g
+			}
 		}
 	}
 	if v := nzTrim(mName); v != nil {
@@ -348,6 +360,18 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoSchool(c *fiber.Ctx) err
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek/buat status student")
 	}
 
+	// --- 3.5) Ambil kode siswa dari school_students untuk snapshot ---
+	var stuRow struct {
+		Code *string `gorm:"column:school_student_code"`
+	}
+	if err := tx.Table("school_students").
+		Select("school_student_code").
+		Where("school_student_id = ? AND school_student_deleted_at IS NULL", schoolStudentID).
+		Take(&stuRow).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		_ = tx.Rollback()
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil kode siswa")
+	}
+
 	// --- 4) Cegah double-join ---
 	var exists int64
 	if err := tx.Table("student_class_sections").
@@ -368,16 +392,25 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoSchool(c *fiber.Ctx) err
 
 	// --- 5) Insert enrollment (+ snapshot profil) ---
 	now := time.Now()
-	scs := &model.StudentClassSection{
-		StudentClassSectionID:              uuid.New(),
-		StudentClassSectionSchoolID:        schoolID,
-		StudentClassSectionSchoolStudentID: schoolStudentID,
-		StudentClassSectionSectionID:       sec.ClassSectionID,
-		StudentClassSectionStatus:          model.StudentClassSectionActive,
-		StudentClassSectionAssignedAt:      now,
-		StudentClassSectionCreatedAt:       now,
-		StudentClassSectionUpdatedAt:       now,
+
+	// pastikan slug snapshot keisi (NOT NULL di DB)
+	slug := strings.TrimSpace(sec.ClassSectionSlug)
+	if slug == "" {
+		slug = sec.ClassSectionID.String()
 	}
+
+	scs := &model.StudentClassSection{
+		StudentClassSectionID:                  uuid.New(),
+		StudentClassSectionSchoolID:            schoolID,
+		StudentClassSectionSchoolStudentID:     schoolStudentID,
+		StudentClassSectionSectionID:           sec.ClassSectionID,
+		StudentClassSectionSectionSlugSnapshot: slug,
+		StudentClassSectionStatus:              model.StudentClassSectionActive,
+		StudentClassSectionAssignedAt:          now,
+		StudentClassSectionCreatedAt:           now,
+		StudentClassSectionUpdatedAt:           now,
+	}
+
 	if profileSnap != nil {
 		if name := strings.TrimSpace(profileSnap.Name); name != "" {
 			scs.StudentClassSectionUserProfileNameSnapshot = &name
@@ -386,6 +419,20 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoSchool(c *fiber.Ctx) err
 		scs.StudentClassSectionUserProfileWhatsappURLSnapshot = nzTrim(profileSnap.WhatsappURL)
 		scs.StudentClassSectionUserProfileParentNameSnapshot = nzTrim(profileSnap.ParentName)
 		scs.StudentClassSectionUserProfileParentWhatsappURLSnapshot = nzTrim(profileSnap.ParentWhatsappURL)
+
+		// NEW: gender snapshot ke student_class_sections
+		if profileSnap.Gender != nil {
+			if g := strings.TrimSpace(*profileSnap.Gender); g != "" {
+				scs.StudentClassSectionUserProfileGenderSnapshot = &g
+			}
+		}
+	}
+
+	// NEW: snapshot kode siswa (NIS) dari school_students
+	if stuRow.Code != nil {
+		if v := nzTrim(stuRow.Code); v != nil {
+			scs.StudentClassSectionStudentCodeSnapshot = v
+		}
 	}
 
 	if err := tx.Create(scs).Error; err != nil {

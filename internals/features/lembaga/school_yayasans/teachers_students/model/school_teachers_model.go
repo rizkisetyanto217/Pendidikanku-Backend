@@ -110,6 +110,7 @@ type SchoolTeacherModel struct {
 	SchoolTeacherUserTeacherWhatsappURLSnapshot *string `gorm:"type:varchar(50);column:school_teacher_user_teacher_whatsapp_url_snapshot" json:"school_teacher_user_teacher_whatsapp_url_snapshot,omitempty"`
 	SchoolTeacherUserTeacherTitlePrefixSnapshot *string `gorm:"type:varchar(20);column:school_teacher_user_teacher_title_prefix_snapshot" json:"school_teacher_user_teacher_title_prefix_snapshot,omitempty"`
 	SchoolTeacherUserTeacherTitleSuffixSnapshot *string `gorm:"type:varchar(30);column:school_teacher_user_teacher_title_suffix_snapshot" json:"school_teacher_user_teacher_title_suffix_snapshot,omitempty"`
+	SchoolTeacherUserTeacherGenderSnapshot      *string `gorm:"type:varchar(20);column:school_teacher_user_teacher_gender_snapshot" json:"school_teacher_user_teacher_gender_snapshot,omitempty"` // NEW
 
 	// MASJID SNAPSHOT (/me)
 	SchoolTeacherSchoolNameSnapshot          *string `gorm:"type:varchar(100);column:school_teacher_school_name_snapshot" json:"school_teacher_school_name_snapshot,omitempty"`

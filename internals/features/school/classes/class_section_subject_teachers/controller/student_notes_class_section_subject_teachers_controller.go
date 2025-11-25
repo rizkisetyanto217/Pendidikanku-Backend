@@ -1,12 +1,14 @@
+// file: internals/features/school/classes/class_section_subject_teachers/controller/student_csst_notes_controller.go
 package controller
 
 import (
 	"errors"
+	"time"
+
 	dto "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/dto"
 	model "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
-	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -32,7 +34,6 @@ func (ctl *StudentCSSTController) UpdateStudentNotes(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "payload tidak valid")
 	}
-	// Opsional: kalau pakai validator
 	if ctl.Validator != nil {
 		if err := ctl.Validator.Struct(&req); err != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())

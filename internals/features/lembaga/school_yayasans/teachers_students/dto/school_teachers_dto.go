@@ -74,13 +74,14 @@ type SchoolTeacher struct {
 	SchoolTeacherUserTeacherWhatsappURLSnapshot *string `json:"school_teacher_user_teacher_whatsapp_url_snapshot,omitempty"`
 	SchoolTeacherUserTeacherTitlePrefixSnapshot *string `json:"school_teacher_user_teacher_title_prefix_snapshot,omitempty"`
 	SchoolTeacherUserTeacherTitleSuffixSnapshot *string `json:"school_teacher_user_teacher_title_suffix_snapshot,omitempty"`
+	SchoolTeacherUserTeacherGenderSnapshot      *string `json:"school_teacher_user_teacher_gender_snapshot,omitempty"` // NEW
 
 	// MASJID SNAPSHOT (sinkron dgn model terbaru)
 	SchoolTeacherSchoolNameSnapshot          *string `json:"school_teacher_school_name_snapshot,omitempty"`
 	SchoolTeacherSchoolSlugSnapshot          *string `json:"school_teacher_school_slug_snapshot,omitempty"`
 	SchoolTeacherSchoolLogoURLSnapshot       *string `json:"school_teacher_school_logo_url_snapshot,omitempty"`
-	SchoolTeacherSchoolIconURLSnapshot       *string `json:"school_teacher_school_icon_url_snapshot,omitempty"`       // ⟵ BARU
-	SchoolTeacherSchoolBackgroundURLSnapshot *string `json:"school_teacher_school_background_url_snapshot,omitempty"` // ⟵ BARU
+	SchoolTeacherSchoolIconURLSnapshot       *string `json:"school_teacher_school_icon_url_snapshot,omitempty"`
+	SchoolTeacherSchoolBackgroundURLSnapshot *string `json:"school_teacher_school_background_url_snapshot,omitempty"`
 
 	// JSONB: sections & csst
 	SchoolTeacherSections []DTOTeacherSectionItem `json:"school_teacher_sections"`
@@ -256,13 +257,14 @@ func NewSchoolTeacherResponse(m *yModel.SchoolTeacherModel) *SchoolTeacher {
 		SchoolTeacherUserTeacherWhatsappURLSnapshot: m.SchoolTeacherUserTeacherWhatsappURLSnapshot,
 		SchoolTeacherUserTeacherTitlePrefixSnapshot: m.SchoolTeacherUserTeacherTitlePrefixSnapshot,
 		SchoolTeacherUserTeacherTitleSuffixSnapshot: m.SchoolTeacherUserTeacherTitleSuffixSnapshot,
+		SchoolTeacherUserTeacherGenderSnapshot:      m.SchoolTeacherUserTeacherGenderSnapshot, // NEW
 
-		// School snapshots (termasuk 2 field BARU)
+		// School snapshots
 		SchoolTeacherSchoolNameSnapshot:          m.SchoolTeacherSchoolNameSnapshot,
 		SchoolTeacherSchoolSlugSnapshot:          m.SchoolTeacherSchoolSlugSnapshot,
 		SchoolTeacherSchoolLogoURLSnapshot:       m.SchoolTeacherSchoolLogoURLSnapshot,
-		SchoolTeacherSchoolIconURLSnapshot:       m.SchoolTeacherSchoolIconURLSnapshot,       // ⟵ BARU
-		SchoolTeacherSchoolBackgroundURLSnapshot: m.SchoolTeacherSchoolBackgroundURLSnapshot, // ⟵ BARU
+		SchoolTeacherSchoolIconURLSnapshot:       m.SchoolTeacherSchoolIconURLSnapshot,
+		SchoolTeacherSchoolBackgroundURLSnapshot: m.SchoolTeacherSchoolBackgroundURLSnapshot,
 
 		// JSONB
 		SchoolTeacherSections: sections,

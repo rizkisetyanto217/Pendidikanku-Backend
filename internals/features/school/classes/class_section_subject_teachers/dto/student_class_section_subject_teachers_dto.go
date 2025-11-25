@@ -223,6 +223,7 @@ type StudentCSSTItem struct {
 	StudentClassSectionSubjectTeacherUserProfileParentNameSnapshot        *string `json:"student_class_section_subject_teacher_user_profile_parent_name_snapshot,omitempty"`
 	StudentClassSectionSubjectTeacherUserProfileParentWhatsappURLSnapshot *string `json:"student_class_section_subject_teacher_user_profile_parent_whatsapp_url_snapshot,omitempty"`
 	StudentClassSectionSubjectTeacherUserProfileGenderSnapshot            *string `json:"student_class_section_subject_teacher_user_profile_gender_snapshot,omitempty"`
+	StudentClassSectionSubjectTeacherStudentCodeSnapshot                  *string `json:"student_class_section_subject_teacher_student_code_snapshot,omitempty"`
 
 	StudentClassSectionSubjectTeacherEditsHistory datatypes.JSON `json:"student_class_section_subject_teacher_edits_history"`
 

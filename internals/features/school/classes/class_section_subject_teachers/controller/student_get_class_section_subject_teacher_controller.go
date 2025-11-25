@@ -16,7 +16,7 @@ import (
 
 /* =========================================================
    Types untuk include=csst
-   ========================================================= */
+========================================================= */
 
 type CSSTIncluded struct {
 	ID                  uuid.UUID `json:"class_section_subject_teacher_id"`
@@ -34,7 +34,7 @@ type CSSTIncluded struct {
 	MinPassingScore     *int      `json:"class_section_subject_teacher_min_passing_score,omitempty"`
 	ClassRoomName       *string   `json:"class_section_subject_teacher_class_room_name_snapshot,omitempty"`
 
-	// ⬇️ NEW
+	// Tambahan info CSST
 	TotalBooks int       `json:"class_section_subject_teacher_total_books"`
 	CreatedAt  string    `json:"class_section_subject_teacher_created_at"`
 	UpdatedAt  string    `json:"class_section_subject_teacher_updated_at"`
@@ -43,6 +43,8 @@ type CSSTIncluded struct {
 	SchoolID   uuid.UUID `json:"class_section_subject_teacher_school_id"`
 }
 
+// Embed full SCSST item (yang sudah include gender + student_code snapshot)
+// + nested CSST ketika include=csst
 type StudentCSSTWithCSST struct {
 	dto.StudentCSSTItem
 	CSST *CSSTIncluded `json:"class_section_subject_teacher,omitempty"`
@@ -50,7 +52,7 @@ type StudentCSSTWithCSST struct {
 
 /* =========================================================
    LIST
-   ========================================================= */
+========================================================= */
 
 // GET /api/a/student-csst
 // ?student_id=<uuid>
@@ -71,13 +73,13 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		return err
 	}
 
-	// 3) Parse query ke struct
+	// 3) Parse query ke struct DTO
 	var q dto.StudentCSSTListQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "query params tidak valid")
 	}
 
-	// 🔹 Alias: ?csst_id=<uuid> → isi q.CSSTID (override kalau ada)
+	// Alias: ?csst_id=<uuid> → isi q.CSSTID (override kalau ada)
 	if raw := strings.TrimSpace(c.Query("csst_id")); raw != "" {
 		id, err := uuid.Parse(raw)
 		if err != nil {
@@ -98,7 +100,7 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// default paging (pakai q.Page & q.PageSize sesuai DTO kamu)
+	// Paging default
 	if q.Page <= 0 {
 		q.Page = 1
 	}
@@ -155,11 +157,15 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal menghitung total")
 	}
 
-	// Kalau kosong, langsung balikin list kosong + pagination standar
+	pagination := helper.BuildPaginationFromPage(total, q.Page, q.PageSize)
+
+	// Kalau kosong → balikin [] sesuai mode
 	if total == 0 {
-		pagination := helper.BuildPaginationFromPage(total, q.Page, q.PageSize)
-		// list kosong, nggak masalah mau include csst atau nggak → tetap []
-		empty := []dto.StudentCSSTItem{}
+		if !wantCSST {
+			empty := []dto.StudentCSSTItem{}
+			return helper.JsonList(c, "ok", empty, pagination)
+		}
+		empty := []StudentCSSTWithCSST{}
 		return helper.JsonList(c, "ok", empty, pagination)
 	}
 
@@ -172,16 +178,12 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal mengambil data")
 	}
 
-	pagination := helper.BuildPaginationFromPage(total, q.Page, q.PageSize)
-
 	// ---------- mode default: TANPA include=csst ----------
 	if !wantCSST {
 		items := make([]dto.StudentCSSTItem, 0, len(rows))
 		for i := range rows {
 			items = append(items, toStudentCSSTItem(&rows[i]))
 		}
-
-		// ✅ format: { success, message, data: [...], pagination: {...} }
 		return helper.JsonList(c, "ok", items, pagination)
 	}
 
@@ -236,8 +238,7 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 				SchoolID:            cs.ClassSectionSubjectTeacherSchoolID,
 				CreatedAt:           cs.ClassSectionSubjectTeacherCreatedAt.Format(time.RFC3339),
 				UpdatedAt:           cs.ClassSectionSubjectTeacherUpdatedAt.Format(time.RFC3339),
-				// ⬇️ NEW
-				TotalBooks: cs.ClassSectionSubjectTeacherTotalBooks,
+				TotalBooks:          cs.ClassSectionSubjectTeacherTotalBooks,
 			}
 			if cs.ClassSectionSubjectTeacherDeletedAt.Valid {
 				s := cs.ClassSectionSubjectTeacherDeletedAt.Time.Format(time.RFC3339)
@@ -263,6 +264,5 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		})
 	}
 
-	// ✅ Response final: { success, message, data: [...], pagination: {...} }
 	return helper.JsonList(c, "ok", out, pagination)
 }

@@ -40,13 +40,16 @@ func toStudentCSSTItem(m *model.StudentClassSectionSubjectTeacher) dto.StudentCS
 	}
 
 	return dto.StudentCSSTItem{
-		StudentClassSectionSubjectTeacherID:            m.StudentClassSectionSubjectTeacherID,
-		StudentClassSectionSubjectTeacherSchoolID:      m.StudentClassSectionSubjectTeacherSchoolID,
-		StudentClassSectionSubjectTeacherStudentID:     m.StudentClassSectionSubjectTeacherStudentID,
-		StudentClassSectionSubjectTeacherCSSTID:        m.StudentClassSectionSubjectTeacherCSSTID,
-		StudentClassSectionSubjectTeacherIsActive:      m.StudentClassSectionSubjectTeacherIsActive,
-		StudentClassSectionSubjectTeacherFrom:          m.StudentClassSectionSubjectTeacherFrom,
-		StudentClassSectionSubjectTeacherTo:            m.StudentClassSectionSubjectTeacherTo,
+		StudentClassSectionSubjectTeacherID:       m.StudentClassSectionSubjectTeacherID,
+		StudentClassSectionSubjectTeacherSchoolID: m.StudentClassSectionSubjectTeacherSchoolID,
+
+		StudentClassSectionSubjectTeacherStudentID: m.StudentClassSectionSubjectTeacherStudentID,
+		StudentClassSectionSubjectTeacherCSSTID:    m.StudentClassSectionSubjectTeacherCSSTID,
+
+		StudentClassSectionSubjectTeacherIsActive: m.StudentClassSectionSubjectTeacherIsActive,
+		StudentClassSectionSubjectTeacherFrom:     m.StudentClassSectionSubjectTeacherFrom,
+		StudentClassSectionSubjectTeacherTo:       m.StudentClassSectionSubjectTeacherTo,
+
 		StudentClassSectionSubjectTeacherScoreTotal:    m.StudentClassSectionSubjectTeacherScoreTotal,
 		StudentClassSectionSubjectTeacherScoreMaxTotal: m.StudentClassSectionSubjectTeacherScoreMaxTotal,
 		StudentClassSectionSubjectTeacherScorePercent:  m.StudentClassSectionSubjectTeacherScorePercent,
@@ -59,6 +62,8 @@ func toStudentCSSTItem(m *model.StudentClassSectionSubjectTeacher) dto.StudentCS
 		StudentClassSectionSubjectTeacherUserProfileWhatsappURLSnapshot:       m.StudentClassSectionSubjectTeacherUserProfileWhatsappURLSnapshot,
 		StudentClassSectionSubjectTeacherUserProfileParentNameSnapshot:        m.StudentClassSectionSubjectTeacherUserProfileParentNameSnapshot,
 		StudentClassSectionSubjectTeacherUserProfileParentWhatsappURLSnapshot: m.StudentClassSectionSubjectTeacherUserProfileParentWhatsappURLSnapshot,
+		StudentClassSectionSubjectTeacherUserProfileGenderSnapshot:            m.StudentClassSectionSubjectTeacherUserProfileGenderSnapshot,
+		StudentClassSectionSubjectTeacherStudentCodeSnapshot:                  m.StudentClassSectionSubjectTeacherStudentCodeSnapshot,
 
 		StudentClassSectionSubjectTeacherEditsHistory: m.StudentClassSectionSubjectTeacherEditsHistory,
 

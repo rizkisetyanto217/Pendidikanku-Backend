@@ -53,7 +53,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 	// 3) Filters
 	idStr := strings.TrimSpace(c.Query("id"))
 
-	// ⬇️ di sini kita tambahkan semua alias untuk FK user_teacher:
+	// ⬇️ alias untuk FK user_teacher:
 	userTeacherIDStr := strings.TrimSpace(
 		c.Query("user_teacher_id",
 			c.Query("user_id",
@@ -107,7 +107,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 	if rowID != uuid.Nil {
 		tx = tx.Where("school_teacher_id = ?", rowID)
 	}
-	// ⬇️ filter by FK user_teacher (school_teacher_user_teacher_id)
+	// ⬇️ filter by FK user_teacher
 	if userTeacherID != uuid.Nil {
 		tx = tx.Where("school_teacher_user_teacher_id = ?", userTeacherID)
 	}
@@ -182,7 +182,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 	inc := strings.ToLower(strings.TrimSpace(c.Query("include")))
 	wantTeacher := false
 	wantUser := false
-	wantProfile := false // ⬅️ NEW
+	wantProfile := false
 
 	if inc != "" {
 		for _, part := range strings.Split(inc, ",") {
@@ -308,6 +308,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 		WhatsappURL       *string   `json:"whatsapp_url,omitempty"`
 		ParentName        *string   `json:"parent_name,omitempty"`
 		ParentWhatsappURL *string   `json:"parent_whatsapp_url,omitempty"`
+		GenderSnapshot    *string   `json:"gender_snapshot,omitempty"` // ⬅️ NEW
 	}
 
 	profileMap := make(map[uuid.UUID]UserProfileLite, len(userIDs)) // key: user_id
@@ -320,6 +321,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 			WhatsappURL       *string   `gorm:"column:user_profile_whatsapp_url"`
 			ParentName        *string   `gorm:"column:user_profile_parent_name"`
 			ParentWhatsappURL *string   `gorm:"column:user_profile_parent_whatsapp_url"`
+			GenderSnapshot    *string   `gorm:"column:user_profile_gender_snapshot"` // ⬅️ NEW
 		}
 		if err := ctrl.DB.Table("user_profiles").
 			Select(`
@@ -329,7 +331,8 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 				user_profile_avatar_url,
 				user_profile_whatsapp_url,
 				user_profile_parent_name,
-				user_profile_parent_whatsapp_url
+				user_profile_parent_whatsapp_url,
+				user_profile_gender_snapshot
 			`).
 			Where("user_profile_user_id IN ?", userIDs).
 			Where("user_profile_deleted_at IS NULL").
@@ -345,6 +348,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 				WhatsappURL:       pr.WhatsappURL,
 				ParentName:        pr.ParentName,
 				ParentWhatsappURL: pr.ParentWhatsappURL,
+				GenderSnapshot:    pr.GenderSnapshot, // ⬅️ map ke response
 			}
 		}
 	}

@@ -5,7 +5,7 @@ BEGIN;
 -- EXTENSIONS (idempotent)
 -- =========================================================
 CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
-CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram (ILIKE & fuzzy)
+CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram (ILIKE & fuzzy);
 
 -- =========================================================
 -- TABEL: student_class_sections (gabungan enrolment + section)
@@ -64,6 +64,11 @@ CREATE TABLE IF NOT EXISTS student_class_sections (
   student_class_section_user_profile_whatsapp_url_snapshot        VARCHAR(50),
   student_class_section_user_profile_parent_name_snapshot         VARCHAR(80),
   student_class_section_user_profile_parent_whatsapp_url_snapshot VARCHAR(50),
+  -- NEW: gender snapshot
+  student_class_section_user_profile_gender_snapshot              VARCHAR(20),
+
+  -- NEW: snapshot NIS / kode siswa
+  student_class_section_student_code_snapshot VARCHAR(50),
 
   -- jejak waktu enrolment
   student_class_section_assigned_at   DATE NOT NULL DEFAULT CURRENT_DATE,
@@ -75,7 +80,7 @@ CREATE TABLE IF NOT EXISTS student_class_sections (
 
   -- Catatan dari wali kelas
   student_class_section_homeroom_notes TEXT,
-  student_class_section_homeroom_notes_updated_at TIMESTAMPTZ;
+  student_class_section_homeroom_notes_updated_at TIMESTAMPTZ,
 
   -- audit
   student_class_section_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

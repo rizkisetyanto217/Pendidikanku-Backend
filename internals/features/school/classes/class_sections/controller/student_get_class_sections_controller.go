@@ -195,7 +195,8 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		q = q.Where(`
 			LOWER(COALESCE(student_class_section_user_profile_name_snapshot, '')) LIKE ?
 			OR LOWER(student_class_section_section_slug_snapshot) LIKE ?
-		`, s, s)
+			OR LOWER(COALESCE(student_class_section_student_code_snapshot, '')) LIKE ?
+		`, s, s, s)
 	}
 
 	// COUNT
@@ -219,6 +220,7 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 
 	// =====================================================================
 	//  MODE TANPA INCLUDE → balikkan seperti sebelumnya (backward compatible)
+	//  (StudentClassSectionResp sekarang sudah include gender + student_code)
 	// =====================================================================
 	if !includeClassSections && !includeCSST {
 		out := make([]dto.StudentClassSectionResp, 0, len(rows))

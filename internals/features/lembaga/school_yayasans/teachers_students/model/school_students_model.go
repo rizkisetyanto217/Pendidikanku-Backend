@@ -53,7 +53,7 @@ type SchoolStudentModel struct {
 	SchoolStudentID       uuid.UUID `gorm:"column:school_student_id;type:uuid;default:gen_random_uuid();primaryKey" json:"school_student_id"`
 	SchoolStudentSchoolID uuid.UUID `gorm:"column:school_student_school_id;type:uuid;not null;index" json:"school_student_school_id"`
 
-	// Relasi ke users_profile
+	// Relasi ke user_profiles
 	SchoolStudentUserProfileID uuid.UUID `gorm:"column:school_student_user_profile_id;type:uuid;not null;index" json:"school_student_user_profile_id"`
 
 	// Identitas internal (unik per school via migration)
@@ -73,20 +73,13 @@ type SchoolStudentModel struct {
 	// Catatan
 	SchoolStudentNote *string `gorm:"column:school_student_note;type:text" json:"school_student_note,omitempty"`
 
-	// ===== SNAPSHOTS dari users_profile =====
+	// ===== SNAPSHOTS dari user_profiles =====
 	SchoolStudentUserProfileNameSnapshot              *string `gorm:"column:school_student_user_profile_name_snapshot;type:varchar(80)" json:"school_student_user_profile_name_snapshot,omitempty"`
 	SchoolStudentUserProfileAvatarURLSnapshot         *string `gorm:"column:school_student_user_profile_avatar_url_snapshot;type:varchar(255)" json:"school_student_user_profile_avatar_url_snapshot,omitempty"`
 	SchoolStudentUserProfileWhatsappURLSnapshot       *string `gorm:"column:school_student_user_profile_whatsapp_url_snapshot;type:varchar(50)" json:"school_student_user_profile_whatsapp_url_snapshot,omitempty"`
 	SchoolStudentUserProfileParentNameSnapshot        *string `gorm:"column:school_student_user_profile_parent_name_snapshot;type:varchar(80)" json:"school_student_user_profile_parent_name_snapshot,omitempty"`
 	SchoolStudentUserProfileParentWhatsappURLSnapshot *string `gorm:"column:school_student_user_profile_parent_whatsapp_url_snapshot;type:varchar(50)" json:"school_student_user_profile_parent_whatsapp_url_snapshot,omitempty"`
-	SchoolStudentUserProfileGenderSnapshot            *string `gorm:"column:school_student_user_profile_gender_snapshot;type:varchar(20)" json:"school_student_user_profile_gender_snapshot,omitempty"` // NEW
-
-	// ===== SCHOOL SNAPSHOT (/me render cepat) =====
-	SchoolStudentSchoolNameSnapshot          *string `gorm:"column:school_student_school_name_snapshot;type:varchar(100)" json:"school_student_school_name_snapshot,omitempty"`
-	SchoolStudentSchoolSlugSnapshot          *string `gorm:"column:school_student_school_slug_snapshot;type:varchar(100)" json:"school_student_school_slug_snapshot,omitempty"`
-	SchoolStudentSchoolLogoURLSnapshot       *string `gorm:"column:school_student_school_logo_url_snapshot;type:text" json:"school_student_school_logo_url_snapshot,omitempty"`
-	SchoolStudentSchoolIconURLSnapshot       *string `gorm:"column:school_student_school_icon_url_snapshot;type:text" json:"school_student_school_icon_url_snapshot,omitempty"`
-	SchoolStudentSchoolBackgroundURLSnapshot *string `gorm:"column:school_student_school_background_url_snapshot;type:text" json:"school_student_school_background_url_snapshot,omitempty"`
+	SchoolStudentUserProfileGenderSnapshot            *string `gorm:"column:school_student_user_profile_gender_snapshot;type:varchar(20)" json:"school_student_user_profile_gender_snapshot,omitempty"`
 
 	// ===== JSONB CLASS SECTIONS (NOT NULL DEFAULT '[]') =====
 	// Berisi array SchoolStudentSectionItem

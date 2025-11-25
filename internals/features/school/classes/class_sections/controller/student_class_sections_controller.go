@@ -97,6 +97,50 @@ func (ctl *StudentClassSectionController) Create(c *fiber.Ctx) error {
 		req.StudentClassSectionSectionSlugSnapshot = &row.Slug
 	}
 
+	// ========= Snapshot siswa (code + user_profile snapshots) =========
+	// Diambil dari tabel school_students yang sudah punya snapshot user_profile.
+	var stuSnap struct {
+		Code              *string `gorm:"column:school_student_code"`
+		Name              *string `gorm:"column:school_student_user_profile_name_snapshot"`
+		AvatarURL         *string `gorm:"column:school_student_user_profile_avatar_url_snapshot"`
+		WhatsappURL       *string `gorm:"column:school_student_user_profile_whatsapp_url_snapshot"`
+		ParentName        *string `gorm:"column:school_student_user_profile_parent_name_snapshot"`
+		ParentWhatsappURL *string `gorm:"column:school_student_user_profile_parent_whatsapp_url_snapshot"`
+		Gender            *string `gorm:"column:school_student_user_profile_gender_snapshot"`
+	}
+	if err := ctl.DB.
+		Table("school_students").
+		Select(`
+			school_student_code,
+			school_student_user_profile_name_snapshot,
+			school_student_user_profile_avatar_url_snapshot,
+			school_student_user_profile_whatsapp_url_snapshot,
+			school_student_user_profile_parent_name_snapshot,
+			school_student_user_profile_parent_whatsapp_url_snapshot,
+			school_student_user_profile_gender_snapshot
+		`).
+		Where(`
+			school_student_id = ?
+			AND school_student_school_id = ?
+			AND school_student_deleted_at IS NULL
+		`, req.StudentClassSectionSchoolStudentID, schoolID).
+		First(&stuSnap).Error; err != nil {
+
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Siswa tidak ditemukan / beda tenant")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil snapshot siswa")
+	}
+
+	// Override snapshot di request agar selalu konsisten dari backend
+	req.StudentClassSectionStudentCodeSnapshot = stuSnap.Code
+	req.StudentClassSectionUserProfileNameSnapshot = stuSnap.Name
+	req.StudentClassSectionUserProfileAvatarURLSnapshot = stuSnap.AvatarURL
+	req.StudentClassSectionUserProfileWhatsappURLSnapshot = stuSnap.WhatsappURL
+	req.StudentClassSectionUserProfileParentNameSnapshot = stuSnap.ParentName
+	req.StudentClassSectionUserProfileParentWhatsappURLSnapshot = stuSnap.ParentWhatsappURL
+	req.StudentClassSectionUserProfileGenderSnapshot = stuSnap.Gender
+
 	m := req.ToModel() // *model.StudentClassSection
 
 	now := time.Now()
@@ -135,7 +179,8 @@ func (ctl *StudentClassSectionController) GetDetail(c *fiber.Ctx) error {
 
 	var m model.StudentClassSection
 	if err := ctl.DB.
-		Where("student_class_section_school_id = ? AND student_class_section_id = ? AND student_class_section_deleted_at IS NULL", schoolID, id).
+		Where("student_class_section_school_id = ? AND student_class_section_id = ? AND student_class_section_deleted_at IS NULL",
+			schoolID, id).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
@@ -147,7 +192,6 @@ func (ctl *StudentClassSectionController) GetDetail(c *fiber.Ctx) error {
 		"item": dto.FromModel(&m),
 	})
 }
-
 
 // ========== PATCH ==========
 // Role: DKM / Guru / Admin (akademik)
@@ -180,7 +224,8 @@ func (ctl *StudentClassSectionController) Patch(c *fiber.Ctx) error {
 
 	var m model.StudentClassSection
 	if err := ctl.DB.
-		Where("student_class_section_school_id = ? AND student_class_section_id = ? AND student_class_section_deleted_at IS NULL", schoolID, id).
+		Where("student_class_section_school_id = ? AND student_class_section_id = ? AND student_class_section_deleted_at IS NULL",
+			schoolID, id).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
@@ -223,7 +268,8 @@ func (ctl *StudentClassSectionController) Delete(c *fiber.Ctx) error {
 
 	var m model.StudentClassSection
 	if err := ctl.DB.
-		Where("student_class_section_school_id = ? AND student_class_section_id = ? AND student_class_section_deleted_at IS NULL", schoolID, id).
+		Where("student_class_section_school_id = ? AND student_class_section_id = ? AND student_class_section_deleted_at IS NULL",
+			schoolID, id).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")

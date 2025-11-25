@@ -34,13 +34,14 @@ type StudentClassSectionSubjectTeacher struct {
 	StudentClassSectionSubjectTeacherGradePoint    *float64 `gorm:"type:numeric(3,2);column:student_class_section_subject_teacher_grade_point" json:"student_class_section_subject_teacher_grade_point,omitempty"`
 	StudentClassSectionSubjectTeacherIsPassed      *bool    `gorm:"column:student_class_section_subject_teacher_is_passed" json:"student_class_section_subject_teacher_is_passed,omitempty"`
 
-	// Snapshot users_profile (saat enrol)
+	// Snapshot users_profile & siswa (saat enrol)
 	StudentClassSectionSubjectTeacherUserProfileNameSnapshot              *string `gorm:"type:varchar(80);column:student_class_section_subject_teacher_user_profile_name_snapshot" json:"student_class_section_subject_teacher_user_profile_name_snapshot,omitempty"`
 	StudentClassSectionSubjectTeacherUserProfileAvatarURLSnapshot         *string `gorm:"type:varchar(255);column:student_class_section_subject_teacher_user_profile_avatar_url_snapshot" json:"student_class_section_subject_teacher_user_profile_avatar_url_snapshot,omitempty"`
 	StudentClassSectionSubjectTeacherUserProfileWhatsappURLSnapshot       *string `gorm:"type:varchar(50);column:student_class_section_subject_teacher_user_profile_whatsapp_url_snapshot" json:"student_class_section_subject_teacher_user_profile_whatsapp_url_snapshot,omitempty"`
 	StudentClassSectionSubjectTeacherUserProfileParentNameSnapshot        *string `gorm:"type:varchar(80);column:student_class_section_subject_teacher_user_profile_parent_name_snapshot" json:"student_class_section_subject_teacher_user_profile_parent_name_snapshot,omitempty"`
 	StudentClassSectionSubjectTeacherUserProfileParentWhatsappURLSnapshot *string `gorm:"type:varchar(50);column:student_class_section_subject_teacher_user_profile_parent_whatsapp_url_snapshot" json:"student_class_section_subject_teacher_user_profile_parent_whatsapp_url_snapshot,omitempty"`
-	StudentClassSectionSubjectTeacherUserProfileGenderSnapshot            *string `gorm:"type:varchar(20);column:student_class_section_subject_teacher_user_profile_gender_snapshot" json:"student_class_section_subject_teacher_user_profile_gender_snapshot,omitempty"` // NEW
+	StudentClassSectionSubjectTeacherUserProfileGenderSnapshot            *string `gorm:"type:varchar(20);column:student_class_section_subject_teacher_user_profile_gender_snapshot" json:"student_class_section_subject_teacher_user_profile_gender_snapshot,omitempty"`
+	StudentClassSectionSubjectTeacherStudentCodeSnapshot                  *string `gorm:"type:varchar(50);column:student_class_section_subject_teacher_student_code_snapshot" json:"student_class_section_subject_teacher_student_code_snapshot,omitempty"`
 
 	// Riwayat intervensi/remedial (append-only JSONB)
 	StudentClassSectionSubjectTeacherEditsHistory datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'::jsonb;column:student_class_section_subject_teacher_edits_history" json:"student_class_section_subject_teacher_edits_history"`

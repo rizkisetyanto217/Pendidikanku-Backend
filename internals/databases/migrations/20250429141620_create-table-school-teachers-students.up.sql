@@ -32,8 +32,10 @@ BEGIN
 END$$;
 
 
+
+
 -- =========================================================
--- TABLE: school_teachers  (JSONB sections + csst + school snapshot)
+-- TABLE: school_teachers  (JSONB sections + csst)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS school_teachers (
   school_teacher_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -71,41 +73,13 @@ CREATE TABLE IF NOT EXISTS school_teachers (
   school_teacher_user_teacher_whatsapp_url_snapshot  VARCHAR(50),
   school_teacher_user_teacher_title_prefix_snapshot  VARCHAR(20),
   school_teacher_user_teacher_title_suffix_snapshot  VARCHAR(30),
+  school_teacher_user_teacher_gender_snapshot VARCHAR(20),
 
-  -- MASJID SNAPSHOT (untuk render cepat /me) — denormalized
-  school_teacher_school_name_snapshot       VARCHAR(100),
-  school_teacher_school_slug_snapshot       VARCHAR(100),
-  school_teacher_school_logo_url_snapshot   TEXT,
-  school_teacher_school_icon_url_snapshot   TEXT,
-  school_teacher_school_background_url_snapshot TEXT,
-
-  -- JSONB: daftar section yang diampu (homeroom/assistant/teacher) — data diisi backend
-  -- contoh item:
-  -- {
-  --   "class_section_id": "uuid",
-  --   "role": "homeroom|teacher|assistant",
-  --   "is_active": true,
-  --   "from": "YYYY-MM-DD", "to": "YYYY-MM-DD",
-  --   "class_section_name": "Tahfidz A",
-  --   "class_section_slug": "tahfidz-a",
-  --   "class_section_image_url": "https://...",
-  --   "class_section_image_object_key": "..."
-  -- }
+  -- JSONB: daftar section yang diampu (homeroom/assistant/teacher)
   school_teacher_sections JSONB NOT NULL DEFAULT '[]'::jsonb,
   CONSTRAINT ck_mtj_sections_is_array CHECK (jsonb_typeof(school_teacher_sections) = 'array'),
 
-  -- JSONB: daftar CSST (Section×Subject×Teacher) — grup guru mapel
-  -- contoh minimal:
-  -- {
-  --   "csst_id": "uuid",
-  --   "is_active": true,
-  --   "from": "YYYY-MM-DD", "to": null,
-  --   "subject_name": "Fiqih",
-  --   "subject_slug": "fiqih",
-  --   "class_section_id": "uuid",
-  --   "class_section_name": "Tahfidz A",
-  --   "class_section_slug": "tahfidz-a"
-  -- }
+  -- JSONB: daftar CSST (Section×Subject×Teacher)
   school_teacher_csst JSONB NOT NULL DEFAULT '[]'::jsonb,
   CONSTRAINT ck_mtj_csst_is_array CHECK (jsonb_typeof(school_teacher_csst) = 'array'),
 
@@ -206,17 +180,6 @@ CREATE INDEX IF NOT EXISTS gin_mtj_name_snap_trgm_alive
   ON school_teachers USING GIN (lower(school_teacher_user_teacher_name_snapshot) gin_trgm_ops)
   WHERE school_teacher_deleted_at IS NULL;
 
--- Filter by nama/slug school dari snapshot (untuk /me)
-CREATE INDEX IF NOT EXISTS ix_mtj_school_name_snap_ci_alive
-  ON school_teachers (lower(school_teacher_school_name_snapshot))
-  WHERE school_teacher_deleted_at IS NULL
-    AND school_teacher_school_name_snapshot IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS ix_mtj_school_slug_snap_ci_alive
-  ON school_teachers (lower(school_teacher_school_slug_snapshot))
-  WHERE school_teacher_deleted_at IS NULL
-    AND school_teacher_school_slug_snapshot IS NOT NULL;
-
 -- Listing cepat per school + terbaru (fallback)
 CREATE INDEX IF NOT EXISTS ix_mtj_school_created_desc
   ON school_teachers (school_teacher_school_id, school_teacher_created_at DESC)
@@ -227,7 +190,6 @@ CREATE INDEX IF NOT EXISTS brin_mtj_joined_at
   ON school_teachers USING BRIN (school_teacher_joined_at);
 CREATE INDEX IF NOT EXISTS brin_mtj_created_at
   ON school_teachers USING BRIN (school_teacher_created_at);
-
 
 
 -- =========================================================
@@ -262,13 +224,7 @@ CREATE TABLE IF NOT EXISTS school_students (
   school_student_user_profile_whatsapp_url_snapshot        VARCHAR(50),
   school_student_user_profile_parent_name_snapshot         VARCHAR(80),
   school_student_user_profile_parent_whatsapp_url_snapshot VARCHAR(50),
-
-  -- MASJID SNAPSHOT (untuk render cepat /me) — denormalized
-  school_student_school_name_snapshot        VARCHAR(100),
-  school_student_school_slug_snapshot        VARCHAR(100),
-  school_student_school_logo_url_snapshot    TEXT,
-  school_student_school_icon_url_snapshot    TEXT,
-  school_student_school_background_url_snapshot TEXT,
+  school_student_user_profile_gender_snapshot VARCHAR(20),
 
   -- JSONB SECTIONS (dipelihara backend)
   -- contoh item:
@@ -354,17 +310,6 @@ CREATE INDEX IF NOT EXISTS ix_ms_sections_active_count_expr
 CREATE INDEX IF NOT EXISTS gin_ms_name_snap_trgm_alive
   ON school_students USING GIN (lower(school_student_user_profile_name_snapshot) gin_trgm_ops)
   WHERE school_student_deleted_at IS NULL;
-
--- Filter by school snapshot
-CREATE INDEX IF NOT EXISTS ix_ms_school_name_snap_ci_alive
-  ON school_students (lower(school_student_school_name_snapshot))
-  WHERE school_student_deleted_at IS NULL
-    AND school_student_school_name_snapshot IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS ix_ms_school_slug_snap_ci_alive
-  ON school_students (lower(school_student_school_slug_snapshot))
-  WHERE school_student_deleted_at IS NULL
-    AND school_student_school_slug_snapshot IS NOT NULL;
 
 -- BRIN time
 CREATE INDEX IF NOT EXISTS brin_ms_created_at

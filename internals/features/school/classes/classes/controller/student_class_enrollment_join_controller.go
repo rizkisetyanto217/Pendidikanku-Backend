@@ -165,8 +165,12 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 		return helper.JsonError(c, fiber.StatusBadRequest, "Class section sudah penuh")
 	}
 
-	// ==== 3a) Build snapshot user_profile murid (sekali saja, dipakai di section & CSST) ====
-	var userProfileSnap *snapsvc.UserProfileSnapshot
+	// ==== 3a) Build snapshot user_profile + student_code murid (sekali saja, dipakai di section & CSST) ====
+	var (
+		userProfileSnap *snapsvc.UserProfileSnapshot
+		studentCode     *string
+	)
+
 	{
 		var stu studentModel.SchoolStudentModel
 		if err := tx.
@@ -181,25 +185,32 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 			} else {
 				log.Printf("[JoinSectionCSST] failed load school_student for snapshot: err=%v", err)
 			}
-		} else if stu.SchoolStudentUserProfileID != uuid.Nil {
-			snap, errSnap := snapsvc.BuildUserProfileSnapshotByProfileID(
-				c.Context(),
-				tx,
-				stu.SchoolStudentUserProfileID,
-			)
-			if errSnap != nil && !errors.Is(errSnap, gorm.ErrRecordNotFound) {
-				log.Printf("[JoinSectionCSST] failed build user_profile snapshot: profile_id=%s err=%v",
-					stu.SchoolStudentUserProfileID, errSnap)
-			} else if errSnap == nil {
-				userProfileSnap = snap
-				log.Printf("[JoinSectionCSST] loaded user_profile snapshot for student: user_id=%s name=%s",
-					snap.ID, snap.Name)
-			} else {
-				log.Printf("[JoinSectionCSST] no user_profile snapshot found for profile_id=%s",
-					stu.SchoolStudentUserProfileID)
-			}
 		} else {
-			log.Printf("[JoinSectionCSST] school_student has no user_profile_id for snapshot: student_id=%s", studentID)
+			// simpan student_code snapshot (kalau ada)
+			if stu.SchoolStudentCode != nil {
+				studentCode = stu.SchoolStudentCode
+			}
+
+			if stu.SchoolStudentUserProfileID != uuid.Nil {
+				snap, errSnap := snapsvc.BuildUserProfileSnapshotByProfileID(
+					c.Context(),
+					tx,
+					stu.SchoolStudentUserProfileID,
+				)
+				if errSnap != nil && !errors.Is(errSnap, gorm.ErrRecordNotFound) {
+					log.Printf("[JoinSectionCSST] failed build user_profile snapshot: profile_id=%s err=%v",
+						stu.SchoolStudentUserProfileID, errSnap)
+				} else if errSnap == nil {
+					userProfileSnap = snap
+					log.Printf("[JoinSectionCSST] loaded user_profile snapshot for student: user_id=%s name=%s",
+						snap.ID, snap.Name)
+				} else {
+					log.Printf("[JoinSectionCSST] no user_profile snapshot found for profile_id=%s",
+						stu.SchoolStudentUserProfileID)
+				}
+			} else {
+				log.Printf("[JoinSectionCSST] school_student has no user_profile_id for snapshot: student_id=%s", studentID)
+			}
 		}
 	}
 
@@ -251,8 +262,14 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 			scs.StudentClassSectionUserProfileWhatsappURLSnapshot = userProfileSnap.WhatsappURL
 			scs.StudentClassSectionUserProfileParentNameSnapshot = userProfileSnap.ParentName
 			scs.StudentClassSectionUserProfileParentWhatsappURLSnapshot = userProfileSnap.ParentWhatsappURL
-			scs.StudentClassSectionUserProfileGenderSnapshot = userProfileSnap.Gender // ← NEW
+			scs.StudentClassSectionUserProfileGenderSnapshot = userProfileSnap.Gender
 			log.Printf("[JoinSectionCSST] filled student_class_section user_profile snapshot: name=%s", name)
+		}
+
+		// Isi student_code snapshot kalau ada
+		if studentCode != nil {
+			scs.StudentClassSectionStudentCodeSnapshot = studentCode
+			log.Printf("[JoinSectionCSST] filled student_class_section student_code_snapshot: code=%s", *studentCode)
 		}
 
 		if err := tx.Create(&scs).Error; err != nil {
@@ -340,9 +357,15 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 			newLink.StudentClassSectionSubjectTeacherUserProfileWhatsappURLSnapshot = userProfileSnap.WhatsappURL
 			newLink.StudentClassSectionSubjectTeacherUserProfileParentNameSnapshot = userProfileSnap.ParentName
 			newLink.StudentClassSectionSubjectTeacherUserProfileParentWhatsappURLSnapshot = userProfileSnap.ParentWhatsappURL
-			newLink.StudentClassSectionSubjectTeacherUserProfileGenderSnapshot = userProfileSnap.Gender // NEW
+			newLink.StudentClassSectionSubjectTeacherUserProfileGenderSnapshot = userProfileSnap.Gender
 
 			log.Printf("[JoinSectionCSST] filled CSST mapping user_profile snapshot: name=%s", name)
+		}
+
+		// Isi student_code snapshot kalau ada
+		if studentCode != nil {
+			newLink.StudentClassSectionSubjectTeacherStudentCodeSnapshot = studentCode
+			log.Printf("[JoinSectionCSST] filled CSST mapping student_code_snapshot: code=%s", *studentCode)
 		}
 
 		if err := tx.Create(&newLink).Error; err != nil {

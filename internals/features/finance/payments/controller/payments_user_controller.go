@@ -1215,17 +1215,18 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 			var newIDStr string
 			if pickProfileName != nil {
 				if er := tx.Raw(`
-				INSERT INTO school_students (
-					school_student_school_id,
-					school_student_user_profile_id,
-					school_student_slug,
-					school_student_status,
-					school_student_class_sections,
-					school_student_user_profile_name_snapshot,
-					school_student_code
-				) VALUES (?, ?, ?, 'active', '[]'::jsonb, ?, ?)
-				RETURNING school_student_id
-			`,
+        INSERT INTO school_students (
+            school_student_school_id,
+            school_student_user_profile_id,
+            school_student_slug,
+            school_student_status,
+            school_student_class_sections,
+            school_student_user_profile_name_snapshot,
+            school_student_code,
+            school_student_joined_at
+        ) VALUES (?, ?, ?, 'active', '[]'::jsonb, ?, ?, NOW())
+        RETURNING school_student_id
+    `,
 					schoolID,
 					profileID,
 					genSlug,
@@ -1237,16 +1238,17 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 				}
 			} else {
 				if er := tx.Raw(`
-				INSERT INTO school_students (
-					school_student_school_id,
-					school_student_user_profile_id,
-					school_student_slug,
-					school_student_status,
-					school_student_class_sections,
-					school_student_code
-				) VALUES (?, ?, ?, 'active', '[]'::jsonb, ?)
-				RETURNING school_student_id
-			`,
+        INSERT INTO school_students (
+            school_student_school_id,
+            school_student_user_profile_id,
+            school_student_slug,
+            school_student_status,
+            school_student_class_sections,
+            school_student_code,
+            school_student_joined_at
+        ) VALUES (?, ?, ?, 'active', '[]'::jsonb, ?, NOW())
+        RETURNING school_student_id
+    `,
 					schoolID,
 					profileID,
 					genSlug,

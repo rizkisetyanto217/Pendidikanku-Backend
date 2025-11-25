@@ -125,7 +125,8 @@ func (h *SchoolStudentController) Create(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal mengambil snapshot user profile")
 		}
 	}
-	// Isi kolom snapshot di model
+
+	// Isi kolom snapshot di model (server-owned)
 	if snap != nil {
 		if strings.TrimSpace(snap.Name) != "" {
 			m.SchoolStudentUserProfileNameSnapshot = &snap.Name
@@ -134,6 +135,13 @@ func (h *SchoolStudentController) Create(c *fiber.Ctx) error {
 		m.SchoolStudentUserProfileWhatsappURLSnapshot = snap.WhatsappURL
 		m.SchoolStudentUserProfileParentNameSnapshot = snap.ParentName
 		m.SchoolStudentUserProfileParentWhatsappURLSnapshot = snap.ParentWhatsappURL
+
+		// NEW: gender snapshot
+		if snap.Gender != nil {
+			if g := strings.TrimSpace(*snap.Gender); g != "" {
+				m.SchoolStudentUserProfileGenderSnapshot = &g
+			}
+		}
 	}
 
 	// ===== Insert =====

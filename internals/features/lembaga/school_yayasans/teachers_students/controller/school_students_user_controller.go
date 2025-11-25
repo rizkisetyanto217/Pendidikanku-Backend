@@ -17,23 +17,23 @@ import (
 
 // GET /api/a/school-students
 func (h *SchoolStudentController) List(c *fiber.Ctx) error {
-	// 0) Pastikan DB di locals (kalau dipakai helper lain)
+	// 0) Pastikan DB di locals (dipakai helper lain)
 	if c.Locals("DB") == nil {
 		c.Locals("DB", h.DB)
 	}
 
-	// 1) Ambil school_id dari TOKEN (bukan dari path / slug)
+	// 1) Ambil school_id dari TOKEN
 	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
-		return err // helper sudah balikin JsonError "school context not found in token"
+		return err
 	}
 
-	// 2) Enforce role: hanya DKM/Admin
+	// 2) Enforce role DKM/Admin
 	if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
 		return er
 	}
 
-	// 3) Pagination & Sorting (whitelist)
+	// 3) Sorting + Pagination
 	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
 	allowedSort := map[string]string{
 		"created_at": "school_student_created_at",
@@ -75,7 +75,7 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 		rowID = v
 	}
 
-	// status_in (multi) → normalisasi ke set yang valid
+	// status_in ?
 	statusIn := getMultiQuery(c, "status_in")
 	normStatus := make([]string, 0, len(statusIn))
 	for _, s := range statusIn {
@@ -99,7 +99,7 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 		q = q.Where("school_student_status IN ?", normStatus)
 	}
 
-	// created_at range (RFC3339)
+	// created_at range
 	const layout = time.RFC3339
 	if createdGe != "" {
 		t, err := time.Parse(layout, createdGe)
@@ -116,7 +116,7 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 		q = q.Where("school_student_created_at <= ?", t)
 	}
 
-	// Search di code/note (case-insensitive, manual lower)
+	// search code/note
 	if search != "" {
 		like := "%" + strings.ToLower(search) + "%"
 		q = q.Where(`
@@ -125,18 +125,19 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 		`, like, like)
 	}
 
-	// 5) Count + Fetch
+	// 5) Count
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
+	// 6) Fetch rows
 	var rows []model.SchoolStudentModel
 	if err := q.Order(orderClause).Offset(p.Offset()).Limit(p.Limit()).Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// 6) include=user_profile (alias: include=user,profile,profiles,user_profiles)
+	// include=user_profile ?
 	include := strings.ToLower(strings.TrimSpace(c.Query("include")))
 	wantProfile := false
 	if include != "" {
@@ -149,10 +150,10 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// Pagination final
+	// pagination info
 	pg := helper.BuildPaginationFromOffset(total, p.Offset(), p.Limit())
 
-	// Base response
+	// base response
 	baseResp := make([]dto.SchoolStudentResp, 0, len(rows))
 	for i := range rows {
 		baseResp = append(baseResp, dto.FromModel(&rows[i]))
@@ -161,7 +162,10 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 		return helper.JsonList(c, "ok", baseResp, pg)
 	}
 
-	// ---- Join ringan ke user_profiles (schema baru)
+	// --------------------------------------------------------------------
+	// JOIN USER PROFILE (LITE)
+	// --------------------------------------------------------------------
+
 	type ProfileLite struct {
 		ID                uuid.UUID `json:"id"`
 		FullNameSnapshot  *string   `json:"full_name_snapshot,omitempty"`
@@ -169,13 +173,15 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 		WhatsappURL       *string   `json:"whatsapp_url,omitempty"`
 		ParentName        *string   `json:"parent_name,omitempty"`
 		ParentWhatsappURL *string   `json:"parent_whatsapp_url,omitempty"`
+		Gender            *string   `json:"gender,omitempty"` // NEW
 	}
+
 	type SchoolStudentWithProfileResp struct {
 		dto.SchoolStudentResp `json:",inline"`
 		UserProfile           *ProfileLite `json:"user_profile,omitempty"`
 	}
 
-	// Kumpulkan profile_ids unik
+	// kumpulkan profile_id
 	profileIDsSet := make(map[uuid.UUID]struct{}, len(rows))
 	for i := range rows {
 		if rows[i].SchoolStudentUserProfileID != uuid.Nil {
@@ -187,7 +193,7 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 		profileIDs = append(profileIDs, id)
 	}
 
-	// Ambil user_profiles
+	// fetch user_profiles
 	profileMap := make(map[uuid.UUID]ProfileLite, len(profileIDs))
 	if len(profileIDs) > 0 {
 		var profRows []struct {
@@ -197,7 +203,9 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 			WhatsappURL       *string   `gorm:"column:user_profile_whatsapp_url"`
 			ParentName        *string   `gorm:"column:user_profile_parent_name"`
 			ParentWhatsappURL *string   `gorm:"column:user_profile_parent_whatsapp_url"`
+			Gender            *string   `gorm:"column:user_profile_gender"` // NEW
 		}
+
 		if err := h.DB.
 			Table("user_profiles").
 			Select(`
@@ -206,13 +214,15 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 				user_profile_avatar_url,
 				user_profile_whatsapp_url,
 				user_profile_parent_name,
-				user_profile_parent_whatsapp_url
+				user_profile_parent_whatsapp_url,
+				user_profile_gender
 			`).
 			Where("user_profile_id IN ?", profileIDs).
 			Where("user_profile_deleted_at IS NULL").
 			Find(&profRows).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 		}
+
 		for _, pr := range profRows {
 			profileMap[pr.ID] = ProfileLite{
 				ID:                pr.ID,
@@ -221,11 +231,12 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 				WhatsappURL:       pr.WhatsappURL,
 				ParentName:        pr.ParentName,
 				ParentWhatsappURL: pr.ParentWhatsappURL,
+				Gender:            pr.Gender,
 			}
 		}
 	}
 
-	// Merge profile
+	// merge final
 	out := make([]SchoolStudentWithProfileResp, 0, len(rows))
 	for i := range rows {
 		base := baseResp[i]
