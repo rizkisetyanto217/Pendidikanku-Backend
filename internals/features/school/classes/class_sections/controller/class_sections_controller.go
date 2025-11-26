@@ -30,6 +30,7 @@ import (
 	// Snapshot (section room snapshot)
 	sectionroomsnap "madinahsalam_backend/internals/features/school/classes/class_sections/snapshot"
 
+	// ✅ Snapshot guru versi baru (school_teachers)
 	teachersnap "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/snapshot"
 )
 
@@ -212,7 +213,6 @@ func applyClassParentAndTermSnapshotToSection(mcs *secModel.ClassSectionModel, s
 	}
 
 	// ---------- PARENT ----------
-	// model terbaru: pakai ClassSectionClassParentID (bukan ...IDSnapshot)
 	mcs.ClassSectionClassParentID = s.ParentID
 
 	pName := strings.TrimSpace(s.ParentName)
@@ -315,7 +315,7 @@ func pickImageFile(c *fiber.Ctx, names ...string) *multipart.FileHeader {
 /* =========================================================
    HANDLERS
 ========================================================= */
-// POST /admin/class-sections
+
 // POST /admin/class-sections
 func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	log.Printf("[SECTIONS][CREATE] ▶️ incoming request")
@@ -408,6 +408,24 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		m.ClassSectionSchoolTeacherSnapshot = teachersnap.ToJSON(ts)
 	}
 
+	// ==== Snapshot ASSISTANT GURU (opsional, via class_section_assistant_school_teacher_id) ====
+	if m.ClassSectionAssistantSchoolTeacherID != nil {
+		ts, err := teachersnap.ValidateAndSnapshotTeacher(
+			tx,
+			schoolID,
+			*m.ClassSectionAssistantSchoolTeacherID,
+		)
+		if err != nil {
+			_ = tx.Rollback()
+			var fe *fiber.Error
+			if errors.As(err, &fe) {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil snapshot asisten guru: "+err.Error())
+		}
+		m.ClassSectionAssistantSchoolTeacherSnapshot = teachersnap.ToJSON(ts)
+	}
+
 	// ---- Snapshot relasi (class→parent/term) ----
 	if snap, err := snapshotClassParentAndTerm(tx, schoolID, req.ClassSectionClassID); err != nil {
 		_ = tx.Rollback()
@@ -488,7 +506,7 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	}
 
 	// ==========================
-	// 🔼 Upload file dari form-data ("file")
+	// 📤 Upload file dari form-data ("file")
 	// ==========================
 	if fh, err := c.FormFile("file"); err == nil && fh != nil && fh.Size > 0 {
 		ossSvc, err := helperOSS.NewOSSServiceFromEnv("")
@@ -529,7 +547,6 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "Section berhasil dibuat", secDTO.FromModelClassSection(m))
 }
 
-// PATCH /admin/class-sections/:id
 // PATCH /admin/class-sections/:id
 func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 	sectionID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
@@ -615,8 +632,10 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		roomSnapRequested bool
 		roomSnap          *sectionroomsnap.RoomSnapshot
 
-		teacherSnapRequested bool
-		teacherSnapJSON      datatypes.JSON
+		teacherSnapRequested     bool
+		teacherSnapJSON          datatypes.JSON
+		asstTeacherSnapRequested bool
+		asstTeacherSnapJSON      datatypes.JSON
 	)
 
 	if req.ClassSectionClassRoomID.Present {
@@ -664,6 +683,31 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		} else {
 			// dipatch NULL → kosongkan snapshot
 			teacherSnapJSON = teachersnap.ToJSON(nil)
+		}
+	}
+
+	// Snapshot assistant guru bila assistant_school_teacher_id dipatch
+	if req.ClassSectionAssistantSchoolTeacherID.Present {
+		asstTeacherSnapRequested = true
+
+		if req.ClassSectionAssistantSchoolTeacherID.Value != nil {
+			ts, err := teachersnap.ValidateAndSnapshotTeacher(
+				tx,
+				schoolID,
+				*req.ClassSectionAssistantSchoolTeacherID.Value,
+			)
+			if err != nil {
+				_ = tx.Rollback()
+				var fe *fiber.Error
+				if errors.As(err, &fe) {
+					return helper.JsonError(c, fe.Code, fe.Message)
+				}
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi asisten guru")
+			}
+			asstTeacherSnapJSON = teachersnap.ToJSON(ts)
+		} else {
+			// dipatch NULL → kosongkan snapshot asisten
+			asstTeacherSnapJSON = teachersnap.ToJSON(nil)
 		}
 	}
 
@@ -740,6 +784,9 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 	// Apply teacher snapshot bila field-nya dipatch
 	if teacherSnapRequested {
 		existing.ClassSectionSchoolTeacherSnapshot = teacherSnapJSON
+	}
+	if asstTeacherSnapRequested {
+		existing.ClassSectionAssistantSchoolTeacherSnapshot = asstTeacherSnapJSON
 	}
 
 	// Save

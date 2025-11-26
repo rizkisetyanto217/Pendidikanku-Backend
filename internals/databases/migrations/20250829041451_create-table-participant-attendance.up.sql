@@ -174,6 +174,13 @@ CREATE TABLE IF NOT EXISTS class_attendance_session_participants (
       class_attendance_session_participant_late_seconds IS NULL
       OR class_attendance_session_participant_late_seconds >= 0
     ),
+  class_attendance_session_participant_student_name_snapshot                VARCHAR(80),
+  class_attendance_session_participant_student_avatar_url_snapshot          VARCHAR(255),
+  class_attendance_session_participant_student_whatsapp_url_snapshot        VARCHAR(50),
+  class_attendance_session_participant_parent_name_snapshot                 VARCHAR(80),
+  class_attendance_session_participant_parent_whatsapp_url_snapshot         VARCHAR(50),
+  class_attendance_session_participant_student_gender_snapshot              VARCHAR(20),
+  class_attendance_session_participant_student_code_snapshot                VARCHAR(50),
 
   -- catatan tambahan
   class_attendance_session_participant_user_note    TEXT,

@@ -146,6 +146,15 @@ type ClassAttendanceSessionParticipantCreateRequest struct {
 	// telat
 	ClassAttendanceSessionParticipantLateSeconds *int `json:"class_attendance_session_participant_late_seconds,omitempty" validate:"omitempty,min=0"`
 
+	// snapshot siswa & ortu (opsional; biasanya diisi dari backend, bukan dari client langsung)
+	ClassAttendanceSessionParticipantStudentNameSnapshot        *string `json:"class_attendance_session_participant_student_name_snapshot,omitempty"`
+	ClassAttendanceSessionParticipantStudentAvatarURLSnapshot   *string `json:"class_attendance_session_participant_student_avatar_url_snapshot,omitempty"`
+	ClassAttendanceSessionParticipantStudentWhatsappURLSnapshot *string `json:"class_attendance_session_participant_student_whatsapp_url_snapshot,omitempty"`
+	ClassAttendanceSessionParticipantParentNameSnapshot         *string `json:"class_attendance_session_participant_parent_name_snapshot,omitempty"`
+	ClassAttendanceSessionParticipantParentWhatsappURLSnapshot  *string `json:"class_attendance_session_participant_parent_whatsapp_url_snapshot,omitempty"`
+	ClassAttendanceSessionParticipantStudentGenderSnapshot      *string `json:"class_attendance_session_participant_student_gender_snapshot,omitempty"`
+	ClassAttendanceSessionParticipantStudentCodeSnapshot        *string `json:"class_attendance_session_participant_student_code_snapshot,omitempty"`
+
 	// notes
 	ClassAttendanceSessionParticipantUserNote    *string    `json:"class_attendance_session_participant_user_note,omitempty"`
 	ClassAttendanceSessionParticipantTeacherNote *string    `json:"class_attendance_session_participant_teacher_note,omitempty"`
@@ -223,6 +232,15 @@ func (r ClassAttendanceSessionParticipantCreateRequest) ToModel() attendanceMode
 
 		ClassAttendanceSessionParticipantLateSeconds: r.ClassAttendanceSessionParticipantLateSeconds,
 
+		// snapshot siswa & ortu
+		ClassAttendanceSessionParticipantStudentNameSnapshot:        r.ClassAttendanceSessionParticipantStudentNameSnapshot,
+		ClassAttendanceSessionParticipantStudentAvatarURLSnapshot:   r.ClassAttendanceSessionParticipantStudentAvatarURLSnapshot,
+		ClassAttendanceSessionParticipantStudentWhatsappURLSnapshot: r.ClassAttendanceSessionParticipantStudentWhatsappURLSnapshot,
+		ClassAttendanceSessionParticipantParentNameSnapshot:         r.ClassAttendanceSessionParticipantParentNameSnapshot,
+		ClassAttendanceSessionParticipantParentWhatsappURLSnapshot:  r.ClassAttendanceSessionParticipantParentWhatsappURLSnapshot,
+		ClassAttendanceSessionParticipantStudentGenderSnapshot:      r.ClassAttendanceSessionParticipantStudentGenderSnapshot,
+		ClassAttendanceSessionParticipantStudentCodeSnapshot:        r.ClassAttendanceSessionParticipantStudentCodeSnapshot,
+
 		ClassAttendanceSessionParticipantUserNote:    r.ClassAttendanceSessionParticipantUserNote,
 		ClassAttendanceSessionParticipantTeacherNote: r.ClassAttendanceSessionParticipantTeacherNote,
 		ClassAttendanceSessionParticipantLockedAt:    lockedUTC,
@@ -279,6 +297,15 @@ type ClassAttendanceSessionParticipantPatchRequest struct {
 	ClassAttendanceSessionParticipantLng         PatchFieldUserAttendance[float64] `json:"class_attendance_session_participant_lng,omitempty"`
 	ClassAttendanceSessionParticipantDistanceM   PatchFieldUserAttendance[int]     `json:"class_attendance_session_participant_distance_m,omitempty"`
 	ClassAttendanceSessionParticipantLateSeconds PatchFieldUserAttendance[int]     `json:"class_attendance_session_participant_late_seconds,omitempty"`
+
+	// snapshot siswa & ortu
+	ClassAttendanceSessionParticipantStudentNameSnapshot        PatchFieldUserAttendance[string] `json:"class_attendance_session_participant_student_name_snapshot,omitempty"`
+	ClassAttendanceSessionParticipantStudentAvatarURLSnapshot   PatchFieldUserAttendance[string] `json:"class_attendance_session_participant_student_avatar_url_snapshot,omitempty"`
+	ClassAttendanceSessionParticipantStudentWhatsappURLSnapshot PatchFieldUserAttendance[string] `json:"class_attendance_session_participant_student_whatsapp_url_snapshot,omitempty"`
+	ClassAttendanceSessionParticipantParentNameSnapshot         PatchFieldUserAttendance[string] `json:"class_attendance_session_participant_parent_name_snapshot,omitempty"`
+	ClassAttendanceSessionParticipantParentWhatsappURLSnapshot  PatchFieldUserAttendance[string] `json:"class_attendance_session_participant_parent_whatsapp_url_snapshot,omitempty"`
+	ClassAttendanceSessionParticipantStudentGenderSnapshot      PatchFieldUserAttendance[string] `json:"class_attendance_session_participant_student_gender_snapshot,omitempty"`
+	ClassAttendanceSessionParticipantStudentCodeSnapshot        PatchFieldUserAttendance[string] `json:"class_attendance_session_participant_student_code_snapshot,omitempty"`
 
 	ClassAttendanceSessionParticipantUserNote    PatchFieldUserAttendance[string]    `json:"class_attendance_session_participant_user_note,omitempty"`
 	ClassAttendanceSessionParticipantTeacherNote PatchFieldUserAttendance[string]    `json:"class_attendance_session_participant_teacher_note,omitempty"`
@@ -363,6 +390,30 @@ func (p ClassAttendanceSessionParticipantPatchRequest) ApplyPatch(m *attendanceM
 	if v, ok := p.ClassAttendanceSessionParticipantLateSeconds.Get(); ok {
 		m.ClassAttendanceSessionParticipantLateSeconds = v
 	}
+
+	// snapshot siswa & ortu
+	if v, ok := p.ClassAttendanceSessionParticipantStudentNameSnapshot.Get(); ok {
+		m.ClassAttendanceSessionParticipantStudentNameSnapshot = v
+	}
+	if v, ok := p.ClassAttendanceSessionParticipantStudentAvatarURLSnapshot.Get(); ok {
+		m.ClassAttendanceSessionParticipantStudentAvatarURLSnapshot = v
+	}
+	if v, ok := p.ClassAttendanceSessionParticipantStudentWhatsappURLSnapshot.Get(); ok {
+		m.ClassAttendanceSessionParticipantStudentWhatsappURLSnapshot = v
+	}
+	if v, ok := p.ClassAttendanceSessionParticipantParentNameSnapshot.Get(); ok {
+		m.ClassAttendanceSessionParticipantParentNameSnapshot = v
+	}
+	if v, ok := p.ClassAttendanceSessionParticipantParentWhatsappURLSnapshot.Get(); ok {
+		m.ClassAttendanceSessionParticipantParentWhatsappURLSnapshot = v
+	}
+	if v, ok := p.ClassAttendanceSessionParticipantStudentGenderSnapshot.Get(); ok {
+		m.ClassAttendanceSessionParticipantStudentGenderSnapshot = v
+	}
+	if v, ok := p.ClassAttendanceSessionParticipantStudentCodeSnapshot.Get(); ok {
+		m.ClassAttendanceSessionParticipantStudentCodeSnapshot = v
+	}
+
 	if v, ok := p.ClassAttendanceSessionParticipantUserNote.Get(); ok {
 		m.ClassAttendanceSessionParticipantUserNote = v
 	}
@@ -382,7 +433,6 @@ func (p ClassAttendanceSessionParticipantPatchRequest) ApplyPatch(m *attendanceM
 
 /* ===================== Query DTO (for List) ===================== */
 
-// (boleh tetap pakai nama pendek utk query string, tidak ngaruh ke JSON body)
 type ListClassAttendanceSessionParticipantQuery struct {
 	Search CSV `query:"search"`
 

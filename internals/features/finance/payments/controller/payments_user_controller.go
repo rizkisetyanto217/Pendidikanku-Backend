@@ -709,8 +709,8 @@ func (h *PaymentController) attachEnrollmentOnCreate(
 		       student_class_enrollments_status           = 'awaiting_payment',
 		       student_class_enrollments_preferences      = COALESCE(student_class_enrollments_preferences,'{}'::jsonb) || ?::jsonb,
 		       student_class_enrollments_total_due_idr    = CASE
-		                                                    WHEN COALESCE(student_class_enrollments_total_due_idr,0)=0 THEN ?
-		                                                    ELSE student_class_enrollments_total_due_idr
+		    WHEN COALESCE(student_class_enrollments_total_due_idr,0)=0 THEN ?
+			ELSE student_class_enrollments_total_due_idr
 		                                                   END,
 		       student_class_enrollments_updated_at       = NOW()
 		 WHERE student_class_enrollments_id = ?
@@ -1421,22 +1421,34 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 	// 4a) Ambil SNAPSHOT siswa
 	// ---------------------------
 	var stuSnap struct {
-		Name *string `gorm:"column:name"`
-		Code *string `gorm:"column:code"`
-		Slug *string `gorm:"column:slug"`
+		Name       *string `gorm:"column:name"`
+		Avatar     *string `gorm:"column:avatar"`
+		Wa         *string `gorm:"column:wa"`
+		ParentName *string `gorm:"column:parent_name"`
+		ParentWa   *string `gorm:"column:parent_wa"`
+		Gender     *string `gorm:"column:gender"`
+		Code       *string `gorm:"column:code"`
+		Slug       *string `gorm:"column:slug"`
 	}
+
 	if err := tx.Raw(`
-		SELECT 
-			NULLIF(ss.school_student_user_profile_name_snapshot, '') AS name,
-			NULLIF(ss.school_student_code, '')                       AS code,
-			NULLIF(ss.school_student_slug, '')                       AS slug
-		FROM school_students ss
-		WHERE ss.school_student_id = ? AND ss.school_student_school_id = ?
-		LIMIT 1
-	`, schoolStudentID, schoolID).Scan(&stuSnap).Error; err != nil {
+	SELECT 
+		NULLIF(ss.school_student_user_profile_name_snapshot,'')              AS name,
+		NULLIF(ss.school_student_user_profile_avatar_url_snapshot,'')       AS avatar,
+		NULLIF(ss.school_student_user_profile_whatsapp_url_snapshot,'')     AS wa,
+		NULLIF(ss.school_student_user_profile_parent_name_snapshot,'')      AS parent_name,
+		NULLIF(ss.school_student_user_profile_parent_whatsapp_url_snapshot,'') AS parent_wa,
+		NULLIF(ss.school_student_user_profile_gender_snapshot,'')           AS gender,
+		NULLIF(ss.school_student_code,'')                                   AS code,
+		NULLIF(ss.school_student_slug,'')                                   AS slug
+	FROM school_students ss
+	WHERE ss.school_student_id = ? AND ss.school_student_school_id = ?
+	LIMIT 1
+`, schoolStudentID, schoolID).Scan(&stuSnap).Error; err != nil {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal baca snapshot siswa: "+err.Error())
 	}
+
 	// Fallback name bila kosong → pickProfileName
 	if (stuSnap.Name == nil || strings.TrimSpace(*stuSnap.Name) == "") && pickProfileName != nil {
 		n := strings.TrimSpace(*pickProfileName)
@@ -1533,10 +1545,35 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		}
 
 		// snapshot siswa (boleh nil → NULL)
-		var sName, sCode, sSlug *string
+		// snapshot siswa (boleh nil → NULL)
+		var (
+			uName, uAvatar, uWa, uParentName, uParentWa, uGender *string
+			sCode, sSlug                                         *string
+		)
+
 		if stuSnap.Name != nil && strings.TrimSpace(*stuSnap.Name) != "" {
 			s := strings.TrimSpace(*stuSnap.Name)
-			sName = &s
+			uName = &s
+		}
+		if stuSnap.Avatar != nil && strings.TrimSpace(*stuSnap.Avatar) != "" {
+			s := strings.TrimSpace(*stuSnap.Avatar)
+			uAvatar = &s
+		}
+		if stuSnap.Wa != nil && strings.TrimSpace(*stuSnap.Wa) != "" {
+			s := strings.TrimSpace(*stuSnap.Wa)
+			uWa = &s
+		}
+		if stuSnap.ParentName != nil && strings.TrimSpace(*stuSnap.ParentName) != "" {
+			s := strings.TrimSpace(*stuSnap.ParentName)
+			uParentName = &s
+		}
+		if stuSnap.ParentWa != nil && strings.TrimSpace(*stuSnap.ParentWa) != "" {
+			s := strings.TrimSpace(*stuSnap.ParentWa)
+			uParentWa = &s
+		}
+		if stuSnap.Gender != nil && strings.TrimSpace(*stuSnap.Gender) != "" {
+			s := strings.TrimSpace(*stuSnap.Gender)
+			uGender = &s
 		}
 		if stuSnap.Code != nil && strings.TrimSpace(*stuSnap.Code) != "" {
 			s := strings.TrimSpace(*stuSnap.Code)
@@ -1549,40 +1586,53 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 
 		var eidStr string
 		if err := tx.Raw(`
-			INSERT INTO student_class_enrollments
-			(
-				student_class_enrollments_school_id,
-				student_class_enrollments_school_student_id,
-				student_class_enrollments_class_id,
-				student_class_enrollments_status,
-				student_class_enrollments_total_due_idr,
-				student_class_enrollments_preferences,
+	INSERT INTO student_class_enrollments
+	(
+		student_class_enrollments_school_id,
+		student_class_enrollments_school_student_id,
+		student_class_enrollments_class_id,
+		student_class_enrollments_status,
+		student_class_enrollments_total_due_idr,
+		student_class_enrollments_preferences,
 
-				-- SNAPSHOTS (class & student)
-				student_class_enrollments_class_name_snapshot,
-				student_class_enrollments_class_slug_snapshot,
-				student_class_enrollments_student_name_snapshot,
-				student_class_enrollments_student_code_snapshot,
-				student_class_enrollments_student_slug_snapshot,
+		-- SNAPSHOTS (class & student)
+		student_class_enrollments_class_name_snapshot,
+		student_class_enrollments_class_slug_snapshot,
 
-				-- TERM (denormalized)
-				student_class_enrollments_term_id,
-				student_class_enrollments_term_academic_year_snapshot,
-				student_class_enrollments_term_name_snapshot,
-				student_class_enrollments_term_slug_snapshot,
-				student_class_enrollments_term_angkatan_snapshot
-			)
-			VALUES (?, ?, ?, 'initiated', ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			RETURNING student_class_enrollments_id
-		`,
+		student_class_enrollments_user_profile_name_snapshot,
+		student_class_enrollments_user_profile_avatar_url_snapshot,
+		student_class_enrollments_user_profile_whatsapp_url_snapshot,
+		student_class_enrollments_user_profile_parent_name_snapshot,
+		student_class_enrollments_user_profile_parent_whatsapp_url_snapshot,
+		student_class_enrollments_user_profile_gender_snapshot,
+
+		student_class_enrollments_student_code_snapshot,
+		student_class_enrollments_student_slug_snapshot,
+
+		-- TERM (denormalized)
+		student_class_enrollments_term_id,
+		student_class_enrollments_term_academic_year_snapshot,
+		student_class_enrollments_term_name_snapshot,
+		student_class_enrollments_term_slug_snapshot,
+		student_class_enrollments_term_angkatan_snapshot
+	)
+	VALUES (?, ?, ?, 'initiated', ?, ?::jsonb,
+	        ?, ?,         -- class snapshots
+	        ?, ?, ?, ?, ?, ?,  -- user_profile snapshots
+	        ?, ?,         -- student_code + slug
+	        ?, ?, ?, ?, ? -- term snapshots
+	)
+	RETURNING student_class_enrollments_id
+`,
 			schoolID,
 			schoolStudentID,
 			it.ClassID,
 			it.AmountIDR,
 			datatypes.JSON(prefsJSON),
 
-			cName, cSlug,
-			sName, sCode, sSlug,
+			cName, cSlug, // class
+			uName, uAvatar, uWa, uParentName, uParentWa, uGender, // user_profile
+			sCode, sSlug, // student code + slug
 
 			tID, tYear, tName, tSlug, tAngkat,
 		).Scan(&eidStr).Error; err != nil {
@@ -1787,7 +1837,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		// snapshot siswa
 		if stuSnap.Name != nil && strings.TrimSpace(*stuSnap.Name) != "" {
 			name := strings.TrimSpace(*stuSnap.Name)
-			dtoRow.StudentClassEnrollmentStudentNameSnapshot = name
+			dtoRow.StudentClassEnrollmentUserProfileNameSnapshot = name
 			dtoRow.StudentClassEnrollmentStudentName = name
 		}
 

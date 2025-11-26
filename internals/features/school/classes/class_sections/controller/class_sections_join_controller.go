@@ -2,36 +2,47 @@ package controller
 
 import (
 	"errors"
+	"strings"
+	"time"
+
 	secModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
-	"strings"
-	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
-// --- helpers: ambil section + guard DKM/Admin ---
+// --- helpers: ambil section + guard DKM/Admin + tenant ---
 func (ctrl *ClassSectionController) loadSectionForDKM(c *fiber.Ctx) (*secModel.ClassSectionModel, error) {
 	sectionID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
 		return nil, helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
+	// 🔐 Selalu pakai school_id dari token/context
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
+	if err != nil {
+		return nil, err
+	}
+
 	var m secModel.ClassSectionModel
 	if err := ctrl.DB.WithContext(c.Context()).
-		Where("class_section_id = ? AND class_section_deleted_at IS NULL", sectionID).
+		Where(
+			"class_section_id = ? AND class_section_school_id = ? AND class_section_deleted_at IS NULL",
+			sectionID, schoolID,
+		).
 		First(&m).Error; err != nil {
+
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, helper.JsonError(c, fiber.StatusNotFound, "Section tidak ditemukan")
 		}
 		return nil, helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data section")
 	}
 
-	// Guard akses: hanya DKM/Admin
-	if err := helperAuth.EnsureDKMSchool(c, m.ClassSectionSchoolID); err != nil {
+	// Guard akses: hanya DKM/Admin untuk school di token
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return nil, err
 	}
 	return &m, nil
@@ -44,6 +55,7 @@ func (ctrl *ClassSectionController) ensureStudentJoinCode(tx *gorm.DB, m *secMod
 	if m.ClassSectionCode != nil && strings.TrimSpace(*m.ClassSectionCode) != "" {
 		return strings.TrimSpace(*m.ClassSectionCode), nil
 	}
+
 	// buat baru
 	plain, err := buildSectionJoinCode(m.ClassSectionSlug, m.ClassSectionID)
 	if err != nil {
@@ -57,6 +69,7 @@ func (ctrl *ClassSectionController) ensureStudentJoinCode(tx *gorm.DB, m *secMod
 	m.ClassSectionCode = &plain
 	m.ClassSectionStudentCodeHash = hashed
 	m.ClassSectionStudentCodeSetAt = &now
+
 	if err := tx.Model(&secModel.ClassSectionModel{}).
 		Where("class_section_id = ?", m.ClassSectionID).
 		Updates(map[string]any{
@@ -83,6 +96,7 @@ func (ctrl *ClassSectionController) rotateTeacherJoinCode(tx *gorm.DB, m *secMod
 	now := time.Now()
 	m.ClassSectionTeacherCodeHash = hashed
 	m.ClassSectionTeacherCodeSetAt = &now
+
 	if err := tx.Model(&secModel.ClassSectionModel{}).
 		Where("class_section_id = ?", m.ClassSectionID).
 		Updates(map[string]any{

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	attendanceModel "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/model"
 	attendanceDTO "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/dto"
+	attendanceModel "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/model"
 
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
@@ -55,7 +55,6 @@ const dateLayout = "2006-01-02"
 // ===============================
 
 // Pastikan session milik school ini (tenant-safe)
-// NOTE: Tabel session tetap pakai nama lama (class_attendance_sessions)
 func (ctl *ClassAttendanceSessionParticipantController) ensureSessionBelongsToSchool(c *fiber.Ctx, sessionID, schoolID uuid.UUID) error {
 	var count int64
 	if err := ctl.DB.WithContext(c.Context()).
@@ -75,23 +74,104 @@ func (ctl *ClassAttendanceSessionParticipantController) ensureSessionBelongsToSc
 }
 
 // ===============================
+// Snapshot helper (murid & ortu)
+// ===============================
+
+type studentSnapshotRow struct {
+	StudentName        string  `gorm:"column:student_name"`
+	StudentAvatarURL   *string `gorm:"column:student_avatar_url"`
+	StudentWhatsappURL *string `gorm:"column:student_whatsapp_url"`
+	ParentName         *string `gorm:"column:parent_name"`
+	ParentWhatsappURL  *string `gorm:"column:parent_whatsapp_url"`
+	StudentGender      *string `gorm:"column:student_gender"`
+	StudentCode        *string `gorm:"column:student_code"`
+}
+
+func (ctl *ClassAttendanceSessionParticipantController) hydrateStudentSnapshotForParticipant(
+	ctx context.Context,
+	schoolID uuid.UUID,
+	req *attendanceDTO.ClassAttendanceSessionParticipantCreateRequest,
+) error {
+	if req.ClassAttendanceSessionParticipantSchoolStudentID == nil ||
+		*req.ClassAttendanceSessionParticipantSchoolStudentID == uuid.Nil {
+		return nil
+	}
+
+	// kalau sudah ada snapshot (diisi manual) → skip
+	if req.ClassAttendanceSessionParticipantStudentNameSnapshot != nil {
+		return nil
+	}
+
+	var row studentSnapshotRow
+
+	// ⚠️ SESUAIKAN kolom & join ini dengan schema kamu bila perlu
+	err := ctl.DB.WithContext(ctx).
+		Table("school_students AS ss").
+		Joins(`
+			LEFT JOIN user_profiles AS up
+			   ON up.user_profile_id = ss.school_student_user_profile_id
+		`).
+		Joins(`
+			LEFT JOIN user_profiles AS pup
+			   ON pup.user_profile_id = ss.school_student_parent_user_profile_id
+		`).
+		Where(`
+			ss.school_student_id = ?
+			AND ss.school_student_school_id = ?
+			AND ss.school_student_deleted_at IS NULL
+		`, *req.ClassAttendanceSessionParticipantSchoolStudentID, schoolID).
+		Select(`
+			COALESCE(up.user_profile_name, '') AS student_name,
+			up.user_profile_avatar_url         AS student_avatar_url,
+			up.user_profile_whatsapp_url       AS student_whatsapp_url,
+			pup.user_profile_name              AS parent_name,
+			pup.user_profile_whatsapp_url      AS parent_whatsapp_url,
+			up.user_profile_gender             AS student_gender,
+			ss.school_student_code             AS student_code
+		`).
+		Take(&row).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// nggak fatal, cuma nggak ada snapshot
+			return nil
+		}
+		return err
+	}
+
+	// isi snapshot hanya kalau kosong
+	if req.ClassAttendanceSessionParticipantStudentNameSnapshot == nil && strings.TrimSpace(row.StudentName) != "" {
+		req.ClassAttendanceSessionParticipantStudentNameSnapshot = &row.StudentName
+	}
+	if req.ClassAttendanceSessionParticipantStudentAvatarURLSnapshot == nil && row.StudentAvatarURL != nil {
+		req.ClassAttendanceSessionParticipantStudentAvatarURLSnapshot = row.StudentAvatarURL
+	}
+	if req.ClassAttendanceSessionParticipantStudentWhatsappURLSnapshot == nil && row.StudentWhatsappURL != nil {
+		req.ClassAttendanceSessionParticipantStudentWhatsappURLSnapshot = row.StudentWhatsappURL
+	}
+	if req.ClassAttendanceSessionParticipantParentNameSnapshot == nil && row.ParentName != nil {
+		req.ClassAttendanceSessionParticipantParentNameSnapshot = row.ParentName
+	}
+	if req.ClassAttendanceSessionParticipantParentWhatsappURLSnapshot == nil && row.ParentWhatsappURL != nil {
+		req.ClassAttendanceSessionParticipantParentWhatsappURLSnapshot = row.ParentWhatsappURL
+	}
+	if req.ClassAttendanceSessionParticipantStudentGenderSnapshot == nil && row.StudentGender != nil {
+		req.ClassAttendanceSessionParticipantStudentGenderSnapshot = row.StudentGender
+	}
+	if req.ClassAttendanceSessionParticipantStudentCodeSnapshot == nil && row.StudentCode != nil {
+		req.ClassAttendanceSessionParticipantStudentCodeSnapshot = row.StudentCode
+	}
+
+	return nil
+}
+
+// ===============================
 // Handlers
 // ===============================
 
 /*
 =========================================================
 POST /class-attendance-session-participants (WITH URLs)
-  - JSON:
-    {
-    "attendance": { ...ClassAttendanceSessionParticipantCreateRequest... },
-    "urls": [ {op:"upsert", kind,label,url,object_key,order,is_primary,...}, ... ]
-    }
-
-- multipart/form-data:
-  - attendance_json: JSON ClassAttendanceSessionParticipantCreateRequest (wajib)
-  - urls_json: JSON array ClassAttendanceSessionParticipantURLOpDTO (opsional; op akan dipaksa "upsert")
-  - file uploads: otomatis upload ke OSS → tiap file jadi URL op upsert baru (kind=attachment)
-
 =========================================================
 */
 func (ctl *ClassAttendanceSessionParticipantController) CreateAttendanceParticipantsWithURLs(c *fiber.Ctx) error {
@@ -198,7 +278,6 @@ func (ctl *ClassAttendanceSessionParticipantController) CreateAttendanceParticip
 						if meta.UploaderStudentID != nil {
 							op.UploaderStudentID = meta.UploaderStudentID
 						}
-						// URL & ObjectKey tetap dari hasil OSS
 					}
 
 					urlOps = append(urlOps, op)
@@ -222,7 +301,6 @@ func (ctl *ClassAttendanceSessionParticipantController) CreateAttendanceParticip
 		}
 		attReq = body.Attendance
 		urlOps = body.URLs
-		// paksa op=upsert untuk create
 		for i := range urlOps {
 			urlOps[i].Op = attendanceDTO.URLOpUpsert
 			urlOps[i].ID = nil
@@ -257,9 +335,17 @@ func (ctl *ClassAttendanceSessionParticipantController) CreateAttendanceParticip
 			v := "student"
 			attReq.ClassAttendanceSessionParticipantKind = &v
 		default:
-			// dua-duanya ada: fallback ke "student" atau nanti kalau mau bisa diatur lain
 			v := "student"
 			attReq.ClassAttendanceSessionParticipantKind = &v
+		}
+	}
+
+	// =========================
+	// Hydrate SNAPSHOT murid (kalau ada)
+	// =========================
+	if hasStudent {
+		if err := ctl.hydrateStudentSnapshotForParticipant(c.Context(), schoolID, &attReq); err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil snapshot siswa: "+err.Error())
 		}
 	}
 
@@ -371,12 +457,6 @@ func (ctl *ClassAttendanceSessionParticipantController) CreateAttendanceParticip
 /*
 =========================================================
 PATCH /class-attendance-session-participants/:id?
-Body JSON: ClassAttendanceSessionParticipantPatchRequest
-- Tri-state attendance fields
-- URLs ops: [{op:"upsert"|"delete", id?, kind?, ...}]
-Multipart (opsional):
-- patch_json: JSON ClassAttendanceSessionParticipantPatchRequest
-- files[]: tiap file akan ditambahkan sebagai URL op "upsert" baru (kind=attachment)
 =========================================================
 */
 func (ctl *ClassAttendanceSessionParticipantController) Patch(c *fiber.Ctx) error {
@@ -548,7 +628,7 @@ func (ctl *ClassAttendanceSessionParticipantController) Patch(c *fiber.Ctx) erro
 		Find(&urls)
 
 	return helper.JsonUpdated(c, "Attendance berhasil di-update", fiber.Map{
-		"attendance_id": req.ClassAttendanceSessionParticipantID, // backward-compatible key
+		"attendance_id": req.ClassAttendanceSessionParticipantID,
 		"urls":          urls,
 	})
 }
@@ -643,7 +723,6 @@ func (ctl *ClassAttendanceSessionParticipantController) Delete(c *fiber.Ctx) err
 /* ========================= Internals ========================= */
 
 func ensurePrimaryUnique(tx *gorm.DB, participantID uuid.UUID) error {
-	// Ambil semua URL yang primary untuk participant ini
 	var urls []attendanceModel.ClassAttendanceSessionParticipantURLModel
 	if err := tx.
 		Where(`
@@ -657,12 +736,11 @@ func ensurePrimaryUnique(tx *gorm.DB, participantID uuid.UUID) error {
 	}
 
 	if len(urls) == 0 {
-		// Nggak ada primary, nggak perlu apa-apa
 		return nil
 	}
 
-	keep := make(map[string]uuid.UUID) // kind → id yang dipertahankan
-	var toUnset []uuid.UUID            // id yang harus di-set is_primary = FALSE
+	keep := make(map[string]uuid.UUID)
+	var toUnset []uuid.UUID
 
 	for _, u := range urls {
 		kind := strings.ToLower(strings.TrimSpace(u.ClassAttendanceSessionParticipantURLKind))
@@ -671,10 +749,8 @@ func ensurePrimaryUnique(tx *gorm.DB, participantID uuid.UUID) error {
 		}
 
 		if _, ok := keep[kind]; !ok {
-			// pertama kali ketemu kind ini → jadikan primary yang dipertahankan
 			keep[kind] = u.ClassAttendanceSessionParticipantURLID
 		} else {
-			// duplikat primary untuk kind yang sama → matikan primary-nya
 			toUnset = append(toUnset, u.ClassAttendanceSessionParticipantURLID)
 		}
 	}
@@ -683,7 +759,6 @@ func ensurePrimaryUnique(tx *gorm.DB, participantID uuid.UUID) error {
 		return nil
 	}
 
-	// Set semua duplikat jadi is_primary = false
 	if err := tx.
 		Model(&attendanceModel.ClassAttendanceSessionParticipantURLModel{}).
 		Where("class_attendance_session_participant_url_id IN ?", toUnset).
@@ -728,5 +803,4 @@ func mergeURL(cur *attendanceModel.ClassAttendanceSessionParticipantURLModel, pa
 	cur.ClassAttendanceSessionParticipantURLUpdatedAt = time.Now()
 }
 
-// kecil
 func ptrStr(s string) *string { return &s }

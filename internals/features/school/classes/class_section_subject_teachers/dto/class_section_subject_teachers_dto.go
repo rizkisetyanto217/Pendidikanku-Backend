@@ -2,9 +2,11 @@
 package dto
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 
+	teacherSnap "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/snapshot"
 	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 
 	"github.com/google/uuid"
@@ -25,6 +27,7 @@ func trimLowerPtr(p *string) *string {
 	}
 	return &s
 }
+
 func trimPtr(s *string) *string {
 	if s == nil {
 		return nil
@@ -34,6 +37,63 @@ func trimPtr(s *string) *string {
 		return nil
 	}
 	return &t
+}
+
+// decode JSONB → *TeacherSnapshot (dipakai di response)
+func teacherSnapshotFromJSON(j *datatypes.JSON) *teacherSnap.TeacherSnapshot {
+	if j == nil {
+		return nil
+	}
+	raw := []byte(*j)
+	if len(raw) == 0 {
+		return nil
+	}
+	// handle literal "null"
+	if strings.TrimSpace(string(raw)) == "null" {
+		return nil
+	}
+
+	var ts teacherSnap.TeacherSnapshot
+	if err := json.Unmarshal(raw, &ts); err != nil {
+		// kalau gagal parse, jangan panik – cukup kembalikan nil
+		return nil
+	}
+	// opsional: trim string di dalam snapshot supaya bersih
+	trim := func(p *string) *string {
+		if p == nil {
+			return nil
+		}
+		v := strings.TrimSpace(*p)
+		if v == "" {
+			return nil
+		}
+		return &v
+	}
+
+	ts.Name = trim(ts.Name)
+	ts.AvatarURL = trim(ts.AvatarURL)
+	ts.WhatsappURL = trim(ts.WhatsappURL)
+	ts.TitlePrefix = trim(ts.TitlePrefix)
+	ts.TitleSuffix = trim(ts.TitleSuffix)
+	ts.Gender = trim(ts.Gender)
+	ts.TeacherNumber = trim(ts.TeacherNumber)
+	ts.TeacherCode = trim(ts.TeacherCode)
+
+	ts.ID = strings.TrimSpace(ts.ID)
+
+	if ts.ID == "" &&
+		ts.Name == nil &&
+		ts.AvatarURL == nil &&
+		ts.WhatsappURL == nil &&
+		ts.TitlePrefix == nil &&
+		ts.TitleSuffix == nil &&
+		ts.Gender == nil &&
+		ts.TeacherNumber == nil &&
+		ts.TeacherCode == nil {
+		return nil
+	}
+
+	return &ts
 }
 
 /* =========================================================
@@ -99,6 +159,7 @@ type UpdateClassSectionSubjectTeacherRequest struct {
 /*
 =========================================================
  2. RESPONSE DTO — sinkron SQL/model terbaru
+    + decode teacher snapshot JSONB → TeacherSnapshot struct
 
 =========================================================
 */
@@ -146,10 +207,10 @@ type ClassSectionSubjectTeacherResponse struct {
 	ClassSectionSubjectTeacherClassRoomLocationSnapshot *string `json:"class_section_subject_teacher_class_room_location_snapshot,omitempty"`
 
 	/* ===== PEOPLE snapshots ===== */
-	ClassSectionSubjectTeacherSchoolTeacherSlugSnapshot          *string         `json:"class_section_subject_teacher_school_teacher_slug_snapshot,omitempty"`
-	ClassSectionSubjectTeacherSchoolTeacherSnapshot              *datatypes.JSON `json:"class_section_subject_teacher_school_teacher_snapshot,omitempty"`
-	ClassSectionSubjectTeacherAssistantSchoolTeacherSlugSnapshot *string         `json:"class_section_subject_teacher_assistant_school_teacher_slug_snapshot,omitempty"`
-	ClassSectionSubjectTeacherAssistantSchoolTeacherSnapshot     *datatypes.JSON `json:"class_section_subject_teacher_assistant_school_teacher_snapshot,omitempty"`
+	ClassSectionSubjectTeacherSchoolTeacherSlugSnapshot          *string                      `json:"class_section_subject_teacher_school_teacher_slug_snapshot,omitempty"`
+	ClassSectionSubjectTeacherSchoolTeacherSnapshot              *teacherSnap.TeacherSnapshot `json:"class_section_subject_teacher_school_teacher_snapshot,omitempty"`
+	ClassSectionSubjectTeacherAssistantSchoolTeacherSlugSnapshot *string                      `json:"class_section_subject_teacher_assistant_school_teacher_slug_snapshot,omitempty"`
+	ClassSectionSubjectTeacherAssistantSchoolTeacherSnapshot     *teacherSnap.TeacherSnapshot `json:"class_section_subject_teacher_assistant_school_teacher_snapshot,omitempty"`
 	// generated names
 	ClassSectionSubjectTeacherSchoolTeacherNameSnapshot          *string `json:"class_section_subject_teacher_school_teacher_name_snapshot,omitempty"`
 	ClassSectionSubjectTeacherAssistantSchoolTeacherNameSnapshot *string `json:"class_section_subject_teacher_assistant_school_teacher_name_snapshot,omitempty"`
@@ -289,7 +350,7 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 		ClassSectionSubjectTeacherTotalMeetingsTarget:      m.ClassSectionSubjectTeacherTotalMeetingsTarget,
 		ClassSectionSubjectTeacherCapacity:                 m.ClassSectionSubjectTeacherCapacity,
 		ClassSectionSubjectTeacherEnrolledCount:            m.ClassSectionSubjectTeacherEnrolledCount,
-		ClassSectionSubjectTeacherTotalBooks:               m.ClassSectionSubjectTeacherTotalBooks, // ➕ NEW
+		ClassSectionSubjectTeacherTotalBooks:               m.ClassSectionSubjectTeacherTotalBooks,
 		ClassSectionSubjectTeacherTotalAssessments:         m.ClassSectionSubjectTeacherTotalAssessments,
 		ClassSectionSubjectTeacherTotalAssessmentsGraded:   m.ClassSectionSubjectTeacherTotalAssessmentsGraded,
 		ClassSectionSubjectTeacherTotalAssessmentsUngraded: m.ClassSectionSubjectTeacherTotalAssessmentsUngraded,
@@ -311,9 +372,9 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 
 		// PEOPLE snapshots + generated names
 		ClassSectionSubjectTeacherSchoolTeacherSlugSnapshot:          m.ClassSectionSubjectTeacherSchoolTeacherSlugSnapshot,
-		ClassSectionSubjectTeacherSchoolTeacherSnapshot:              m.ClassSectionSubjectTeacherSchoolTeacherSnapshot,
+		ClassSectionSubjectTeacherSchoolTeacherSnapshot:              teacherSnapshotFromJSON(m.ClassSectionSubjectTeacherSchoolTeacherSnapshot),
 		ClassSectionSubjectTeacherAssistantSchoolTeacherSlugSnapshot: m.ClassSectionSubjectTeacherAssistantSchoolTeacherSlugSnapshot,
-		ClassSectionSubjectTeacherAssistantSchoolTeacherSnapshot:     m.ClassSectionSubjectTeacherAssistantSchoolTeacherSnapshot,
+		ClassSectionSubjectTeacherAssistantSchoolTeacherSnapshot:     teacherSnapshotFromJSON(m.ClassSectionSubjectTeacherAssistantSchoolTeacherSnapshot),
 		ClassSectionSubjectTeacherSchoolTeacherNameSnapshot:          m.ClassSectionSubjectTeacherSchoolTeacherNameSnapshot,
 		ClassSectionSubjectTeacherAssistantSchoolTeacherNameSnapshot: m.ClassSectionSubjectTeacherAssistantSchoolTeacherNameSnapshot,
 

@@ -1107,6 +1107,55 @@ func CSSTLiteSliceFromModels(rows []csstModel.ClassSectionSubjectTeacherModel) [
 	return out
 }
 
+// ===== TEACHER LITE (untuk homeroom & assistant) =====
+
+type TeacherPersonLite struct {
+	ID            string  `json:"id"`
+	Name          string  `json:"name"`
+	AvatarURL     *string `json:"avatar_url,omitempty"`
+	TitlePrefix   *string `json:"title_prefix,omitempty"`
+	TitleSuffix   *string `json:"title_suffix,omitempty"`
+	WhatsappURL   *string `json:"whatsapp_url,omitempty"`
+	Gender        *string `json:"gender,omitempty"`
+	TeacherNumber *string `json:"teacher_number,omitempty"` // nomor induk / kode guru di sekolah
+}
+
+func teacherLiteFromJSON(raw []byte) *TeacherPersonLite {
+	if len(raw) == 0 {
+		return nil
+	}
+	var t TeacherPersonLite
+	if err := json.Unmarshal(raw, &t); err != nil {
+		// Snapshot lama / beda struktur → abaikan
+		return nil
+	}
+	if strings.TrimSpace(t.ID) == "" {
+		return nil
+	}
+
+	t.Name = strings.TrimSpace(t.Name)
+
+	// Normalisasi gender & teacher_number kalau ada
+	if t.TeacherNumber != nil {
+		v := strings.TrimSpace(*t.TeacherNumber)
+		if v == "" {
+			t.TeacherNumber = nil
+		} else {
+			t.TeacherNumber = &v
+		}
+	}
+	if t.Gender != nil {
+		v := strings.TrimSpace(*t.Gender)
+		if v == "" {
+			t.Gender = nil
+		} else {
+			t.Gender = &v
+		}
+	}
+
+	return &t
+}
+
 // ===== COMPACT DTO (untuk embed di tempat lain, misal enrollment) =====
 
 type ClassSectionCompact struct {
@@ -1127,9 +1176,13 @@ type ClassSectionCompact struct {
 	ClassSectionGroupURL *string `json:"class_section_group_url,omitempty"`
 	ClassSectionImageURL *string `json:"class_section_image_url,omitempty"`
 
-	// Homeroom teacher (wali kelas) - pakai ID + slug saja
+	// Homeroom teacher (wali kelas) - ID + slug lama
 	ClassSectionSchoolTeacherID           *uuid.UUID `json:"class_section_school_teacher_id,omitempty"`
 	ClassSectionSchoolTeacherSlugSnapshot *string    `json:"class_section_school_teacher_slug_snapshot,omitempty"`
+
+	// NEW: objek guru dari snapshot (nama, avatar, gender, nomor induk, dll)
+	HomeroomTeacher  *TeacherPersonLite `json:"homeroom_teacher,omitempty"`
+	AssistantTeacher *TeacherPersonLite `json:"assistant_teacher,omitempty"`
 
 	// Room
 	ClassSectionClassRoomID               *uuid.UUID `json:"class_section_class_room_id,omitempty"`
@@ -1183,6 +1236,14 @@ func FromModelsCompact(rows []m.ClassSectionModel) []ClassSectionCompact {
 			ClassSectionAcademicTermSlugSnapshot:         cs.ClassSectionAcademicTermSlugSnapshot,
 			ClassSectionAcademicTermAcademicYearSnapshot: cs.ClassSectionAcademicTermAcademicYearSnapshot,
 			ClassSectionAcademicTermAngkatanSnapshot:     cs.ClassSectionAcademicTermAngkatanSnapshot,
+		}
+
+		// Decode snapshot homeroom & assistant
+		if t := teacherLiteFromJSON(cs.ClassSectionSchoolTeacherSnapshot); t != nil {
+			item.HomeroomTeacher = t
+		}
+		if t := teacherLiteFromJSON(cs.ClassSectionAssistantSchoolTeacherSnapshot); t != nil {
+			item.AssistantTeacher = t
 		}
 
 		out = append(out, item)

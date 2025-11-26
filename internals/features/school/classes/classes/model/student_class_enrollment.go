@@ -2,7 +2,6 @@
 package model
 
 import (
-	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,16 +24,6 @@ const (
 	ClassEnrollmentRejected        ClassEnrollmentStatus = "rejected"
 	ClassEnrollmentCanceled        ClassEnrollmentStatus = "canceled"
 )
-
-var validClassEnrollmentStatus = map[ClassEnrollmentStatus]struct{}{
-	ClassEnrollmentInitiated:       {},
-	ClassEnrollmentPendingReview:   {},
-	ClassEnrollmentAwaitingPayment: {},
-	ClassEnrollmentAccepted:        {},
-	ClassEnrollmentWaitlisted:      {},
-	ClassEnrollmentRejected:        {},
-	ClassEnrollmentCanceled:        {},
-}
 
 /* ======================================================
    Model: student_class_enrollments
@@ -71,8 +60,14 @@ type StudentClassEnrollmentModel struct {
 	StudentClassEnrollmentsTermSlugSnapshot         *string    `gorm:"column:student_class_enrollments_term_slug_snapshot;type:text" json:"student_class_enrollments_term_slug_snapshot,omitempty"`
 	StudentClassEnrollmentsTermAngkatanSnapshot     *int       `gorm:"column:student_class_enrollments_term_angkatan_snapshot;type:int" json:"student_class_enrollments_term_angkatan_snapshot,omitempty"`
 
-	// ===== SNAPSHOT dari school_students =====
-	StudentClassEnrollmentsStudentNameSnapshot string  `gorm:"column:student_class_enrollments_student_name_snapshot;type:varchar(80)" json:"student_class_enrollments_student_name_snapshot"`
+	// ===== SNAPSHOT dari school_students / user_profile =====
+	StudentClassEnrollmentsUserProfileNameSnapshot              string  `gorm:"column:student_class_enrollments_user_profile_name_snapshot;type:varchar(80)" json:"student_class_enrollments_user_profile_name_snapshot"`
+	StudentClassEnrollmentsUserProfileAvatarURLSnapshot         *string `gorm:"column:student_class_enrollments_user_profile_avatar_url_snapshot;type:varchar(255)" json:"student_class_enrollments_user_profile_avatar_url_snapshot,omitempty"`
+	StudentClassEnrollmentsUserProfileWhatsappURLSnapshot       *string `gorm:"column:student_class_enrollments_user_profile_whatsapp_url_snapshot;type:varchar(50)" json:"student_class_enrollments_user_profile_whatsapp_url_snapshot,omitempty"`
+	StudentClassEnrollmentsUserProfileParentNameSnapshot        *string `gorm:"column:student_class_enrollments_user_profile_parent_name_snapshot;type:varchar(80)" json:"student_class_enrollments_user_profile_parent_name_snapshot,omitempty"`
+	StudentClassEnrollmentsUserProfileParentWhatsappURLSnapshot *string `gorm:"column:student_class_enrollments_user_profile_parent_whatsapp_url_snapshot;type:varchar(50)" json:"student_class_enrollments_user_profile_parent_whatsapp_url_snapshot,omitempty"`
+	StudentClassEnrollmentsUserProfileGenderSnapshot            *string `gorm:"column:student_class_enrollments_user_profile_gender_snapshot;type:varchar(20)" json:"student_class_enrollments_user_profile_gender_snapshot,omitempty"`
+
 	StudentClassEnrollmentsStudentCodeSnapshot *string `gorm:"column:student_class_enrollments_student_code_snapshot;type:varchar(50)" json:"student_class_enrollments_student_code_snapshot,omitempty"`
 	StudentClassEnrollmentsStudentSlugSnapshot *string `gorm:"column:student_class_enrollments_student_slug_snapshot;type:varchar(50)" json:"student_class_enrollments_student_slug_snapshot,omitempty"`
 
@@ -97,54 +92,4 @@ type StudentClassEnrollmentModel struct {
 
 func (StudentClassEnrollmentModel) TableName() string {
 	return "student_class_enrollments"
-}
-
-/* ======================================================
-   Hooks: mirror sebagian aturan SQL
-====================================================== */
-
-func (m *StudentClassEnrollmentModel) BeforeCreate(tx *gorm.DB) error {
-	// Guard JSONB preferences
-	if len(m.StudentClassEnrollmentsPreferences) == 0 {
-		m.StudentClassEnrollmentsPreferences = datatypes.JSON([]byte(`{}`))
-	}
-
-	// Guard JSONB payment snapshot (biarin kosong kalau memang belum ada)
-	if m.StudentClassEnrollmentsPaymentSnapshot == nil {
-		m.StudentClassEnrollmentsPaymentSnapshot = datatypes.JSON([]byte(`null`))
-	}
-
-	// Validasi status enum
-	if _, ok := validClassEnrollmentStatus[m.StudentClassEnrollmentsStatus]; !ok {
-		return errors.New("invalid student_class_enrollments_status")
-	}
-
-	// Validasi non-negatif (mirror CHECK >= 0)
-	if m.StudentClassEnrollmentsTotalDueIDR < 0 {
-		return errors.New("student_class_enrollments_total_due_idr cannot be negative")
-	}
-
-	return nil
-}
-
-func (m *StudentClassEnrollmentModel) BeforeSave(tx *gorm.DB) error {
-	// Validasi status enum
-	if _, ok := validClassEnrollmentStatus[m.StudentClassEnrollmentsStatus]; !ok {
-		return errors.New("invalid student_class_enrollments_status")
-	}
-
-	// JSONB guards
-	if len(m.StudentClassEnrollmentsPreferences) == 0 {
-		m.StudentClassEnrollmentsPreferences = datatypes.JSON([]byte(`{}`))
-	}
-	if m.StudentClassEnrollmentsPaymentSnapshot == nil {
-		m.StudentClassEnrollmentsPaymentSnapshot = datatypes.JSON([]byte(`null`))
-	}
-
-	// Non-negatif
-	if m.StudentClassEnrollmentsTotalDueIDR < 0 {
-		return errors.New("student_class_enrollments_total_due_idr cannot be negative")
-	}
-
-	return nil
 }

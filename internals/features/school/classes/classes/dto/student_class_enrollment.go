@@ -123,8 +123,14 @@ type StudentClassEnrollmentResponse struct {
 	StudentClassEnrollmentClassNameSnapshot string  `json:"student_class_enrollments_class_name_snapshot"`
 	StudentClassEnrollmentClassSlugSnapshot *string `json:"student_class_enrollments_class_slug_snapshot,omitempty"`
 
-	// ===== SNAPSHOT dari school_students =====
-	StudentClassEnrollmentStudentNameSnapshot string  `json:"student_class_enrollments_student_name_snapshot"`
+	// ===== SNAPSHOT dari school_students / user_profile =====
+	StudentClassEnrollmentUserProfileNameSnapshot              string  `json:"student_class_enrollments_user_profile_name_snapshot"`
+	StudentClassEnrollmentUserProfileAvatarURLSnapshot         *string `json:"student_class_enrollments_user_profile_avatar_url_snapshot,omitempty"`
+	StudentClassEnrollmentUserProfileWhatsappURLSnapshot       *string `json:"student_class_enrollments_user_profile_whatsapp_url_snapshot,omitempty"`
+	StudentClassEnrollmentUserProfileParentNameSnapshot        *string `json:"student_class_enrollments_user_profile_parent_name_snapshot,omitempty"`
+	StudentClassEnrollmentUserProfileParentWhatsappURLSnapshot *string `json:"student_class_enrollments_user_profile_parent_whatsapp_url_snapshot,omitempty"`
+	StudentClassEnrollmentUserProfileGenderSnapshot            *string `json:"student_class_enrollments_user_profile_gender_snapshot,omitempty"`
+
 	StudentClassEnrollmentStudentCodeSnapshot *string `json:"student_class_enrollments_student_code_snapshot,omitempty"`
 	StudentClassEnrollmentStudentSlugSnapshot *string `json:"student_class_enrollments_student_slug_snapshot,omitempty"`
 
@@ -152,6 +158,8 @@ type StudentClassEnrollmentResponse struct {
 	StudentClassEnrollmentUpdatedAt time.Time `json:"student_class_enrollments_updated_at"`
 
 	// ===== Convenience (mirror snapshot, bukan kolom DB) =====
+	// pakai nama lama biar frontend nggak rusak,
+	// tapi isi dari user_profile_name_snapshot
 	StudentClassEnrollmentStudentName string  `json:"student_class_enrollments_student_name,omitempty"`
 	StudentClassEnrollmentUsername    *string `json:"student_class_enrollments_username,omitempty"`
 	StudentClassEnrollmentClassName   string  `json:"student_class_enrollments_class_name,omitempty"`
@@ -176,12 +184,9 @@ func FromModelStudentClassEnrollment(mo *m.StudentClassEnrollmentModel) StudentC
 		StudentClassEnrollmentStatus:      mo.StudentClassEnrollmentsStatus,
 		StudentClassEnrollmentTotalDueIDR: mo.StudentClassEnrollmentsTotalDueIDR,
 
-		// snapshots (class & student)
-		StudentClassEnrollmentClassNameSnapshot:   mo.StudentClassEnrollmentsClassNameSnapshot,
-		StudentClassEnrollmentClassSlugSnapshot:   mo.StudentClassEnrollmentsClassSlugSnapshot,
-		StudentClassEnrollmentStudentNameSnapshot: mo.StudentClassEnrollmentsStudentNameSnapshot,
-		StudentClassEnrollmentStudentCodeSnapshot: mo.StudentClassEnrollmentsStudentCodeSnapshot,
-		StudentClassEnrollmentStudentSlugSnapshot: mo.StudentClassEnrollmentsStudentSlugSnapshot,
+		// snapshots (class)
+		StudentClassEnrollmentClassNameSnapshot: mo.StudentClassEnrollmentsClassNameSnapshot,
+		StudentClassEnrollmentClassSlugSnapshot: mo.StudentClassEnrollmentsClassSlugSnapshot,
 
 		// audit
 		StudentClassEnrollmentAppliedAt:    mo.StudentClassEnrollmentsAppliedAt,
@@ -194,10 +199,20 @@ func FromModelStudentClassEnrollment(mo *m.StudentClassEnrollmentModel) StudentC
 		StudentClassEnrollmentCreatedAt: mo.StudentClassEnrollmentsCreatedAt,
 		StudentClassEnrollmentUpdatedAt: mo.StudentClassEnrollmentsUpdatedAt,
 
-		// mirrors
-		StudentClassEnrollmentStudentName: mo.StudentClassEnrollmentsStudentNameSnapshot,
+		// mirrors (convenience)
+		StudentClassEnrollmentStudentName: mo.StudentClassEnrollmentsUserProfileNameSnapshot,
 		StudentClassEnrollmentClassName:   mo.StudentClassEnrollmentsClassNameSnapshot,
 	}
+
+	// SNAPSHOT user_profile / student
+	resp.StudentClassEnrollmentUserProfileNameSnapshot = mo.StudentClassEnrollmentsUserProfileNameSnapshot
+	resp.StudentClassEnrollmentUserProfileAvatarURLSnapshot = mo.StudentClassEnrollmentsUserProfileAvatarURLSnapshot
+	resp.StudentClassEnrollmentUserProfileWhatsappURLSnapshot = mo.StudentClassEnrollmentsUserProfileWhatsappURLSnapshot
+	resp.StudentClassEnrollmentUserProfileParentNameSnapshot = mo.StudentClassEnrollmentsUserProfileParentNameSnapshot
+	resp.StudentClassEnrollmentUserProfileParentWhatsappURLSnapshot = mo.StudentClassEnrollmentsUserProfileParentWhatsappURLSnapshot
+	resp.StudentClassEnrollmentUserProfileGenderSnapshot = mo.StudentClassEnrollmentsUserProfileGenderSnapshot
+	resp.StudentClassEnrollmentStudentCodeSnapshot = mo.StudentClassEnrollmentsStudentCodeSnapshot
+	resp.StudentClassEnrollmentStudentSlugSnapshot = mo.StudentClassEnrollmentsStudentSlugSnapshot
 
 	// Term
 	resp.StudentClassEnrollmentTermID = mo.StudentClassEnrollmentsTermID

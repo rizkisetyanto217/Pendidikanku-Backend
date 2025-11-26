@@ -1,4 +1,3 @@
-// file: internals/features/school/sessions_assesment/sessions/route/user_routes.go
 package route
 
 import (
@@ -12,10 +11,11 @@ import (
 // import mw "madinahsalam_backend/internals/middlewares"
 func AttendanceSessionsAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// ✅ Base group tanpa :school_id
-	base := r.Group("") // school_id diambil dari context/token di controller
+	//    school_id diambil dari context/token di controller (UseSchoolScope middleware, dll)
+	base := r.Group("")
 
 	// =====================
-	// User Attendance Types (CRUD)
+	// Attendance Participant Types (CRUD)
 	// =====================
 	uattCtl := uaCtrl.NewClassAttendanceSessionParticipantTypeController(db)
 	uatt := base.Group("/attendance-participant-types")
@@ -25,4 +25,19 @@ func AttendanceSessionsAdminRoutes(r fiber.Router, db *gorm.DB) {
 	uatt.Patch("/:id", uattCtl.Patch)
 	uatt.Delete("/:id", uattCtl.Delete)
 	uatt.Post("/:id/restore", uattCtl.Restore)
+
+	// =====================
+	// Attendance Session Types (CRUD master per tenant)
+	// =====================
+	stCtl := uaCtrl.NewClassAttendanceSessionTypeController(db)
+	st := base.Group("/attendance-session-types")
+
+	// create + list
+	st.Post("/", stCtl.Create)
+	st.Get("/", stCtl.List)
+
+	// detail + update + delete
+	st.Get("/:id", stCtl.Detail)
+	st.Put("/:id", stCtl.Update)
+	st.Delete("/:id", stCtl.Delete)
 }

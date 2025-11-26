@@ -107,11 +107,11 @@ END$$;
 -- =========================================
 -- ILIKE cepat untuk name
 CREATE INDEX IF NOT EXISTS idx_ut_name_trgm
-  ON user_teachers USING gin (user_teacher_name gin_trgm_ops)
+  ON user_teachers USING gin (user_teacher_name_snapshot gin_trgm_ops)
   WHERE user_teacher_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_ut_name_lower
-  ON user_teachers (lower(user_teacher_name))
+  ON user_teachers (lower(user_teacher_name_snapshot))
   WHERE user_teacher_deleted_at IS NULL;
 
 -- Status & waktu

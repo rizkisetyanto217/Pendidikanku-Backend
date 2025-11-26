@@ -212,6 +212,10 @@ type CreateClassAttendanceSessionRequest struct {
 	ClassAttendanceSessionClassRoomId *uuid.UUID `json:"class_attendance_session_class_room_id" validate:"omitempty,uuid"`
 	ClassAttendanceSessionCSSTId      *uuid.UUID `json:"class_attendance_session_csst_id"       validate:"omitempty,uuid"`
 
+	// Optional — TYPE (master per tenant)
+	ClassAttendanceSessionTypeId       *uuid.UUID     `json:"class_attendance_session_type_id" validate:"omitempty,uuid"`
+	ClassAttendanceSessionTypeSnapshot map[string]any `json:"class_attendance_session_type_snapshot,omitempty" validate:"omitempty"`
+
 	// Optional — RULE jejak (harus ada jika mengisi RuleId, sesuai DB CHECK)
 	ClassAttendanceSessionRuleId       *uuid.UUID     `json:"class_attendance_session_rule_id" validate:"omitempty,uuid"`
 	ClassAttendanceSessionRuleSnapshot map[string]any `json:"class_attendance_session_rule_snapshot,omitempty" validate:"omitempty"`
@@ -227,6 +231,9 @@ func (r *CreateClassAttendanceSessionRequest) Normalize() {
 	}
 	if r.ClassAttendanceSessionRuleId != nil && isZeroUUID(*r.ClassAttendanceSessionRuleId) {
 		r.ClassAttendanceSessionRuleId = nil
+	}
+	if r.ClassAttendanceSessionTypeId != nil && isZeroUUID(*r.ClassAttendanceSessionTypeId) {
+		r.ClassAttendanceSessionTypeId = nil
 	}
 	// Jaga konsistensi CHECK: bila ada RuleId tapi snapshot kosong → isi minimal
 	if r.ClassAttendanceSessionRuleId != nil && r.ClassAttendanceSessionRuleSnapshot == nil {
@@ -274,6 +281,10 @@ type UpdateClassAttendanceSessionRequest struct {
 	ClassAttendanceSessionClassRoomId PatchFieldSessions[uuid.UUID] `json:"class_attendance_session_class_room_id"`
 	ClassAttendanceSessionCSSTId      PatchFieldSessions[uuid.UUID] `json:"class_attendance_session_csst_id"`
 
+	// TYPE
+	ClassAttendanceSessionTypeId       PatchFieldSessions[uuid.UUID]      `json:"class_attendance_session_type_id"`
+	ClassAttendanceSessionTypeSnapshot PatchFieldSessions[map[string]any] `json:"class_attendance_session_type_snapshot"`
+
 	// RULE (id + snapshot)
 	ClassAttendanceSessionRuleId       PatchFieldSessions[uuid.UUID]      `json:"class_attendance_session_rule_id"`
 	ClassAttendanceSessionRuleSnapshot PatchFieldSessions[map[string]any] `json:"class_attendance_session_rule_snapshot"`
@@ -313,7 +324,7 @@ type ListClassAttendanceSessionQuery struct {
 }
 
 /* ========================================================
-   3) SESSION RESPONSE DTOs (TERMASUK RULE SNAPSHOT)
+   3) SESSION RESPONSE DTOs (TERMASUK TYPE & RULE SNAPSHOT)
    ======================================================== */
 
 type ClassAttendanceSessionResponse struct {
@@ -330,7 +341,7 @@ type ClassAttendanceSessionResponse struct {
 	ClassAttendanceSessionGeneralInfo string  `json:"class_attendance_session_general_info"`
 	ClassAttendanceSessionNote        *string `json:"class_attendance_session_note,omitempty"`
 
-	// 🔢 Counters (baru, biar cocok sama JSON psql-mu)
+	// Counters
 	ClassAttendanceSessionPresentCount *int `json:"class_attendance_session_present_count,omitempty"`
 	ClassAttendanceSessionAbsentCount  *int `json:"class_attendance_session_absent_count,omitempty"`
 	ClassAttendanceSessionLateCount    *int `json:"class_attendance_session_late_count,omitempty"`
@@ -362,6 +373,10 @@ type ClassAttendanceSessionResponse struct {
 	ClassAttendanceSessionClassRoomId *uuid.UUID `json:"class_attendance_session_class_room_id,omitempty"`
 	ClassAttendanceSessionCSSTId      *uuid.UUID `json:"class_attendance_session_csst_id,omitempty"`
 
+	// TYPE
+	ClassAttendanceSessionTypeId       *uuid.UUID     `json:"class_attendance_session_type_id,omitempty"`
+	ClassAttendanceSessionTypeSnapshot map[string]any `json:"class_attendance_session_type_snapshot,omitempty"`
+
 	// Snapshot (raw) — CSST & RULE
 	ClassAttendanceSessionCSSTSnapshot map[string]any `json:"class_attendance_session_csst_snapshot,omitempty"`
 	ClassAttendanceSessionRuleSnapshot map[string]any `json:"class_attendance_session_rule_snapshot,omitempty"`
@@ -379,10 +394,10 @@ type ClassAttendanceSessionResponse struct {
 	ClassAttendanceSessionRoomNameSnapshot    *string    `json:"class_attendance_session_room_name_snapshot,omitempty"`
 
 	// Generated from RULE snapshot (read-only)
-	ClassAttendanceSessionRuleDayOfWeekSnapshot  *int       `json:"class_attendance_session_rule_day_of_week_snapshot,omitempty"`
-	ClassAttendanceSessionRuleStartTimeSnapshot  *time.Time `json:"class_attendance_session_rule_start_time_snapshot,omitempty"`
-	ClassAttendanceSessionRuleEndTimeSnapshot    *time.Time `json:"class_attendance_session_rule_end_time_snapshot,omitempty"`
-	ClassAttendanceSessionRuleWeekParitySnapshot *string    `json:"class_attendance_session_rule_week_parity_snapshot,omitempty"`
+	ClassAttendanceSessionRuleDayOfWeekSnapshot  *int    `json:"class_attendance_session_rule_day_of_week_snapshot,omitempty"`
+	ClassAttendanceSessionRuleStartTimeSnapshot  *string `json:"class_attendance_session_rule_start_time_snapshot,omitempty"`
+	ClassAttendanceSessionRuleEndTimeSnapshot    *string `json:"class_attendance_session_rule_end_time_snapshot,omitempty"`
+	ClassAttendanceSessionRuleWeekParitySnapshot *string `json:"class_attendance_session_rule_week_parity_snapshot,omitempty"`
 
 	// Audit & soft delete
 	ClassAttendanceSessionCreatedAt time.Time  `json:"class_attendance_session_created_at"`
@@ -462,6 +477,14 @@ func (r CreateClassAttendanceSessionRequest) ToModel() model.ClassAttendanceSess
 		m.ClassAttendanceSessionIsCanceled = *r.ClassAttendanceSessionIsCanceled
 	}
 
+	// TYPE
+	if r.ClassAttendanceSessionTypeId != nil && !isZeroUUID(*r.ClassAttendanceSessionTypeId) {
+		m.ClassAttendanceSessionTypeID = r.ClassAttendanceSessionTypeId
+	}
+	if r.ClassAttendanceSessionTypeSnapshot != nil {
+		m.ClassAttendanceSessionTypeSnapshot = r.ClassAttendanceSessionTypeSnapshot
+	}
+
 	// RULE: kalau ada, set id + snapshot (minimal)
 	if r.ClassAttendanceSessionRuleId != nil && !isZeroUUID(*r.ClassAttendanceSessionRuleId) {
 		m.ClassAttendanceSessionRuleID = r.ClassAttendanceSessionRuleId
@@ -485,7 +508,11 @@ func FromClassAttendanceSessionModel(m model.ClassAttendanceSessionModel) ClassA
 		deletedAt = &m.ClassAttendanceSessionDeletedAt.Time
 	}
 
-	// snapshot → map[string]any (CSST & RULE)
+	// snapshot → map[string]any (TYPE, CSST & RULE)
+	var typeSnap map[string]any
+	if m.ClassAttendanceSessionTypeSnapshot != nil {
+		typeSnap = map[string]any(m.ClassAttendanceSessionTypeSnapshot)
+	}
 	var csstSnap map[string]any
 	if m.ClassAttendanceSessionCSSTSnapshot != nil {
 		csstSnap = map[string]any(m.ClassAttendanceSessionCSSTSnapshot)
@@ -507,6 +534,14 @@ func FromClassAttendanceSessionModel(m model.ClassAttendanceSessionModel) ClassA
 		ClassAttendanceSessionGeneralInfo: m.ClassAttendanceSessionGeneralInfo,
 		ClassAttendanceSessionNote:        m.ClassAttendanceSessionNote,
 
+		// Counters
+		ClassAttendanceSessionPresentCount: m.ClassAttendanceSessionPresentCount,
+		ClassAttendanceSessionAbsentCount:  m.ClassAttendanceSessionAbsentCount,
+		ClassAttendanceSessionLateCount:    m.ClassAttendanceSessionLateCount,
+		ClassAttendanceSessionExcusedCount: m.ClassAttendanceSessionExcusedCount,
+		ClassAttendanceSessionSickCount:    m.ClassAttendanceSessionSickCount,
+		ClassAttendanceSessionLeaveCount:   m.ClassAttendanceSessionLeaveCount,
+
 		ClassAttendanceSessionDate:     m.ClassAttendanceSessionDate,
 		ClassAttendanceSessionStartsAt: m.ClassAttendanceSessionStartsAt,
 		ClassAttendanceSessionEndsAt:   m.ClassAttendanceSessionEndsAt,
@@ -527,6 +562,11 @@ func FromClassAttendanceSessionModel(m model.ClassAttendanceSessionModel) ClassA
 		ClassAttendanceSessionClassRoomId: m.ClassAttendanceSessionClassRoomID,
 		ClassAttendanceSessionCSSTId:      m.ClassAttendanceSessionCSSTID,
 
+		// TYPE
+		ClassAttendanceSessionTypeId:       m.ClassAttendanceSessionTypeID,
+		ClassAttendanceSessionTypeSnapshot: typeSnap,
+
+		// snapshots raw
 		ClassAttendanceSessionCSSTSnapshot: csstSnap,
 		ClassAttendanceSessionRuleSnapshot: ruleSnap,
 
@@ -551,7 +591,6 @@ func FromClassAttendanceSessionModel(m model.ClassAttendanceSessionModel) ClassA
 		ClassAttendanceSessionCreatedAt: m.ClassAttendanceSessionCreatedAt,
 		ClassAttendanceSessionUpdatedAt: m.ClassAttendanceSessionUpdatedAt,
 		ClassAttendanceSessionDeletedAt: deletedAt,
-
 		// URLs diisi di service/controller (preload/relasi)
 	}
 }
@@ -679,6 +718,23 @@ func (r UpdateClassAttendanceSessionRequest) Apply(m *model.ClassAttendanceSessi
 	}
 	if v, ok := r.ClassAttendanceSessionCSSTId.Get(); ok {
 		m.ClassAttendanceSessionCSSTID = v
+	}
+
+	// TYPE
+	if v, ok := r.ClassAttendanceSessionTypeId.Get(); ok {
+		if v == nil || isZeroUUID(*v) {
+			m.ClassAttendanceSessionTypeID = nil
+		} else {
+			vv := *v
+			m.ClassAttendanceSessionTypeID = &vv
+		}
+	}
+	if v, ok := r.ClassAttendanceSessionTypeSnapshot.Get(); ok {
+		if v == nil {
+			m.ClassAttendanceSessionTypeSnapshot = nil
+		} else {
+			m.ClassAttendanceSessionTypeSnapshot = *v
+		}
 	}
 
 	// RULE (id + snapshot)

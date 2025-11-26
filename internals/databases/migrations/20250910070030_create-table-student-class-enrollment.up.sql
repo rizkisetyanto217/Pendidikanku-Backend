@@ -88,7 +88,15 @@ CREATE TABLE IF NOT EXISTS student_class_enrollments (
     ON UPDATE CASCADE ON DELETE RESTRICT,
 
   -- Dari school_students (snapshot identitas)
-  student_class_enrollments_student_name_snapshot VARCHAR(80),
+  student_class_enrollments_user_profile_name_snapshot VARCHAR(80),
+  student_class_enrollments_user_profile_avatar_url_snapshot          VARCHAR(255),
+  student_class_enrollments_user_profile_whatsapp_url_snapshot        VARCHAR(50),
+  student_class_enrollments_user_profile_parent_name_snapshot         VARCHAR(80),
+  student_class_enrollments_user_profile_parent_whatsapp_url_snapshot VARCHAR(50),
+  -- NEW: gender snapshot
+  student_class_enrollments_user_profile_gender_snapshot              VARCHAR(20),
+
+
   student_class_enrollments_student_code_snapshot VARCHAR(50),
   student_class_enrollments_student_slug_snapshot VARCHAR(50),
 
@@ -181,7 +189,7 @@ CREATE INDEX IF NOT EXISTS gin_sce_class_name_snap_trgm_alive
   WHERE student_class_enrollments_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS gin_sce_student_name_snap_trgm_alive
-  ON student_class_enrollments USING GIN (LOWER(student_class_enrollments_student_name_snapshot) gin_trgm_ops)
+  ON student_class_enrollments USING GIN (LOWER(student_class_enrollments_user_profile_name_snapshot) gin_trgm_ops)
   WHERE student_class_enrollments_deleted_at IS NULL;
 
 -- Filter per tenant & term (denormalized)

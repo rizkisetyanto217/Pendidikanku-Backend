@@ -1,4 +1,3 @@
-// file: internals/features/school/academics/subject/controller/class_section_subject_teachers_user_controller.go
 package controller
 
 import (
@@ -6,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	csstDTO "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/dto"
 	modelCSST "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
@@ -298,6 +298,9 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
+	// Map ke DTO (sekalian decode teacher snapshot JSONB → TeacherSnapshot struct)
+	resp := csstDTO.FromClassSectionSubjectTeacherModels(rows)
+
 	pg := helper.BuildPaginationFromOffset(total, offset, limit)
-	return helper.JsonList(c, "ok", rows, pg)
+	return helper.JsonList(c, "ok", resp, pg)
 }

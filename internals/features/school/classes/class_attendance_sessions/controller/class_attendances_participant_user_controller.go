@@ -2,13 +2,15 @@ package controller
 
 import (
 	"errors"
-	attendanceModel "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/model"
-	helper "madinahsalam_backend/internals/helpers"
-	helperAuth "madinahsalam_backend/internals/helpers/auth"
 	"strconv"
 	"strings"
 	"time"
 
+	attendanceModel "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/model"
+	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
+
+	// DTO BARU (pindah namespace)
 	attendanceDTO "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/dto"
 
 	"github.com/gofiber/fiber/v2"
@@ -53,7 +55,7 @@ func (ctl *ClassAttendanceSessionParticipantController) List(c *fiber.Ctx) error
 		}
 	}
 
-	// Parse query → DTO
+	// Parse query → DTO (pakai CSV dari DTO baru)
 	var q attendanceDTO.ListClassAttendanceSessionParticipantQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid: "+err.Error())
@@ -192,7 +194,7 @@ func (ctl *ClassAttendanceSessionParticipantController) List(c *fiber.Ctx) error
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// Response (pakai helper / langsung JSON)
+	// Response
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"message": "Daftar peserta session absensi",
 		"data":    rows,

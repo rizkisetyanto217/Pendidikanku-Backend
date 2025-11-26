@@ -17,6 +17,74 @@ BEGIN
 END$$;
 
 -- =========================================
+-- TABLE: class_attendance_session_types (master per tenant)
+-- =========================================
+CREATE TABLE IF NOT EXISTS class_attendance_session_types (
+  class_attendance_session_type_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- tenant
+  class_attendance_session_type_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
+
+  -- identitas
+  class_attendance_session_type_slug        VARCHAR(160) NOT NULL,
+  class_attendance_session_type_name        TEXT NOT NULL,
+  class_attendance_session_type_description TEXT,
+
+  -- tampilan (opsional, utk UI)
+  class_attendance_session_type_color       TEXT,  -- hex / tailwind token / bebas
+  class_attendance_session_type_icon        TEXT,  -- nama icon di FE
+
+  -- control
+  class_attendance_session_type_is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+  class_attendance_session_type_sort_order  INT NOT NULL DEFAULT 0,
+
+  -- audit
+  class_attendance_session_type_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_attendance_session_type_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_attendance_session_type_deleted_at  TIMESTAMPTZ
+);
+
+-- Unik slug per tenant (alive only)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_castype_school_slug_alive
+  ON class_attendance_session_types (
+    class_attendance_session_type_school_id,
+    lower(class_attendance_session_type_slug)
+  )
+  WHERE class_attendance_session_type_deleted_at IS NULL;
+
+-- Nama unik per tenant (opsional)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_castype_school_name_alive
+  ON class_attendance_session_types (
+    class_attendance_session_type_school_id,
+    lower(class_attendance_session_type_name)
+  )
+  WHERE class_attendance_session_type_deleted_at IS NULL;
+
+-- UNIQUE komposit utk FK tenant-safe (no WHERE!)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_castype_school_id_pair
+  ON class_attendance_session_types (
+    class_attendance_session_type_school_id,
+    class_attendance_session_type_id
+  );
+
+-- Listing by tenant + aktif
+CREATE INDEX IF NOT EXISTS idx_castype_school_sort_alive
+  ON class_attendance_session_types (
+    class_attendance_session_type_school_id,
+    class_attendance_session_type_is_active,
+    class_attendance_session_type_sort_order
+  )
+  WHERE class_attendance_session_type_deleted_at IS NULL;
+
+-- BRIN utk scan besar
+CREATE INDEX IF NOT EXISTS brin_castype_created_at
+  ON class_attendance_session_types
+  USING BRIN (class_attendance_session_type_created_at);
+
+
+
+-- =========================================
 -- TABLE: class_attendance_sessions (fresh create)
 -- =========================================
 CREATE TABLE IF NOT EXISTS class_attendance_sessions (
@@ -58,6 +126,12 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_session_teacher_id    UUID REFERENCES school_teachers(school_teacher_id) ON DELETE SET NULL,
   class_attendance_session_class_room_id UUID REFERENCES class_rooms(class_room_id)         ON DELETE SET NULL,
   class_attendance_session_csst_id       UUID REFERENCES class_section_subject_teachers(class_section_subject_teacher_id) ON DELETE SET NULL,
+
+  -- tipe sesi (master per tenant)
+  class_attendance_session_type_id UUID,
+
+  -- snapshot tipe sesi (jejak saat sesi dibuat)
+  class_attendance_session_type_snapshot JSONB,
 
   -- info & rekap
   class_attendance_session_title         TEXT,
@@ -107,10 +181,10 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   -- Turunan (GENERATED) dari rule snapshot (untuk filter cepat)
   class_attendance_session_rule_day_of_week_snapshot INT
     GENERATED ALWAYS AS ((class_attendance_session_rule_snapshot->>'day_of_week')::INT) STORED,
-class_attendance_session_rule_start_time_snapshot TEXT
-  GENERATED ALWAYS AS (NULLIF(class_attendance_session_rule_snapshot->>'start_time','')) STORED,
-class_attendance_session_rule_end_time_snapshot TEXT
-  GENERATED ALWAYS AS (NULLIF(class_attendance_session_rule_snapshot->>'end_time','')) STORED,
+  class_attendance_session_rule_start_time_snapshot TEXT
+    GENERATED ALWAYS AS (NULLIF(class_attendance_session_rule_snapshot->>'start_time','')) STORED,
+  class_attendance_session_rule_end_time_snapshot TEXT
+    GENERATED ALWAYS AS (NULLIF(class_attendance_session_rule_snapshot->>'end_time','')) STORED,
   class_attendance_session_rule_week_parity_snapshot TEXT
     GENERATED ALWAYS AS (NULLIF(class_attendance_session_rule_snapshot->>'week_parity','')) STORED,
 
@@ -124,6 +198,12 @@ class_attendance_session_rule_end_time_snapshot TEXT
     FOREIGN KEY (class_attendance_session_school_id, class_attendance_session_schedule_id)
     REFERENCES class_schedules (class_schedule_school_id, class_schedule_id)
     ON UPDATE CASCADE ON DELETE RESTRICT,
+
+  -- FK komposit tenant-safe → session types
+  CONSTRAINT fk_cas_type_tenant
+    FOREIGN KEY (class_attendance_session_school_id, class_attendance_session_type_id)
+    REFERENCES class_attendance_session_types (class_attendance_session_type_school_id, class_attendance_session_type_id)
+    ON UPDATE CASCADE ON DELETE SET NULL,
 
   -- CHECKS
   CONSTRAINT chk_cas_time_order
@@ -289,6 +369,21 @@ CREATE INDEX IF NOT EXISTS idx_cas_rule_day_start_alive
     class_attendance_session_rule_start_time_snapshot
   )
   WHERE class_attendance_session_deleted_at IS NULL;
+
+-- Index by type (per tenant)
+CREATE INDEX IF NOT EXISTS idx_cas_type_alive
+  ON class_attendance_sessions (
+    class_attendance_session_school_id,
+    class_attendance_session_type_id,
+    class_attendance_session_date DESC
+  )
+  WHERE class_attendance_session_deleted_at IS NULL;
+
+-- GIN utk snapshot type (query by JSONB)
+CREATE INDEX IF NOT EXISTS gin_cas_type_snapshot
+  ON class_attendance_sessions
+  USING GIN (class_attendance_session_type_snapshot);
+
 
 
 

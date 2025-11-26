@@ -56,9 +56,6 @@ func parseJSONMapPtr(s string) (map[string]any, error) {
 	return m, nil
 }
 
-
-
-
 // Ambil nama tampilan CSST (fallback name)
 func getCSSTName(tx *gorm.DB, csstID uuid.UUID) (string, error) {
 	var row struct {
@@ -235,6 +232,20 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 			}
 		}
 
+		// ===== TYPE (baru) =====
+		if v := strings.TrimSpace(c.FormValue("class_attendance_session_type_id")); v != "" {
+			if id, err := uuid.Parse(v); err == nil {
+				req.ClassAttendanceSessionTypeId = &id
+			}
+		}
+		if v := strings.TrimSpace(c.FormValue("class_attendance_session_type_snapshot")); v != "" {
+			if m, err := parseJSONMapPtr(v); err == nil {
+				req.ClassAttendanceSessionTypeSnapshot = m
+			} else {
+				return helper.JsonError(c, fiber.StatusBadRequest, "type_snapshot tidak valid: "+err.Error())
+			}
+		}
+
 		// URLs via JSON field
 		var urlsJSON []attendanceDTO.ClassAttendanceSessionURLUpsert
 		if uj := strings.TrimSpace(c.FormValue("urls_json")); uj != "" {
@@ -343,6 +354,67 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 			// Jika caller TEACHER → harus milik dirinya
 			if isTeacher && teacherSchoolID != uuid.Nil && userID != uuid.Nil && row.UserID != userID {
 				return fiber.NewError(fiber.StatusForbidden, "Guru pada payload bukan akun Anda")
+			}
+		}
+
+		// 2b) Validasi TYPE (opsional) + bangun snapshot jika perlu
+		if req.ClassAttendanceSessionTypeId != nil && *req.ClassAttendanceSessionTypeId != uuid.Nil {
+			var t struct {
+				SchoolID    uuid.UUID  `gorm:"column:school_id"`
+				Slug        string     `gorm:"column:slug"`
+				Name        string     `gorm:"column:name"`
+				Description *string    `gorm:"column:description"`
+				Color       *string    `gorm:"column:color"`
+				Icon        *string    `gorm:"column:icon"`
+				IsActive    bool       `gorm:"column:is_active"`
+				DeletedAt   *time.Time `gorm:"column:deleted_at"`
+			}
+
+			const qType = `
+SELECT
+  class_attendance_session_type_school_id   AS school_id,
+  class_attendance_session_type_slug        AS slug,
+  class_attendance_session_type_name        AS name,
+  class_attendance_session_type_description AS description,
+  class_attendance_session_type_color       AS color,
+  class_attendance_session_type_icon        AS icon,
+  class_attendance_session_type_is_active   AS is_active,
+  class_attendance_session_type_deleted_at  AS deleted_at
+FROM class_attendance_session_types
+WHERE class_attendance_session_type_id = ?
+LIMIT 1`
+
+			if err := tx.Raw(qType, *req.ClassAttendanceSessionTypeId).Scan(&t).Error; err != nil {
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil tipe sesi")
+			}
+			if t.SchoolID == uuid.Nil {
+				return fiber.NewError(fiber.StatusBadRequest, "Tipe sesi tidak ditemukan")
+			}
+			if t.SchoolID != schoolID {
+				return fiber.NewError(fiber.StatusForbidden, "Tipe sesi bukan milik school Anda")
+			}
+			if t.DeletedAt != nil || !t.IsActive {
+				return fiber.NewError(fiber.StatusBadRequest, "Tipe sesi tidak aktif / sudah dihapus")
+			}
+
+			// Jika snapshot belum diisi dari payload, bangun snapshot default dari master
+			if req.ClassAttendanceSessionTypeSnapshot == nil {
+				snap := map[string]any{
+					"type_id":   req.ClassAttendanceSessionTypeId.String(),
+					"slug":      t.Slug,
+					"name":      t.Name,
+					"is_active": t.IsActive,
+				}
+				if t.Description != nil && strings.TrimSpace(*t.Description) != "" {
+					snap["description"] = strings.TrimSpace(*t.Description)
+				}
+				if t.Color != nil && strings.TrimSpace(*t.Color) != "" {
+					snap["color"] = strings.TrimSpace(*t.Color)
+				}
+				if t.Icon != nil && strings.TrimSpace(*t.Icon) != "" {
+					snap["icon"] = strings.TrimSpace(*t.Icon)
+				}
+				req.ClassAttendanceSessionTypeSnapshot = snap
 			}
 		}
 
@@ -557,7 +629,7 @@ LIMIT 1`
 		// 4) Build model dari DTO
 		m := req.ToModel()
 		m.ClassAttendanceSessionSchoolID = schoolID
-		// (Schedule sudah pointer-aware di ToModel)
+		// (Schedule, Type, Rule sudah pointer-aware di ToModel; Rule & Type snapshot bisa dioverride di bawah)
 
 		if effCSSTID != nil {
 			m.ClassAttendanceSessionCSSTID = effCSSTID
@@ -579,6 +651,9 @@ LIMIT 1`
 		if req.ClassAttendanceSessionRuleSnapshot != nil {
 			m.ClassAttendanceSessionRuleSnapshot = req.ClassAttendanceSessionRuleSnapshot
 		}
+
+		// TYPE snapshot sudah ada di req dan sudah dimap di ToModel(),
+		// jadi tidak perlu assignment manual lagi di sini.
 
 		// ===== Auto set starts_at/ends_at dari rule kalau kosong =====
 		if haveRule && req.ClassAttendanceSessionDate != nil {

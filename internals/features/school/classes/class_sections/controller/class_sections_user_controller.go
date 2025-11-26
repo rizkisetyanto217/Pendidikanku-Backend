@@ -213,23 +213,24 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// ---------- Build items ----------
-	items := make([]secDTO.ClassSectionResponse, 0, len(rows))
-	idsInPage := make([]uuid.UUID, 0, len(rows))
-	for i := range rows {
-		items = append(items, secDTO.FromModelClassSection(&rows[i]))
-		idsInPage = append(idsInPage, rows[i].ClassSectionID)
+	// ---------- Build compact DTO (pakai snapshot guru baru) ----------
+	compacts := secDTO.FromModelsCompact(rows)
+
+	idsInPage := make([]uuid.UUID, 0, len(compacts))
+	for _, it := range compacts {
+		idsInPage = append(idsInPage, it.ClassSectionID)
 	}
 
 	pagination := helper.BuildPaginationFromOffset(total, pg.Offset, pg.Limit)
 
+	// Kalau nggak minta include CSST / student sections → langsung balikin compact DTO
+	if !withCSST && !withStudentSections {
+		return helper.JsonList(c, "ok", compacts, pagination)
+	}
+
 	// =========================================================
 	//  INCLUDE: CSST & STUDENT_CLASS_SECTIONS (bisa keduanya)
 	// =========================================================
-	if !withCSST && !withStudentSections {
-		// nggak ada include → simple
-		return helper.JsonList(c, "ok", items, pagination)
-	}
 
 	// Target section IDs untuk query relasi
 	targetIDs := sectionIDs
@@ -238,11 +239,11 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 	}
 
 	// Base: konversi item ke map + index by section_id
-	out := make([]fiber.Map, 0, len(items))
-	indexBySection := make(map[uuid.UUID]int, len(items))
+	out := make([]fiber.Map, 0, len(compacts))
+	indexBySection := make(map[uuid.UUID]int, len(compacts))
 
-	for i := range items {
-		b, _ := json.Marshal(items[i])
+	for i := range compacts {
+		b, _ := json.Marshal(compacts[i])
 		var m fiber.Map
 		_ = json.Unmarshal(b, &m)
 
@@ -261,7 +262,7 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		}
 
 		out = append(out, m)
-		indexBySection[items[i].ClassSectionID] = i
+		indexBySection[compacts[i].ClassSectionID] = i
 	}
 
 	// ---------- Inject CSST ----------

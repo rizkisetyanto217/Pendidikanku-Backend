@@ -24,8 +24,8 @@ import (
 	dto "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/dto"
 	modelCSST "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 
+	teacherSnapshot "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/snapshot"
 	roomSnapshot "madinahsalam_backend/internals/features/school/academics/rooms/snapshot"
-	teacherSnapshot "madinahsalam_backend/internals/features/users/user_teachers/snapshot"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
@@ -401,28 +401,26 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		}
 
 		// 4a) SNAPSHOT GURU (JSON kaya) + flattened
-		var teacherSnap *teacherSnapshot.TeacherSnapshot
-		if ts, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, schoolID, req.ClassSectionSubjectTeacherSchoolTeacherID); err != nil {
-			switch {
-			case errors.Is(err, gorm.ErrRecordNotFound):
-				return helper.JsonError(c, fiber.StatusBadRequest, "Guru tidak valid / sudah dihapus")
-			case errors.Is(err, teacherSnapshot.ErrSchoolMismatch):
-				return helper.JsonError(c, fiber.StatusForbidden, "Guru bukan milik school Anda")
-			default:
-				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat snapshot guru")
+		var mainTeacherSnap *teacherSnapshot.TeacherSnapshot
+		if ts, err := teacherSnapshot.ValidateAndSnapshotTeacher(tx, schoolID, req.ClassSectionSubjectTeacherSchoolTeacherID); err != nil {
+			var fe *fiber.Error
+			if errors.As(err, &fe) {
+				return helper.JsonError(c, fe.Code, fe.Message)
 			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat snapshot guru")
 		} else if ts != nil {
-			teacherSnap = ts
-			if jb, e := teacherSnapshot.ToJSONB(ts); e == nil {
-				row.ClassSectionSubjectTeacherSchoolTeacherSnapshot = &jb
-			}
+			mainTeacherSnap = ts
+			jb := teacherSnapshot.ToJSON(ts)
+			row.ClassSectionSubjectTeacherSchoolTeacherSnapshot = &jb
 		}
+
 		// Name dari snapshot guru
-		if teacherSnap != nil {
-			if p := trimAny(teacherSnap.Name); p != nil {
+		if mainTeacherSnap != nil {
+			if p := trimAny(mainTeacherSnap.Name); p != nil {
 				row.ClassSectionSubjectTeacherSchoolTeacherNameSnapshot = p
 			}
 		}
+
 		// Slug dari tabel guru + fallback name dari kolom snapshot tabel (bila belum ada)
 		{
 			var t struct {
@@ -448,19 +446,15 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 
 		// 4b) SNAPSHOT ASISTEN (opsional) + flattened
 		if req.ClassSectionSubjectTeacherAssistantSchoolTeacherID != nil {
-			if ats, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, schoolID, *req.ClassSectionSubjectTeacherAssistantSchoolTeacherID); err != nil {
-				switch {
-				case errors.Is(err, gorm.ErrRecordNotFound):
-					return helper.JsonError(c, fiber.StatusBadRequest, "Asisten guru tidak valid / sudah dihapus")
-				case errors.Is(err, teacherSnapshot.ErrSchoolMismatch):
-					return helper.JsonError(c, fiber.StatusForbidden, "Asisten guru bukan milik school Anda")
-				default:
-					return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat snapshot asisten guru")
+			if ats, err := teacherSnapshot.ValidateAndSnapshotTeacher(tx, schoolID, *req.ClassSectionSubjectTeacherAssistantSchoolTeacherID); err != nil {
+				var fe *fiber.Error
+				if errors.As(err, &fe) {
+					return helper.JsonError(c, fe.Code, fe.Message)
 				}
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat snapshot asisten guru")
 			} else if ats != nil {
-				if jb, e := teacherSnapshot.ToJSONB(ats); e == nil {
-					row.ClassSectionSubjectTeacherAssistantSchoolTeacherSnapshot = &jb
-				}
+				jb := teacherSnapshot.ToJSON(ats)
+				row.ClassSectionSubjectTeacherAssistantSchoolTeacherSnapshot = &jb
 				if p := trimAny(ats.Name); p != nil {
 					row.ClassSectionSubjectTeacherAssistantSchoolTeacherNameSnapshot = p
 				}
@@ -648,6 +642,9 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 				return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 			}
 		}
+
+		// TODO (opsional): kalau teacherChanged, kamu bisa juga re-build snapshot guru di sini,
+		// mirip blok di Create() (ValidateAndSnapshotTeacher + ToJSON + name/slug).
 
 		// SLUG handling (mirror create)
 		if req.ClassSectionSubjectTeacherSlug != nil {

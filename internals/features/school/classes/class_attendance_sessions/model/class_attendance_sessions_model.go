@@ -31,7 +31,6 @@ const (
 
 /* =========================================
    MODEL: class_attendance_sessions
-   (single snapshot: csst_snapshot + rule_snapshot)
 ========================================= */
 
 type ClassAttendanceSessionModel struct {
@@ -46,7 +45,7 @@ type ClassAttendanceSessionModel struct {
 	// SLUG opsional
 	ClassAttendanceSessionSlug *string `gorm:"type:varchar(160);column:class_attendance_session_slug" json:"class_attendance_session_slug,omitempty"`
 
-	// Occurrence
+	// Occurrence (tanggal + waktu)
 	ClassAttendanceSessionDate     time.Time  `gorm:"type:date;not null;column:class_attendance_session_date" json:"class_attendance_session_date"`
 	ClassAttendanceSessionStartsAt *time.Time `gorm:"type:timestamptz;column:class_attendance_session_starts_at" json:"class_attendance_session_starts_at,omitempty"`
 	ClassAttendanceSessionEndsAt   *time.Time `gorm:"type:timestamptz;column:class_attendance_session_ends_at" json:"class_attendance_session_ends_at,omitempty"`
@@ -70,6 +69,10 @@ type ClassAttendanceSessionModel struct {
 	ClassAttendanceSessionClassRoomID *uuid.UUID `gorm:"type:uuid;column:class_attendance_session_class_room_id" json:"class_attendance_session_class_room_id,omitempty"`
 	ClassAttendanceSessionCSSTID      *uuid.UUID `gorm:"type:uuid;column:class_attendance_session_csst_id" json:"class_attendance_session_csst_id,omitempty"`
 
+	// Tipe sesi (master per tenant) + snapshot
+	ClassAttendanceSessionTypeID       *uuid.UUID        `gorm:"type:uuid;column:class_attendance_session_type_id" json:"class_attendance_session_type_id,omitempty"`
+	ClassAttendanceSessionTypeSnapshot datatypes.JSONMap `gorm:"type:jsonb;column:class_attendance_session_type_snapshot" json:"class_attendance_session_type_snapshot,omitempty"`
+
 	// Info & rekap
 	ClassAttendanceSessionTitle       *string `gorm:"type:text;column:class_attendance_session_title" json:"class_attendance_session_title,omitempty"`
 	ClassAttendanceSessionGeneralInfo string  `gorm:"type:text;not null;default:'';column:class_attendance_session_general_info" json:"class_attendance_session_general_info"`
@@ -89,14 +92,6 @@ type ClassAttendanceSessionModel struct {
 
 	/* ==========================
 	   SNAPSHOT RULE (jejak saat generate)
-	   contoh payload:
-	   {
-	     "rule_id":"...", "day_of_week":3,
-	     "start_time":"13:00:00","end_time":"14:30:00",
-	     "interval_weeks":1,"start_offset":0,
-	     "week_parity":"all","weeks_of_month":[1,3],
-	     "last_week_of_month":false
-	   }
 	========================== */
 	ClassAttendanceSessionRuleSnapshot datatypes.JSONMap `gorm:"type:jsonb;column:class_attendance_session_rule_snapshot" json:"class_attendance_session_rule_snapshot,omitempty"`
 
@@ -122,10 +117,10 @@ type ClassAttendanceSessionModel struct {
 	ClassAttendanceSessionDisplayTitle *string `gorm:"type:text;->;column:class_attendance_session_display_title" json:"class_attendance_session_display_title,omitempty"`
 
 	// Turunan dari RULE snapshot (generated)
-	ClassAttendanceSessionRuleDayOfWeekSnapshot  *int       `gorm:"->;column:class_attendance_session_rule_day_of_week_snapshot" json:"class_attendance_session_rule_day_of_week_snapshot,omitempty"`
-	ClassAttendanceSessionRuleStartTimeSnapshot  *time.Time `gorm:"type:time;->;column:class_attendance_session_rule_start_time_snapshot" json:"class_attendance_session_rule_start_time_snapshot,omitempty"`
-	ClassAttendanceSessionRuleEndTimeSnapshot    *time.Time `gorm:"type:time;->;column:class_attendance_session_rule_end_time_snapshot" json:"class_attendance_session_rule_end_time_snapshot,omitempty"`
-	ClassAttendanceSessionRuleWeekParitySnapshot *string    `gorm:"type:text;->;column:class_attendance_session_rule_week_parity_snapshot" json:"class_attendance_session_rule_week_parity_snapshot,omitempty"`
+	ClassAttendanceSessionRuleDayOfWeekSnapshot  *int    `gorm:"->;column:class_attendance_session_rule_day_of_week_snapshot" json:"class_attendance_session_rule_day_of_week_snapshot,omitempty"`
+	ClassAttendanceSessionRuleStartTimeSnapshot  *string `gorm:"type:text;->;column:class_attendance_session_rule_start_time_snapshot" json:"class_attendance_session_rule_start_time_snapshot,omitempty"`
+	ClassAttendanceSessionRuleEndTimeSnapshot    *string `gorm:"type:text;->;column:class_attendance_session_rule_end_time_snapshot" json:"class_attendance_session_rule_end_time_snapshot,omitempty"`
+	ClassAttendanceSessionRuleWeekParitySnapshot *string `gorm:"type:text;->;column:class_attendance_session_rule_week_parity_snapshot" json:"class_attendance_session_rule_week_parity_snapshot,omitempty"`
 
 	// Audit
 	ClassAttendanceSessionCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:class_attendance_session_created_at" json:"class_attendance_session_created_at"`
@@ -144,10 +139,11 @@ func (m *ClassAttendanceSessionModel) BeforeSave(tx *gorm.DB) error {
 	}
 	if m.ClassAttendanceSessionRuleSnapshot == nil && m.ClassAttendanceSessionRuleID != nil {
 		// Kalau ada rule_id, kita prefer ada snapshot (biar lolos CHECK).
-		// Biar gak gagal, isi minimal (akan dioverwrite generator).
+		// Diisi minimal dulu; nanti generator bisa overwrite.
 		m.ClassAttendanceSessionRuleSnapshot = datatypes.JSONMap{
 			"rule_id": m.ClassAttendanceSessionRuleID.String(),
 		}
 	}
+	// type_snapshot boleh kosong, gak ada CHECK di DB
 	return nil
 }

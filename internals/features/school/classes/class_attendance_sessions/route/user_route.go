@@ -1,4 +1,3 @@
-// file: internals/features/school/sessions_assesment/sessions/route/user_routes.go
 package route
 
 import (
@@ -26,4 +25,13 @@ func AttendanceSessionsUserRoutes(r fiber.Router, db *gorm.DB) {
 	uattCtl := uaCtrl.NewClassAttendanceSessionParticipantTypeController(db)
 	utg := r.Group("/attendance-participant-types")
 	utg.Get("/", uattCtl.List)
+
+	// ============================
+	// Attendance Session Types (read-only untuk user)
+	// ============================
+	stCtl := uaCtrl.NewClassAttendanceSessionTypeController(db)
+	stg := r.Group("/attendance-session-types")
+
+	// konsisten pakai /list seperti yang lain
+	stg.Get("/list", stCtl.List)
 }

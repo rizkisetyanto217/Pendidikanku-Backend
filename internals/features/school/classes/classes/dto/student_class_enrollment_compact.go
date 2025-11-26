@@ -19,10 +19,25 @@ type StudentClassEnrollmentCompactResponse struct {
 
 	// convenience (mirror snapshot)
 	StudentClassEnrollmentSchoolStudentID uuid.UUID `json:"student_class_enrollments_school_student_id"`
-	StudentClassEnrollmentStudentName     string    `json:"student_class_enrollments_student_name"`
 
+	// ====== SNAPSHOT MURID (dari user_profile / school_students) ======
+	StudentClassEnrollmentStudentName        string  `json:"student_class_enrollments_student_name"`
+	StudentClassEnrollmentStudentAvatarURL   *string `json:"student_class_enrollments_student_avatar_url,omitempty"`
+	StudentClassEnrollmentStudentWhatsappURL *string `json:"student_class_enrollments_student_whatsapp_url,omitempty"`
+	StudentClassEnrollmentParentName         *string `json:"student_class_enrollments_parent_name,omitempty"`
+	StudentClassEnrollmentParentWhatsappURL  *string `json:"student_class_enrollments_parent_whatsapp_url,omitempty"`
+	StudentClassEnrollmentStudentGender      *string `json:"student_class_enrollments_student_gender,omitempty"`
+	StudentClassEnrollmentStudentCode        *string `json:"student_class_enrollments_student_code,omitempty"`
+	StudentClassEnrollmentStudentSlug        *string `json:"student_class_enrollments_student_slug,omitempty"`
+
+	// ====== CLASS SNAPSHOT ======
 	StudentClassEnrollmentClassID   uuid.UUID `json:"student_class_enrollments_class_id"`
 	StudentClassEnrollmentClassName string    `json:"student_class_enrollments_class_name"`
+
+	// ====== CLASS SECTION (opsional) ======
+	StudentClassEnrollmentClassSectionID           *uuid.UUID `json:"student_class_enrollments_class_section_id,omitempty"`
+	StudentClassEnrollmentClassSectionNameSnapshot *string    `json:"student_class_enrollments_class_section_name_snapshot,omitempty"`
+	StudentClassEnrollmentClassSectionSlugSnapshot *string    `json:"student_class_enrollments_class_section_slug_snapshot,omitempty"`
 
 	// ===== Term (denormalized, optional) =====
 	StudentClassEnrollmentTermID                   *uuid.UUID `json:"student_class_enrollments_term_id,omitempty"`
@@ -64,10 +79,25 @@ func FromModelsCompact(src []m.StudentClassEnrollmentModel) []StudentClassEnroll
 
 			// IDs & snapshots yang tersedia di model
 			StudentClassEnrollmentSchoolStudentID: r.StudentClassEnrollmentsSchoolStudentID,
-			StudentClassEnrollmentStudentName:     r.StudentClassEnrollmentsStudentNameSnapshot,
 
+			// ===== snapshot murid =====
+			StudentClassEnrollmentStudentName:        r.StudentClassEnrollmentsUserProfileNameSnapshot,
+			StudentClassEnrollmentStudentAvatarURL:   r.StudentClassEnrollmentsUserProfileAvatarURLSnapshot,
+			StudentClassEnrollmentStudentWhatsappURL: r.StudentClassEnrollmentsUserProfileWhatsappURLSnapshot,
+			StudentClassEnrollmentParentName:         r.StudentClassEnrollmentsUserProfileParentNameSnapshot,
+			StudentClassEnrollmentParentWhatsappURL:  r.StudentClassEnrollmentsUserProfileParentWhatsappURLSnapshot,
+			StudentClassEnrollmentStudentGender:      r.StudentClassEnrollmentsUserProfileGenderSnapshot,
+			StudentClassEnrollmentStudentCode:        r.StudentClassEnrollmentsStudentCodeSnapshot,
+			StudentClassEnrollmentStudentSlug:        r.StudentClassEnrollmentsStudentSlugSnapshot,
+
+			// class
 			StudentClassEnrollmentClassID:   r.StudentClassEnrollmentsClassID,
 			StudentClassEnrollmentClassName: r.StudentClassEnrollmentsClassNameSnapshot,
+
+			// class section (opsional)
+			StudentClassEnrollmentClassSectionID:           r.StudentClassEnrollmentsClassSectionID,
+			StudentClassEnrollmentClassSectionNameSnapshot: r.StudentClassEnrollmentsClassSectionNameSnapshot,
+			StudentClassEnrollmentClassSectionSlugSnapshot: r.StudentClassEnrollmentsClassSectionSlugSnapshot,
 
 			// term (pointer fields dari model)
 			StudentClassEnrollmentTermID:                   r.StudentClassEnrollmentsTermID,
@@ -78,7 +108,7 @@ func FromModelsCompact(src []m.StudentClassEnrollmentModel) []StudentClassEnroll
 			AppliedAt: r.StudentClassEnrollmentsAppliedAt,
 		}
 
-		// derive fields dari payment snapshot
+		// derive fields dari payment snapshot (jsonb)
 		item.PaymentStatus = strFromJSON([]byte(r.StudentClassEnrollmentsPaymentSnapshot), "payment_status")
 		item.PaymentCheckoutURL = strFromJSON([]byte(r.StudentClassEnrollmentsPaymentSnapshot), "payment_checkout_url")
 
@@ -114,10 +144,28 @@ func (r StudentClassEnrollmentCompactResponse) ToModelCompact() m.StudentClassEn
 		StudentClassEnrollmentsTotalDueIDR: r.StudentClassEnrollmentTotalDueIDR,
 
 		// IDs & snapshots
-		StudentClassEnrollmentsSchoolStudentID:          r.StudentClassEnrollmentSchoolStudentID,
-		StudentClassEnrollmentsStudentNameSnapshot:      r.StudentClassEnrollmentStudentName,
-		StudentClassEnrollmentsClassID:                  r.StudentClassEnrollmentClassID,
-		StudentClassEnrollmentsClassNameSnapshot:        r.StudentClassEnrollmentClassName,
+		StudentClassEnrollmentsSchoolStudentID: r.StudentClassEnrollmentSchoolStudentID,
+
+		// snapshot murid
+		StudentClassEnrollmentsUserProfileNameSnapshot:              r.StudentClassEnrollmentStudentName,
+		StudentClassEnrollmentsUserProfileAvatarURLSnapshot:         r.StudentClassEnrollmentStudentAvatarURL,
+		StudentClassEnrollmentsUserProfileWhatsappURLSnapshot:       r.StudentClassEnrollmentStudentWhatsappURL,
+		StudentClassEnrollmentsUserProfileParentNameSnapshot:        r.StudentClassEnrollmentParentName,
+		StudentClassEnrollmentsUserProfileParentWhatsappURLSnapshot: r.StudentClassEnrollmentParentWhatsappURL,
+		StudentClassEnrollmentsUserProfileGenderSnapshot:            r.StudentClassEnrollmentStudentGender,
+		StudentClassEnrollmentsStudentCodeSnapshot:                  r.StudentClassEnrollmentStudentCode,
+		StudentClassEnrollmentsStudentSlugSnapshot:                  r.StudentClassEnrollmentStudentSlug,
+
+		// class
+		StudentClassEnrollmentsClassID:           r.StudentClassEnrollmentClassID,
+		StudentClassEnrollmentsClassNameSnapshot: r.StudentClassEnrollmentClassName,
+
+		// class section
+		StudentClassEnrollmentsClassSectionID:           r.StudentClassEnrollmentClassSectionID,
+		StudentClassEnrollmentsClassSectionNameSnapshot: r.StudentClassEnrollmentClassSectionNameSnapshot,
+		StudentClassEnrollmentsClassSectionSlugSnapshot: r.StudentClassEnrollmentClassSectionSlugSnapshot,
+
+		// term
 		StudentClassEnrollmentsTermID:                   r.StudentClassEnrollmentTermID,
 		StudentClassEnrollmentsTermNameSnapshot:         r.StudentClassEnrollmentTermNameSnapshot,
 		StudentClassEnrollmentsTermAcademicYearSnapshot: r.StudentClassEnrollmentTermAcademicYearSnapshot,

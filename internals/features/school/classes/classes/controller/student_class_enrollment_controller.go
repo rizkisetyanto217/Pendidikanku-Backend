@@ -1,3 +1,4 @@
+// file: internals/features/school/classes/class_enrollments/controller/student_class_enrollment_controller.go
 package controller
 
 import (
@@ -341,11 +342,11 @@ func (ctl *StudentClassEnrollmentController) Create(c *fiber.Ctx) error {
 		StudentClassEnrollmentsAppliedAt:   time.Now(),
 
 		// snapshots
-		StudentClassEnrollmentsClassNameSnapshot:   cls.ClassName,
-		StudentClassEnrollmentsClassSlugSnapshot:   &cls.Slug,
-		StudentClassEnrollmentsStudentNameSnapshot: studentName,
-		StudentClassEnrollmentsStudentCodeSnapshot: stu.Code,
-		StudentClassEnrollmentsStudentSlugSnapshot: &stu.Slug,
+		StudentClassEnrollmentsClassNameSnapshot:       cls.ClassName,
+		StudentClassEnrollmentsClassSlugSnapshot:       &cls.Slug,
+		StudentClassEnrollmentsUserProfileNameSnapshot: studentName,
+		StudentClassEnrollmentsStudentCodeSnapshot:     stu.Code,
+		StudentClassEnrollmentsStudentSlugSnapshot:     &stu.Slug,
 	}
 
 	if body.Preferences != nil {

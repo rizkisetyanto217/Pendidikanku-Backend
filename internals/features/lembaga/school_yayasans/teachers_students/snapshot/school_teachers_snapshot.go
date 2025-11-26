@@ -12,14 +12,21 @@ import (
 )
 
 // TeacherSnapshot: struktur JSON yang disimpan untuk guru.
+// Struktur & nama field disesuaikan dengan kebutuhan FE (class_section, CSST, dll).
 type TeacherSnapshot struct {
-	Name        *string `json:"name,omitempty"`
-	WhatsappURL *string `json:"whatsapp_url,omitempty"`
-	TitlePrefix *string `json:"title_prefix,omitempty"`
-	TitleSuffix *string `json:"title_suffix,omitempty"`
+	ID            string  `json:"id"`                       // school_teacher_id (UUID → string)
+	Name          *string `json:"name,omitempty"`           // nama guru
+	AvatarURL     *string `json:"avatar_url,omitempty"`     // URL avatar
+	WhatsappURL   *string `json:"whatsapp_url,omitempty"`   // link whatsapp
+	TitlePrefix   *string `json:"title_prefix,omitempty"`   // contoh: "Ustadz"
+	TitleSuffix   *string `json:"title_suffix,omitempty"`   // contoh: "Lc"
+	Gender        *string `json:"gender,omitempty"`         // jenis kelamin
+	TeacherNumber *string `json:"teacher_number,omitempty"` // nomor induk / NIP / kode guru
+	TeacherCode   *string `json:"teacher_code,omitempty"`   // kode guru (raw dari school_teacher_code)
 }
 
 // ValidateAndSnapshotTeacher baca data guru + validasi tenant (school).
+// Return: struct snapshot yang siap di-serialize ke JSONB.
 func ValidateAndSnapshotTeacher(
 	tx *gorm.DB,
 	expectSchoolID uuid.UUID,
@@ -31,16 +38,28 @@ func ValidateAndSnapshotTeacher(
 		WhatsappURL *string `gorm:"column:whatsapp_url"`
 		TitlePre    *string `gorm:"column:title_prefix"`
 		TitleSuf    *string `gorm:"column:title_suffix"`
+		AvatarURL   *string `gorm:"column:avatar_url"`
+		Gender      *string `gorm:"column:gender"`
+		TeacherCode *string `gorm:"column:teacher_code"`
 	}
 
-	// Ambil dari school_teachers + fallback nama dari user_teachers
+	// Ambil dari school_teachers + fallback dari user_teachers (schema terbaru)
 	const q = `
 SELECT
-  mt.school_teacher_school_id::text                                       AS school_id,
-  COALESCE(mt.school_teacher_user_teacher_name_snapshot, ut.user_teacher_name) AS teacher_name,
-  ut.user_teacher_whatsapp_url                                             AS whatsapp_url,
-  ut.user_teacher_title_prefix                                             AS title_prefix,
-  ut.user_teacher_title_suffix                                             AS title_suffix
+  mt.school_teacher_school_id::text                                           AS school_id,
+  COALESCE(mt.school_teacher_user_teacher_name_snapshot,
+           ut.user_teacher_name_snapshot)                                     AS teacher_name,
+  COALESCE(mt.school_teacher_user_teacher_whatsapp_url_snapshot,
+           ut.user_teacher_whatsapp_url)                                      AS whatsapp_url,
+  COALESCE(mt.school_teacher_user_teacher_title_prefix_snapshot,
+           ut.user_teacher_title_prefix)                                      AS title_prefix,
+  COALESCE(mt.school_teacher_user_teacher_title_suffix_snapshot,
+           ut.user_teacher_title_suffix)                                      AS title_suffix,
+  COALESCE(mt.school_teacher_user_teacher_avatar_url_snapshot,
+           ut.user_teacher_avatar_url)                                        AS avatar_url,
+  COALESCE(mt.school_teacher_user_teacher_gender_snapshot,
+           ut.user_teacher_gender)                                            AS gender,
+  mt.school_teacher_code                                                      AS teacher_code
 FROM school_teachers mt
 LEFT JOIN user_teachers ut
   ON ut.user_teacher_id = mt.school_teacher_user_teacher_id
@@ -56,6 +75,7 @@ LIMIT 1`
 	if strings.TrimSpace(row.SchoolID) == "" {
 		return nil, fiber.NewError(fiber.StatusBadRequest, "Guru tidak ditemukan")
 	}
+
 	rmz, perr := uuid.Parse(strings.TrimSpace(row.SchoolID))
 	if perr != nil {
 		return nil, fiber.NewError(fiber.StatusInternalServerError, "Format school_id guru tidak valid")
@@ -75,32 +95,77 @@ LIMIT 1`
 		return &v
 	}
 
-	return &TeacherSnapshot{
-		Name:        trimPtr(row.Name),
-		WhatsappURL: trimPtr(row.WhatsappURL),
-		TitlePrefix: trimPtr(row.TitlePre),
-		TitleSuffix: trimPtr(row.TitleSuf),
-	}, nil
+	// Sementara: teacher_number & teacher_code sama-sama ambil dari school_teacher_code
+	code := trimPtr(row.TeacherCode)
+
+	snap := &TeacherSnapshot{
+		ID:            teacherID.String(),
+		Name:          trimPtr(row.Name),
+		AvatarURL:     trimPtr(row.AvatarURL),
+		WhatsappURL:   trimPtr(row.WhatsappURL),
+		TitlePrefix:   trimPtr(row.TitlePre),
+		TitleSuffix:   trimPtr(row.TitleSuf),
+		Gender:        trimPtr(row.Gender),
+		TeacherNumber: code,
+		TeacherCode:   code,
+	}
+
+	return snap, nil
 }
 
-// ToJSON ubah TeacherSnapshot → datatypes.JSON
+// ToJSON ubah TeacherSnapshot → datatypes.JSON (untuk disimpan di kolom JSONB).
 func ToJSON(ts *TeacherSnapshot) datatypes.JSON {
 	if ts == nil {
 		return datatypes.JSON([]byte("null"))
 	}
+
 	m := map[string]any{}
-	if ts.Name != nil && strings.TrimSpace(*ts.Name) != "" {
-		m["name"] = *ts.Name
+
+	// ID selalu diset (school_teacher_id)
+	if strings.TrimSpace(ts.ID) != "" {
+		m["id"] = strings.TrimSpace(ts.ID)
 	}
-	if ts.WhatsappURL != nil && strings.TrimSpace(*ts.WhatsappURL) != "" {
-		m["whatsapp_url"] = *ts.WhatsappURL
+
+	trim := func(p *string) (string, bool) {
+		if p == nil {
+			return "", false
+		}
+		v := strings.TrimSpace(*p)
+		if v == "" {
+			return "", false
+		}
+		return v, true
 	}
-	if ts.TitlePrefix != nil && strings.TrimSpace(*ts.TitlePrefix) != "" {
-		m["title_prefix"] = *ts.TitlePrefix
+
+	if v, ok := trim(ts.Name); ok {
+		m["name"] = v
 	}
-	if ts.TitleSuffix != nil && strings.TrimSpace(*ts.TitleSuffix) != "" {
-		m["title_suffix"] = *ts.TitleSuffix
+	if v, ok := trim(ts.AvatarURL); ok {
+		m["avatar_url"] = v
 	}
+	if v, ok := trim(ts.WhatsappURL); ok {
+		m["whatsapp_url"] = v
+	}
+	if v, ok := trim(ts.TitlePrefix); ok {
+		m["title_prefix"] = v
+	}
+	if v, ok := trim(ts.TitleSuffix); ok {
+		m["title_suffix"] = v
+	}
+	if v, ok := trim(ts.Gender); ok {
+		m["gender"] = v
+	}
+	if v, ok := trim(ts.TeacherNumber); ok {
+		m["teacher_number"] = v
+	}
+	if v, ok := trim(ts.TeacherCode); ok {
+		m["teacher_code"] = v
+	}
+
+	if len(m) == 0 {
+		return datatypes.JSON([]byte("null"))
+	}
+
 	if b, err := json.Marshal(m); err == nil {
 		return datatypes.JSON(b)
 	}

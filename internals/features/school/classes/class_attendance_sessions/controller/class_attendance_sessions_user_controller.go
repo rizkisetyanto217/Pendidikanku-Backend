@@ -78,11 +78,8 @@ func jsonToMap(j datatypes.JSON) map[string]any {
 	return m
 }
 
-// ===============================
-// Handlers
-// ===============================
-
 // parse "HH:MM[:SS]" jadi *time.Time (tanggal dummy 2000-01-01)
+// (sekarang tidak dipakai lagi karena DTO pakai *string, boleh dihapus kalau mau)
 func parseRuleTimeToPtr(s *string) *time.Time {
 	if s == nil {
 		return nil
@@ -95,12 +92,10 @@ func parseRuleTimeToPtr(s *string) *time.Time {
 	layouts := []string{"15:04:05", "15:04"}
 	for _, layout := range layouts {
 		if t, err := time.Parse(layout, str); err == nil {
-			// pakai tanggal dummy supaya hanya time-of-day yang dipakai
 			tt := time.Date(2000, 1, 1, t.Hour(), t.Minute(), t.Second(), 0, time.Local)
 			return &tt
 		}
 	}
-	// kalau gagal parse, kita fallback nil aja (nggak hard error)
 	return nil
 }
 
@@ -115,13 +110,11 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	// ===== School context: ambil dari token dulu =====
 	var schoolID uuid.UUID
 
-	// Prioritas: token teacher / active-school style
 	if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
 		schoolID = id
 	} else if id, err := helperAuth.GetActiveSchoolID(c); err == nil && id != uuid.Nil {
 		schoolID = id
 	} else {
-		// fallback terakhir (kalau memang masih pakai path/slug di beberapa route)
 		if mc, err := helperAuth.ResolveSchoolContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
 			if mc.ID != uuid.Nil {
 				schoolID = mc.ID
@@ -199,7 +192,6 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	var err error
 
 	if !isNearest {
-		// mode biasa → pakai date_from/date_to
 		df, err = parseYmd(c.Query("date_from"))
 		if err != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "date_from tidak valid (YYYY-MM-DD)")
@@ -262,8 +254,6 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 
 	// ===== Filter waktu =====
 	if isNearest {
-		// Mode terdekat: gunakan starts_at sebagai acuan,
-		// ambil sesi dengan starts_at antara sekarang dan 3 hari ke depan.
 		now := time.Now()
 		threeDaysLater := now.AddDate(0, 0, 3)
 
@@ -273,10 +263,8 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			AND cas.class_attendance_session_starts_at <= ?
 		`, now, threeDaysLater)
 
-		// Override sorting: paling dekat dengan jam sekarang di atas
 		orderExpr = "cas.class_attendance_session_starts_at ASC, cas.class_attendance_session_date ASC, cas.class_attendance_session_id ASC"
 	} else {
-		// Mode biasa: pakai date_from/date_to
 		if df != nil && dt != nil {
 			qBase = qBase.Where("cas.class_attendance_session_date BETWEEN ? AND ?", *df, *dt)
 		} else if df != nil {
@@ -327,9 +315,12 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		ID       uuid.UUID `gorm:"column:class_attendance_session_id"`
 		SchoolID uuid.UUID `gorm:"column:class_attendance_session_school_id"`
 
-		// relasi jadwal & rule
+		// relasi jadwal & rule & type
 		ScheduleID *uuid.UUID `gorm:"column:class_attendance_session_schedule_id"`
 		RuleID     *uuid.UUID `gorm:"column:class_attendance_session_rule_id"`
+
+		TypeID   *uuid.UUID     `gorm:"column:class_attendance_session_type_id"`
+		TypeSnap datatypes.JSON `gorm:"column:class_attendance_session_type_snapshot"`
 
 		// slug
 		Slug *string `gorm:"column:class_attendance_session_slug"`
@@ -402,13 +393,14 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 
 	var rows []row
 
-	// build query select + order (order kedua hanya dipakai di mode biasa)
 	qSelect := qBase.
 		Select(`
 			cas.class_attendance_session_id,
 			cas.class_attendance_session_school_id,
 			cas.class_attendance_session_schedule_id,
 			cas.class_attendance_session_rule_id,
+			cas.class_attendance_session_type_id,
+			cas.class_attendance_session_type_snapshot,
 			cas.class_attendance_session_slug,
 			cas.class_attendance_session_date,
 			cas.class_attendance_session_starts_at,
@@ -459,7 +451,6 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		Order(orderExpr)
 
 	if !isNearest {
-		// mode biasa: tambahkan order tambahan by date desc
 		qSelect = qSelect.Order("cas.class_attendance_session_date DESC, cas.class_attendance_session_id DESC")
 	}
 
@@ -475,7 +466,6 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		pageIDs = append(pageIDs, r.ID)
 	}
 
-	// ===== Prefetch UA (opsional) =====
 	// ===== Prefetch Participants (opsional) =====
 	type SessionParticipantLite struct {
 		ParticipantID     uuid.UUID  `json:"participant_id"`
@@ -506,7 +496,6 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	partMap := map[uuid.UUID][]SessionParticipantLite{}
 
 	if wantParticipants && len(rows) > 0 {
-		// filter via query param baru
 		state := strings.ToLower(strings.TrimSpace(c.Query("participant_state")))
 		kind := strings.ToLower(strings.TrimSpace(c.Query("participant_kind")))
 
@@ -515,7 +504,6 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			return err
 		}
 
-		// filter by student
 		var studentIDs []uuid.UUID
 		if ids, err := parseUUIDList(c.Query("participant_student_id")); err != nil {
 			return err
@@ -527,14 +515,12 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			studentIDs = ids
 		}
 
-		// text search
 		var like *string
 		if q := strings.TrimSpace(c.Query("participant_q")); q != "" {
 			pat := "%" + q + "%"
 			like = &pat
 		}
 
-		// is_passed
 		var isPassedPtr *bool
 		if s := strings.TrimSpace(c.Query("participant_is_passed")); s != "" {
 			if b, e := strconv.ParseBool(s); e == nil {
@@ -544,7 +530,6 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			}
 		}
 
-		// ==== QUERY ke tabel baru: class_attendance_session_participants ====
 		paQ := ctrl.DB.Table("class_attendance_session_participants AS p").
 			Where("p.class_attendance_session_participant_deleted_at IS NULL").
 			Where("p.class_attendance_session_participant_school_id = ?", schoolID).
@@ -573,7 +558,6 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			paQ = paQ.Where("p.class_attendance_session_participant_is_passed = ?", *isPassedPtr)
 		}
 
-		// Role-scope Student/Parent (hanya boleh lihat participant miliknya)
 		if !isAdmin && !isTeacher {
 			if userID == uuid.Nil {
 				return helper.JsonError(c, fiber.StatusUnauthorized, "User tidak terautentik")
@@ -675,7 +659,7 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		}
 	}
 
-	// ===== Compose response (UPDATED to DTO) =====
+	// ===== Compose response (UPDATED to DTO terbaru) =====
 	buildBase := func(r row) sessiondto.ClassAttendanceSessionResponse {
 		gen := ""
 		if r.Gen != nil {
@@ -683,44 +667,16 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		}
 
 		return sessiondto.ClassAttendanceSessionResponse{
-			// kunci & tenant
-			ClassAttendanceSessionId:       r.ID,
-			ClassAttendanceSessionSchoolId: r.SchoolID,
-
-			// relasi jadwal
+			ClassAttendanceSessionId:         r.ID,
+			ClassAttendanceSessionSchoolId:   r.SchoolID,
 			ClassAttendanceSessionScheduleId: r.ScheduleID,
-			ClassAttendanceSessionSlug:       r.Slug,
 
-			// waktu
-			ClassAttendanceSessionDate:     r.Date,
-			ClassAttendanceSessionStartsAt: r.StartsAt,
-			ClassAttendanceSessionEndsAt:   r.EndsAt,
-
-			// status
-			ClassAttendanceSessionStatus:           r.Status,
-			ClassAttendanceSessionAttendanceStatus: r.AttendanceStatus,
-			ClassAttendanceSessionLocked:           r.Locked,
-			ClassAttendanceSessionIsOverride:       r.IsOverride,
-			ClassAttendanceSessionIsCanceled:       r.IsCanceled,
-
-			ClassAttendanceSessionOriginalStartAt: r.OriginalStartAt,
-			ClassAttendanceSessionOriginalEndAt:   r.OriginalEndAt,
-			ClassAttendanceSessionKind:            r.Kind,
-			ClassAttendanceSessionOverrideReason:  r.OverrideReason,
-			ClassAttendanceSessionOverrideEventId: r.OverrideEventID,
-
-			// relasi guru & ruang
-			ClassAttendanceSessionTeacherId:   r.TeacherID,
-			ClassAttendanceSessionClassRoomId: r.RoomID,
-
-			// CSST relasi
-			ClassAttendanceSessionCSSTId: r.CSSTID,
-
-			// teks tampilan
+			ClassAttendanceSessionSlug:         r.Slug,
 			ClassAttendanceSessionTitle:        r.Title,
 			ClassAttendanceSessionDisplayTitle: r.DisplayTitle,
-			ClassAttendanceSessionGeneralInfo:  gen,
-			ClassAttendanceSessionNote:         r.Note,
+
+			ClassAttendanceSessionGeneralInfo: gen,
+			ClassAttendanceSessionNote:        r.Note,
 
 			// counters
 			ClassAttendanceSessionPresentCount: r.PresentCount,
@@ -730,7 +686,35 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			ClassAttendanceSessionSickCount:    r.SickCount,
 			ClassAttendanceSessionLeaveCount:   r.LeaveCount,
 
-			// snapshot CSST — dikembalikan sebagai map (bukan string mentah)
+			// occurrence
+			ClassAttendanceSessionDate:     r.Date,
+			ClassAttendanceSessionStartsAt: r.StartsAt,
+			ClassAttendanceSessionEndsAt:   r.EndsAt,
+
+			// lifecycle
+			ClassAttendanceSessionStatus:           r.Status,
+			ClassAttendanceSessionAttendanceStatus: r.AttendanceStatus,
+			ClassAttendanceSessionLocked:           r.Locked,
+
+			// overrides
+			ClassAttendanceSessionIsOverride:      r.IsOverride,
+			ClassAttendanceSessionIsCanceled:      r.IsCanceled,
+			ClassAttendanceSessionOriginalStartAt: r.OriginalStartAt,
+			ClassAttendanceSessionOriginalEndAt:   r.OriginalEndAt,
+			ClassAttendanceSessionKind:            r.Kind,
+			ClassAttendanceSessionOverrideReason:  r.OverrideReason,
+			ClassAttendanceSessionOverrideEventId: r.OverrideEventID,
+
+			// override resources
+			ClassAttendanceSessionTeacherId:   r.TeacherID,
+			ClassAttendanceSessionClassRoomId: r.RoomID,
+			ClassAttendanceSessionCSSTId:      r.CSSTID,
+
+			// TYPE (baru)
+			ClassAttendanceSessionTypeId:       r.TypeID,
+			ClassAttendanceSessionTypeSnapshot: jsonToMap(r.TypeSnap),
+
+			// snapshot CSST
 			ClassAttendanceSessionCSSTSnapshot: jsonToMap(r.CSSTSnap),
 
 			ClassAttendanceSessionCSSTIdSnapshot:      r.CSSTIDSnapshot,
@@ -744,11 +728,11 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			ClassAttendanceSessionTeacherNameSnapshot: r.TeacherNameSnapshot,
 			ClassAttendanceSessionRoomNameSnapshot:    r.RoomNameSnapshot,
 
-			// rule snapshot — juga dikembalikan sebagai map
+			// rule snapshot
 			ClassAttendanceSessionRuleSnapshot:           jsonToMap(r.RuleSnapshot),
 			ClassAttendanceSessionRuleDayOfWeekSnapshot:  r.RuleDayOfWeekSnapshot,
-			ClassAttendanceSessionRuleStartTimeSnapshot:  parseRuleTimeToPtr(r.RuleStartTimeSnapshot),
-			ClassAttendanceSessionRuleEndTimeSnapshot:    parseRuleTimeToPtr(r.RuleEndTimeSnapshot),
+			ClassAttendanceSessionRuleStartTimeSnapshot:  r.RuleStartTimeSnapshot,
+			ClassAttendanceSessionRuleEndTimeSnapshot:    r.RuleEndTimeSnapshot,
 			ClassAttendanceSessionRuleWeekParitySnapshot: r.RuleWeekParitySnapshot,
 
 			// audit
@@ -758,7 +742,6 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		}
 	}
 
-	// ===== Meta =====
 	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)
 
 	if wantParticipants {
