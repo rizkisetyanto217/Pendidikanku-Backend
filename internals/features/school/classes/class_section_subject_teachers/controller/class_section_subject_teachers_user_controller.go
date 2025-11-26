@@ -22,7 +22,7 @@ type listQuery struct {
 	WithDeleted *bool `query:"with_deleted"`
 	Limit       *int  `query:"limit"`
 	Offset      *int  `query:"offset"`
-	// created_at|updated_at|subject_name|section_name|teacher_name|book_title|slug
+	// created_at|updated_at|subject_name|section_name|teacher_name|slug
 	OrderBy *string `query:"order_by"`
 	// asc|desc
 	Sort *string `query:"sort"`
@@ -58,7 +58,7 @@ func parseUUIDList(s string) ([]uuid.UUID, error) {
 
 /* ================================ Handler (NO-JOIN) ================================ */
 
-// Satu endpoint saja:
+// Satu endpoint:
 //
 //	GET /api/u/class-section-subject-teachers/list
 //
@@ -70,7 +70,7 @@ func parseUUIDList(s string) ([]uuid.UUID, error) {
 //   - ?q=...
 //   - ?is_active=...
 //   - ?with_deleted=...
-//   - ?order_by=created_at|updated_at|subject_name|section_name|teacher_name|book_title|slug
+//   - ?order_by=created_at|updated_at|subject_name|section_name|teacher_name|slug
 //   - ?sort=asc|desc
 //   - paging: ?page=&per_page= (ResolvePaging) atau ?limit=&offset=
 func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
@@ -82,7 +82,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		schoolID = sid
 	}
 
-	// (opsional) fallback: kalau suatu saat dipakai di route lain yg pakai :school_id atau :school_slug
+	// (opsional) fallback: :school_id
 	if schoolID == uuid.Nil {
 		if raw := strings.TrimSpace(c.Params("school_id")); raw != "" {
 			id, err := uuid.Parse(raw)
@@ -92,6 +92,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 			schoolID = id
 		}
 	}
+	// fallback: :school_slug
 	if schoolID == uuid.Nil {
 		if slug := strings.TrimSpace(c.Params("school_slug")); slug != "" {
 			id, er := helperAuth.GetSchoolIDBySlug(c, slug)
@@ -130,7 +131,6 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	limit, offset := p.Limit, p.Offset
 
 	// ==== Query params khusus ====
-	// Dukung dua nama section_id via query:
 	rawSectionID := strings.TrimSpace(c.Query("section_id"))
 	rawClassSectionID := strings.TrimSpace(c.Query("class_section_id"))
 
@@ -197,12 +197,10 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 			orderCol = "class_section_subject_teacher_class_section_name_snapshot"
 		case "teacher_name":
 			orderCol = "class_section_subject_teacher_school_teacher_name_snapshot"
-		case "book_title":
-			orderCol = "class_section_subject_teacher_book_title_snapshot"
 		case "slug":
 			orderCol = "class_section_subject_teacher_slug"
 		default:
-			return helper.JsonError(c, fiber.StatusBadRequest, "order_by tidak dikenal (gunakan: created_at, updated_at, subject_name, section_name, teacher_name, book_title, slug)")
+			return helper.JsonError(c, fiber.StatusBadRequest, "order_by tidak dikenal (gunakan: created_at, updated_at, subject_name, section_name, teacher_name, slug)")
 		}
 	}
 	sortDir := "ASC"
@@ -242,13 +240,12 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 			LOWER(class_section_subject_teacher_slug) LIKE ? OR
 			LOWER(class_section_subject_teacher_class_section_name_snapshot) LIKE ? OR
 			LOWER(class_section_subject_teacher_subject_name_snapshot) LIKE ? OR
-			LOWER(class_section_subject_teacher_school_teacher_name_snapshot) LIKE ? OR
-			LOWER(class_section_subject_teacher_book_title_snapshot) LIKE ?`,
-			like, like, like, like, like,
+			LOWER(class_section_subject_teacher_school_teacher_name_snapshot) LIKE ?`,
+			like, like, like, like,
 		)
 	}
 
-	// COUNT
+	// COUNT (pakai kondisi yang sama)
 	countTx := ctl.DB.
 		Model(&modelCSST.ClassSectionSubjectTeacherModel{}).
 		Where("class_section_subject_teacher_school_id = ?", schoolID)
@@ -277,9 +274,8 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 			LOWER(class_section_subject_teacher_slug) LIKE ? OR
 			LOWER(class_section_subject_teacher_class_section_name_snapshot) LIKE ? OR
 			LOWER(class_section_subject_teacher_subject_name_snapshot) LIKE ? OR
-			LOWER(class_section_subject_teacher_school_teacher_name_snapshot) LIKE ? OR
-			LOWER(class_section_subject_teacher_book_title_snapshot) LIKE ?`,
-			like, like, like, like, like,
+			LOWER(class_section_subject_teacher_school_teacher_name_snapshot) LIKE ?`,
+			like, like, like, like,
 		)
 	}
 
@@ -298,7 +294,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Map ke DTO (sekalian decode teacher snapshot JSONB → TeacherSnapshot struct)
+	// Map ke DTO (decode teacher snapshot JSONB → TeacherSnapshot struct)
 	resp := csstDTO.FromClassSectionSubjectTeacherModels(rows)
 
 	pg := helper.BuildPaginationFromOffset(total, offset, limit)

@@ -192,6 +192,10 @@ type ClassSectionSubjectTeacherResponse struct {
 	// ➕ NEW: total books
 	ClassSectionSubjectTeacherTotalBooks int `json:"class_section_subject_teacher_total_books"`
 
+	// ➕ NEW: gender breakdown
+	ClassSectionSubjectTeacherTotalStudentsMale   int `json:"class_section_subject_teacher_total_students_male"`
+	ClassSectionSubjectTeacherTotalStudentsFemale int `json:"class_section_subject_teacher_total_students_female"`
+
 	/* ===== SECTION snapshots (varchar/text) ===== */
 	ClassSectionSubjectTeacherClassSectionSlugSnapshot *string `json:"class_section_subject_teacher_class_section_slug_snapshot,omitempty"`
 	ClassSectionSubjectTeacherClassSectionNameSnapshot *string `json:"class_section_subject_teacher_class_section_name_snapshot,omitempty"`
@@ -350,12 +354,16 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 		ClassSectionSubjectTeacherTotalMeetingsTarget:      m.ClassSectionSubjectTeacherTotalMeetingsTarget,
 		ClassSectionSubjectTeacherCapacity:                 m.ClassSectionSubjectTeacherCapacity,
 		ClassSectionSubjectTeacherEnrolledCount:            m.ClassSectionSubjectTeacherEnrolledCount,
-		ClassSectionSubjectTeacherTotalBooks:               m.ClassSectionSubjectTeacherTotalBooks,
 		ClassSectionSubjectTeacherTotalAssessments:         m.ClassSectionSubjectTeacherTotalAssessments,
 		ClassSectionSubjectTeacherTotalAssessmentsGraded:   m.ClassSectionSubjectTeacherTotalAssessmentsGraded,
 		ClassSectionSubjectTeacherTotalAssessmentsUngraded: m.ClassSectionSubjectTeacherTotalAssessmentsUngraded,
 		ClassSectionSubjectTeacherTotalStudentsPassed:      m.ClassSectionSubjectTeacherTotalStudentsPassed,
 		ClassSectionSubjectTeacherDeliveryMode:             string(m.ClassSectionSubjectTeacherDeliveryMode),
+		ClassSectionSubjectTeacherTotalBooks:               m.ClassSectionSubjectTeacherTotalBooks,
+
+		// ➕ gender breakdown
+		ClassSectionSubjectTeacherTotalStudentsMale:   m.ClassSectionSubjectTeacherTotalStudentsMale,
+		ClassSectionSubjectTeacherTotalStudentsFemale: m.ClassSectionSubjectTeacherTotalStudentsFemale,
 
 		// SECTION snapshots
 		ClassSectionSubjectTeacherClassSectionSlugSnapshot: m.ClassSectionSubjectTeacherClassSectionSlugSnapshot,

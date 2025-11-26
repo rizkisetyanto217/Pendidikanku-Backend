@@ -617,7 +617,7 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 				if errors.As(err, &fe) {
 					return helper.JsonError(c, fe.Code, fe.Message)
 				}
-				return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+				return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 			}
 		}
 
@@ -639,7 +639,7 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 				if errors.As(err, &fe) {
 					return helper.JsonError(c, fe.Code, fe.Message)
 				}
-				return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+				return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 			}
 		}
 

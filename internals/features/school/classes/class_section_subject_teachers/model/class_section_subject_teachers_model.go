@@ -43,8 +43,12 @@ type ClassSectionSubjectTeacherModel struct {
 	ClassSectionSubjectTeacherTotalAssessmentsGraded   int  `gorm:"not null;default:0;column:class_section_subject_teacher_total_assessments_graded" json:"class_section_subject_teacher_total_assessments_graded"`
 	ClassSectionSubjectTeacherTotalAssessmentsUngraded int  `gorm:"not null;default:0;column:class_section_subject_teacher_total_assessments_ungraded" json:"class_section_subject_teacher_total_assessments_ungraded"`
 
-	// NEW: total murid lulus passing score
+	// total murid lulus passing score
 	ClassSectionSubjectTeacherTotalStudentsPassed int `gorm:"not null;default:0;column:class_section_subject_teacher_total_students_passed" json:"class_section_subject_teacher_total_students_passed"`
+
+	// NEW: breakdown gender
+	ClassSectionSubjectTeacherTotalStudentsMale   int `gorm:"not null;default:0;column:class_section_subject_teacher_total_students_male" json:"class_section_subject_teacher_total_students_male"`
+	ClassSectionSubjectTeacherTotalStudentsFemale int `gorm:"not null;default:0;column:class_section_subject_teacher_total_students_female" json:"class_section_subject_teacher_total_students_female"`
 
 	/* ===== Delivery mode (enum) ===== */
 	ClassSectionSubjectTeacherDeliveryMode ClassDeliveryMode `gorm:"type:class_delivery_mode_enum;not null;default:'offline';column:class_section_subject_teacher_delivery_mode" json:"class_section_subject_teacher_delivery_mode"`
@@ -75,16 +79,12 @@ type ClassSectionSubjectTeacherModel struct {
 	ClassSectionSubjectTeacherAssistantSchoolTeacherSlugSnapshot *string         `gorm:"type:varchar(160);column:class_section_subject_teacher_assistant_school_teacher_slug_snapshot" json:"class_section_subject_teacher_assistant_school_teacher_slug_snapshot,omitempty"`
 	ClassSectionSubjectTeacherAssistantSchoolTeacherSnapshot     *datatypes.JSON `gorm:"type:jsonb;column:class_section_subject_teacher_assistant_school_teacher_snapshot" json:"class_section_subject_teacher_assistant_school_teacher_snapshot,omitempty"`
 
-
-	// Total books
-	ClassSectionSubjectTeacherTotalBooks int `gorm:"column:class_section_subject_teacher_total_books" json:"class_section_subject_teacher_total_books"`
-
-
 	// generated names (read-only)
 	ClassSectionSubjectTeacherSchoolTeacherNameSnapshot          *string `gorm:"->;column:class_section_subject_teacher_school_teacher_name_snapshot" json:"class_section_subject_teacher_school_teacher_name_snapshot,omitempty"`
 	ClassSectionSubjectTeacherAssistantSchoolTeacherNameSnapshot *string `gorm:"->;column:class_section_subject_teacher_assistant_school_teacher_name_snapshot" json:"class_section_subject_teacher_assistant_school_teacher_name_snapshot,omitempty"`
 
 	/* ===== SUBJECT (via CLASS_SUBJECT) snapshot ===== */
+	ClassSectionSubjectTeacherTotalBooks          int        `gorm:"not null;default:0;column:class_section_subject_teacher_total_books" json:"class_section_subject_teacher_total_books"`
 	ClassSectionSubjectTeacherClassSubjectID      uuid.UUID  `gorm:"type:uuid;not null;column:class_section_subject_teacher_class_subject_id" json:"class_section_subject_teacher_class_subject_id"`
 	ClassSectionSubjectTeacherSubjectIDSnapshot   *uuid.UUID `gorm:"type:uuid;column:class_section_subject_teacher_subject_id_snapshot" json:"class_section_subject_teacher_subject_id_snapshot,omitempty"`
 	ClassSectionSubjectTeacherSubjectNameSnapshot *string    `gorm:"type:varchar(160);column:class_section_subject_teacher_subject_name_snapshot" json:"class_section_subject_teacher_subject_name_snapshot,omitempty"`

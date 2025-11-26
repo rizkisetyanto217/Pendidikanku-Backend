@@ -95,6 +95,28 @@ func reqID(c *fiber.Ctx) string {
 	return "-"
 }
 
+// isTeacherProfileCompleted: aturan sederhana kapan profil dianggap "lengkap"
+func isTeacherProfileCompleted(m *model.UserTeacherModel) bool {
+	trim := func(p *string) string {
+		if p == nil {
+			return ""
+		}
+		return strings.TrimSpace(*p)
+	}
+
+	// Wajib minimal:
+	// - Nama snapshot (string langsung di field)
+	// - Whatsapp
+	// - Gender
+	// - Field KEAHLIAN atau ShortBio
+	nameOK := strings.TrimSpace(m.UserTeacherNameSnapshot) != ""
+	waOK := trim(m.UserTeacherWhatsappURL) != ""
+	genderOK := trim(m.UserTeacherGender) != ""
+	fieldOK := trim(m.UserTeacherField) != "" || trim(m.UserTeacherShortBio) != ""
+
+	return nameOK && waOK && genderOK && fieldOK
+}
+
 func ctIsMultipart(ct string) bool {
 	ct = strings.ToLower(strings.TrimSpace(ct))
 	return strings.HasPrefix(ct, "multipart/form-data") || strings.Contains(ct, "multipart/form-data")
@@ -752,7 +774,6 @@ func (uc *UserTeacherController) PatchMe(c *fiber.Ctx) error {
 			// Langsung bind form-data → struct (pakai tag form:"...")
 			if err := c.BodyParser(&in); err != nil {
 				log.Println("[WARN] multipart BodyParser error:", err)
-				// kalau mau, bisa lanjut fallback manual, tapi untuk teacher biasanya cukup
 			}
 		}
 	} else {
@@ -763,7 +784,6 @@ func (uc *UserTeacherController) PatchMe(c *fiber.Ctx) error {
 	}
 
 	// =========== APPLY PATCH KE MODEL ===========
-	// Mulai dari kondisi "before"
 	after := before
 	in.ApplyPatch(&after)
 
@@ -806,9 +826,21 @@ func (uc *UserTeacherController) PatchMe(c *fiber.Ctx) error {
 		}
 	}
 
-	// TODO (kalau mau): auto logic is_completed, misal:
-	// - WA + field tertentu terisi → completed
-	// - kalau belum, turunkan flag
+	// =========== AUTO FLAG: is_completed & completed_at ===========
+	wasCompleted := before.UserTeacherIsCompleted
+	nowCompleted := isTeacherProfileCompleted(&after) // helper di bawah
+
+	if nowCompleted && !wasCompleted {
+		after.UserTeacherIsCompleted = true
+		if after.UserTeacherCompletedAt == nil {
+			after.UserTeacherCompletedAt = &now
+		}
+	} else if !nowCompleted && wasCompleted {
+		// turun kasta: profil jadi tidak lengkap lagi
+		after.UserTeacherIsCompleted = false
+		after.UserTeacherCompletedAt = nil
+	}
+	// kalau sama-sama true atau sama-sama false → biarkan timestamp apa adanya
 
 	// =========== SAVE ===========
 	if err := uc.DB.Save(&after).Error; err != nil {
