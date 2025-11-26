@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"madinahsalam_backend/internals/features/school/academics/academic_terms/dto"
+	academicsDTO "madinahsalam_backend/internals/features/school/academics/academic_terms/dto"
 	termModel "madinahsalam_backend/internals/features/school/academics/academic_terms/model"
 
 	feeRuleModel "madinahsalam_backend/internals/features/finance/billings/model"
@@ -26,13 +26,11 @@ import (
 
 var fallbackValidator = validator.New()
 
-// Struct khusus kalau ada include.
-// NOTE: dto.AcademicTermResponseDTO sekarang SUDAH termasuk:
-//   - total classes/sections/students/teachers/enrollments
-//   - total students male/female
-//   - academic_term_stats jsonb
+// NOTE: academicsDTO.AcademicTermResponseDTO sekarang sudah include:
+// - ALL stats + ACTIVE stats
+// - academic_term_stats jsonb
 type AcademicTermWithRelations struct {
-	Term          dto.AcademicTermResponseDTO           `json:"term"`
+	Term          academicsDTO.AcademicTermResponseDTO  `json:"term"`
 	Classes       []classModel.ClassModel               `json:"classes,omitempty"`
 	ClassSections []classSectionModel.ClassSectionModel `json:"class_sections,omitempty"`
 	FeeRules      []feeRuleModel.FeeRule                `json:"fee_rules,omitempty"`
@@ -43,7 +41,9 @@ type AcademicTermWithRelations struct {
 // List academic terms + optional include
 func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	// Biar helper lain yang baca dari Locals("DB") tetap bisa jalan
-	c.Locals("DB", ctl.DB)
+	if c.Locals("DB") == nil {
+		c.Locals("DB", ctl.DB)
+	}
 
 	var schoolID uuid.UUID
 
@@ -108,7 +108,7 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	}
 
 	// ==== Query → DTO + validasi ====
-	var q dto.AcademicTermFilterDTO
+	var q academicsDTO.AcademicTermFilterDTO
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid query: "+err.Error())
 	}
@@ -122,15 +122,22 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Validation failed: "+err.Error())
 	}
 
-	// ==== Paging (helper baru) ====
+	// ==== Paging ====
 	p := helper.ResolvePaging(c, 20, 100) // default 20, max 100
 
-	// ==== Sorting whitelist (manual) ====
-	sortBy := strings.ToLower(strings.TrimSpace(c.Query("sort_by", "created_at")))
-	order := strings.ToLower(strings.TrimSpace(c.Query("sort", "desc")))
+	// ==== Sorting whitelist (pakai DTO.SortBy / SortDir) ====
+	sortBy := "created_at"
+	if q.SortBy != nil && strings.TrimSpace(*q.SortBy) != "" {
+		sortBy = strings.ToLower(strings.TrimSpace(*q.SortBy))
+	}
+	order := "desc"
+	if q.SortDir != nil && strings.TrimSpace(*q.SortDir) != "" {
+		order = strings.ToLower(strings.TrimSpace(*q.SortDir))
+	}
 	if order != "asc" && order != "desc" {
 		order = "desc"
 	}
+
 	colMap := map[string]string{
 		"created_at": "academic_term_created_at",
 		"updated_at": "academic_term_updated_at",
@@ -152,17 +159,18 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	dbq := ctl.DB.Model(&termModel.AcademicTermModel{}).
 		Where("academic_term_school_id = ? AND academic_term_deleted_at IS NULL", schoolID)
 
-	// ===== Filters (TERM) =====
-	// id (single; toleransi quotes / null / undefined)
-	if rawID, has := c.Queries()["id"]; has {
-		cleaned := strings.Trim(rawID, `"' {}`)
-		low := strings.ToLower(strings.TrimSpace(cleaned))
-		if cleaned != "" && low != "null" && low != "undefined" {
-			if termID, err := uuid.Parse(cleaned); err == nil {
-				dbq = dbq.Where("academic_term_id = ?", termID)
-			}
+	// ===== Filters (TERM) pakai DTO =====
+
+	// ID (uuid) dari DTO
+	if q.ID != nil && strings.TrimSpace(*q.ID) != "" {
+		idStr := strings.TrimSpace(*q.ID)
+		termID, err := uuid.Parse(idStr)
+		if err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "id invalid")
 		}
+		dbq = dbq.Where("academic_term_id = ?", termID)
 	}
+
 	if q.Year != nil && strings.TrimSpace(*q.Year) != "" {
 		dbq = dbq.Where("academic_term_academic_year = ?", strings.TrimSpace(*q.Year))
 	}
@@ -198,12 +206,12 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Query failed: "+err.Error())
 	}
 
-	// ===== Pagination (pakai helper) =====
+	// ===== Pagination =====
 	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)
 
-	// Kalau tidak request include sama sekali → B/C lama (pure DTO list)
+	// Kalau tidak request include sama sekali → pure DTO list
 	if !includeClasses && !includeSections && !includeFeeRules {
-		return helper.JsonList(c, "ok", dto.FromModels(list), pg)
+		return helper.JsonList(c, "ok", academicsDTO.FromModels(list), pg)
 	}
 
 	// Kalau nggak ada data, tapi include diminta → return kosong dengan shape include
@@ -226,7 +234,7 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 			Where("class_school_id = ? AND class_deleted_at IS NULL", schoolID).
 			Where("class_academic_term_id IN ?", termIDs)
 
-		// Tambahan filter untuk classes (opsional, bisa kamu sesuaikan):
+		// Tambahan filter untuk classes (opsional):
 		if v := strings.TrimSpace(c.Query("class_status")); v != "" {
 			dbClass = dbClass.Where("class_status = ?", v)
 		}
@@ -264,6 +272,8 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 		if v := strings.TrimSpace(c.Query("class_section_is_active")); v != "" {
 			if b, err := strconv.ParseBool(v); err == nil {
 				dbSec = dbSec.Where("class_section_is_active = ?", b)
+			} else {
+				return helper.JsonError(c, fiber.StatusBadRequest, "class_section_is_active invalid (bool)")
 			}
 		}
 		if v := strings.TrimSpace(c.Query("class_section_class_id")); v != "" {
@@ -321,12 +331,12 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	}
 
 	// ===== Build response dengan include =====
-	termDTOs := dto.FromModels(list)
+	termDTOs := academicsDTO.FromModels(list)
 	items := make([]AcademicTermWithRelations, len(list))
 	for i, tDTO := range termDTOs {
 		tid := list[i].AcademicTermID
 		item := AcademicTermWithRelations{
-			Term: tDTO, // <-- sudah include semua stats terbaru
+			Term: tDTO, // sudah include ALL + ACTIVE stats dari DTO terbaru
 		}
 		if includeClasses {
 			item.Classes = classesByTerm[tid]

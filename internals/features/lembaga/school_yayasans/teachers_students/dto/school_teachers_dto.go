@@ -80,6 +80,15 @@ type SchoolTeacher struct {
 	SchoolTeacherSections []DTOTeacherSectionItem `json:"school_teacher_sections"`
 	SchoolTeacherCSST     []DTOTeacherCSSTItem    `json:"school_teacher_csst"`
 
+	// ========================
+	// Stats (ALL + ACTIVE)
+	// ========================
+	SchoolTeacherTotalClassSections               int `json:"school_teacher_total_class_sections"`
+	SchoolTeacherTotalClassSectionSubjectTeachers int `json:"school_teacher_total_class_section_subject_teachers"`
+
+	SchoolTeacherTotalClassSectionsActive               int `json:"school_teacher_total_class_sections_active"`
+	SchoolTeacherTotalClassSectionSubjectTeachersActive int `json:"school_teacher_total_class_section_subject_teachers_active"`
+
 	// Audit
 	SchoolTeacherCreatedAt time.Time  `json:"school_teacher_created_at"`
 	SchoolTeacherUpdatedAt time.Time  `json:"school_teacher_updated_at"`
@@ -255,6 +264,12 @@ func NewSchoolTeacherResponse(m *teacherModel.SchoolTeacherModel) *SchoolTeacher
 		// JSONB
 		SchoolTeacherSections: sections,
 		SchoolTeacherCSST:     cssts,
+
+		// Stats
+		SchoolTeacherTotalClassSections:                     m.SchoolTeacherTotalClassSections,
+		SchoolTeacherTotalClassSectionSubjectTeachers:       m.SchoolTeacherTotalClassSectionSubjectTeachers,
+		SchoolTeacherTotalClassSectionsActive:               m.SchoolTeacherTotalClassSectionsActive,
+		SchoolTeacherTotalClassSectionSubjectTeachersActive: m.SchoolTeacherTotalClassSectionSubjectTeachersActive,
 
 		// Audit
 		SchoolTeacherCreatedAt: m.SchoolTeacherCreatedAt,

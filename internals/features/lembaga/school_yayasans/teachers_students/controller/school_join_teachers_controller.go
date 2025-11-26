@@ -1,4 +1,3 @@
-// file: internals/features/lembaga/school_teachers/controller/school_teacher_join_controller.go
 package controller
 
 import (
@@ -155,24 +154,29 @@ func (ctrl *SchoolTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 		}
 		log.Printf("[JOIN-TEACHER] generated teacher_code=%s school_id=%s user_teacher_id=%s", plainTeacherCode, schoolID.String(), userTeacherID.String())
 
-		// snapshot dari user_teachers
+		// snapshot dari user_teachers (+ gender dari user_profiles)
 		var ut struct {
-			Name        string
-			AvatarURL   *string
-			WhatsappURL *string
-			TitlePrefix *string
-			TitleSuffix *string
+			Name        string  `gorm:"column:name"`
+			AvatarURL   *string `gorm:"column:avatar_url"`
+			WhatsappURL *string `gorm:"column:whatsapp_url"`
+			TitlePrefix *string `gorm:"column:title_prefix"`
+			TitleSuffix *string `gorm:"column:title_suffix"`
+			Gender      *string `gorm:"column:gender"`
 		}
 		if err := tx.Raw(`
 			SELECT
-				user_teacher_name_snapshot      AS name,
-				user_teacher_avatar_url         AS avatar_url,
-				user_teacher_whatsapp_url       AS whatsapp_url,
-				user_teacher_title_prefix       AS title_prefix,
-				user_teacher_title_suffix       AS title_suffix
-			FROM user_teachers
-			WHERE user_teacher_id = ?
-			  AND user_teacher_deleted_at IS NULL
+				ut.user_teacher_name_snapshot      AS name,
+				ut.user_teacher_avatar_url         AS avatar_url,
+				ut.user_teacher_whatsapp_url       AS whatsapp_url,
+				ut.user_teacher_title_prefix       AS title_prefix,
+				ut.user_teacher_title_suffix       AS title_suffix,
+				up.user_profile_gender             AS gender
+			FROM user_teachers ut
+			LEFT JOIN user_profiles up
+			  ON up.user_profile_user_id = ut.user_teacher_user_id
+			 AND up.user_profile_deleted_at IS NULL
+			WHERE ut.user_teacher_id = ?
+			  AND ut.user_teacher_deleted_at IS NULL
 			LIMIT 1
 		`, userTeacherID).Scan(&ut).Error; err != nil {
 			log.Printf("[JOIN-TEACHER] read snapshot failed user_teacher_id=%s err=%v", userTeacherID.String(), err)
@@ -181,6 +185,25 @@ func (ctrl *SchoolTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 		if strings.TrimSpace(ut.Name) == "" {
 			log.Printf("[JOIN-TEACHER] invalid snapshot: empty name user_teacher_id=%s", userTeacherID.String())
 			return fiber.NewError(fiber.StatusInternalServerError, "Profil guru tidak valid (nama kosong)")
+		}
+
+		// 👇 generate base slug & ensure unik per sekolah
+		baseSlug := helper.SuggestSlugFromName(ut.Name)
+		uniqueSlug, err := helper.EnsureUniqueSlugCI(
+			c.Context(),
+			tx,
+			"school_teachers",
+			"school_teacher_slug",
+			baseSlug,
+			func(q *gorm.DB) *gorm.DB {
+				return q.Where("school_teacher_school_id = ?", schoolID)
+			},
+			100, // max length
+		)
+		if err != nil {
+			log.Printf("[JOIN-TEACHER] ensure unique slug failed school_id=%s user_teacher_id=%s err=%v",
+				schoolID.String(), userTeacherID.String(), err)
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat slug guru")
 		}
 
 		now := time.Now()
@@ -193,6 +216,10 @@ func (ctrl *SchoolTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 			// simpan TEACHER CODE (school_number + tahun + auto increment per sekolah)
 			SchoolTeacherCode: sptr(plainTeacherCode),
 
+			// NEW: joined_at + slug
+			SchoolTeacherJoinedAt: &now,
+			SchoolTeacherSlug:     sptr(uniqueSlug),
+
 			SchoolTeacherIsActive:  true,
 			SchoolTeacherIsPublic:  true,
 			SchoolTeacherCreatedAt: now,
@@ -203,6 +230,7 @@ func (ctrl *SchoolTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 			SchoolTeacherUserTeacherWhatsappURLSnapshot: ut.WhatsappURL,
 			SchoolTeacherUserTeacherTitlePrefixSnapshot: ut.TitlePrefix,
 			SchoolTeacherUserTeacherTitleSuffixSnapshot: ut.TitleSuffix,
+			SchoolTeacherUserTeacherGenderSnapshot:      ut.Gender,
 			// JSONB sections & csst akan ikut default DB ('[]') kalau tidak di-set di sini
 		}
 
@@ -215,11 +243,12 @@ func (ctrl *SchoolTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 		created = *rec
 
 		log.Printf(
-			"[JOIN-TEACHER] created school_teacher_id=%s school_id=%s user_teacher_id=%s teacher_code=%v",
+			"[JOIN-TEACHER] created school_teacher_id=%s school_id=%s user_teacher_id=%s teacher_code=%v slug=%v",
 			created.SchoolTeacherID.String(),
 			created.SchoolTeacherSchoolID.String(),
 			created.SchoolTeacherUserTeacherID.String(),
 			created.SchoolTeacherCode,
+			created.SchoolTeacherSlug,
 		)
 
 		// statistik (best-effort)

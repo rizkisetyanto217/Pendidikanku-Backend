@@ -85,7 +85,7 @@ type ClassSectionCreateRequest struct {
 	ClassSectionCapacity *int    `json:"class_section_capacity"  form:"class_section_capacity"`
 	ClassSectionGroupURL *string `json:"class_section_group_url" form:"class_section_group_url"`
 
-	// Opsional: COUNTER
+	// Opsional: COUNTER (utama saja, stats lain di-manage server)
 	ClassSectionTotalStudents *int `json:"class_section_total_students" form:"class_section_total_students" validate:"omitempty,min=0"`
 
 	// Image (opsional)
@@ -217,6 +217,14 @@ type ClassSectionResponse struct {
 	ClassSectionCapacity      *int `json:"class_section_capacity"`
 	ClassSectionTotalStudents int  `json:"class_section_total_students"`
 
+	// STATS (ALL & ACTIVE)
+	ClassSectionTotalStudentsActive       int             `json:"class_section_total_students_active"`
+	ClassSectionTotalStudentsMale         int             `json:"class_section_total_students_male"`
+	ClassSectionTotalStudentsFemale       int             `json:"class_section_total_students_female"`
+	ClassSectionTotalStudentsMaleActive   int             `json:"class_section_total_students_male_active"`
+	ClassSectionTotalStudentsFemaleActive int             `json:"class_section_total_students_female_active"`
+	ClassSectionStats                     json.RawMessage `json:"class_section_stats,omitempty"`
+
 	ClassSectionGroupURL *string `json:"class_section_group_url"`
 
 	// Image
@@ -277,6 +285,10 @@ type ClassSectionResponse struct {
 	ClassSectionSubjectTeachersEnrollmentMode             string `json:"class_section_subject_teachers_enrollment_mode"`
 	ClassSectionSubjectTeachersSelfSelectRequiresApproval bool   `json:"class_section_subject_teachers_self_select_requires_approval"`
 	ClassSectionSubjectTeachersMaxSubjectsPerStudent      *int   `json:"class_section_subject_teachers_max_subjects_per_student,omitempty"`
+
+	// TOTAL CSST (ALL + ACTIVE)
+	ClassSectionTotalClassClassSectionSubjectTeachers       int `json:"class_section_total_class_class_section_subject_teachers"`
+	ClassSectionTotalClassClassSectionSubjectTeachersActive int `json:"class_section_total_class_class_section_subject_teachers_active"`
 }
 
 func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
@@ -310,6 +322,14 @@ func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 
 		ClassSectionCapacity:      cs.ClassSectionCapacity,
 		ClassSectionTotalStudents: cs.ClassSectionTotalStudents,
+
+		// STATS
+		ClassSectionTotalStudentsActive:       cs.ClassSectionTotalStudentsActive,
+		ClassSectionTotalStudentsMale:         cs.ClassSectionTotalStudentsMale,
+		ClassSectionTotalStudentsFemale:       cs.ClassSectionTotalStudentsFemale,
+		ClassSectionTotalStudentsMaleActive:   cs.ClassSectionTotalStudentsMaleActive,
+		ClassSectionTotalStudentsFemaleActive: cs.ClassSectionTotalStudentsFemaleActive,
+		ClassSectionStats:                     toRaw(cs.ClassSectionStats),
 
 		ClassSectionGroupURL: cs.ClassSectionGroupURL,
 
@@ -366,6 +386,10 @@ func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 		ClassSectionSubjectTeachersEnrollmentMode:             cs.ClassSectionSubjectTeachersEnrollmentMode.String(),
 		ClassSectionSubjectTeachersSelfSelectRequiresApproval: cs.ClassSectionSubjectTeachersSelfSelectRequiresApproval,
 		ClassSectionSubjectTeachersMaxSubjectsPerStudent:      cs.ClassSectionSubjectTeachersMaxSubjectsPerStudent,
+
+		// CSST totals
+		ClassSectionTotalClassClassSectionSubjectTeachers:       cs.ClassSectionTotalClassClassSectionSubjectTeachers,
+		ClassSectionTotalClassClassSectionSubjectTeachersActive: cs.ClassSectionTotalClassClassSectionSubjectTeachersActive,
 	}
 }
 
@@ -1174,6 +1198,18 @@ type ClassSectionCompact struct {
 	ClassSectionTotalStudents int  `json:"class_section_total_students"`
 	ClassSectionIsActive      bool `json:"class_section_is_active"`
 
+	// Stats (ALL & ACTIVE)
+	ClassSectionTotalStudentsActive       int             `json:"class_section_total_students_active"`
+	ClassSectionTotalStudentsMale         int             `json:"class_section_total_students_male"`
+	ClassSectionTotalStudentsFemale       int             `json:"class_section_total_students_female"`
+	ClassSectionTotalStudentsMaleActive   int             `json:"class_section_total_students_male_active"`
+	ClassSectionTotalStudentsFemaleActive int             `json:"class_section_total_students_female_active"`
+	ClassSectionStats                     json.RawMessage `json:"class_section_stats,omitempty"`
+
+	// CSST totals
+	ClassSectionTotalClassClassSectionSubjectTeachers       int `json:"class_section_total_class_class_section_subject_teachers"`
+	ClassSectionTotalClassClassSectionSubjectTeachersActive int `json:"class_section_total_class_class_section_subject_teachers_active"`
+
 	// Link & image
 	ClassSectionGroupURL *string `json:"class_section_group_url,omitempty"`
 	ClassSectionImageURL *string `json:"class_section_image_url,omitempty"`
@@ -1209,6 +1245,12 @@ func FromModelsCompact(rows []m.ClassSectionModel) []ClassSectionCompact {
 		// bikin copy biar aman pointer ke slug
 		slug := cs.ClassSectionSlug
 
+		// helper untuk stats JSON
+		var statsRaw json.RawMessage
+		if len(cs.ClassSectionStats) > 0 {
+			statsRaw = json.RawMessage(cs.ClassSectionStats)
+		}
+
 		item := ClassSectionCompact{
 			ClassSectionID:      cs.ClassSectionID,
 			ClassSectionName:    cs.ClassSectionName,
@@ -1221,6 +1263,18 @@ func FromModelsCompact(rows []m.ClassSectionModel) []ClassSectionCompact {
 			ClassSectionCapacity:      cs.ClassSectionCapacity,
 			ClassSectionTotalStudents: cs.ClassSectionTotalStudents,
 			ClassSectionIsActive:      cs.ClassSectionIsActive,
+
+			// stats
+			ClassSectionTotalStudentsActive:       cs.ClassSectionTotalStudentsActive,
+			ClassSectionTotalStudentsMale:         cs.ClassSectionTotalStudentsMale,
+			ClassSectionTotalStudentsFemale:       cs.ClassSectionTotalStudentsFemale,
+			ClassSectionTotalStudentsMaleActive:   cs.ClassSectionTotalStudentsMaleActive,
+			ClassSectionTotalStudentsFemaleActive: cs.ClassSectionTotalStudentsFemaleActive,
+			ClassSectionStats:                     statsRaw,
+
+			// CSST totals
+			ClassSectionTotalClassClassSectionSubjectTeachers:       cs.ClassSectionTotalClassClassSectionSubjectTeachers,
+			ClassSectionTotalClassClassSectionSubjectTeachersActive: cs.ClassSectionTotalClassClassSectionSubjectTeachersActive,
 
 			ClassSectionGroupURL: cs.ClassSectionGroupURL,
 			ClassSectionImageURL: cs.ClassSectionImageURL,

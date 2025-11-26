@@ -1,4 +1,4 @@
-// internals/features/lembaga/school_yayasans/teachers_students/controller/school_student_controller.go
+// file: internals/features/school/students/controller/school_student_controller.go
 package controller
 
 import (
@@ -10,8 +10,10 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	// ✅ pakai DTO & model path baru
 	dto "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/dto"
 	model "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
+
 	snapshotUserProfile "madinahsalam_backend/internals/features/users/users/snapshot"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
@@ -136,7 +138,7 @@ func (h *SchoolStudentController) Create(c *fiber.Ctx) error {
 		m.SchoolStudentUserProfileParentNameSnapshot = snap.ParentName
 		m.SchoolStudentUserProfileParentWhatsappURLSnapshot = snap.ParentWhatsappURL
 
-		// NEW: gender snapshot
+		// gender snapshot (NEW)
 		if snap.Gender != nil {
 			if g := strings.TrimSpace(*snap.Gender); g != "" {
 				m.SchoolStudentUserProfileGenderSnapshot = &g

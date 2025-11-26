@@ -89,6 +89,14 @@ type ClassSectionModel struct {
 	ClassSectionCapacity      *int `gorm:"column:class_section_capacity" json:"class_section_capacity,omitempty"`
 	ClassSectionTotalStudents int  `gorm:"not null;default:0;column:class_section_total_students" json:"class_section_total_students"`
 
+	/* ===== Stats (ALL & ACTIVE) ===== */
+	ClassSectionTotalStudentsActive       int            `gorm:"not null;default:0;column:class_section_total_students_active" json:"class_section_total_students_active"`
+	ClassSectionTotalStudentsMale         int            `gorm:"not null;default:0;column:class_section_total_students_male" json:"class_section_total_students_male"`
+	ClassSectionTotalStudentsFemale       int            `gorm:"not null;default:0;column:class_section_total_students_female" json:"class_section_total_students_female"`
+	ClassSectionTotalStudentsMaleActive   int            `gorm:"not null;default:0;column:class_section_total_students_male_active" json:"class_section_total_students_male_active"`
+	ClassSectionTotalStudentsFemaleActive int            `gorm:"not null;default:0;column:class_section_total_students_female_active" json:"class_section_total_students_female_active"`
+	ClassSectionStats                     datatypes.JSON `gorm:"type:jsonb;column:class_section_stats" json:"class_section_stats,omitempty"`
+
 	/* ===== Meeting / Group ===== */
 	ClassSectionGroupURL *string `gorm:"type:text;column:class_section_group_url" json:"class_section_group_url,omitempty"`
 
@@ -158,12 +166,9 @@ type ClassSectionModel struct {
 	ClassSectionSubjectTeachersSelfSelectRequiresApproval bool                                      `gorm:"not null;default:false;column:class_section_subject_teachers_self_select_requires_approval" json:"class_section_subject_teachers_self_select_requires_approval"`
 	ClassSectionSubjectTeachersMaxSubjectsPerStudent      *int                                      `gorm:"column:class_section_subject_teachers_max_subjects_per_student" json:"class_section_subject_teachers_max_subjects_per_student,omitempty"`
 
-	/* ===== STATS (per class_section) ===== */
-	ClassSectionTotalStudentsMale   int `gorm:"not null;default:0;column:class_section_total_students_male" json:"class_section_total_students_male"`
-	ClassSectionTotalStudentsFemale int `gorm:"not null;default:0;column:class_section_total_students_female" json:"class_section_total_students_female"`
-
-	// total semua CSST pada rombel ini
-	ClassSectionTotalClassClassSectionSubjectTeachers int `gorm:"not null;default:0;column:class_section_total_class_class_section_subject_teachers" json:"class_section_total_class_class_section_subject_teachers"`
+	/* ===== CSST TOTALS ===== */
+	ClassSectionTotalClassClassSectionSubjectTeachers       int `gorm:"not null;default:0;column:class_section_total_class_class_section_subject_teachers" json:"class_section_total_class_class_section_subject_teachers"`
+	ClassSectionTotalClassClassSectionSubjectTeachersActive int `gorm:"not null;default:0;column:class_section_total_class_class_section_subject_teachers_active" json:"class_section_total_class_class_section_subject_teachers_active"`
 
 	/* ===== Housekeeping ===== */
 	ClassSectionSnapshotUpdatedAt *time.Time `gorm:"column:class_section_snapshot_updated_at" json:"class_section_snapshot_updated_at,omitempty"`

@@ -26,9 +26,12 @@ type StudentClassEnrollmentCompactResponse struct {
 	StudentClassEnrollmentStudentWhatsappURL *string `json:"student_class_enrollments_student_whatsapp_url,omitempty"`
 	StudentClassEnrollmentParentName         *string `json:"student_class_enrollments_parent_name,omitempty"`
 	StudentClassEnrollmentParentWhatsappURL  *string `json:"student_class_enrollments_parent_whatsapp_url,omitempty"`
-	StudentClassEnrollmentStudentGender      *string `json:"student_class_enrollments_student_gender,omitempty"`
-	StudentClassEnrollmentStudentCode        *string `json:"student_class_enrollments_student_code,omitempty"`
-	StudentClassEnrollmentStudentSlug        *string `json:"student_class_enrollments_student_slug,omitempty"`
+
+	// 👇 TANPA omitempty supaya selalu muncul di JSON meski nil
+	StudentClassEnrollmentStudentGender *string `json:"student_class_enrollments_student_gender"`
+	StudentClassEnrollmentStudentCode   *string `json:"student_class_enrollments_student_code"`
+
+	StudentClassEnrollmentStudentSlug *string `json:"student_class_enrollments_student_slug,omitempty"`
 
 	// ====== CLASS SNAPSHOT ======
 	StudentClassEnrollmentClassID   uuid.UUID `json:"student_class_enrollments_class_id"`

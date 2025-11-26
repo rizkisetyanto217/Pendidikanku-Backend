@@ -26,10 +26,13 @@ END$$;
 
 -- =========================================================
 -- PREREQUISITES: UNIQUE CONSTRAINTS for FK targets (tenant-safe)
+--   * If constraint sudah ada -> skip
+--   * Jika belum ada tapi sudah ada index unik dengan nama sama -> attach UNIQUE USING INDEX
+--   * Jika belum ada index -> buat UNIQUE constraint baru
 -- =========================================================
 DO $$
 BEGIN
-  -- class_sections
+  -- class_sections (class_section_id, class_section_school_id)
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
     WHERE conname = 'uq_class_sections_id_tenant'
@@ -43,7 +46,9 @@ BEGIN
         AND i.indrelid = 'class_sections'::regclass
         AND i.indisunique
     ) THEN
-      EXECUTE 'ALTER TABLE class_sections ADD CONSTRAINT uq_class_sections_id_tenant UNIQUE USING INDEX uq_class_sections_id_tenant';
+      EXECUTE 'ALTER TABLE class_sections
+               ADD CONSTRAINT uq_class_sections_id_tenant
+               UNIQUE USING INDEX uq_class_sections_id_tenant';
     ELSE
       ALTER TABLE class_sections
         ADD CONSTRAINT uq_class_sections_id_tenant
@@ -51,7 +56,7 @@ BEGIN
     END IF;
   END IF;
 
-  -- class_subjects
+  -- class_subjects (class_subject_id, class_subject_school_id)
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
     WHERE conname = 'uq_class_subjects_id_tenant'
@@ -65,7 +70,9 @@ BEGIN
         AND i.indrelid = 'class_subjects'::regclass
         AND i.indisunique
     ) THEN
-      EXECUTE 'ALTER TABLE class_subjects ADD CONSTRAINT uq_class_subjects_id_tenant UNIQUE USING INDEX uq_class_subjects_id_tenant';
+      EXECUTE 'ALTER TABLE class_subjects
+               ADD CONSTRAINT uq_class_subjects_id_tenant
+               UNIQUE USING INDEX uq_class_subjects_id_tenant';
     ELSE
       ALTER TABLE class_subjects
         ADD CONSTRAINT uq_class_subjects_id_tenant
@@ -73,7 +80,7 @@ BEGIN
     END IF;
   END IF;
 
-  -- school_teachers
+  -- school_teachers (school_teacher_id, school_teacher_school_id)
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
     WHERE conname = 'uq_school_teachers_id_tenant'
@@ -87,7 +94,9 @@ BEGIN
         AND i.indrelid = 'school_teachers'::regclass
         AND i.indisunique
     ) THEN
-      EXECUTE 'ALTER TABLE school_teachers ADD CONSTRAINT uq_school_teachers_id_tenant UNIQUE USING INDEX uq_school_teachers_id_tenant';
+      EXECUTE 'ALTER TABLE school_teachers
+               ADD CONSTRAINT uq_school_teachers_id_tenant
+               UNIQUE USING INDEX uq_school_teachers_id_tenant';
     ELSE
       ALTER TABLE school_teachers
         ADD CONSTRAINT uq_school_teachers_id_tenant
@@ -95,7 +104,7 @@ BEGIN
     END IF;
   END IF;
 
-  -- class_rooms
+  -- class_rooms (class_room_id, class_room_school_id)
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
     WHERE conname = 'uq_class_rooms_id_tenant'
@@ -109,7 +118,9 @@ BEGIN
         AND i.indrelid = 'class_rooms'::regclass
         AND i.indisunique
     ) THEN
-      EXECUTE 'ALTER TABLE class_rooms ADD CONSTRAINT uq_class_rooms_id_tenant UNIQUE USING INDEX uq_class_rooms_id_tenant';
+      EXECUTE 'ALTER TABLE class_rooms
+               ADD CONSTRAINT uq_class_rooms_id_tenant
+               UNIQUE USING INDEX uq_class_rooms_id_tenant';
     ELSE
       ALTER TABLE class_rooms
         ADD CONSTRAINT uq_class_rooms_id_tenant
@@ -117,7 +128,7 @@ BEGIN
     END IF;
   END IF;
 
-  -- school_students
+  -- school_students (school_student_id, school_student_school_id)
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
     WHERE conname = 'uq_school_students_id_tenant'
@@ -131,7 +142,9 @@ BEGIN
         AND i.indrelid = 'school_students'::regclass
         AND i.indisunique
     ) THEN
-      EXECUTE 'ALTER TABLE school_students ADD CONSTRAINT uq_school_students_id_tenant UNIQUE USING INDEX uq_school_students_id_tenant';
+      EXECUTE 'ALTER TABLE school_students
+               ADD CONSTRAINT uq_school_students_id_tenant
+               UNIQUE USING INDEX uq_school_students_id_tenant';
     ELSE
       ALTER TABLE school_students
         ADD CONSTRAINT uq_school_students_id_tenant
@@ -141,43 +154,43 @@ BEGIN
 END$$;
 
 -- =========================================================
--- TABLE: class_section_subject_teachers (CSST)
+-- TABLE: class_section_subject_teachers (CSST) - sinkron dgn model Go
 -- =========================================================
 CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teacher_id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   class_section_subject_teacher_school_id        UUID NOT NULL
     REFERENCES schools(school_id) ON DELETE CASCADE,
 
-  -- Identitas
+  -- Identitas & fasilitas
   class_section_subject_teacher_slug             VARCHAR(160),
   class_section_subject_teacher_description      TEXT,
   class_section_subject_teacher_group_url        TEXT,
 
-  -- Agregat
-  class_section_subject_teacher_total_attendance           INT NOT NULL DEFAULT 0,
-  class_section_subject_teacher_total_meetings_target      INT,
-  class_section_subject_teacher_capacity                   INT,
-  class_section_subject_teacher_enrolled_count             INT NOT NULL DEFAULT 0,
-  class_section_subject_teacher_total_assessments          INT NOT NULL DEFAULT 0,
-  class_section_subject_teacher_total_assessments_graded   INT NOT NULL DEFAULT 0,
+  -- Agregat & kapasitas (sesuai model)
+  class_section_subject_teacher_total_attendance          INT NOT NULL DEFAULT 0,
+  class_section_subject_teacher_total_meetings_target     INT,
+  class_section_subject_teacher_capacity                  INT,
+  class_section_subject_teacher_enrolled_count            INT NOT NULL DEFAULT 0,
+  class_section_subject_teacher_total_assessments         INT NOT NULL DEFAULT 0,
+  class_section_subject_teacher_total_assessments_graded  INT NOT NULL DEFAULT 0,
   class_section_subject_teacher_total_assessments_ungraded INT NOT NULL DEFAULT 0,
-  class_section_subject_teacher_total_students_passed      INT NOT NULL DEFAULT 0,
-
-  -- NEW: gender breakdown
-  class_section_subject_teacher_total_students_male        INT NOT NULL DEFAULT 0,
-  class_section_subject_teacher_total_students_female      INT NOT NULL DEFAULT 0,
+  class_section_subject_teacher_total_students_passed     INT NOT NULL DEFAULT 0,
 
   -- Delivery mode
   class_section_subject_teacher_delivery_mode    class_delivery_mode_enum NOT NULL DEFAULT 'offline',
 
-  /* SECTION snapshot */
+  /* =======================
+     SECTION snapshot (tanpa JSONB)
+     ======================= */
   class_section_subject_teacher_class_section_id            UUID NOT NULL,
   class_section_subject_teacher_class_section_slug_snapshot VARCHAR(160),
   class_section_subject_teacher_class_section_name_snapshot VARCHAR(160),
   class_section_subject_teacher_class_section_code_snapshot VARCHAR(50),
   class_section_subject_teacher_class_section_url_snapshot  TEXT,
 
-  /* ROOM snapshot */
+  /* =======================
+     ROOM snapshot (JSONB + generated)
+     ======================= */
   class_section_subject_teacher_class_room_id                UUID,
   class_section_subject_teacher_class_room_slug_snapshot     VARCHAR(160),
   class_section_subject_teacher_class_room_snapshot          JSONB,
@@ -185,7 +198,9 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teacher_class_room_slug_snapshot_gen TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_class_room_snapshot->>'slug')) STORED,
   class_section_subject_teacher_class_room_location_snapshot TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_class_room_snapshot->>'location')) STORED,
 
-  /* PEOPLE snapshot */
+  /* =======================
+     PEOPLE snapshot (teacher & assistant)
+     ======================= */
   class_section_subject_teacher_school_teacher_id                 UUID NOT NULL,
   class_section_subject_teacher_school_teacher_slug_snapshot      VARCHAR(160),
   class_section_subject_teacher_school_teacher_snapshot           JSONB,
@@ -197,52 +212,47 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teacher_school_teacher_name_snapshot           TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_school_teacher_snapshot->>'name')) STORED,
   class_section_subject_teacher_assistant_school_teacher_name_snapshot TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_assistant_school_teacher_snapshot->>'name')) STORED,
 
-  /* SUBJECT snapshot */
-  class_section_subject_teacher_total_books           INT NOT NULL DEFAULT 0,
-  class_section_subject_teacher_class_subject_id      UUID NOT NULL,
-  class_section_subject_teacher_subject_id_snapshot   UUID,
+  /* =======================
+     SUBJECT snapshot (via CLASS_SUBJECT)
+     ======================= */
+  class_section_subject_teacher_total_books          INT NOT NULL DEFAULT 0,
+  class_section_subject_teacher_class_subject_id     UUID NOT NULL,
+  class_section_subject_teacher_subject_id_snapshot  UUID,
   class_section_subject_teacher_subject_name_snapshot VARCHAR(160),
   class_section_subject_teacher_subject_code_snapshot VARCHAR(80),
   class_section_subject_teacher_subject_slug_snapshot VARCHAR(160),
 
-  -- KKM
+  -- KKM snapshot per CSST (opsional)
   class_section_subject_teacher_min_passing_score    INT,
 
-  -- Audit
+  -- Status & audit
   class_section_subject_teacher_is_active   BOOLEAN     NOT NULL DEFAULT TRUE,
   class_section_subject_teacher_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_section_subject_teacher_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_section_subject_teacher_deleted_at  TIMESTAMPTZ,
 
-  /* CHECKS */
+  /* =============== CHECKS =============== */
   CONSTRAINT ck_csst_capacity_nonneg
     CHECK (class_section_subject_teacher_capacity IS NULL OR class_section_subject_teacher_capacity >= 0),
-
   CONSTRAINT ck_csst_enrolled_nonneg
     CHECK (class_section_subject_teacher_enrolled_count >= 0),
-
   CONSTRAINT ck_csst_counts_nonneg
     CHECK (
-      class_section_subject_teacher_total_attendance           >= 0 AND
-      class_section_subject_teacher_total_assessments          >= 0 AND
-      class_section_subject_teacher_total_assessments_graded   >= 0 AND
-      class_section_subject_teacher_total_assessments_ungraded >= 0 AND
-      class_section_subject_teacher_total_students_passed      >= 0 AND
-      class_section_subject_teacher_total_books                >= 0 AND
-      class_section_subject_teacher_total_students_male        >= 0 AND
-      class_section_subject_teacher_total_students_female      >= 0
+      class_section_subject_teacher_total_attendance          >= 0 AND
+      class_section_subject_teacher_total_assessments         >= 0 AND
+      class_section_subject_teacher_total_assessments_graded  >= 0 AND
+      class_section_subject_teacher_total_assessments_ungraded>= 0 AND
+      class_section_subject_teacher_total_students_passed     >= 0 AND
+      class_section_subject_teacher_total_books               >= 0
     ),
-
   CONSTRAINT ck_csst_room_snapshot_is_object
     CHECK (class_section_subject_teacher_class_room_snapshot IS NULL OR jsonb_typeof(class_section_subject_teacher_class_room_snapshot) = 'object'),
-
   CONSTRAINT ck_csst_teacher_snapshot_is_object
     CHECK (class_section_subject_teacher_school_teacher_snapshot IS NULL OR jsonb_typeof(class_section_subject_teacher_school_teacher_snapshot) = 'object'),
-
   CONSTRAINT ck_csst_asst_teacher_snapshot_is_object
     CHECK (class_section_subject_teacher_assistant_school_teacher_snapshot IS NULL OR jsonb_typeof(class_section_subject_teacher_assistant_school_teacher_snapshot) = 'object'),
 
-  /* TENANT-SAFE FKs */
+  /* =============== TENANT-SAFE FKs =============== */
   CONSTRAINT fk_csst_section_tenant FOREIGN KEY (
     class_section_subject_teacher_class_section_id,
     class_section_subject_teacher_school_id
@@ -275,7 +285,7 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
 );
 
 -- =========================================================
--- UNIQUE & INDEXES
+-- UNIQUE & INDEXES (CSST) - update ke class_subject
 -- =========================================================
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_id_tenant
   ON class_section_subject_teachers (class_section_subject_teacher_id, class_section_subject_teacher_school_id);
@@ -361,7 +371,6 @@ CREATE INDEX IF NOT EXISTS gin_csst_subject_slug_snapshot_trgm_alive
   WHERE class_section_subject_teacher_deleted_at IS NULL
     AND class_section_subject_teacher_subject_slug_snapshot IS NOT NULL;
 
-COMMIT;
 
 -- =========================================================
 -- TABLE: student_class_section_subject_teachers (SCSST)

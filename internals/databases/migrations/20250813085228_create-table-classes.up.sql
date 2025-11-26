@@ -7,7 +7,6 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto; -- gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS pg_trgm;  -- trigram (untuk GIN ILIKE opsional)
 CREATE EXTENSION IF NOT EXISTS btree_gist; -- optional
 
-
 -- =========================================================
 -- ENUMS (guarded)
 -- =========================================================
@@ -41,12 +40,26 @@ CREATE TABLE IF NOT EXISTS class_parents (
   class_parent_description   TEXT,
   class_parent_level         SMALLINT,  -- 0..100, opsional
   class_parent_is_active     BOOLEAN NOT NULL DEFAULT TRUE,
-  class_parent_total_classes INT     NOT NULL DEFAULT 0,
+
+  -- ============================
+  -- STATS (ALL)
+  -- ============================
+  class_parent_total_classes          INT NOT NULL DEFAULT 0,
   class_parent_total_class_sections   INT NOT NULL DEFAULT 0,
   class_parent_total_students         INT NOT NULL DEFAULT 0,
   class_parent_total_male_students    INT NOT NULL DEFAULT 0,
   class_parent_total_female_students  INT NOT NULL DEFAULT 0,
   class_parent_total_teachers         INT NOT NULL DEFAULT 0,
+
+  -- ============================
+  -- STATS (ACTIVE ONLY)
+  -- ============================
+  class_parent_total_classes_active          INT NOT NULL DEFAULT 0,
+  class_parent_total_class_sections_active   INT NOT NULL DEFAULT 0,
+  class_parent_total_students_active         INT NOT NULL DEFAULT 0,
+  class_parent_total_male_students_active    INT NOT NULL DEFAULT 0,
+  class_parent_total_female_students_active  INT NOT NULL DEFAULT 0,
+  class_parent_total_teachers_active         INT NOT NULL DEFAULT 0,
 
   -- Prasyarat/usia (fleksibel)
   class_parent_requirements  JSONB  NOT NULL DEFAULT '{}'::jsonb,
@@ -142,7 +155,7 @@ END$$;
 CREATE TABLE IF NOT EXISTS classes (
   class_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   class_school_id UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
- 
+
   class_name VARCHAR(160),
   class_slug VARCHAR(160) NOT NULL,
 
@@ -201,7 +214,7 @@ CREATE TABLE IF NOT EXISTS classes (
   class_academic_term_angkatan_snapshot      VARCHAR(40),
 
   -- ============================
-  -- STATS (per class)
+  -- STATS (per class - ALL)
   -- ============================
   class_total_class_sections     INTEGER NOT NULL DEFAULT 0,
   class_total_students           INTEGER NOT NULL DEFAULT 0,
@@ -209,7 +222,18 @@ CREATE TABLE IF NOT EXISTS classes (
   class_total_students_female    INTEGER NOT NULL DEFAULT 0,
   class_total_teachers           INTEGER NOT NULL DEFAULT 0,
   class_total_class_enrollments  INTEGER NOT NULL DEFAULT 0,
-  class_stats                    JSONB,
+
+  -- ============================
+  -- STATS (per class - ACTIVE ONLY)
+  -- ============================
+  class_total_class_sections_active     INTEGER NOT NULL DEFAULT 0,
+  class_total_students_active           INTEGER NOT NULL DEFAULT 0,
+  class_total_students_male_active      INTEGER NOT NULL DEFAULT 0,
+  class_total_students_female_active    INTEGER NOT NULL DEFAULT 0,
+  class_total_teachers_active           INTEGER NOT NULL DEFAULT 0,
+  class_total_class_enrollments_active  INTEGER NOT NULL DEFAULT 0,
+
+  class_stats JSONB,
 
   -- Audit
   class_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

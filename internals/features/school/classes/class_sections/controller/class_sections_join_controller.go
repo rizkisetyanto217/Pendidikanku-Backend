@@ -1,3 +1,4 @@
+// file: internals/features/lembaga/classes/sections/main/controller/class_section_join_code_controller.go
 package controller
 
 import (
@@ -66,6 +67,8 @@ func (ctrl *ClassSectionController) ensureStudentJoinCode(tx *gorm.DB, m *secMod
 		return "", fiber.NewError(fiber.StatusInternalServerError, "Gagal meng-hash student join code")
 	}
 	now := time.Now()
+
+	// set di struct (biar response pakai nilai terbaru)
 	m.ClassSectionCode = &plain
 	m.ClassSectionStudentCodeHash = hashed
 	m.ClassSectionStudentCodeSetAt = &now
@@ -94,6 +97,8 @@ func (ctrl *ClassSectionController) rotateTeacherJoinCode(tx *gorm.DB, m *secMod
 		return "", fiber.NewError(fiber.StatusInternalServerError, "Gagal meng-hash teacher join code")
 	}
 	now := time.Now()
+
+	// set di struct (biar set_at di response sinkron)
 	m.ClassSectionTeacherCodeHash = hashed
 	m.ClassSectionTeacherCodeSetAt = &now
 
@@ -248,6 +253,7 @@ func (ctrl *ClassSectionController) RotateStudentJoinCode(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
+
 	tx := ctrl.DB.WithContext(c.Context()).Begin()
 	if tx.Error != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, tx.Error.Error())
@@ -271,6 +277,12 @@ func (ctrl *ClassSectionController) RotateStudentJoinCode(c *fiber.Ctx) error {
 		return er
 	}
 	now := time.Now()
+
+	// update struct
+	m.ClassSectionCode = &plain
+	m.ClassSectionStudentCodeHash = hashed
+	m.ClassSectionStudentCodeSetAt = &now
+
 	if err := tx.Model(&secModel.ClassSectionModel{}).
 		Where("class_section_id = ?", m.ClassSectionID).
 		Updates(map[string]any{
@@ -284,10 +296,12 @@ func (ctrl *ClassSectionController) RotateStudentJoinCode(c *fiber.Ctx) error {
 	if err := tx.Commit().Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
+
 	return helper.JsonOK(c, "Student join code berhasil diganti", fiber.Map{
 		"class_section_id": m.ClassSectionID,
 		"role":             "student",
 		"code":             plain,
+		"set_at":           m.ClassSectionStudentCodeSetAt,
 	})
 }
 
@@ -297,6 +311,7 @@ func (ctrl *ClassSectionController) RotateTeacherJoinCode(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
+
 	tx := ctrl.DB.WithContext(c.Context()).Begin()
 	if tx.Error != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, tx.Error.Error())
@@ -316,10 +331,12 @@ func (ctrl *ClassSectionController) RotateTeacherJoinCode(c *fiber.Ctx) error {
 	if err := tx.Commit().Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
+
 	return helper.JsonOK(c, "Teacher join code berhasil diganti", fiber.Map{
 		"class_section_id": m.ClassSectionID,
 		"role":             "teacher",
 		"code":             plain,
+		"set_at":           m.ClassSectionTeacherCodeSetAt,
 		"note":             "Simpan kode ini. Plaintext tidak disimpan di server.",
 	})
 }

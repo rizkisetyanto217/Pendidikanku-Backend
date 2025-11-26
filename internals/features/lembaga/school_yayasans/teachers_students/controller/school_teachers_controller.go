@@ -180,7 +180,7 @@ func (ctrl *SchoolTeacherController) Create(c *fiber.Ctx) error {
 		}
 		created = *rec
 
-		// statistik
+		// statistik lembaga (bukan stats per guru — itu dari snapshot lain)
 		if err := ctrl.Stats.EnsureForSchool(tx, rec.SchoolTeacherSchoolID); err == nil {
 			if rec.SchoolTeacherIsActive {
 				_ = ctrl.Stats.IncActiveTeachers(tx, rec.SchoolTeacherSchoolID, +1)
@@ -259,7 +259,7 @@ func (ctrl *SchoolTeacherController) Update(c *fiber.Ctx) error {
 
 	// statistik & role sinkron jika status aktif berubah
 	if wasActive != before.SchoolTeacherIsActive {
-		// statistik
+		// statistik lembaga
 		if err := ctrl.Stats.EnsureForSchool(ctrl.DB, schoolID); err == nil {
 			delta := -1
 			if before.SchoolTeacherIsActive {

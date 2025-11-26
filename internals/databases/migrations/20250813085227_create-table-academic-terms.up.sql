@@ -22,14 +22,29 @@ CREATE TABLE IF NOT EXISTS academic_terms (
   academic_term_code VARCHAR(24),     -- ex: 2026GJ
   academic_term_slug VARCHAR(50),     -- URL-friendly per tenant
 
-  academic_term_total_classes           INTEGER NOT NULL DEFAULT 0,
-  academic_term_total_class_sections    INTEGER NOT NULL DEFAULT 0,
-  academic_term_total_students          INTEGER NOT NULL DEFAULT 0,
-  academic_term_total_students_male     INTEGER NOT NULL DEFAULT 0,
-  academic_term_total_students_female   INTEGER NOT NULL DEFAULT 0,
-  academic_term_total_teachers          INTEGER NOT NULL DEFAULT 0,
-  academic_term_total_class_enrollments INTEGER NOT NULL DEFAULT 0,
-  academic_term_stats                   JSONB,
+  -- ========================
+  -- Stats (ALL)
+  -- ========================
+  academic_term_total_classes               INTEGER NOT NULL DEFAULT 0,
+  academic_term_total_class_sections        INTEGER NOT NULL DEFAULT 0,
+  academic_term_total_students              INTEGER NOT NULL DEFAULT 0,
+  academic_term_total_students_male         INTEGER NOT NULL DEFAULT 0,
+  academic_term_total_students_female       INTEGER NOT NULL DEFAULT 0,
+  academic_term_total_teachers              INTEGER NOT NULL DEFAULT 0,
+  academic_term_total_class_enrollments     INTEGER NOT NULL DEFAULT 0,
+
+  -- ========================
+  -- Stats (ACTIVE ONLY)
+  -- ========================
+  academic_term_total_classes_active               INTEGER NOT NULL DEFAULT 0,
+  academic_term_total_class_sections_active        INTEGER NOT NULL DEFAULT 0,
+  academic_term_total_students_active              INTEGER NOT NULL DEFAULT 0,
+  academic_term_total_students_male_active         INTEGER NOT NULL DEFAULT 0,
+  academic_term_total_students_female_active       INTEGER NOT NULL DEFAULT 0,
+  academic_term_total_teachers_active              INTEGER NOT NULL DEFAULT 0,
+  academic_term_total_class_enrollments_active     INTEGER NOT NULL DEFAULT 0,
+
+  academic_term_stats JSONB,
 
   -- angkatan (opsional). Disimpan sebagai tahun masuk/angkatan (mis. 2024).
   academic_term_angkatan    INTEGER,

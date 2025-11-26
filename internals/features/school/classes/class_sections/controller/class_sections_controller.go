@@ -399,6 +399,8 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	m := req.ToModel()
 	m.ClassSectionSchoolID = schoolID
 
+	// (stats & CSST totals default 0 dari DB / struct, jadi dibiarkan)
+
 	// ==== Snapshot GURU (opsional, via class_section_school_teacher_id) ====
 	if m.ClassSectionSchoolTeacherID != nil {
 		ts, err := teachersnap.ValidateAndSnapshotTeacher(
@@ -552,7 +554,7 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// ✅ Konsisten: data = 1 object section DTO
+	// ✅ Konsisten: data = 1 object section DTO (sudah include stats & CSST totals baru)
 	return helper.JsonCreated(c, "Section berhasil dibuat", secDTO.FromModelClassSection(m))
 }
 
@@ -569,7 +571,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		return err
 	}
 
-	// Decode request (support JSON & multipart)
+	// Decode request (support JSON & multipart via helper DTO)
 	var req secDTO.ClassSectionPatchRequest
 	if err := secDTO.DecodePatchClassSectionFromRequest(c, &req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
@@ -782,7 +784,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		newActive = *req.ClassSectionIsActive.Value
 	}
 
-	// Apply perubahan model dasar (termasuk relasi IDs)
+	// Apply perubahan model dasar (termasuk relasi IDs, enrollment mode, dll)
 	req.Apply(&existing)
 
 	// Apply room snapshot jika field-nya dipatch (clear jika nil)
@@ -873,7 +875,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		}
 	}
 
-	// Update stats kalau status aktif berubah
+	// Update stats lembaga kalau status aktif berubah
 	if wasActive != newActive {
 		stats := semstats.NewLembagaStatsService()
 		if err := stats.EnsureForSchool(tx, existing.ClassSectionSchoolID); err != nil {
@@ -895,7 +897,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// Re-fetch terbaru untuk response
+	// Re-fetch terbaru untuk response (sudah include kolom stats & CSST)
 	var updated secModel.ClassSectionModel
 	if err := ctrl.DB.WithContext(c.Context()).
 		Where("class_section_id = ?", sectionID).

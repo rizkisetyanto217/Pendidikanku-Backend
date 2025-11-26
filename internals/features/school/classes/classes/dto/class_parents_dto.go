@@ -1,3 +1,4 @@
+// file: internals/features/school/academics/classes/dto/class_parent_dto.go
 package dto
 
 import (
@@ -10,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 
-	// ⬅️ Perbaikan penting
+	// pakai model class_parent yang baru
 	m "madinahsalam_backend/internals/features/school/classes/classes/model"
 )
 
@@ -101,17 +102,17 @@ func (p PatchFieldClassParent[T]) Get() (*T, bool) { return p.Value, p.Present }
 
 type ClassParentCreateRequest struct {
 	ClassParentSchoolID uuid.UUID `json:"class_parent_school_id" form:"class_parent_school_id" validate:"required"`
-	ClassParentName     string    `json:"class_parent_name" form:"class_parent_name" validate:"required,min=1,max=120"`
+	ClassParentName     string    `json:"class_parent_name"       form:"class_parent_name"       validate:"required,min=1,max=120"`
 
-	ClassParentCode         *string         `json:"class_parent_code" form:"class_parent_code" validate:"omitempty,max=40"`
-	ClassParentSlug         *string         `json:"class_parent_slug" form:"class_parent_slug" validate:"omitempty,max=160"`
-	ClassParentDescription  *string         `json:"class_parent_description" form:"class_parent_description"`
-	ClassParentLevel        *int16          `json:"class_parent_level" form:"class_parent_level" validate:"omitempty,min=0,max=100"`
-	ClassParentIsActive     *bool           `json:"class_parent_is_active" form:"class_parent_is_active"`
+	ClassParentCode         *string         `json:"class_parent_code"         form:"class_parent_code"         validate:"omitempty,max=40"`
+	ClassParentSlug         *string         `json:"class_parent_slug"         form:"class_parent_slug"         validate:"omitempty,max=160"`
+	ClassParentDescription  *string         `json:"class_parent_description"  form:"class_parent_description"`
+	ClassParentLevel        *int16          `json:"class_parent_level"        form:"class_parent_level"        validate:"omitempty,min=0,max=100"`
+	ClassParentIsActive     *bool           `json:"class_parent_is_active"    form:"class_parent_is_active"`
 	ClassParentRequirements JSONMapFlexible `json:"class_parent_requirements" form:"class_parent_requirements"`
 
 	// Gambar opsional
-	ClassParentImageURL       *string `json:"class_parent_image_url" form:"class_parent_image_url"`
+	ClassParentImageURL       *string `json:"class_parent_image_url"       form:"class_parent_image_url"`
 	ClassParentImageObjectKey *string `json:"class_parent_image_object_key" form:"class_parent_image_object_key"`
 }
 
@@ -188,13 +189,21 @@ type ClassParentResponse struct {
 	ClassParentLevel       *int16    `json:"class_parent_level"`
 	ClassParentIsActive    bool      `json:"class_parent_is_active"`
 
-	// 🔥 Snapshot lengkap
+	// Snapshot lengkap (ALL)
 	ClassParentTotalClasses        int32 `json:"class_parent_total_classes"`
 	ClassParentTotalClassSections  int32 `json:"class_parent_total_class_sections"`
 	ClassParentTotalStudents       int32 `json:"class_parent_total_students"`
 	ClassParentTotalMaleStudents   int32 `json:"class_parent_total_male_students"`
 	ClassParentTotalFemaleStudents int32 `json:"class_parent_total_female_students"`
 	ClassParentTotalTeachers       int32 `json:"class_parent_total_teachers"`
+
+	// Snapshot ACTIVE ONLY
+	ClassParentTotalClassesActive        int32 `json:"class_parent_total_classes_active"`
+	ClassParentTotalClassSectionsActive  int32 `json:"class_parent_total_class_sections_active"`
+	ClassParentTotalStudentsActive       int32 `json:"class_parent_total_students_active"`
+	ClassParentTotalMaleStudentsActive   int32 `json:"class_parent_total_male_students_active"`
+	ClassParentTotalFemaleStudentsActive int32 `json:"class_parent_total_female_students_active"`
+	ClassParentTotalTeachersActive       int32 `json:"class_parent_total_teachers_active"`
 
 	ClassParentRequirements            datatypes.JSONMap `json:"class_parent_requirements"`
 	ClassParentImageURL                *string           `json:"class_parent_image_url"`
@@ -224,13 +233,21 @@ func FromModelClassParent(cp *m.ClassParentModel) ClassParentResponse {
 		ClassParentLevel:       cp.ClassParentLevel,
 		ClassParentIsActive:    cp.ClassParentIsActive,
 
-		// 🔥 Snapshot
+		// snapshot ALL
 		ClassParentTotalClasses:        cp.ClassParentTotalClasses,
 		ClassParentTotalClassSections:  cp.ClassParentTotalClassSections,
 		ClassParentTotalStudents:       cp.ClassParentTotalStudents,
 		ClassParentTotalMaleStudents:   cp.ClassParentTotalMaleStudents,
 		ClassParentTotalFemaleStudents: cp.ClassParentTotalFemaleStudents,
 		ClassParentTotalTeachers:       cp.ClassParentTotalTeachers,
+
+		// snapshot ACTIVE ONLY
+		ClassParentTotalClassesActive:        cp.ClassParentTotalClassesActive,
+		ClassParentTotalClassSectionsActive:  cp.ClassParentTotalClassSectionsActive,
+		ClassParentTotalStudentsActive:       cp.ClassParentTotalStudentsActive,
+		ClassParentTotalMaleStudentsActive:   cp.ClassParentTotalMaleStudentsActive,
+		ClassParentTotalFemaleStudentsActive: cp.ClassParentTotalFemaleStudentsActive,
+		ClassParentTotalTeachersActive:       cp.ClassParentTotalTeachersActive,
 
 		ClassParentRequirements:            cp.ClassParentRequirements,
 		ClassParentImageURL:                cp.ClassParentImageURL,
@@ -258,7 +275,7 @@ type ClassParentPatchRequest struct {
 	ClassParentLevel       PatchFieldClassParent[*int16]  `json:"class_parent_level"`
 	ClassParentIsActive    PatchFieldClassParent[*bool]   `json:"class_parent_is_active"`
 
-	// hanya total_classes yang boleh di-patch (opsional)
+	// hanya total_classes yang boleh di-patch (opsional, stats lain dihitung sistem)
 	ClassParentTotalClasses PatchFieldClassParent[*int32] `json:"class_parent_total_classes"`
 
 	ClassParentRequirements PatchFieldClassParent[JSONMapFlexible] `json:"class_parent_requirements"`

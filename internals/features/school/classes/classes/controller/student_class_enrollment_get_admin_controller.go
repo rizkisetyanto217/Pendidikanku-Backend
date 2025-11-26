@@ -76,6 +76,9 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 		q.StatusIn = sts
 	}
 
+	// ====== CATEGORY filter (registration / spp / dll) ======
+	category := strings.TrimSpace(c.Query("category"))
+
 	// view mode
 	view := strings.ToLower(strings.TrimSpace(c.Query("view"))) // "", "compact", "summary", "full"
 
@@ -167,11 +170,19 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 		base = base.Where("student_class_enrollments_term_angkatan_snapshot = ?", *q.Angkatan)
 	}
 
+	// ===== CATEGORY filter (JSONB) =====
+	if category != "" {
+		base = base.Where(`
+			(student_class_enrollments_payment_snapshot->'payment_meta'->>'fee_rule_gbk_category_snapshot' = ?
+			 OR student_class_enrollments_preferences->'registration'->>'category_snapshot' = ?)
+		`, category, category)
+	}
+
 	// ===== Q search (nama siswa / nama kelas / nama term) =====
 	if strings.TrimSpace(q.Q) != "" {
 		pat := "%" + strings.TrimSpace(q.Q) + "%"
 		base = base.Where(`
-			student_class_enrollments_student_name_snapshot ILIKE ?
+			student_class_enrollments_user_profile_name_snapshot ILIKE ?
 			OR student_class_enrollments_class_name_snapshot ILIKE ?
 			OR COALESCE(student_class_enrollments_term_name_snapshot, '') ILIKE ?
 		`, pat, pat, pat)
@@ -182,6 +193,9 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 	if err := base.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "failed to count")
 	}
+
+	// file: internals/features/school/academics/classes/controller/student_class_enrollment_list_controller.go
+	// ... atasnya tetap sama ...
 
 	// ========== data ==========
 	tx := base
@@ -196,18 +210,35 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 
 			// convenience (mirror snapshot & ids)
 			"student_class_enrollments_school_student_id",
-			"student_class_enrollments_student_name_snapshot",
+			"student_class_enrollments_user_profile_name_snapshot",
 			"student_class_enrollments_class_id",
 			"student_class_enrollments_class_name_snapshot",
+			"student_class_enrollments_class_slug_snapshot",
+
+			// 👇 SNAPSHOT MURID LENGKAP (BIAR DTO KEISI)
+			"student_class_enrollments_user_profile_avatar_url_snapshot",
+			"student_class_enrollments_user_profile_whatsapp_url_snapshot",
+			"student_class_enrollments_user_profile_parent_name_snapshot",
+			"student_class_enrollments_user_profile_parent_whatsapp_url_snapshot",
+			"student_class_enrollments_user_profile_gender_snapshot",
+			"student_class_enrollments_student_code_snapshot",
+			"student_class_enrollments_student_slug_snapshot",
 
 			// term (denormalized, optional)
 			"student_class_enrollments_term_id",
 			"student_class_enrollments_term_name_snapshot",
 			"student_class_enrollments_term_academic_year_snapshot",
 			"student_class_enrollments_term_angkatan_snapshot",
+			"student_class_enrollments_term_slug_snapshot",
 
-			// payment snapshot
+			// CLASS SECTION (optional)
+			"student_class_enrollments_class_section_id",
+			"student_class_enrollments_class_section_name_snapshot",
+			"student_class_enrollments_class_section_slug_snapshot",
+
+			// payment snapshot + preferences (JSONB)
 			"student_class_enrollments_payment_snapshot",
+			"student_class_enrollments_preferences",
 
 			// jejak penting
 			"student_class_enrollments_applied_at",

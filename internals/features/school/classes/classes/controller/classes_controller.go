@@ -19,10 +19,15 @@ import (
 	// Services & helpers
 	"madinahsalam_backend/internals/features/lembaga/stats/lembaga_stats/service"
 	academicTermsSnapshot "madinahsalam_backend/internals/features/school/academics/academic_terms/snapshot"
+
+	// ✅ pakai DTO & model classes yang baru (academics)
 	dto "madinahsalam_backend/internals/features/school/classes/classes/dto"
 	classmodel "madinahsalam_backend/internals/features/school/classes/classes/model"
+
+	// class_sections & class_parent tetap di modul lama
 	classSectionModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 	classParentSnapshot "madinahsalam_backend/internals/features/school/classes/classes/snapshot"
+
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 	helperOSS "madinahsalam_backend/internals/helpers/oss"
@@ -356,7 +361,7 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 
 	log.Printf("[CLASSES][CREATE] ✅ done in %s", time.Since(start))
 
-	// ⬇️ balikin 1 object class
+	// ⬇️ balikin 1 object class (DTO terbaru)
 	return helper.JsonCreated(c, "Kelas berhasil dibuat", dto.FromModel(m))
 }
 
@@ -379,6 +384,9 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 	// ---- Parse payload tri-state (JSON / multipart) ----
 	var req dto.PatchClassRequest
 	if err := dto.DecodePatchClassFromRequest(c, &req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	if err := req.Validate(); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
@@ -420,7 +428,7 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 	prevTermID := existing.ClassAcademicTermID
 	wasActive := (existing.ClassStatus == classmodel.ClassStatusActive)
 
-	// ---- Apply patch ke entity ----
+	// ---- Apply patch ke entity (field biasa) ----
 	req.Apply(&existing)
 
 	// ---- Track perubahan status active (setelah apply) ----
@@ -437,7 +445,6 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 		return *a != *b
 	}
 
-	// Hitung perubahan parent/term SEKALI
 	parentChanged := (existing.ClassClassParentID != prevParentID)
 	termChanged := uuidPtrChanged(existing.ClassAcademicTermID, prevTermID)
 

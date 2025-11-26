@@ -1,3 +1,4 @@
+// file: internals/features/school/students/dto/school_student_dto.go
 package dto
 
 import (
@@ -50,7 +51,7 @@ func normalizeStatusPtr(s *studentmodel.SchoolStudentStatus) (*studentmodel.Scho
 }
 
 /* =========================================================
-   (Opsional) Type item untuk render class_sections (JSONB)
+   Type item untuk render class_sections (JSONB)
    — backend yang memelihara; hanya tampil di response
 ========================================================= */
 
@@ -75,11 +76,12 @@ type SchoolStudentCreateReq struct {
 
 	SchoolStudentSlug string `json:"school_student_slug"` // required
 
-	SchoolStudentCode     *string                           `json:"school_student_code,omitempty"`
-	SchoolStudentStatus   *studentmodel.SchoolStudentStatus `json:"school_student_status,omitempty"` // default: active
-	SchoolStudentNote     *string                           `json:"school_student_note,omitempty"`
-	SchoolStudentJoinedAt *time.Time                        `json:"school_student_joined_at,omitempty"`
-	SchoolStudentLeftAt   *time.Time                        `json:"school_student_left_at,omitempty"`
+	SchoolStudentCode               *string                           `json:"school_student_code,omitempty"`
+	SchoolStudentStatus             *studentmodel.SchoolStudentStatus `json:"school_student_status,omitempty"` // default: active
+	SchoolStudentNote               *string                           `json:"school_student_note,omitempty"`
+	SchoolStudentJoinedAt           *time.Time                        `json:"school_student_joined_at,omitempty"`
+	SchoolStudentLeftAt             *time.Time                        `json:"school_student_left_at,omitempty"`
+	SchoolStudentNeedsClassSections *bool                             `json:"school_student_needs_class_sections,omitempty"`
 
 	// Snapshots users_profile (opsional di saat create)
 	SchoolStudentUserProfileNameSnapshot              *string `json:"school_student_user_profile_name_snapshot,omitempty"`
@@ -87,7 +89,7 @@ type SchoolStudentCreateReq struct {
 	SchoolStudentUserProfileWhatsappURLSnapshot       *string `json:"school_student_user_profile_whatsapp_url_snapshot,omitempty"`
 	SchoolStudentUserProfileParentNameSnapshot        *string `json:"school_student_user_profile_parent_name_snapshot,omitempty"`
 	SchoolStudentUserProfileParentWhatsappURLSnapshot *string `json:"school_student_user_profile_parent_whatsapp_url_snapshot,omitempty"`
-	SchoolStudentUserProfileGenderSnapshot            *string `json:"school_student_user_profile_gender_snapshot,omitempty"` // NEW
+	SchoolStudentUserProfileGenderSnapshot            *string `json:"school_student_user_profile_gender_snapshot,omitempty"`
 }
 
 func (r *SchoolStudentCreateReq) Normalize() {
@@ -139,6 +141,12 @@ func (r *SchoolStudentCreateReq) ToModel() *studentmodel.SchoolStudentModel {
 	if r.SchoolStudentStatus != nil {
 		status = *r.SchoolStudentStatus
 	}
+
+	needsClassSections := false
+	if r.SchoolStudentNeedsClassSections != nil {
+		needsClassSections = *r.SchoolStudentNeedsClassSections
+	}
+
 	return &studentmodel.SchoolStudentModel{
 		SchoolStudentSchoolID:      r.SchoolStudentSchoolID,
 		SchoolStudentUserProfileID: r.SchoolStudentUserProfileID,
@@ -150,6 +158,8 @@ func (r *SchoolStudentCreateReq) ToModel() *studentmodel.SchoolStudentModel {
 
 		SchoolStudentJoinedAt: r.SchoolStudentJoinedAt,
 		SchoolStudentLeftAt:   r.SchoolStudentLeftAt,
+
+		SchoolStudentNeedsClassSections: needsClassSections,
 
 		// snapshots users_profile
 		SchoolStudentUserProfileNameSnapshot:              r.SchoolStudentUserProfileNameSnapshot,
@@ -166,7 +176,8 @@ func (r *SchoolStudentCreateReq) ToModel() *studentmodel.SchoolStudentModel {
 ========================================================= */
 
 type SchoolStudentUpdateReq struct {
-	SchoolStudentSlug   string                           `json:"school_student_slug"`
+	SchoolStudentSlug string `json:"school_student_slug"`
+
 	SchoolStudentCode   *string                          `json:"school_student_code,omitempty"`
 	SchoolStudentStatus studentmodel.SchoolStudentStatus `json:"school_student_status"`
 	SchoolStudentNote   *string                          `json:"school_student_note,omitempty"`
@@ -174,13 +185,15 @@ type SchoolStudentUpdateReq struct {
 	SchoolStudentJoinedAt *time.Time `json:"school_student_joined_at,omitempty"`
 	SchoolStudentLeftAt   *time.Time `json:"school_student_left_at,omitempty"`
 
+	SchoolStudentNeedsClassSections *bool `json:"school_student_needs_class_sections,omitempty"`
+
 	// snapshots users_profile
 	SchoolStudentUserProfileNameSnapshot              *string `json:"school_student_user_profile_name_snapshot,omitempty"`
 	SchoolStudentUserProfileAvatarURLSnapshot         *string `json:"school_student_user_profile_avatar_url_snapshot,omitempty"`
 	SchoolStudentUserProfileWhatsappURLSnapshot       *string `json:"school_student_user_profile_whatsapp_url_snapshot,omitempty"`
 	SchoolStudentUserProfileParentNameSnapshot        *string `json:"school_student_user_profile_parent_name_snapshot,omitempty"`
 	SchoolStudentUserProfileParentWhatsappURLSnapshot *string `json:"school_student_user_profile_parent_whatsapp_url_snapshot,omitempty"`
-	SchoolStudentUserProfileGenderSnapshot            *string `json:"school_student_user_profile_gender_snapshot,omitempty"` // NEW
+	SchoolStudentUserProfileGenderSnapshot            *string `json:"school_student_user_profile_gender_snapshot,omitempty"`
 }
 
 func (r *SchoolStudentUpdateReq) Normalize() {
@@ -226,6 +239,10 @@ func (r *SchoolStudentUpdateReq) Apply(m *studentmodel.SchoolStudentModel) {
 	m.SchoolStudentJoinedAt = r.SchoolStudentJoinedAt
 	m.SchoolStudentLeftAt = r.SchoolStudentLeftAt
 
+	if r.SchoolStudentNeedsClassSections != nil {
+		m.SchoolStudentNeedsClassSections = *r.SchoolStudentNeedsClassSections
+	}
+
 	// snapshots users_profile
 	m.SchoolStudentUserProfileNameSnapshot = r.SchoolStudentUserProfileNameSnapshot
 	m.SchoolStudentUserProfileAvatarURLSnapshot = r.SchoolStudentUserProfileAvatarURLSnapshot
@@ -248,13 +265,15 @@ type SchoolStudentPatchReq struct {
 	SchoolStudentJoinedAt *PatchField[*time.Time] `json:"school_student_joined_at,omitempty"`
 	SchoolStudentLeftAt   *PatchField[*time.Time] `json:"school_student_left_at,omitempty"`
 
+	SchoolStudentNeedsClassSections *PatchField[bool] `json:"school_student_needs_class_sections,omitempty"`
+
 	// snapshots users_profile
 	SchoolStudentUserProfileNameSnapshot              *PatchField[*string] `json:"school_student_user_profile_name_snapshot,omitempty"`
 	SchoolStudentUserProfileAvatarURLSnapshot         *PatchField[*string] `json:"school_student_user_profile_avatar_url_snapshot,omitempty"`
 	SchoolStudentUserProfileWhatsappURLSnapshot       *PatchField[*string] `json:"school_student_user_profile_whatsapp_url_snapshot,omitempty"`
 	SchoolStudentUserProfileParentNameSnapshot        *PatchField[*string] `json:"school_student_user_profile_parent_name_snapshot,omitempty"`
 	SchoolStudentUserProfileParentWhatsappURLSnapshot *PatchField[*string] `json:"school_student_user_profile_parent_whatsapp_url_snapshot,omitempty"`
-	SchoolStudentUserProfileGenderSnapshot            *PatchField[*string] `json:"school_student_user_profile_gender_snapshot,omitempty"` // NEW
+	SchoolStudentUserProfileGenderSnapshot            *PatchField[*string] `json:"school_student_user_profile_gender_snapshot,omitempty"`
 }
 
 func (r *SchoolStudentPatchReq) Normalize() {
@@ -328,6 +347,9 @@ func (r *SchoolStudentPatchReq) Apply(m *studentmodel.SchoolStudentModel) {
 	if r.SchoolStudentLeftAt != nil && r.SchoolStudentLeftAt.Set {
 		m.SchoolStudentLeftAt = r.SchoolStudentLeftAt.Value
 	}
+	if r.SchoolStudentNeedsClassSections != nil && r.SchoolStudentNeedsClassSections.Set {
+		m.SchoolStudentNeedsClassSections = r.SchoolStudentNeedsClassSections.Value
+	}
 
 	// snapshots users_profile
 	if r.SchoolStudentUserProfileNameSnapshot != nil && r.SchoolStudentUserProfileNameSnapshot.Set {
@@ -376,10 +398,21 @@ type SchoolStudentResp struct {
 	SchoolStudentUserProfileWhatsappURLSnapshot       *string `json:"school_student_user_profile_whatsapp_url_snapshot,omitempty"`
 	SchoolStudentUserProfileParentNameSnapshot        *string `json:"school_student_user_profile_parent_name_snapshot,omitempty"`
 	SchoolStudentUserProfileParentWhatsappURLSnapshot *string `json:"school_student_user_profile_parent_whatsapp_url_snapshot,omitempty"`
-	SchoolStudentUserProfileGenderSnapshot            *string `json:"school_student_user_profile_gender_snapshot,omitempty"` // NEW
+	SchoolStudentUserProfileGenderSnapshot            *string `json:"school_student_user_profile_gender_snapshot,omitempty"`
 
 	// Class sections (read-only dari backend)
 	SchoolStudentSections []SchoolStudentSectionItem `json:"school_student_class_sections"`
+
+	// CSST: kita expose sebagai JSON mentah (array)
+	SchoolStudentClassSectionSubjectTeachers json.RawMessage `json:"school_student_class_section_subject_teachers"`
+
+	// Stats (ALL)
+	SchoolStudentTotalClassSections               int `json:"school_student_total_class_sections"`
+	SchoolStudentTotalClassSectionSubjectTeachers int `json:"school_student_total_class_section_subject_teachers"`
+
+	// Stats (ACTIVE)
+	SchoolStudentTotalClassSectionsActive               int `json:"school_student_total_class_sections_active"`
+	SchoolStudentTotalClassSectionSubjectTeachersActive int `json:"school_student_total_class_section_subject_teachers_active"`
 
 	SchoolStudentCreatedAt time.Time  `json:"school_student_created_at"`
 	SchoolStudentUpdatedAt time.Time  `json:"school_student_updated_at"`
@@ -397,6 +430,12 @@ func FromModel(m *studentmodel.SchoolStudentModel) SchoolStudentResp {
 	sections := make([]SchoolStudentSectionItem, 0)
 	if len(m.SchoolStudentClassSections) > 0 {
 		_ = json.Unmarshal(m.SchoolStudentClassSections, &sections) // fallback: [] kalau error
+	}
+
+	// CSST: biarin raw JSON (array) supaya fleksibel
+	csstRaw := json.RawMessage([]byte("[]"))
+	if len(m.SchoolStudentClassSectionSubjectTeachers) > 0 {
+		csstRaw = json.RawMessage(m.SchoolStudentClassSectionSubjectTeachers)
 	}
 
 	return SchoolStudentResp{
@@ -422,7 +461,12 @@ func FromModel(m *studentmodel.SchoolStudentModel) SchoolStudentResp {
 		SchoolStudentUserProfileParentWhatsappURLSnapshot: m.SchoolStudentUserProfileParentWhatsappURLSnapshot,
 		SchoolStudentUserProfileGenderSnapshot:            m.SchoolStudentUserProfileGenderSnapshot,
 
-		SchoolStudentSections: sections,
+		SchoolStudentSections:                               sections,
+		SchoolStudentClassSectionSubjectTeachers:            csstRaw,
+		SchoolStudentTotalClassSections:                     m.SchoolStudentTotalClassSections,
+		SchoolStudentTotalClassSectionSubjectTeachers:       m.SchoolStudentTotalClassSectionSubjectTeachers,
+		SchoolStudentTotalClassSectionsActive:               m.SchoolStudentTotalClassSectionsActive,
+		SchoolStudentTotalClassSectionSubjectTeachersActive: m.SchoolStudentTotalClassSectionSubjectTeachersActive,
 
 		SchoolStudentCreatedAt: m.SchoolStudentCreatedAt,
 		SchoolStudentUpdatedAt: m.SchoolStudentUpdatedAt,

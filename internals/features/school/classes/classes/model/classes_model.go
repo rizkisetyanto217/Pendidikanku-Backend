@@ -1,4 +1,3 @@
-// file: internals/features/school/academics/classes/model/class_model.go
 package model
 
 import (
@@ -29,8 +28,8 @@ type ClassModel struct {
 	ClassRegistrationClosesAt *time.Time `json:"class_registration_closes_at,omitempty" gorm:"column:class_registration_closes_at;type:timestamptz"`
 
 	// Kuota
-	ClassQuotaTotal *int `json:"class_quota_total,omitempty" gorm:"column:class_quota_total"`
-	ClassQuotaTaken int  `json:"class_quota_taken"           gorm:"column:class_quota_taken;not null;default:0"`
+	ClassQuotaTotal *int `json:"class_quota_total,omitempty" gorm:"column:class_quota_total"`                    // CHECK (>=0) di DB
+	ClassQuotaTaken int  `json:"class_quota_taken"           gorm:"column:class_quota_taken;not null;default:0"` // CHECK (>=0) di DB
 
 	// Catatan & Meta biaya (informasional)
 	ClassNotes   *string           `json:"class_notes,omitempty"    gorm:"column:class_notes;type:text"`
@@ -48,7 +47,7 @@ type ClassModel struct {
 	ClassImageObjectKeyOld       *string    `json:"class_image_object_key_old,omitempty"       gorm:"column:class_image_object_key_old;type:text"`
 	ClassImageDeletePendingUntil *time.Time `json:"class_image_delete_pending_until,omitempty" gorm:"column:class_image_delete_pending_until;type:timestamptz"`
 
-	// Snapshot Class Parent (FIXED) — per DDL pakai prefix class_class_parent_*
+	// Snapshot Class Parent (FIXED)
 	ClassClassParentID       uuid.UUID `json:"class_class_parent_id"                 gorm:"column:class_class_parent_id;type:uuid;not null"`
 	ClassParentCodeSnapshot  *string   `json:"class_parent_code_snapshot,omitempty"  gorm:"column:class_class_parent_code_snapshot;type:varchar(40)"`
 	ClassParentNameSnapshot  *string   `json:"class_parent_name_snapshot,omitempty"  gorm:"column:class_class_parent_name_snapshot;type:varchar(80)"`
@@ -56,21 +55,35 @@ type ClassModel struct {
 	ClassParentLevelSnapshot *int16    `json:"class_parent_level_snapshot,omitempty" gorm:"column:class_class_parent_level_snapshot;type:smallint"`
 	ClassParentURLSnapshot   *string   `json:"class_parent_url_snapshot,omitempty"   gorm:"column:class_class_parent_url_snapshot;type:varchar(160)"`
 
-	// Snapshot Academic Term (FIXED) — per DDL pakai prefix class_academic_term_*
+	// Snapshot Academic Term (FIXED)
 	ClassAcademicTermID                   *uuid.UUID `json:"class_academic_term_id,omitempty"                     gorm:"column:class_academic_term_id;type:uuid"`
 	ClassAcademicTermAcademicYearSnapshot *string    `json:"class_academic_term_academic_year_snapshot,omitempty" gorm:"column:class_academic_term_academic_year_snapshot;type:varchar(40)"`
 	ClassAcademicTermNameSnapshot         *string    `json:"class_academic_term_name_snapshot,omitempty"          gorm:"column:class_academic_term_name_snapshot;type:varchar(100)"`
 	ClassAcademicTermSlugSnapshot         *string    `json:"class_academic_term_slug_snapshot,omitempty"          gorm:"column:class_academic_term_slug_snapshot;type:varchar(160)"`
 	ClassAcademicTermAngkatanSnapshot     *string    `json:"class_academic_term_angkatan_snapshot,omitempty"      gorm:"column:class_academic_term_angkatan_snapshot;type:varchar(40)"`
 
-	// Stats / aggregates (hasil ALTER TABLE terbaru)
-	ClassTotalClassSections    int               `json:"class_total_class_sections"    gorm:"column:class_total_class_sections;not null;default:0"`
-	ClassTotalStudents         int               `json:"class_total_students"          gorm:"column:class_total_students;not null;default:0"`
-	ClassTotalStudentsMale     int               `json:"class_total_students_male"     gorm:"column:class_total_students_male;not null;default:0"`
-	ClassTotalStudentsFemale   int               `json:"class_total_students_female"   gorm:"column:class_total_students_female;not null;default:0"`
-	ClassTotalTeachers         int               `json:"class_total_teachers"          gorm:"column:class_total_teachers;not null;default:0"`
-	ClassTotalClassEnrollments int               `json:"class_total_class_enrollments" gorm:"column:class_total_class_enrollments;not null;default:0"`
-	ClassStats                 datatypes.JSONMap `json:"class_stats,omitempty"         gorm:"column:class_stats;type:jsonb"`
+	// ============================
+	// STATS (per class - ALL)
+	// ============================
+	ClassTotalClassSections    int `json:"class_total_class_sections"    gorm:"column:class_total_class_sections;not null;default:0"`
+	ClassTotalStudents         int `json:"class_total_students"          gorm:"column:class_total_students;not null;default:0"`
+	ClassTotalStudentsMale     int `json:"class_total_students_male"     gorm:"column:class_total_students_male;not null;default:0"`
+	ClassTotalStudentsFemale   int `json:"class_total_students_female"   gorm:"column:class_total_students_female;not null;default:0"`
+	ClassTotalTeachers         int `json:"class_total_teachers"          gorm:"column:class_total_teachers;not null;default:0"`
+	ClassTotalClassEnrollments int `json:"class_total_class_enrollments" gorm:"column:class_total_class_enrollments;not null;default:0"`
+
+	// ============================
+	// STATS (per class - ACTIVE ONLY)
+	// ============================
+	ClassTotalClassSectionsActive    int `json:"class_total_class_sections_active"    gorm:"column:class_total_class_sections_active;not null;default:0"`
+	ClassTotalStudentsActive         int `json:"class_total_students_active"          gorm:"column:class_total_students_active;not null;default:0"`
+	ClassTotalStudentsMaleActive     int `json:"class_total_students_male_active"     gorm:"column:class_total_students_male_active;not null;default:0"`
+	ClassTotalStudentsFemaleActive   int `json:"class_total_students_female_active"   gorm:"column:class_total_students_female_active;not null;default:0"`
+	ClassTotalTeachersActive         int `json:"class_total_teachers_active"          gorm:"column:class_total_teachers_active;not null;default:0"`
+	ClassTotalClassEnrollmentsActive int `json:"class_total_class_enrollments_active" gorm:"column:class_total_class_enrollments_active;not null;default:0"`
+
+	// Stats extra (JSONB)
+	ClassStats datatypes.JSONMap `json:"class_stats,omitempty" gorm:"column:class_stats;type:jsonb"`
 
 	// Audit & soft delete
 	ClassCreatedAt time.Time      `json:"class_created_at"           gorm:"column:class_created_at;type:timestamptz;not null;default:now();autoCreateTime"`

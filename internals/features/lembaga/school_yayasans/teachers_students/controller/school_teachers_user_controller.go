@@ -40,9 +40,15 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 	if order != "asc" && order != "desc" {
 		order = "desc"
 	}
+
+	// tambahkan kolom sorting berbasis stats baru
 	colMap := map[string]string{
-		"created_at": "school_teacher_created_at",
-		"updated_at": "school_teacher_updated_at",
+		"created_at":            "school_teacher_created_at",
+		"updated_at":            "school_teacher_updated_at",
+		"total_sections":        "school_teacher_total_class_sections",
+		"total_sections_active": "school_teacher_total_class_sections_active",
+		"total_csst":            "school_teacher_total_class_section_subject_teachers",
+		"total_csst_active":     "school_teacher_total_class_section_subject_teachers_active",
 	}
 	col, ok := colMap[sortBy]
 	if !ok {
@@ -316,7 +322,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 		WhatsappURL       *string   `json:"whatsapp_url,omitempty"`
 		ParentName        *string   `json:"parent_name,omitempty"`
 		ParentWhatsappURL *string   `json:"parent_whatsapp_url,omitempty"`
-		GenderSnapshot    *string   `json:"gender_snapshot,omitempty"` // ⬅️ NEW
+		GenderSnapshot    *string   `json:"gender_snapshot,omitempty"`
 	}
 
 	profileMap := make(map[uuid.UUID]UserProfileLite, len(userIDs)) // key: user_id

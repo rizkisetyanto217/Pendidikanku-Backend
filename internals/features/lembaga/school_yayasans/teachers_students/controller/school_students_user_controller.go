@@ -1,4 +1,4 @@
-// file: internals/features/lembaga/school_yayasans/teachers_students/controller/school_student_list_controller.go
+// file: internals/features/school/students/controller/school_student_list_controller.go
 package controller
 
 import (

@@ -1,4 +1,3 @@
--- +migrate Up
 BEGIN;
 
 -- =========================================================
@@ -36,6 +35,14 @@ CREATE TABLE IF NOT EXISTS class_sections (
   -- Kapasitas & counter
   class_section_capacity       INT,
   class_section_total_students INT NOT NULL DEFAULT 0,
+
+  -- (ACTIVE ONLY)
+  class_section_total_students_active        INT NOT NULL DEFAULT 0,
+  class_section_total_students_male          INTEGER NOT NULL DEFAULT 0,
+  class_section_total_students_female        INTEGER NOT NULL DEFAULT 0,
+  class_section_total_students_male_active   INTEGER NOT NULL DEFAULT 0,
+  class_section_total_students_female_active INTEGER NOT NULL DEFAULT 0,
+  class_section_stats JSONB,
 
   -- Meeting / Group
   class_section_group_url  TEXT,
@@ -105,10 +112,9 @@ CREATE TABLE IF NOT EXISTS class_sections (
   -- housekeeping snapshot timestamp
   class_section_snapshot_updated_at TIMESTAMPTZ,
 
-  class_section_total_students_male   INTEGER NOT NULL DEFAULT 0,
-  class_section_total_students_female INTEGER NOT NULL DEFAULT 0,
-  class_section_total_class_class_section_subject_teachers
-    INTEGER NOT NULL DEFAULT 0,
+  -- TOTAL CSST (ALL + ACTIVE)
+  class_section_total_class_class_section_subject_teachers         INTEGER NOT NULL DEFAULT 0,
+  class_section_total_class_class_section_subject_teachers_active  INTEGER NOT NULL DEFAULT 0,
 
   -- Status & audit
   class_section_is_active  BOOLEAN     NOT NULL DEFAULT TRUE,

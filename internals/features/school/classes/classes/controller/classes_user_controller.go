@@ -10,8 +10,10 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	// ✅ pakai DTO & model classes (academics) yang baru
 	dto "madinahsalam_backend/internals/features/school/classes/classes/dto"
-	model "madinahsalam_backend/internals/features/school/classes/classes/model"
+	classmodel "madinahsalam_backend/internals/features/school/classes/classes/model"
+
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
@@ -211,12 +213,12 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 			tx = tx.Where(aliasClass+".class_completed_at <= ?", *q.CompletedLe)
 		}
 
-		// ⬇️ NEW: hanya kelas yang sedang dibuka untuk pendaftaran
+		// ⬇️ hanya kelas yang sedang dibuka untuk pendaftaran
 		if q.OpenForRegistration != nil && *q.OpenForRegistration {
 			now := time.Now().UTC()
 
 			// status harus ACTIVE
-			tx = tx.Where(aliasClass+".class_status = ?", model.ClassStatusActive)
+			tx = tx.Where(aliasClass+".class_status = ?", classmodel.ClassStatusActive)
 
 			// jendela registrasi (kalau ada)
 			tx = tx.Where(
@@ -234,7 +236,6 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 			)
 		}
 		return tx
-
 	}
 
 	// 1) Tenant scope (token → context → query)
@@ -262,7 +263,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		}
 	}
 
-	// ✅ alias baru: ?academic_term_id= → isi ke ClassTermID jika belum ada
+	// alias baru: ?academic_term_id= → isi ke ClassTermID jika belum ada
 	if q.ClassTermID == nil {
 		if raw := strings.TrimSpace(c.Query("academic_term_id")); raw != "" {
 			if id, err := uuid.Parse(raw); err == nil {
@@ -308,7 +309,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	parentName := strings.ToLower(strings.TrimSpace(c.Query("parent_name")))
 	parentLike := "%" + parentName + "%"
 
-	// 🔥 bonus: kalau filter pakai class_parent → otomatis include subjects
+	// bonus: kalau filter pakai class_parent → otomatis include subjects
 	if q.ClassParentID != nil {
 		wantSubjects = true
 	}
@@ -353,7 +354,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 				  AND cs.class_subject_is_active = TRUE
 				  AND cs.class_subject_deleted_at IS NULL
 			`).
-			// NOTE: di sini masih pakai join subjects (untuk search di subject_name)
+			// join subjects (untuk search di subject_name)
 			Joins(`LEFT JOIN subjects AS s ON s.subject_id = cs.class_subject_subject_id`)
 
 		filter = applyCommonFilters(filter, "c", q)
@@ -413,7 +414,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		}
 
 	} else {
-		tx := ctrl.DB.Model(&model.ClassModel{}).
+		tx := ctrl.DB.Model(&classmodel.ClassModel{}).
 			Where("class_school_id IN ?", schoolIDs)
 
 		tx = applyCommonFilters(tx, "classes", q)
@@ -466,7 +467,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	}
 
 	// 5) Ambil detail rows
-	var rows []model.ClassModel
+	var rows []classmodel.ClassModel
 	if err := ctrl.DB.
 		Where("class_id IN ?", classIDs).
 		Where("class_deleted_at IS NULL").
@@ -762,7 +763,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		TotalStudents       int       `json:"class_section_total_students" gorm:"column:class_section_total_students"`
 		IsActive            bool      `json:"class_section_is_active" gorm:"column:class_section_is_active"`
 
-		// kolom snapshot (nama kolom sesuai model baru)
+		// kolom snapshot
 		TeacherNameSnap      *string `json:"class_section_teacher_name_snap,omitempty" gorm:"column:class_section_school_teacher_name_snapshot"`
 		AssistantTeacherName *string `json:"class_section_assistant_teacher_name_snap,omitempty" gorm:"column:class_section_assistant_school_teacher_name_snapshot"`
 		RoomNameSnap         *string `json:"class_section_room_name_snap,omitempty" gorm:"column:class_section_class_room_name_snapshot"`
@@ -829,7 +830,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		ClassSections      []SectionLite `json:"class_sections,omitempty"`
 	}
 
-	rowByID := make(map[uuid.UUID]*model.ClassModel, len(rows))
+	rowByID := make(map[uuid.UUID]*classmodel.ClassModel, len(rows))
 	for i := range rows {
 		rowByID[rows[i].ClassID] = &rows[i]
 	}

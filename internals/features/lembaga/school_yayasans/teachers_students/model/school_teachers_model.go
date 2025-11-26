@@ -120,6 +120,18 @@ type SchoolTeacherModel struct {
 	SchoolTeacherSections datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'::jsonb;column:school_teacher_sections" json:"school_teacher_sections"`
 	SchoolTeacherCSST     datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'::jsonb;column:school_teacher_csst" json:"school_teacher_csst"`
 
+	// ========================
+	// Stats (ALL)
+	// ========================
+	SchoolTeacherTotalClassSections               int `gorm:"type:integer;not null;default:0;column:school_teacher_total_class_sections" json:"school_teacher_total_class_sections"`
+	SchoolTeacherTotalClassSectionSubjectTeachers int `gorm:"type:integer;not null;default:0;column:school_teacher_total_class_section_subject_teachers" json:"school_teacher_total_class_section_subject_teachers"`
+
+	// ========================
+	// Stats (ACTIVE ONLY)
+	// ========================
+	SchoolTeacherTotalClassSectionsActive               int `gorm:"type:integer;not null;default:0;column:school_teacher_total_class_sections_active" json:"school_teacher_total_class_sections_active"`
+	SchoolTeacherTotalClassSectionSubjectTeachersActive int `gorm:"type:integer;not null;default:0;column:school_teacher_total_class_section_subject_teachers_active" json:"school_teacher_total_class_section_subject_teachers_active"`
+
 	// Audit & Soft Delete
 	SchoolTeacherCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();autoCreateTime;column:school_teacher_created_at" json:"school_teacher_created_at"`
 	SchoolTeacherUpdatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();autoUpdateTime;column:school_teacher_updated_at" json:"school_teacher_updated_at"`
@@ -127,31 +139,3 @@ type SchoolTeacherModel struct {
 }
 
 func (SchoolTeacherModel) TableName() string { return "school_teachers" }
-
-/* =========================
-   (Opsional) Typed helper JSONB
-========================= */
-
-type TeacherSectionItem struct {
-	ClassSectionID             uuid.UUID `json:"class_section_id"`
-	Role                       string    `json:"role"` // "homeroom" | "teacher" | "assistant"
-	IsActive                   bool      `json:"is_active"`
-	From                       *string   `json:"from,omitempty"` // "YYYY-MM-DD"
-	To                         *string   `json:"to,omitempty"`   // "YYYY-MM-DD"
-	ClassSectionName           *string   `json:"class_section_name,omitempty"`
-	ClassSectionSlug           *string   `json:"class_section_slug,omitempty"`
-	ClassSectionImageURL       *string   `json:"class_section_image_url,omitempty"`
-	ClassSectionImageObjectKey *string   `json:"class_section_image_object_key,omitempty"`
-}
-
-type TeacherCSSTItem struct {
-	CSSTID           uuid.UUID  `json:"csst_id"`
-	IsActive         bool       `json:"is_active"`
-	From             *string    `json:"from,omitempty"`
-	To               *string    `json:"to,omitempty"`
-	SubjectName      *string    `json:"subject_name,omitempty"`
-	SubjectSlug      *string    `json:"subject_slug,omitempty"`
-	ClassSectionID   *uuid.UUID `json:"class_section_id,omitempty"`
-	ClassSectionName *string    `json:"class_section_name,omitempty"`
-	ClassSectionSlug *string    `json:"class_section_slug,omitempty"`
-}

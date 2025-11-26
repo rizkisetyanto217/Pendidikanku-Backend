@@ -80,18 +80,18 @@ NOTE: class_name TIDAK diterima; diisi otomatis server.
 */
 type CreateClassRequest struct {
 	// Wajib
-	ClassSchoolID      uuid.UUID `json:"class_school_id"        form:"class_school_id"        validate:"required"`
-	ClassClassParentID uuid.UUID `json:"class_class_parent_id"  form:"class_class_parent_id"  validate:"required"`
-	ClassSlug          string    `json:"class_slug"             form:"class_slug"             validate:"omitempty,min=1,max=160"`
+	ClassSchoolID      uuid.UUID `json:"class_school_id"       form:"class_school_id"       validate:"required"`
+	ClassClassParentID uuid.UUID `json:"class_class_parent_id" form:"class_class_parent_id" validate:"required"`
+	ClassSlug          string    `json:"class_slug"            form:"class_slug"            validate:"omitempty,min=1,max=160"`
 
 	// Periode
-	ClassStartDate *time.Time `json:"class_start_date,omitempty"       form:"class_start_date"`
-	ClassEndDate   *time.Time `json:"class_end_date,omitempty"         form:"class_end_date"`
+	ClassStartDate *time.Time `json:"class_start_date,omitempty" form:"class_start_date"`
+	ClassEndDate   *time.Time `json:"class_end_date,omitempty"   form:"class_end_date"`
 
 	// Registrasi / Term
-	ClassAcademicTermID       *uuid.UUID `json:"class_academic_term_id,omitempty"         form:"class_academic_term_id"`
-	ClassRegistrationOpensAt  *time.Time `json:"class_registration_opens_at,omitempty"    form:"class_registration_opens_at"`
-	ClassRegistrationClosesAt *time.Time `json:"class_registration_closes_at,omitempty"   form:"class_registration_closes_at"`
+	ClassAcademicTermID       *uuid.UUID `json:"class_academic_term_id,omitempty"       form:"class_academic_term_id"`
+	ClassRegistrationOpensAt  *time.Time `json:"class_registration_opens_at,omitempty"  form:"class_registration_opens_at"`
+	ClassRegistrationClosesAt *time.Time `json:"class_registration_closes_at,omitempty" form:"class_registration_closes_at"`
 
 	// Kuota
 	ClassQuotaTotal *int `json:"class_quota_total,omitempty" form:"class_quota_total"`
@@ -406,7 +406,7 @@ func (r *PatchClassRequest) Apply(m *model.ClassModel) {
 
 /*
 =========================================================
-RESPONSE DTO (sinkron dengan model terbaru)
+RESPONSE DTO (sinkron dengan model & SQL terbaru)
 =========================================================
 */
 type ClassResponse struct {
@@ -449,27 +449,37 @@ type ClassResponse struct {
 	ClassImageObjectKeyOld       *string    `json:"class_image_object_key_old,omitempty"`
 	ClassImageDeletePendingUntil *time.Time `json:"class_image_delete_pending_until,omitempty"`
 
-	// Snapshots Parent (JSON disamakan dengan model: class_parent_*)
+	// Snapshots Parent
 	ClassParentCodeSnapshot  *string `json:"class_parent_code_snapshot,omitempty"`
 	ClassParentNameSnapshot  *string `json:"class_parent_name_snapshot,omitempty"`
 	ClassParentSlugSnapshot  *string `json:"class_parent_slug_snapshot,omitempty"`
 	ClassParentLevelSnapshot *int16  `json:"class_parent_level_snapshot,omitempty"`
 	ClassParentURLSnapshot   *string `json:"class_parent_url_snapshot,omitempty"`
 
-	// Snapshots Term (JSON sama dengan model)
+	// Snapshots Term
 	ClassTermAcademicYearSnapshot *string `json:"class_academic_term_academic_year_snapshot,omitempty"`
 	ClassTermNameSnapshot         *string `json:"class_academic_term_name_snapshot,omitempty"`
 	ClassTermSlugSnapshot         *string `json:"class_academic_term_slug_snapshot,omitempty"`
 	ClassTermAngkatanSnapshot     *string `json:"class_academic_term_angkatan_snapshot,omitempty"`
 
-	// Stats (aggregate; sinkron sama kolom baru di classes)
-	ClassTotalClassSections    int            `json:"class_total_class_sections"`
-	ClassTotalStudents         int            `json:"class_total_students"`
-	ClassTotalStudentsMale     int            `json:"class_total_students_male"`
-	ClassTotalStudentsFemale   int            `json:"class_total_students_female"`
-	ClassTotalTeachers         int            `json:"class_total_teachers"`
-	ClassTotalClassEnrollments int            `json:"class_total_class_enrollments"`
-	ClassStats                 map[string]any `json:"class_stats,omitempty"`
+	// Stats (ALL)
+	ClassTotalClassSections    int `json:"class_total_class_sections"`
+	ClassTotalStudents         int `json:"class_total_students"`
+	ClassTotalStudentsMale     int `json:"class_total_students_male"`
+	ClassTotalStudentsFemale   int `json:"class_total_students_female"`
+	ClassTotalTeachers         int `json:"class_total_teachers"`
+	ClassTotalClassEnrollments int `json:"class_total_class_enrollments"`
+
+	// Stats (ACTIVE ONLY)
+	ClassTotalClassSectionsActive    int `json:"class_total_class_sections_active"`
+	ClassTotalStudentsActive         int `json:"class_total_students_active"`
+	ClassTotalStudentsMaleActive     int `json:"class_total_students_male_active"`
+	ClassTotalStudentsFemaleActive   int `json:"class_total_students_female_active"`
+	ClassTotalTeachersActive         int `json:"class_total_teachers_active"`
+	ClassTotalClassEnrollmentsActive int `json:"class_total_class_enrollments_active"`
+
+	// Extra stats JSON
+	ClassStats map[string]any `json:"class_stats,omitempty"`
 
 	// Audit
 	ClassCreatedAt time.Time `json:"class_created_at"`
@@ -543,14 +553,23 @@ func FromModel(m *model.ClassModel) ClassResponse {
 		ClassTermSlugSnapshot:         m.ClassAcademicTermSlugSnapshot,
 		ClassTermAngkatanSnapshot:     m.ClassAcademicTermAngkatanSnapshot,
 
-		// stats
+		// stats ALL
 		ClassTotalClassSections:    m.ClassTotalClassSections,
 		ClassTotalStudents:         m.ClassTotalStudents,
 		ClassTotalStudentsMale:     m.ClassTotalStudentsMale,
 		ClassTotalStudentsFemale:   m.ClassTotalStudentsFemale,
 		ClassTotalTeachers:         m.ClassTotalTeachers,
 		ClassTotalClassEnrollments: m.ClassTotalClassEnrollments,
-		ClassStats:                 stats,
+
+		// stats ACTIVE ONLY
+		ClassTotalClassSectionsActive:    m.ClassTotalClassSectionsActive,
+		ClassTotalStudentsActive:         m.ClassTotalStudentsActive,
+		ClassTotalStudentsMaleActive:     m.ClassTotalStudentsMaleActive,
+		ClassTotalStudentsFemaleActive:   m.ClassTotalStudentsFemaleActive,
+		ClassTotalTeachersActive:         m.ClassTotalTeachersActive,
+		ClassTotalClassEnrollmentsActive: m.ClassTotalClassEnrollmentsActive,
+
+		ClassStats: stats,
 
 		ClassCreatedAt: m.ClassCreatedAt,
 		ClassUpdatedAt: m.ClassUpdatedAt,
@@ -564,8 +583,8 @@ QUERY / FILTER DTO (untuk list)
 */
 type ListClassQuery struct {
 	SchoolID      *uuid.UUID `query:"school_id"`
-	ClassParentID *uuid.UUID `query:"class_class_parent_id"`  // akan di-bind ke class_class_parent_id
-	ClassTermID   *uuid.UUID `query:"class_academic_term_id"` // akan di-bind ke class_academic_term_id
+	ClassParentID *uuid.UUID `query:"class_class_parent_id"`  // bind ke class_class_parent_id
+	ClassTermID   *uuid.UUID `query:"class_academic_term_id"` // bind ke class_academic_term_id
 
 	Status       *string `query:"status"`
 	DeliveryMode *string `query:"delivery_mode"`
