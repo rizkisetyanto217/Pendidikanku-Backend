@@ -8,6 +8,7 @@ import (
 	model "madinahsalam_backend/internals/features/school/academics/academic_terms/model"
 
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 )
 
 /* ===================== REQUEST DTO ===================== */
@@ -72,6 +73,16 @@ type AcademicTermResponseDTO struct {
 	AcademicTermCode        *string `json:"academic_term_code,omitempty"`
 	AcademicTermSlug        *string `json:"academic_term_slug,omitempty"`
 	AcademicTermDescription *string `json:"academic_term_description,omitempty"`
+
+	// Aggregated stats
+	AcademicTermTotalClasses          int            `json:"academic_term_total_classes"`
+	AcademicTermTotalClassSections    int            `json:"academic_term_total_class_sections"`
+	AcademicTermTotalStudents         int            `json:"academic_term_total_students"`
+	AcademicTermTotalStudentsMale     int            `json:"academic_term_total_students_male"`
+	AcademicTermTotalStudentsFemale   int            `json:"academic_term_total_students_female"`
+	AcademicTermTotalTeachers         int            `json:"academic_term_total_teachers"`
+	AcademicTermTotalClassEnrollments int            `json:"academic_term_total_class_enrollments"`
+	AcademicTermStats                 datatypes.JSON `json:"academic_term_stats,omitempty"`
 
 	// Read-only: diisi DB (generated)
 	AcademicTermPeriod *string `json:"academic_term_period,omitempty"`
@@ -221,7 +232,6 @@ func FromModel(ent model.AcademicTermModel) AcademicTermResponseDTO {
 		deletedAt = &t
 	}
 
-	// Langsung pakai pointer dari model untuk code/slug/description/period
 	return AcademicTermResponseDTO{
 		AcademicTermID:           ent.AcademicTermID,
 		AcademicTermSchoolID:     ent.AcademicTermSchoolID,
@@ -235,6 +245,15 @@ func FromModel(ent model.AcademicTermModel) AcademicTermResponseDTO {
 		AcademicTermCode:        ent.AcademicTermCode,
 		AcademicTermSlug:        ent.AcademicTermSlug,
 		AcademicTermDescription: ent.AcademicTermDescription,
+
+		AcademicTermTotalClasses:          ent.AcademicTermTotalClasses,
+		AcademicTermTotalClassSections:    ent.AcademicTermTotalClassSections,
+		AcademicTermTotalStudents:         ent.AcademicTermTotalStudents,
+		AcademicTermTotalStudentsMale:     ent.AcademicTermTotalStudentsMale,
+		AcademicTermTotalStudentsFemale:   ent.AcademicTermTotalStudentsFemale,
+		AcademicTermTotalTeachers:         ent.AcademicTermTotalTeachers,
+		AcademicTermTotalClassEnrollments: ent.AcademicTermTotalClassEnrollments,
+		AcademicTermStats:                 ent.AcademicTermStats,
 
 		AcademicTermPeriod:    ent.AcademicTermPeriod,
 		AcademicTermCreatedAt: ent.AcademicTermCreatedAt,

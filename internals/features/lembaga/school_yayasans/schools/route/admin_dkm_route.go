@@ -22,15 +22,22 @@ func SchoolAdminRoutes(admin fiber.Router, db *gorm.DB) {
 		constants.AdminAndAbove,
 	)
 
-	// 🕌 MASJID (Admin/DKM) — pakai :school_id
+	// 🕌 MASJID (Admin/DKM)
 	schools := admin.Group("/schools")
+
+	// create school (DKM) — masih pakai body & context
 	schools.Post("/", guard, schoolCtrl.CreateSchoolDKM)
-	schools.Get("/:school_id/get-teacher-code", guard, schoolCtrl.GetTeacherCode)
-	schools.Patch("/:school_id/teacher-code", guard, schoolCtrl.PatchTeacherCode)
+
+	// 🔑 TEACHER CODE (Admin/DKM)
+	// school_id diambil dari token / active-school (ResolveSchoolIDFromContext)
+	schools.Get("/teacher-code", guard, schoolCtrl.GetTeacherCode)
+	schools.Patch("/teacher-code", guard, schoolCtrl.PatchTeacherCode)
+
+	// ✏️ PATCH & DELETE SCHOOL — tetap pakai :school_id di path
 	schools.Patch("/:school_id", guard, schoolCtrl.Patch)
 	schools.Delete("/:school_id", guard, schoolCtrl.Delete)
 
-	// 🏷️ MASJID PROFILE (Admin/DKM)
+	// 🏷️ MASJID PROFILE (Admin/DKM) — masih pakai :school_id di path
 	profilesByID := admin.Group("/:school_id/school-profiles", guard)
 	profilesByID.Post("/", profileCtrl.Create)
 	profilesByID.Patch("/:id", profileCtrl.Update)

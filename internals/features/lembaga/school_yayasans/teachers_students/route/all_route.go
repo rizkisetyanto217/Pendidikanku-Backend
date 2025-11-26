@@ -17,10 +17,6 @@ func AllLembagaTeacherStudentRoutes(userRoute fiber.Router, db *gorm.DB) {
 	tch := teacherController.NewSchoolTeacherController(db) // school_teachers
 	std := teacherController.New(db, v)                     // school_students
 
-	// ====== JOIN TEACHER (GLOBAL, tanpa school_id di path) ======
-	// Body: { "code": "XXXXXX" } -> controller resolve school dari kode
-	userRoute.Post("/join-teacher", tch.JoinAsTeacherWithCode)
-
 	// ====== LIST (school dari TOKEN, bukan dari path) ======
 	// Controller List diharapkan pakai:
 	//   - helperAuth.ResolveSchoolIDFromContext(c)

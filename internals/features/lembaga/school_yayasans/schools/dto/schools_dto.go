@@ -122,6 +122,9 @@ type SchoolResp struct {
 	SchoolLocation string `json:"school_location"`
 	SchoolCity     string `json:"school_city"`
 
+	// 🔢 nomor running sekolah (global, dari DB)
+	SchoolNumber int64 `json:"school_number"`
+
 	SchoolIsActive           bool       `json:"school_is_active"`
 	SchoolIsVerified         bool       `json:"school_is_verified"`
 	SchoolVerificationStatus string     `json:"school_verification_status"`
@@ -167,7 +170,6 @@ type SchoolResp struct {
 }
 
 /* ===================== CONVERTERS ===================== */
-
 func FromModel(m *model.SchoolModel) SchoolResp {
 	levels := levelsFromJSON(m.SchoolLevels)
 
@@ -182,6 +184,9 @@ func FromModel(m *model.SchoolModel) SchoolResp {
 		SchoolSlug:     m.SchoolSlug,
 		SchoolLocation: valOrEmpty(m.SchoolLocation),
 		SchoolCity:     valOrEmpty(m.SchoolCity),
+
+		// 🔢 nomor sekolah dari DB
+		SchoolNumber: m.SchoolNumber,
 
 		SchoolIsActive:           m.SchoolIsActive,
 		SchoolIsVerified:         m.SchoolIsVerified,

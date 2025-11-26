@@ -85,8 +85,8 @@ type CreateClassRequest struct {
 	ClassSlug          string    `json:"class_slug"             form:"class_slug"             validate:"omitempty,min=1,max=160"`
 
 	// Periode
-	ClassStartDate *time.Time `json:"class_start_date,omitempty"         form:"class_start_date"`
-	ClassEndDate   *time.Time `json:"class_end_date,omitempty"           form:"class_end_date"`
+	ClassStartDate *time.Time `json:"class_start_date,omitempty"       form:"class_start_date"`
+	ClassEndDate   *time.Time `json:"class_end_date,omitempty"         form:"class_end_date"`
 
 	// Registrasi / Term
 	ClassAcademicTermID       *uuid.UUID `json:"class_academic_term_id,omitempty"         form:"class_academic_term_id"`
@@ -414,7 +414,7 @@ type ClassResponse struct {
 	ClassID       uuid.UUID `json:"class_id"`
 	ClassSchoolID uuid.UUID `json:"class_school_id"`
 
-	// JSON dan nama field disamakan dengan model:
+	// Relasi
 	ClassClassParentID  uuid.UUID  `json:"class_class_parent_id"`
 	ClassAcademicTermID *uuid.UUID `json:"class_academic_term_id,omitempty"`
 
@@ -449,19 +449,27 @@ type ClassResponse struct {
 	ClassImageObjectKeyOld       *string    `json:"class_image_object_key_old,omitempty"`
 	ClassImageDeletePendingUntil *time.Time `json:"class_image_delete_pending_until,omitempty"`
 
-	// Snapshots — nama JSON disamakan persis dgn model
-	// Parent
-	ClassParentCodeSnapshot  *string `json:"class_class_parent_code_snapshot,omitempty"`
-	ClassParentNameSnapshot  *string `json:"class_class_parent_name_snapshot,omitempty"`
-	ClassParentSlugSnapshot  *string `json:"class_class_parent_slug_snapshot,omitempty"`
-	ClassParentLevelSnapshot *int16  `json:"class_class_parent_level_snapshot,omitempty"`
-	ClassParentURLSnapshot   *string `json:"class_class_parent_url_snapshot,omitempty"`
+	// Snapshots Parent (JSON disamakan dengan model: class_parent_*)
+	ClassParentCodeSnapshot  *string `json:"class_parent_code_snapshot,omitempty"`
+	ClassParentNameSnapshot  *string `json:"class_parent_name_snapshot,omitempty"`
+	ClassParentSlugSnapshot  *string `json:"class_parent_slug_snapshot,omitempty"`
+	ClassParentLevelSnapshot *int16  `json:"class_parent_level_snapshot,omitempty"`
+	ClassParentURLSnapshot   *string `json:"class_parent_url_snapshot,omitempty"`
 
-	// Term
+	// Snapshots Term (JSON sama dengan model)
 	ClassTermAcademicYearSnapshot *string `json:"class_academic_term_academic_year_snapshot,omitempty"`
 	ClassTermNameSnapshot         *string `json:"class_academic_term_name_snapshot,omitempty"`
 	ClassTermSlugSnapshot         *string `json:"class_academic_term_slug_snapshot,omitempty"`
 	ClassTermAngkatanSnapshot     *string `json:"class_academic_term_angkatan_snapshot,omitempty"`
+
+	// Stats (aggregate; sinkron sama kolom baru di classes)
+	ClassTotalClassSections    int            `json:"class_total_class_sections"`
+	ClassTotalStudents         int            `json:"class_total_students"`
+	ClassTotalStudentsMale     int            `json:"class_total_students_male"`
+	ClassTotalStudentsFemale   int            `json:"class_total_students_female"`
+	ClassTotalTeachers         int            `json:"class_total_teachers"`
+	ClassTotalClassEnrollments int            `json:"class_total_class_enrollments"`
+	ClassStats                 map[string]any `json:"class_stats,omitempty"`
 
 	// Audit
 	ClassCreatedAt time.Time `json:"class_created_at"`
@@ -472,6 +480,11 @@ func FromModel(m *model.ClassModel) ClassResponse {
 	var feeMeta map[string]any
 	if m.ClassFeeMeta != nil {
 		feeMeta = map[string]any(m.ClassFeeMeta)
+	}
+
+	var stats map[string]any
+	if m.ClassStats != nil {
+		stats = map[string]any(m.ClassStats)
 	}
 
 	// ClassName sekarang *string di model; jika nil, fallback compose dari snapshot.
@@ -517,16 +530,27 @@ func FromModel(m *model.ClassModel) ClassResponse {
 		ClassImageObjectKeyOld:       m.ClassImageObjectKeyOld,
 		ClassImageDeletePendingUntil: m.ClassImageDeletePendingUntil,
 
+		// parent snapshots
 		ClassParentCodeSnapshot:  m.ClassParentCodeSnapshot,
 		ClassParentNameSnapshot:  m.ClassParentNameSnapshot,
 		ClassParentSlugSnapshot:  m.ClassParentSlugSnapshot,
 		ClassParentLevelSnapshot: m.ClassParentLevelSnapshot,
 		ClassParentURLSnapshot:   m.ClassParentURLSnapshot,
 
+		// term snapshots
 		ClassTermAcademicYearSnapshot: m.ClassAcademicTermAcademicYearSnapshot,
 		ClassTermNameSnapshot:         m.ClassAcademicTermNameSnapshot,
 		ClassTermSlugSnapshot:         m.ClassAcademicTermSlugSnapshot,
 		ClassTermAngkatanSnapshot:     m.ClassAcademicTermAngkatanSnapshot,
+
+		// stats
+		ClassTotalClassSections:    m.ClassTotalClassSections,
+		ClassTotalStudents:         m.ClassTotalStudents,
+		ClassTotalStudentsMale:     m.ClassTotalStudentsMale,
+		ClassTotalStudentsFemale:   m.ClassTotalStudentsFemale,
+		ClassTotalTeachers:         m.ClassTotalTeachers,
+		ClassTotalClassEnrollments: m.ClassTotalClassEnrollments,
+		ClassStats:                 stats,
 
 		ClassCreatedAt: m.ClassCreatedAt,
 		ClassUpdatedAt: m.ClassUpdatedAt,
@@ -556,7 +580,7 @@ type ListClassQuery struct {
 	CompletedGe *time.Time `query:"completed_ge"`
 	CompletedLe *time.Time `query:"completed_le"`
 
-	// ⬇️ NEW: hanya kelas yang dibuka untuk pendaftaran sekarang
+	// hanya kelas yang open registration (optional flag)
 	OpenForRegistration *bool `query:"open_for_registration"`
 
 	Limit  int     `query:"limit"  validate:"omitempty,min=1,max=200"`
@@ -597,13 +621,6 @@ DECODER: dukung JSON & multipart untuk PatchClassRequest
 =========================================================
 */
 
-// DecodePatchClassFromRequest:
-//   - multipart/form-data:
-//     a) jika ada field "payload" -> unmarshal JSON,
-//     b) jika tidak ada -> baca form key-value via DecodePatchClassMultipart.
-//   - application/json -> BodyParser biasa.
-//
-// Setelah parse -> Normalize (Validate tetap dilakukan di controller).
 func DecodePatchClassFromRequest(c *fiber.Ctx, out *PatchClassRequest) error {
 	ct := strings.ToLower(c.Get("Content-Type"))
 	if strings.Contains(ct, "multipart/form-data") {
@@ -843,5 +860,3 @@ func DecodePatchClassMultipart(c *fiber.Ctx, r *PatchClassRequest) error {
 
 	return nil
 }
-
-

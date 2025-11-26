@@ -1,3 +1,4 @@
+// file: internals/features/school/classes/classes/controller/class_parent_list_controller.go
 package controller
 
 import (
@@ -5,6 +6,7 @@ import (
 	cpmodel "madinahsalam_backend/internals/features/school/classes/classes/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
+
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -60,14 +62,20 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// -------- query params --------
+	// -------- query params → DTO --------
 	var q cpdto.ListClassParentQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
 	}
 
-	// ✅ Paging (standar jsonresponse)
-	p := helper.ResolvePaging(c, 20, 200)
+	// ✅ Paging (standar jsonresponse + override dari DTO.limit/offset)
+	p := helper.ResolvePaging(c, 20, 200) // default 20, max 200
+	if q.Limit > 0 && q.Limit <= 200 {
+		p.Limit = q.Limit
+	}
+	if q.Offset >= 0 {
+		p.Offset = q.Offset
+	}
 
 	// only_my flag
 	onlyMy := false
@@ -126,7 +134,7 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// ----- filter kolom-kolom -----
+	// ----- filter kolom-kolom dari DTO -----
 	if q.Active != nil {
 		tx = tx.Where("class_parent_is_active = ?", *q.Active)
 	}
@@ -139,7 +147,6 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 	if q.CreatedGt != nil {
 		tx = tx.Where("class_parent_created_at > ?", *q.CreatedGt)
 	}
-
 	if q.CreatedLt != nil {
 		tx = tx.Where("class_parent_created_at < ?", *q.CreatedLt)
 	}
@@ -167,24 +174,24 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 					SELECT 1
 					FROM classes c
 					JOIN class_sections s
-					  ON s.class_sections_class_id = c.class_id
-					 AND s.class_sections_deleted_at IS NULL
+					  ON s.class_section_class_id = c.class_id
+					 AND s.class_section_deleted_at IS NULL
 					LEFT JOIN student_class_sections scs
-					  ON scs.student_class_section_section_id = s.class_sections_id
+					  ON scs.student_class_section_section_id = s.class_section_id
 					 AND scs.student_class_section_deleted_at IS NULL
 					 AND scs.student_class_section_status = 'active'
 					LEFT JOIN school_students ms
 					  ON ms.school_student_id = scs.student_class_section_school_student_id
 					 AND ms.school_student_deleted_at IS NULL
 					LEFT JOIN school_teachers mt
-					  ON mt.school_teacher_id = s.class_sections_teacher_id
+					  ON mt.school_teacher_id = s.class_section_teacher_id
 					 AND mt.school_teacher_deleted_at IS NULL
 					WHERE c.class_parent_id = class_parent_id
 					  AND c.class_school_id = ?
 					  AND (
 							(ms.school_student_user_id = ?)
 						 OR (mt.school_teacher_user_id = ?)
-						 OR (s.class_sections_teacher_user_id = ?)
+						 OR (s.class_section_teacher_user_id = ?)
 					  )
 				)
 			`, schoolID, userID, userID, userID)
@@ -208,7 +215,7 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 
 	resps := cpdto.ToClassParentResponses(rows)
 
-	// ✅ pagination jsonresponse
+	// ✅ pagination jsonresponse (pakai helper standar)
 	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)
 	return helper.JsonList(c, "ok", resps, pg)
 }

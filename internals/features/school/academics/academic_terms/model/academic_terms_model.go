@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -30,6 +31,16 @@ type AcademicTermModel struct {
 	AcademicTermIsActive    bool      `gorm:"not null;default:true;column:academic_term_is_active" json:"academic_term_is_active"`
 	AcademicTermAngkatan    *int      `gorm:"column:academic_term_angkatan" json:"academic_term_angkatan,omitempty"`
 	AcademicTermDescription *string   `gorm:"type:text;column:academic_term_description" json:"academic_term_description,omitempty"`
+
+	// ============ Aggregated stats ============
+	AcademicTermTotalClasses          int            `gorm:"type:integer;not null;default:0;column:academic_term_total_classes" json:"academic_term_total_classes"`
+	AcademicTermTotalClassSections    int            `gorm:"type:integer;not null;default:0;column:academic_term_total_class_sections" json:"academic_term_total_class_sections"`
+	AcademicTermTotalStudents         int            `gorm:"type:integer;not null;default:0;column:academic_term_total_students" json:"academic_term_total_students"`
+	AcademicTermTotalStudentsMale     int            `gorm:"type:integer;not null;default:0;column:academic_term_total_students_male" json:"academic_term_total_students_male"`
+	AcademicTermTotalStudentsFemale   int            `gorm:"type:integer;not null;default:0;column:academic_term_total_students_female" json:"academic_term_total_students_female"`
+	AcademicTermTotalTeachers         int            `gorm:"type:integer;not null;default:0;column:academic_term_total_teachers" json:"academic_term_total_teachers"`
+	AcademicTermTotalClassEnrollments int            `gorm:"type:integer;not null;default:0;column:academic_term_total_class_enrollments" json:"academic_term_total_class_enrollments"`
+	AcademicTermStats                 datatypes.JSON `gorm:"type:jsonb;column:academic_term_stats" json:"academic_term_stats,omitempty"`
 
 	// Generated column (half-open daterange [start, end)) — read-only
 	AcademicTermPeriod *string `gorm:"->;type:daterange;column:academic_term_period" json:"academic_term_period,omitempty"`

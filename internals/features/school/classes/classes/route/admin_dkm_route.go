@@ -3,6 +3,7 @@ package route
 
 import (
 	classctrl "madinahsalam_backend/internals/features/school/classes/classes/controller"
+
 	schoolkuMiddleware "madinahsalam_backend/internals/middlewares/features"
 
 	"github.com/gofiber/fiber/v2"

@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	yDTO "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/dto"
-	yModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
+	teacherDTO "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/dto"
+	teacherModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
@@ -100,7 +100,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 	}
 
 	tx := ctrl.DB.WithContext(c.Context()).
-		Model(&yModel.SchoolTeacherModel{}).
+		Model(&teacherModel.SchoolTeacherModel{}).
 		Where("school_teacher_school_id = ? AND school_teacher_deleted_at IS NULL", schoolID)
 
 	// ⬇️ filter by PK teacher
@@ -169,7 +169,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	var rows []yModel.SchoolTeacherModel
+	var rows []teacherModel.SchoolTeacherModel
 	if err := tx.
 		Order(orderExpr).
 		Limit(p.Limit).
@@ -202,10 +202,10 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 	}
 
 	// 6) base responses + kumpulkan IDs
-	base := make([]*yDTO.SchoolTeacher, 0, len(rows))
+	base := make([]*teacherDTO.SchoolTeacher, 0, len(rows))
 	teacherIDsSet := make(map[uuid.UUID]struct{}, len(rows))
 	for i := range rows {
-		base = append(base, yDTO.NewSchoolTeacherResponse(&rows[i]))
+		base = append(base, teacherDTO.NewSchoolTeacherResponse(&rows[i]))
 		if rows[i].SchoolTeacherUserTeacherID != uuid.Nil {
 			teacherIDsSet[rows[i].SchoolTeacherUserTeacherID] = struct{}{}
 		}
@@ -236,7 +236,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 			var trows []struct {
 				UserTeacherID        uuid.UUID `gorm:"column:user_teacher_id"`
 				UserTeacherUserID    uuid.UUID `gorm:"column:user_teacher_user_id"`
-				UserTeacherName      string    `gorm:"column:user_teacher_name"`
+				UserTeacherName      string    `gorm:"column:user_teacher_name_snapshot"`
 				UserTeacherWhatsapp  *string   `gorm:"column:user_teacher_whatsapp_url"`
 				UserTeacherAvatarURL *string   `gorm:"column:user_teacher_avatar_url"`
 				TitlePrefix          *string   `gorm:"column:user_teacher_title_prefix"`
@@ -245,9 +245,17 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 				IsVerified           bool      `gorm:"column:user_teacher_is_verified"`
 			}
 			if err := ctrl.DB.Table("user_teachers").
-				Select(`user_teacher_id, user_teacher_user_id, user_teacher_name, user_teacher_whatsapp_url,
-						user_teacher_avatar_url, user_teacher_title_prefix, user_teacher_title_suffix,
-						user_teacher_is_active, user_teacher_is_verified`).
+				Select(`
+					user_teacher_id,
+					user_teacher_user_id,
+					user_teacher_name_snapshot,
+					user_teacher_whatsapp_url,
+					user_teacher_avatar_url,
+					user_teacher_title_prefix,
+					user_teacher_title_suffix,
+					user_teacher_is_active,
+					user_teacher_is_verified`,
+				).
 				Where("user_teacher_id IN ?", teacherIDs).
 				Where("user_teacher_deleted_at IS NULL").
 				Find(&trows).Error; err != nil {
@@ -321,7 +329,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 			WhatsappURL       *string   `gorm:"column:user_profile_whatsapp_url"`
 			ParentName        *string   `gorm:"column:user_profile_parent_name"`
 			ParentWhatsappURL *string   `gorm:"column:user_profile_parent_whatsapp_url"`
-			GenderSnapshot    *string   `gorm:"column:user_profile_gender_snapshot"` // ⬅️ NEW
+			GenderSnapshot    *string   `gorm:"column:user_profile_gender_snapshot"`
 		}
 		if err := ctrl.DB.Table("user_profiles").
 			Select(`
@@ -348,17 +356,17 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 				WhatsappURL:       pr.WhatsappURL,
 				ParentName:        pr.ParentName,
 				ParentWhatsappURL: pr.ParentWhatsappURL,
-				GenderSnapshot:    pr.GenderSnapshot, // ⬅️ map ke response
+				GenderSnapshot:    pr.GenderSnapshot,
 			}
 		}
 	}
 
 	// 7) Susun output
 	type Item struct {
-		*yDTO.SchoolTeacher `json:",inline"`
-		Teacher             *TeacherLite     `json:"user_teacher,omitempty"`
-		User                *UserLite        `json:"user,omitempty"`
-		UserProfile         *UserProfileLite `json:"user_profile,omitempty"`
+		*teacherDTO.SchoolTeacher `json:",inline"`
+		Teacher                   *TeacherLite     `json:"user_teacher,omitempty"`
+		User                      *UserLite        `json:"user,omitempty"`
+		UserProfile               *UserProfileLite `json:"user_profile,omitempty"`
 	}
 
 	out := make([]Item, 0, len(base))

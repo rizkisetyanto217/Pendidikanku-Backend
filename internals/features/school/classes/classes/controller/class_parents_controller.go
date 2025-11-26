@@ -48,45 +48,48 @@ CREATE (DKM only) — slug unik + optional upload (save to DB)
 =========================================================
 */
 func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
-	// 1) Parse payload
+	// 1) Parse payload → DTO
 	var p cpdto.ClassParentCreateRequest
 	if err := c.BodyParser(&p); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	p.Normalize()
 
+	// Antisipasi kasus multipart di mana UnmarshalText tidak terpanggil
 	if len(p.ClassParentRequirements.ToJSONMap()) == 0 {
-		// BodyParser pada multipart kadang tidak memanggil UnmarshalText → parse manual dari form-data
 		raw := strings.TrimSpace(c.FormValue("class_parent_requirements"))
 		if raw != "" {
 			var tmp datatypes.JSONMap
 			if err := json.Unmarshal([]byte(raw), &tmp); err != nil {
-				return helper.JsonError(c, fiber.StatusBadRequest,
-					"class_parent_requirements harus JSON object yang valid: "+err.Error())
+				return helper.JsonError(
+					c,
+					fiber.StatusBadRequest,
+					"class_parent_requirements harus JSON object yang valid: "+err.Error(),
+				)
 			}
 			p.ClassParentRequirements = cpdto.JSONMapFlexible(tmp)
 		}
 	}
 
-	// 2) Resolve school dari token / active-school (BUKAN dari URL)
+	// 2) Resolve school dari token / active-school
 	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
-		return err // helper ini sudah balikin JsonError yang rapih
+		return err
 	}
 
-	// 3) Guard: hanya DKM/Admin di school ini
+	// 3) Guard role
 	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return err
 	}
 
-	// 4) Paksa body sesuai context (abaikan yang datang dari client kalau beda)
+	// 4) Paksa schoolID konsisten
 	if p.ClassParentSchoolID == uuid.Nil {
 		p.ClassParentSchoolID = schoolID
 	} else if p.ClassParentSchoolID != schoolID {
 		return helper.JsonError(c, fiber.StatusConflict, "class_parent_school_id pada body tidak cocok dengan school context")
 	}
 
-	// 5) Uniqueness: code (opsional)
+	// 5) Cek unik code (opsional)
 	if p.ClassParentCode != nil {
 		code := strings.TrimSpace(*p.ClassParentCode)
 		if code != "" {
@@ -103,7 +106,7 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	// 6) Slug unik (CI) per school
+	// 6) Generate slug unik per school (case-insensitive)
 	var baseSlug string
 	if p.ClassParentSlug != nil && strings.TrimSpace(*p.ClassParentSlug) != "" {
 		baseSlug = helper.Slugify(*p.ClassParentSlug, 160)
@@ -113,10 +116,12 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 			baseSlug = "item"
 		}
 	}
+
 	scope := func(q *gorm.DB) *gorm.DB {
 		return q.Where("class_parent_school_id = ?", schoolID).
 			Where("class_parent_deleted_at IS NULL")
 	}
+
 	uniqueSlug, err := helper.EnsureUniqueSlugCI(
 		c.Context(), ctl.DB,
 		"class_parents", "class_parent_slug",
@@ -126,19 +131,20 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug")
 	}
 
-	// 7) Build entity & simpan (pakai schoolID yang kita lock)
+	// 7) Build entity dari DTO
 	ent := p.ToModel()
 	ent.ClassParentSchoolID = schoolID
-	entSlug := uniqueSlug
-	ent.ClassParentSlug = &entSlug
+	slugCopy := uniqueSlug
+	ent.ClassParentSlug = &slugCopy
 
+	// 8) Simpan ke DB
 	if err := ctl.DB.Create(ent).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan data")
 	}
 
-	// 8) Optional upload file → simpan ke DB (image_url + object_key)
+	// 9) Optional upload image (pakai getImageFormFile)
 	uploadedURL := ""
-	if fh := pickImageFile(c, "image", "file"); fh != nil {
+	if fh, _ := getImageFormFile(c); fh != nil {
 		url, upErr := helperOSS.UploadImageToOSSScoped(schoolID, "classes/class-parents", fh)
 		if upErr == nil {
 			uploadedURL = url
@@ -157,15 +163,19 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 					"class_parent_image_url":        uploadedURL,
 					"class_parent_image_object_key": objKey,
 				}).Error
+
+			ent.ClassParentImageURL = &uploadedURL
+			ent.ClassParentImageObjectKey = &objKey
 		}
-		// upload gagal → biarkan create tetap sukses
+		// kalau upload gagal → create tetap sukses
 	}
 
-	// 9) Reload entity (ambil field terbaru)
+	// 10) Reload entity biar field default/snapshot ikut
 	_ = ctl.DB.WithContext(c.Context()).
-		First(&ent, "class_parent_id = ?", ent.ClassParentID).Error
+		First(ent, "class_parent_id = ?", ent.ClassParentID).Error
 
-	// 10) Response — data langsung object class_parent
+	_ = uploadedURL // biar nggak unused kalau nggak dipakai log
+
 	return helper.JsonCreated(c, "Berhasil membuat parent kelas", cpdto.FromModelClassParent(ent))
 }
 
@@ -180,7 +190,7 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "id tidak valid")
 	}
 
-	// ✅ Resolve school dari token / active-school
+	// Resolve school dari context
 	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
 		return err
@@ -212,26 +222,30 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
-	// Guard: hanya DKM/Admin di tenant yang sama
+	// Guard akses
 	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
 
-	// === Parse payload (JSON / multipart) → tri-state
+	// Parse payload → DTO patch (tri-state)
 	var p cpdto.ClassParentPatchRequest
 	if err := cpdto.DecodePatchClassParentFromRequest(c, &p); err != nil {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// === Uniqueness: code (jika diubah & non-empty)
+	// Cek unik code kalau diubah
 	if p.ClassParentCode.Present && p.ClassParentCode.Value != nil {
 		if v := strings.TrimSpace(**p.ClassParentCode.Value); v != "" {
 			var cnt int64
 			if err := tx.Model(&classModel.ClassParentModel{}).
-				Where(`class_parent_school_id = ? AND class_parent_code = ? AND class_parent_id <> ? AND class_parent_deleted_at IS NULL`,
-					ent.ClassParentSchoolID, v, ent.ClassParentID).
+				Where(`
+					class_parent_school_id = ?
+					AND class_parent_code = ?
+					AND class_parent_id <> ?
+					AND class_parent_deleted_at IS NULL
+				`, ent.ClassParentSchoolID, v, ent.ClassParentID).
 				Count(&cnt).Error; err != nil {
 
 				_ = tx.Rollback()
@@ -244,7 +258,7 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		}
 	}
 
-	// === SIMPAN NILAI LAMA untuk deteksi refresh snapshot
+	// Simpan nilai lama buat deteksi refresh snapshot
 	oldCode := ""
 	if ent.ClassParentCode != nil {
 		oldCode = *ent.ClassParentCode
@@ -263,15 +277,18 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		oldLevel = &lv
 	}
 
-	// === Apply patch ke entity in-memory
+	// Apply patch ke entity
 	p.Apply(&ent)
 
-	// === Slug handling (unique per school)
+	// Slug handling
 	if p.ClassParentSlug.Present {
 		if p.ClassParentSlug.Value != nil {
 			base := helper.Slugify(strings.TrimSpace(**p.ClassParentSlug.Value), 100)
 			if base == "" {
-				base = helper.SuggestSlugFromName(ent.ClassParentName)
+				base = helper.Slugify(ent.ClassParentName, 100)
+				if base == "" {
+					base = "item"
+				}
 			}
 			uniq, err := helper.EnsureUniqueSlugCI(
 				c.Context(), tx,
@@ -315,7 +332,7 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		ent.ClassParentSlug = &uniq
 	}
 
-	// === Simpan perubahan utama (tanpa image dulu)
+	// Simpan perubahan utama
 	if err := tx.Model(&classModel.ClassParentModel{}).
 		Where("class_parent_id = ?", ent.ClassParentID).
 		Updates(&ent).Error; err != nil {
@@ -323,7 +340,7 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan perubahan")
 	}
 
-	// === Upload image (multipart optional) → 2-slot + retensi
+	// Upload image (optional)
 	uploadedURL := ""
 	movedOld := ""
 
@@ -337,7 +354,6 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		ctx, cancel := context.WithTimeout(c.Context(), 30*time.Second)
 		defer cancel()
 
-		// folder: classes/class-parents  (rapi & konsisten)
 		url, upErr := helperOSS.UploadImageToOSS(ctx, svc, ent.ClassParentSchoolID, "classes/class-parents", fh)
 		if upErr != nil {
 			_ = tx.Rollback()
@@ -370,13 +386,12 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan image")
 		}
 
-		// sinkron ent untuk response
 		ent.ClassParentImageURL = &url
 		ent.ClassParentImageObjectKey = &key
 		uploadedURL = url
 	}
 
-	// === Tentukan perlu REFRESH SNAPSHOT classes (denormalized fields)
+	// Deteksi perlu refresh snapshot di tabel lain
 	newCode := ""
 	if ent.ClassParentCode != nil {
 		newCode = *ent.ClassParentCode
@@ -415,7 +430,7 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 	}
 
 	if needRefresh {
-		// --- 1) Refresh snapshot di tabel classes ---
+		// 1) Refresh snapshot di tabel classes
 		type classmodel = classModel.ClassModel
 		if err := tx.Model(&classmodel{}).
 			Where("class_school_id = ? AND class_class_parent_id = ?", ent.ClassParentSchoolID, ent.ClassParentID).
@@ -436,22 +451,22 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyegarkan snapshot classes")
 		}
 
-		// --- 2) Refresh snapshot di tabel class_sections ---
+		// 2) Refresh snapshot di class_sections
 		execErr := tx.Exec(`
-        UPDATE class_sections AS cs
-        SET
-            class_section_class_parent_id             = $1,
-            class_section_class_parent_name_snapshot  = $2,
-            class_section_class_parent_slug_snapshot  = $3,
-            class_section_class_parent_level_snapshot = $4,
-            class_section_snapshot_updated_at         = NOW(),
-            class_section_updated_at                  = NOW()
-        FROM classes AS c
-        WHERE
-            cs.class_section_class_id = c.class_id
-            AND c.class_class_parent_id = $1
-            AND cs.class_section_school_id = $5
-    `,
+			UPDATE class_sections AS cs
+			SET
+				class_section_class_parent_id             = $1,
+				class_section_class_parent_name_snapshot  = $2,
+				class_section_class_parent_slug_snapshot  = $3,
+				class_section_class_parent_level_snapshot = $4,
+				class_section_snapshot_updated_at         = NOW(),
+				class_section_updated_at                  = NOW()
+			FROM classes AS c
+			WHERE
+				cs.class_section_class_id = c.class_id
+				AND c.class_class_parent_id = $1
+				AND cs.class_section_school_id = $5
+		`,
 			ent.ClassParentID,
 			ent.ClassParentName,
 			func() any {
@@ -474,20 +489,19 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyegarkan snapshot class_sections")
 		}
 
-		// --- 3) Refresh snapshot di CSST (class_section_subject_teachers) ---
-		// Untuk sekarang: cukup update updated_at berdasarkan section & parent.
+		// 3) Refresh snapshot CSST (update updated_at saja)
 		execErr2 := tx.Exec(`
-    UPDATE class_section_subject_teachers AS csst
-    SET
-        class_section_subject_teacher_updated_at = NOW()
-    FROM class_sections AS sec
-    JOIN classes AS c
-      ON sec.class_section_class_id = c.class_id
-    WHERE
-        csst.class_section_subject_teacher_class_section_id = sec.class_section_id
-        AND c.class_class_parent_id = $1
-        AND csst.class_section_subject_teacher_school_id = $2
-`,
+			UPDATE class_section_subject_teachers AS csst
+			SET
+				class_section_subject_teacher_updated_at = NOW()
+			FROM class_sections AS sec
+			JOIN classes AS c
+			  ON sec.class_section_class_id = c.class_id
+			WHERE
+				csst.class_section_subject_teacher_class_section_id = sec.class_section_id
+				AND c.class_class_parent_id = $1
+				AND csst.class_section_subject_teacher_school_id = $2
+		`,
 			ent.ClassParentID,
 			ent.ClassParentSchoolID,
 		).Error
@@ -502,7 +516,6 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// Response: pakai JsonUpdated, data = single class_parent object
 	_ = uploadedURL
 	_ = movedOld
 
@@ -521,7 +534,7 @@ func (ctl *ClassParentController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "id tidak valid")
 	}
 
-	// ✅ Resolve school dari token / active-school
+	// Resolve school
 	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
 		return err
@@ -541,12 +554,12 @@ func (ctl *ClassParentController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
-	// Guard akses: hanya DKM/Admin pada school terkait
+	// Guard akses
 	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return err
 	}
 
-	// ===== GUARD: masih dipakai di classes? =====
+	// Guard: masih dipakai classes?
 	var usedCount int64
 	if err := ctl.DB.WithContext(c.Context()).
 		Model(&classModel.ClassModel{}).
@@ -558,7 +571,6 @@ func (ctl *ClassParentController) Delete(c *fiber.Ctx) error {
 		Count(&usedCount).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengecek relasi kelas")
 	}
-
 	if usedCount > 0 {
 		return helper.JsonError(
 			c,
@@ -567,7 +579,7 @@ func (ctl *ClassParentController) Delete(c *fiber.Ctx) error {
 		)
 	}
 
-	// ==== Soft delete parent ====
+	// Soft delete
 	now := time.Now()
 	if err := ctl.DB.WithContext(c.Context()).
 		Model(&classModel.ClassParentModel{}).
@@ -579,7 +591,7 @@ func (ctl *ClassParentController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus data")
 	}
 
-	// OPSIONAL: soft-delete file terkait jika image_url disertakan
+	// Optional: mindahin file ke "spam"
 	imageURL := strings.TrimSpace(c.Query("image_url"))
 	if imageURL == "" {
 		if v := strings.TrimSpace(c.FormValue("image_url")); v != "" {
@@ -588,7 +600,7 @@ func (ctl *ClassParentController) Delete(c *fiber.Ctx) error {
 	}
 	if imageURL != "" {
 		if _, err := helperOSS.MoveToSpamByPublicURLENV(imageURL, 0); err != nil {
-			// optional: log.Print(err)
+			// boleh di-log, tapi jangan ganggu response
 		}
 	}
 

@@ -44,16 +44,6 @@ func parseSchoolID(c *fiber.Ctx) (uuid.UUID, error) {
 	return id, nil
 }
 
-// Cek scope menggunakan key hasil ekstrak dari public URL
-func withinSchoolScope(schoolID uuid.UUID, publicURL string) bool {
-	key, err := helperOSS.KeyFromPublicURL(publicURL)
-	if err != nil {
-		return false
-	}
-	prefix := "schools/" + schoolID.String() + "/"
-	return strings.HasPrefix(key, prefix)
-}
-
 // ------- util kecil untuk banding nilai pointer & json -------
 func val(s *string) string {
 	if s == nil {
@@ -68,33 +58,38 @@ func jsonEqual(a, b datatypes.JSON) bool {
 	return string(a) == string(b)
 }
 
-/* ====== KODE GURU: helper & endpoint ====== */
-// POST /api/u/schools/:id/teacher-code/rotate
+// ====== KODE GURU: helper & endpoint ======
+// POST /api/u/schools/:school_id/teacher-code/rotate
+// NOTE: school_id diambil dari token/context, path hanya dekorasi
 func (mc *SchoolController) GetTeacherCode(c *fiber.Ctx) error {
-	raw := strings.TrimSpace(c.Params("school_id")) // ⬅️ was: "id"
-	schoolID, err := uuid.Parse(raw)
+	// ✅ Ambil school_id dari token / active-school
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "school_id pada path tidak valid")
+		// helper ini sudah balikin JsonError yg rapi (Unauthorized / context not found)
+		return err
 	}
 
-	gotID, aerr := helperAuth.EnsureSchoolAccessDKM(c, helperAuth.SchoolContext{ID: schoolID})
-	if aerr != nil {
-		return helper.JsonError(c, aerr.(*fiber.Error).Code, aerr.Error())
-	}
-	if gotID != schoolID {
-		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
+	// ✅ Pastikan user adalah DKM/Admin di school ini
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
+		return err
 	}
 
+	// Ambil data school
 	var m schoolModel.SchoolModel
 	if err := mc.DB.First(&m, "school_id = ?", schoolID).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusNotFound, "School tidak ditemukan")
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, fiber.StatusNotFound, "School tidak ditemukan")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil school")
 	}
 
+	// 🔁 Generate kode guru baru (masih pakai helper lama kamu)
 	plain, hash, setAt, err := makeTeacherCodeFromSlug(m.SchoolSlug)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat teacher code")
 	}
 
+	// Simpan hash + waktu set
 	m.SchoolTeacherCodeHash = hash
 	m.SchoolTeacherCodeSetAt = &setAt
 	m.SchoolUpdatedAt = time.Now()
@@ -108,7 +103,7 @@ func (mc *SchoolController) GetTeacherCode(c *fiber.Ctx) error {
 	}
 
 	return helper.JsonOK(c, "Kode guru didapatkan", fiber.Map{
-		"teacher_code": plain,
+		"teacher_code": plain, // ⬅️ ini yg dikirim ke FE
 		"set_at":       setAt,
 	})
 }
@@ -122,24 +117,21 @@ type patchTeacherCodeJSON struct {
 	Code string `json:"code"`
 }
 
-// PATCH /api/u/schools/:id/teacher-code
+// PATCH /api/u/schools/:school_id/teacher-code
 // Body:
 //   - JSON:      { "code": "apa saja (bebas simbol)" }
 //   - Form:      code=apa%20saja
 //   - Multipart: code=apa%20saja
 func (mc *SchoolController) PatchTeacherCode(c *fiber.Ctx) error {
-	raw := strings.TrimSpace(c.Params("school_id")) // ⬅️ was: "id"
-	schoolID, err := uuid.Parse(raw)
+	// ✅ Ambil school_id dari token / active-school
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "school_id pada path tidak valid")
+		return err
 	}
 
-	gotID, aerr := helperAuth.EnsureSchoolAccessDKM(c, helperAuth.SchoolContext{ID: schoolID})
-	if aerr != nil {
-		return helper.JsonError(c, aerr.(*fiber.Error).Code, aerr.Error())
-	}
-	if gotID != schoolID {
-		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
+	// ✅ Pastikan user adalah DKM/Admin di school ini
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
+		return err
 	}
 
 	// baca body (json/form/raw) sama seperti sebelumnya…
@@ -168,7 +160,10 @@ func (mc *SchoolController) PatchTeacherCode(c *fiber.Ctx) error {
 
 	var m schoolModel.SchoolModel
 	if err := mc.DB.First(&m, "school_id = ?", schoolID).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusNotFound, "School tidak ditemukan")
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, fiber.StatusNotFound, "School tidak ditemukan")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil school")
 	}
 
 	now := time.Now()

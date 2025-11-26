@@ -85,7 +85,7 @@ type ClassSectionModel struct {
 	/* ===== Jadwal sederhana ===== */
 	ClassSectionSchedule *string `gorm:"type:text;column:class_section_schedule" json:"class_section_schedule,omitempty"`
 
-	/* ===== Kapasitas & counter ===== */
+	/* ===== Kapasitas & counter (utama) ===== */
 	ClassSectionCapacity      *int `gorm:"column:class_section_capacity" json:"class_section_capacity,omitempty"`
 	ClassSectionTotalStudents int  `gorm:"not null;default:0;column:class_section_total_students" json:"class_section_total_students"`
 
@@ -157,6 +157,13 @@ type ClassSectionModel struct {
 	ClassSectionSubjectTeachersEnrollmentMode             ClassSectionSubjectTeachersEnrollmentMode `gorm:"type:class_section_subject_teachers_enrollment_mode;not null;default:'self_select';column:class_section_subject_teachers_enrollment_mode" json:"class_section_subject_teachers_enrollment_mode"`
 	ClassSectionSubjectTeachersSelfSelectRequiresApproval bool                                      `gorm:"not null;default:false;column:class_section_subject_teachers_self_select_requires_approval" json:"class_section_subject_teachers_self_select_requires_approval"`
 	ClassSectionSubjectTeachersMaxSubjectsPerStudent      *int                                      `gorm:"column:class_section_subject_teachers_max_subjects_per_student" json:"class_section_subject_teachers_max_subjects_per_student,omitempty"`
+
+	/* ===== STATS (per class_section) ===== */
+	ClassSectionTotalStudentsMale   int `gorm:"not null;default:0;column:class_section_total_students_male" json:"class_section_total_students_male"`
+	ClassSectionTotalStudentsFemale int `gorm:"not null;default:0;column:class_section_total_students_female" json:"class_section_total_students_female"`
+
+	// total semua CSST pada rombel ini
+	ClassSectionTotalClassClassSectionSubjectTeachers int `gorm:"not null;default:0;column:class_section_total_class_class_section_subject_teachers" json:"class_section_total_class_class_section_subject_teachers"`
 
 	/* ===== Housekeeping ===== */
 	ClassSectionSnapshotUpdatedAt *time.Time `gorm:"column:class_section_snapshot_updated_at" json:"class_section_snapshot_updated_at,omitempty"`

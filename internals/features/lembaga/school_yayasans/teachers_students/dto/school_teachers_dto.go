@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	yModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
+	teacherModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
 
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
@@ -74,14 +74,7 @@ type SchoolTeacher struct {
 	SchoolTeacherUserTeacherWhatsappURLSnapshot *string `json:"school_teacher_user_teacher_whatsapp_url_snapshot,omitempty"`
 	SchoolTeacherUserTeacherTitlePrefixSnapshot *string `json:"school_teacher_user_teacher_title_prefix_snapshot,omitempty"`
 	SchoolTeacherUserTeacherTitleSuffixSnapshot *string `json:"school_teacher_user_teacher_title_suffix_snapshot,omitempty"`
-	SchoolTeacherUserTeacherGenderSnapshot      *string `json:"school_teacher_user_teacher_gender_snapshot,omitempty"` // NEW
-
-	// MASJID SNAPSHOT (sinkron dgn model terbaru)
-	SchoolTeacherSchoolNameSnapshot          *string `json:"school_teacher_school_name_snapshot,omitempty"`
-	SchoolTeacherSchoolSlugSnapshot          *string `json:"school_teacher_school_slug_snapshot,omitempty"`
-	SchoolTeacherSchoolLogoURLSnapshot       *string `json:"school_teacher_school_logo_url_snapshot,omitempty"`
-	SchoolTeacherSchoolIconURLSnapshot       *string `json:"school_teacher_school_icon_url_snapshot,omitempty"`
-	SchoolTeacherSchoolBackgroundURLSnapshot *string `json:"school_teacher_school_background_url_snapshot,omitempty"`
+	SchoolTeacherUserTeacherGenderSnapshot      *string `json:"school_teacher_user_teacher_gender_snapshot,omitempty"`
 
 	// JSONB: sections & csst
 	SchoolTeacherSections []DTOTeacherSectionItem `json:"school_teacher_sections"`
@@ -200,7 +193,7 @@ func (r *UpdateSchoolTeacherRequest) Normalize() {
    🔁 Converters (Model -> DTO)
    ======================== */
 
-func NewSchoolTeacherResponse(m *yModel.SchoolTeacherModel) *SchoolTeacher {
+func NewSchoolTeacherResponse(m *teacherModel.SchoolTeacherModel) *SchoolTeacher {
 	if m == nil {
 		return nil
 	}
@@ -257,14 +250,7 @@ func NewSchoolTeacherResponse(m *yModel.SchoolTeacherModel) *SchoolTeacher {
 		SchoolTeacherUserTeacherWhatsappURLSnapshot: m.SchoolTeacherUserTeacherWhatsappURLSnapshot,
 		SchoolTeacherUserTeacherTitlePrefixSnapshot: m.SchoolTeacherUserTeacherTitlePrefixSnapshot,
 		SchoolTeacherUserTeacherTitleSuffixSnapshot: m.SchoolTeacherUserTeacherTitleSuffixSnapshot,
-		SchoolTeacherUserTeacherGenderSnapshot:      m.SchoolTeacherUserTeacherGenderSnapshot, // NEW
-
-		// School snapshots
-		SchoolTeacherSchoolNameSnapshot:          m.SchoolTeacherSchoolNameSnapshot,
-		SchoolTeacherSchoolSlugSnapshot:          m.SchoolTeacherSchoolSlugSnapshot,
-		SchoolTeacherSchoolLogoURLSnapshot:       m.SchoolTeacherSchoolLogoURLSnapshot,
-		SchoolTeacherSchoolIconURLSnapshot:       m.SchoolTeacherSchoolIconURLSnapshot,
-		SchoolTeacherSchoolBackgroundURLSnapshot: m.SchoolTeacherSchoolBackgroundURLSnapshot,
+		SchoolTeacherUserTeacherGenderSnapshot:      m.SchoolTeacherUserTeacherGenderSnapshot,
 
 		// JSONB
 		SchoolTeacherSections: sections,
@@ -277,7 +263,7 @@ func NewSchoolTeacherResponse(m *yModel.SchoolTeacherModel) *SchoolTeacher {
 	}
 }
 
-func NewSchoolTeacherResponses(items []yModel.SchoolTeacherModel) []*SchoolTeacher {
+func NewSchoolTeacherResponses(items []teacherModel.SchoolTeacherModel) []*SchoolTeacher {
 	out := make([]*SchoolTeacher, 0, len(items))
 	for i := range items {
 		out = append(out, NewSchoolTeacherResponse(&items[i]))
@@ -319,7 +305,7 @@ func parseRFC3339(ts *string) (*time.Time, error) {
 	return &t, nil
 }
 
-func parseEmploymentPtr(s *string) (*yModel.TeacherEmployment, error) {
+func parseEmploymentPtr(s *string) (*teacherModel.TeacherEmployment, error) {
 	if s == nil {
 		return nil, nil
 	}
@@ -329,7 +315,7 @@ func parseEmploymentPtr(s *string) (*yModel.TeacherEmployment, error) {
 	}
 	switch v {
 	case "tetap", "kontrak", "paruh_waktu", "magang", "honorer", "relawan", "tamu":
-		st := yModel.TeacherEmployment(v)
+		st := teacherModel.TeacherEmployment(v)
 		return &st, nil
 	default:
 		return nil, fmt.Errorf("employment harus salah satu dari: tetap, kontrak, paruh_waktu, magang, honorer, relawan, tamu")
@@ -344,7 +330,7 @@ func uuidFrom(s string) (uuid.UUID, error) {
    🧱 Mapping ke Model
    ======================== */
 
-func (r CreateSchoolTeacherRequest) ToModel(schoolID string) (*yModel.SchoolTeacherModel, error) {
+func (r CreateSchoolTeacherRequest) ToModel(schoolID string) (*teacherModel.SchoolTeacherModel, error) {
 	rc := r
 	rc.Normalize()
 
@@ -400,7 +386,7 @@ func (r CreateSchoolTeacherRequest) ToModel(schoolID string) (*yModel.SchoolTeac
 	// Penting: inisialisasi JSONB agar tidak NULL pada insert
 	emptyArr := datatypes.JSON([]byte("[]"))
 
-	return &yModel.SchoolTeacherModel{
+	return &teacherModel.SchoolTeacherModel{
 		SchoolTeacherSchoolID:      mzID,
 		SchoolTeacherUserTeacherID: utID,
 
@@ -424,7 +410,7 @@ func (r CreateSchoolTeacherRequest) ToModel(schoolID string) (*yModel.SchoolTeac
 	}, nil
 }
 
-func (r UpdateSchoolTeacherRequest) ApplyToModel(m *yModel.SchoolTeacherModel) error {
+func (r UpdateSchoolTeacherRequest) ApplyToModel(m *teacherModel.SchoolTeacherModel) error {
 	ru := r
 	ru.Normalize()
 

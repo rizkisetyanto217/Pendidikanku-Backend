@@ -8,12 +8,11 @@ import (
 	"strings"
 	"time"
 
-	yDTO "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/dto"
-	yModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
+	teacherDTO "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/dto"
+	teacherModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
+	statsSvc "madinahsalam_backend/internals/features/lembaga/stats/lembaga_stats/service"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
-
-	statsSvc "madinahsalam_backend/internals/features/lembaga/stats/lembaga_stats/service"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -125,7 +124,7 @@ func (ctrl *SchoolTeacherController) Create(c *fiber.Ctx) error {
 	}
 
 	// body (tanpa school_id; gunakan user_teacher_id + optional fields)
-	var body yDTO.CreateSchoolTeacherRequest
+	var body teacherDTO.CreateSchoolTeacherRequest
 	if err := c.BodyParser(&body); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid request")
 	}
@@ -139,7 +138,7 @@ func (ctrl *SchoolTeacherController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	var created yModel.SchoolTeacherModel
+	var created teacherModel.SchoolTeacherModel
 	if err := ctrl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
 		// pastikan user_teacher exists (+ambil user_id untuk role)
 		var userIDStr string
@@ -162,7 +161,7 @@ func (ctrl *SchoolTeacherController) Create(c *fiber.Ctx) error {
 
 		// cek duplikat alive (per school + user_teacher)
 		var dup int64
-		if err := tx.Model(&yModel.SchoolTeacherModel{}).
+		if err := tx.Model(&teacherModel.SchoolTeacherModel{}).
 			Where(`
 				school_teacher_school_id = ?
 				AND school_teacher_user_teacher_id = ?
@@ -199,7 +198,7 @@ func (ctrl *SchoolTeacherController) Create(c *fiber.Ctx) error {
 		return toJSONErr(c, err)
 	}
 
-	return helper.JsonCreated(c, "Pengajar berhasil ditambahkan", yDTO.NewSchoolTeacherResponse(&created))
+	return helper.JsonCreated(c, "Pengajar berhasil ditambahkan", teacherDTO.NewSchoolTeacherResponse(&created))
 }
 
 // ===================== UPDATE =====================
@@ -227,12 +226,12 @@ func (ctrl *SchoolTeacherController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	var req yDTO.UpdateSchoolTeacherRequest
+	var req teacherDTO.UpdateSchoolTeacherRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 
-	var before yModel.SchoolTeacherModel
+	var before teacherModel.SchoolTeacherModel
 	if err := ctrl.DB.WithContext(c.Context()).
 		Clauses(clause.Locking{Strength: "UPDATE"}).
 		First(&before,
@@ -295,7 +294,7 @@ func (ctrl *SchoolTeacherController) Update(c *fiber.Ctx) error {
 		}
 	}
 
-	return helper.JsonUpdated(c, "Pengajar diperbarui", yDTO.NewSchoolTeacherResponse(&before))
+	return helper.JsonUpdated(c, "Pengajar diperbarui", teacherDTO.NewSchoolTeacherResponse(&before))
 }
 
 // ===================== DELETE =====================
@@ -322,7 +321,7 @@ func (ctrl *SchoolTeacherController) Delete(c *fiber.Ctx) error {
 	var rows int64
 	if err := ctrl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
 		// Lock row guru yang mau dihapus
-		var teacher yModel.SchoolTeacherModel
+		var teacher teacherModel.SchoolTeacherModel
 		if err := tx.
 			Clauses(clause.Locking{Strength: "UPDATE"}).
 			First(&teacher,
@@ -349,7 +348,7 @@ func (ctrl *SchoolTeacherController) Delete(c *fiber.Ctx) error {
 
 		// Soft-delete guru
 		res := tx.Where("school_teacher_id = ?", teacher.SchoolTeacherID).
-			Delete(&yModel.SchoolTeacherModel{})
+			Delete(&teacherModel.SchoolTeacherModel{})
 		if res.Error != nil {
 			log.Println("[ERROR] delete school teacher:", res.Error)
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus pengajar")
@@ -365,7 +364,7 @@ func (ctrl *SchoolTeacherController) Delete(c *fiber.Ctx) error {
 
 		// Cek apakah masih ada record guru lain (alive) utk user_teacher ini pada school yang sama
 		var remain int64
-		if err := tx.Model(&yModel.SchoolTeacherModel{}).
+		if err := tx.Model(&teacherModel.SchoolTeacherModel{}).
 			Where(`
 				school_teacher_user_teacher_id = ?
 				AND school_teacher_school_id = ?

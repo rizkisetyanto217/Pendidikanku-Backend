@@ -30,10 +30,13 @@ BEGIN
 END$$;
 
 -- =========================================================
--- TABLE: MASJIDS
+-- TABLE: SCHOOLS
 -- =========================================================
 CREATE TABLE IF NOT EXISTS schools (
   school_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- Running number (auto-increment, global per tabel)
+  school_number BIGINT,
 
   -- Relasi
   school_yayasan_id       UUID REFERENCES yayasans (yayasan_id) ON UPDATE CASCADE ON DELETE SET NULL,
@@ -111,7 +114,51 @@ CREATE TABLE IF NOT EXISTS schools (
     CHECK (school_domain IS NULL OR school_domain ~* '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z]{2,})+$')
 );
 
+-- =========================================================
+-- SCHOOL NUMBER: sequence + default + pengisian existing
+-- =========================================================
+
+-- 1) Pastikan kolom ada (kalau tabel sudah lama)
+ALTER TABLE schools
+  ADD COLUMN IF NOT EXISTS school_number BIGINT;
+
+-- 2) Sequence untuk school_number
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_class
+    WHERE relkind = 'S'
+      AND relname = 'schools_school_number_seq'
+  ) THEN
+    CREATE SEQUENCE schools_school_number_seq;
+  END IF;
+END$$;
+
+-- 3) Set default pakai sequence
+ALTER TABLE schools
+  ALTER COLUMN school_number SET DEFAULT nextval('schools_school_number_seq');
+
+-- 4) Inisialisasi nilai untuk row yang sudah ada (hanya yang masih NULL)
+DO $$
+DECLARE
+  max_num BIGINT;
+BEGIN
+  SELECT COALESCE(MAX(school_number), 0) INTO max_num FROM schools;
+  PERFORM setval('schools_school_number_seq', max_num, true);
+
+  UPDATE schools
+     SET school_number = nextval('schools_school_number_seq')
+   WHERE school_number IS NULL;
+END$$;
+
+-- 5) Unique index untuk memastikan tidak ada duplikasi number
+CREATE UNIQUE INDEX IF NOT EXISTS ux_schools_school_number
+  ON schools (school_number);
+
+-- =========================================================
 -- FK plan (idempotent, toleran delete)
+-- =========================================================
 ALTER TABLE schools
   DROP CONSTRAINT IF EXISTS schools_school_current_plan_id_fkey;
 ALTER TABLE schools
@@ -125,7 +172,7 @@ DROP INDEX IF EXISTS idx_schools_search;
 ALTER TABLE schools DROP COLUMN IF EXISTS school_search;
 
 -- =========================================================
--- INDEXES: MASJIDS
+-- INDEXES: SCHOOLS
 -- =========================================================
 CREATE INDEX IF NOT EXISTS idx_schools_name_trgm
   ON schools USING gin (school_name gin_trgm_ops);
@@ -231,8 +278,10 @@ BEGIN
   END IF;
 END$$;
 
+
+
 -- =====================================================================
--- MASJID PROFILES (1:1 ke schools)
+-- SCHOOL PROFILES (1:1 ke schools)
 -- =====================================================================
 CREATE TABLE IF NOT EXISTS school_profiles (
   school_profile_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -315,7 +364,7 @@ CREATE TABLE IF NOT EXISTS school_profiles (
 );
 
 -- =========================
--- INDEXES: MASJID PROFILES
+-- INDEXES: SCHOOL PROFILES
 -- =========================
 CREATE INDEX IF NOT EXISTS idx_mpp_principal_user_id_alive
   ON school_profiles (school_profile_school_principal_user_id)

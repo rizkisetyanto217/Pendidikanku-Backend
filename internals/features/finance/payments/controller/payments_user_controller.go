@@ -885,7 +885,11 @@ func genOrderID(prefix string) string {
 }
 
 // Generate NIM untuk siswa baru berdasarkan term (diambil dari salah satu class)
-// Format: YYYYAA####  (YYYY = tahun awal akademik, AA = angkatan 2 digit, #### = sequence per sekolah+prefix)
+// Format: SSSYYYYAA####
+//   - SSS  = school_number (3 digit, zero-padded)
+//   - YYYY = tahun awal akademik
+//   - AA   = angkatan 2 digit
+//   - #### = sequence per sekolah + prefix
 func (h *PaymentController) generateStudentCodeForClass(
 	ctx context.Context,
 	tx *gorm.DB,
@@ -896,12 +900,34 @@ func (h *PaymentController) generateStudentCodeForClass(
 		return "", fmt.Errorf("class_id kosong saat generate NIM")
 	}
 
+	// ---------------------------------
+	// 0) Ambil school_number dulu
+	// ---------------------------------
+	var schoolNumber int64
+	if err := tx.WithContext(ctx).Raw(`
+		SELECT COALESCE(school_number, 0)
+		FROM schools
+		WHERE school_id = ?
+		  AND school_deleted_at IS NULL
+		LIMIT 1
+	`, schoolID).Scan(&schoolNumber).Error; err != nil {
+		return "", fmt.Errorf("gagal ambil school_number: %w", err)
+	}
+	// fallback kalau belum keisi (shouldn't happen, tapi jaga-jaga)
+	if schoolNumber < 0 {
+		schoolNumber = 0
+	}
+	// SSS: 3 digit (001, 010, 123, dst)
+	schoolNumStr := fmt.Sprintf("%03d", schoolNumber)
+
+	// ---------------------------------
+	// 1) Ambil snapshot tahun akademik + angkatan dari classes
+	// ---------------------------------
 	var row struct {
 		YearRaw     *string `gorm:"column:year"`
 		AngkatanRaw *string `gorm:"column:angkatan"`
 	}
 
-	// Ambil snapshot tahun akademik + angkatan dari tabel classes
 	if err := tx.WithContext(ctx).Raw(`
 		SELECT 
 			NULLIF(class_academic_term_academic_year_snapshot,'') AS year,
@@ -940,22 +966,27 @@ func (h *PaymentController) generateStudentCodeForClass(
 		angkatanInt = 0
 	}
 
-	// prefix: YYYY + angkatan (2 digit)
-	prefix := fmt.Sprintf("%s%02d", year4, angkatanInt)
+	// prefix: SSS + YYYY + angkatan (2 digit)
+	prefix := fmt.Sprintf("%s%s%02d", schoolNumStr, year4, angkatanInt)
 
-	// Cari sequence terakhir untuk prefix ini di sekolah tersebut
+	// ---------------------------------
+	//  2. Cari sequence terakhir per SEKOLAH (tanpa reset per prefix)
+	//     #### = running counter sepanjang sejarah sekolah tsb
+	//
+	// ---------------------------------
 	var lastSeq int
 	if err := tx.WithContext(ctx).Raw(`
-		SELECT COALESCE(MAX(RIGHT(school_student_code, 4)::int), 0)
-		FROM school_students
-		WHERE school_student_school_id = ?
-		  AND school_student_code LIKE ?
-	`, schoolID, prefix+"%").Scan(&lastSeq).Error; err != nil {
+    SELECT COALESCE(MAX(RIGHT(school_student_code, 4)::int), 0)
+    FROM school_students
+    WHERE school_student_school_id = ?
+      AND school_student_code IS NOT NULL
+      AND school_student_code ~ '^[0-9]+$'
+`, schoolID).Scan(&lastSeq).Error; err != nil {
 		return "", fmt.Errorf("gagal hitung sequence NIM: %w", err)
 	}
 
 	next := lastSeq + 1
-	code := fmt.Sprintf("%s%04d", prefix, next) // YYYYAA####
+	code := fmt.Sprintf("%s%04d", prefix, next) // SSSYYYYAA####
 
 	if strings.TrimSpace(code) == "" {
 		return "", fmt.Errorf("kode hasil generate kosong (prefix=%s, lastSeq=%d)", prefix, lastSeq)

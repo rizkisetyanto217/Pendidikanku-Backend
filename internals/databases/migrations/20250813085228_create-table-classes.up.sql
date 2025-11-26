@@ -42,6 +42,11 @@ CREATE TABLE IF NOT EXISTS class_parents (
   class_parent_level         SMALLINT,  -- 0..100, opsional
   class_parent_is_active     BOOLEAN NOT NULL DEFAULT TRUE,
   class_parent_total_classes INT     NOT NULL DEFAULT 0,
+  class_parent_total_class_sections   INT NOT NULL DEFAULT 0,
+  class_parent_total_students         INT NOT NULL DEFAULT 0,
+  class_parent_total_male_students    INT NOT NULL DEFAULT 0,
+  class_parent_total_female_students  INT NOT NULL DEFAULT 0,
+  class_parent_total_teachers         INT NOT NULL DEFAULT 0,
 
   -- Prasyarat/usia (fleksibel)
   class_parent_requirements  JSONB  NOT NULL DEFAULT '{}'::jsonb,
@@ -109,6 +114,15 @@ CREATE INDEX IF NOT EXISTS idx_cp_desc_trgm_alive
   ON class_parents USING GIN (class_parent_description gin_trgm_ops)
   WHERE class_parent_deleted_at IS NULL;
 
+-- Index buat sorting/filter summary utama
+CREATE INDEX IF NOT EXISTS idx_cp_total_class_sections
+  ON class_parents (class_parent_total_class_sections);
+
+CREATE INDEX IF NOT EXISTS idx_cp_total_students
+  ON class_parents (class_parent_total_students);
+
+CREATE INDEX IF NOT EXISTS idx_cp_total_teachers
+  ON class_parents (class_parent_total_teachers);
 
 -- Pastikan academic_terms punya UNIQUE (id, school_id) untuk FK komposit
 DO $$
@@ -186,6 +200,17 @@ CREATE TABLE IF NOT EXISTS classes (
   class_academic_term_slug_snapshot          VARCHAR(160),
   class_academic_term_angkatan_snapshot      VARCHAR(40),
 
+  -- ============================
+  -- STATS (per class)
+  -- ============================
+  class_total_class_sections     INTEGER NOT NULL DEFAULT 0,
+  class_total_students           INTEGER NOT NULL DEFAULT 0,
+  class_total_students_male      INTEGER NOT NULL DEFAULT 0,
+  class_total_students_female    INTEGER NOT NULL DEFAULT 0,
+  class_total_teachers           INTEGER NOT NULL DEFAULT 0,
+  class_total_class_enrollments  INTEGER NOT NULL DEFAULT 0,
+  class_stats                    JSONB,
+
   -- Audit
   class_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   class_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -260,6 +285,31 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_classes_name_per_school_alive
 -- Trigram buat search nama (opsional)
 CREATE INDEX IF NOT EXISTS gin_classes_name_trgm_alive
   ON classes USING GIN (LOWER(class_name) gin_trgm_ops)
+  WHERE class_deleted_at IS NULL;
+
+-- ===== Index untuk STATS (sorting/filter cepat) =====
+CREATE INDEX IF NOT EXISTS idx_classes_total_class_sections_alive
+  ON classes (class_total_class_sections)
+  WHERE class_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_classes_total_students_alive
+  ON classes (class_total_students)
+  WHERE class_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_classes_total_students_male_alive
+  ON classes (class_total_students_male)
+  WHERE class_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_classes_total_students_female_alive
+  ON classes (class_total_students_female)
+  WHERE class_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_classes_total_teachers_alive
+  ON classes (class_total_teachers)
+  WHERE class_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_classes_total_enrollments_alive
+  ON classes (class_total_class_enrollments)
   WHERE class_deleted_at IS NULL;
 
 COMMIT;

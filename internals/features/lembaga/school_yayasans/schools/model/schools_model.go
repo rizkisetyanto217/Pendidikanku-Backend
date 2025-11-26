@@ -100,6 +100,8 @@ type SchoolModel struct {
 	SchoolBackgroundObjectKeyOld       *string    `gorm:"type:text;column:school_background_object_key_old" json:"school_background_object_key_old,omitempty"`
 	SchoolBackgroundDeletePendingUntil *time.Time `gorm:"type:timestamptz;column:school_background_delete_pending_until" json:"school_background_delete_pending_until,omitempty"`
 
+	SchoolNumber int64 `gorm:"column:school_number" json:"school_number"`
+
 	// Audit & soft delete
 	SchoolCreatedAt      time.Time      `gorm:"type:timestamptz;not null;default:now();autoCreateTime;column:school_created_at" json:"school_created_at"`
 	SchoolUpdatedAt      time.Time      `gorm:"type:timestamptz;not null;default:now();autoUpdateTime;column:school_updated_at" json:"school_updated_at"`

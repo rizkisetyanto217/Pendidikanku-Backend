@@ -3,6 +3,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -15,8 +16,10 @@ import (
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
-	yDTO "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/dto"
-	yModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
+	schoolModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/model"
+
+	teacherDTO "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/dto"
+	teacherModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
 )
 
 // ===== ganti struct row-nya biar cocok dgn tabel schools =====
@@ -84,18 +87,26 @@ func (ctrl *SchoolTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 	var body struct {
 		Code string `json:"code"`
 	}
-	if err := c.BodyParser(&body); err != nil || strings.TrimSpace(body.Code) == "" {
+	if err := c.BodyParser(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Code wajib diisi")
+	}
+	codePlain := strings.TrimSpace(body.Code)
+	if codePlain == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "Code wajib diisi")
 	}
 
+	log.Printf("[JOIN-TEACHER] incoming request user_id=%s code=%s", userID.String(), codePlain)
+
 	// ✅ school_id dari code (validasi + cek expiry/revoked)
-	schoolID, err := getSchoolIDFromTeacherCode(c.Context(), ctrl.DB, strings.TrimSpace(body.Code))
+	schoolID, err := getSchoolIDFromTeacherCode(c.Context(), ctrl.DB, codePlain)
 	if err != nil {
 		// err sudah user-friendly (fiber.Error)
+		log.Printf("[JOIN-TEACHER] code validation failed user_id=%s code=%s err=%v", userID.String(), codePlain, err)
 		return err
 	}
+	log.Printf("[JOIN-TEACHER] code valid user_id=%s school_id=%s", userID.String(), schoolID.String())
 
-	var created yModel.SchoolTeacherModel
+	var created teacherModel.SchoolTeacherModel
 	if err := ctrl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
 		// ambil user_teacher_id milik user
 		var userTeacherIDStr string
@@ -106,30 +117,43 @@ func (ctrl *SchoolTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 			   AND user_teacher_deleted_at IS NULL
 			 LIMIT 1
 		`, userID).Scan(&userTeacherIDStr).Error; err != nil {
+			log.Printf("[JOIN-TEACHER] read user_teacher failed user_id=%s err=%v", userID.String(), err)
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal membaca profil guru")
 		}
 		if strings.TrimSpace(userTeacherIDStr) == "" {
+			log.Printf("[JOIN-TEACHER] user_teacher not found user_id=%s", userID.String())
 			return fiber.NewError(fiber.StatusConflict, "Profil guru (user_teacher) belum dibuat")
 		}
 		userTeacherID, perr := uuid.Parse(userTeacherIDStr)
 		if perr != nil {
+			log.Printf("[JOIN-TEACHER] invalid user_teacher_id user_teacher_id_str=%s err=%v", userTeacherIDStr, perr)
 			return fiber.NewError(fiber.StatusInternalServerError, "user_teacher_id tidak valid")
 		}
 
 		// cek duplikat alive
 		var dup int64
-		if err := tx.Model(&yModel.SchoolTeacherModel{}).
+		if err := tx.Model(&teacherModel.SchoolTeacherModel{}).
 			Where(`
 				school_teacher_school_id = ?
 				AND school_teacher_user_teacher_id = ?
 				AND school_teacher_deleted_at IS NULL
 			`, schoolID, userTeacherID).
 			Count(&dup).Error; err != nil {
+			log.Printf("[JOIN-TEACHER] dup check failed user_teacher_id=%s err=%v", userTeacherID.String(), err)
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi data pengajar")
 		}
 		if dup > 0 {
+			log.Printf("[JOIN-TEACHER] already joined school_id=%s user_teacher_id=%s", schoolID.String(), userTeacherID.String())
 			return fiber.NewError(fiber.StatusConflict, "Anda sudah terdaftar sebagai pengajar di school ini")
 		}
+
+		// 🆕 Generate TEACHER CODE per sekolah (school_number + tahun + auto increment per school_id)
+		plainTeacherCode, _, err := GenerateTeacherCodeForSchool(c.Context(), tx, schoolID)
+		if err != nil {
+			log.Printf("[JOIN-TEACHER] generate teacher code failed school_id=%s err=%v", schoolID.String(), err)
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat kode guru")
+		}
+		log.Printf("[JOIN-TEACHER] generated teacher_code=%s school_id=%s user_teacher_id=%s", plainTeacherCode, schoolID.String(), userTeacherID.String())
 
 		// snapshot dari user_teachers
 		var ut struct {
@@ -141,51 +165,73 @@ func (ctrl *SchoolTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 		}
 		if err := tx.Raw(`
 			SELECT
-				user_teacher_name           AS name,
-				user_teacher_avatar_url     AS avatar_url,
-				user_teacher_whatsapp_url   AS whatsapp_url,
-				user_teacher_title_prefix   AS title_prefix,
-				user_teacher_title_suffix   AS title_suffix
+				user_teacher_name_snapshot      AS name,
+				user_teacher_avatar_url         AS avatar_url,
+				user_teacher_whatsapp_url       AS whatsapp_url,
+				user_teacher_title_prefix       AS title_prefix,
+				user_teacher_title_suffix       AS title_suffix
 			FROM user_teachers
 			WHERE user_teacher_id = ?
 			  AND user_teacher_deleted_at IS NULL
 			LIMIT 1
 		`, userTeacherID).Scan(&ut).Error; err != nil {
+			log.Printf("[JOIN-TEACHER] read snapshot failed user_teacher_id=%s err=%v", userTeacherID.String(), err)
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal membaca snapshot profil guru")
 		}
 		if strings.TrimSpace(ut.Name) == "" {
+			log.Printf("[JOIN-TEACHER] invalid snapshot: empty name user_teacher_id=%s", userTeacherID.String())
 			return fiber.NewError(fiber.StatusInternalServerError, "Profil guru tidak valid (nama kosong)")
 		}
 
-		// insert record + isi snapshot
-		rec := &yModel.SchoolTeacherModel{
+		now := time.Now()
+
+		// insert record + isi snapshot + SIMPAN teacher code di kolom school_teacher_code
+		rec := &teacherModel.SchoolTeacherModel{
 			SchoolTeacherSchoolID:      schoolID,
 			SchoolTeacherUserTeacherID: userTeacherID,
 
+			// simpan TEACHER CODE (school_number + tahun + auto increment per sekolah)
+			SchoolTeacherCode: sptr(plainTeacherCode),
+
 			SchoolTeacherIsActive:  true,
 			SchoolTeacherIsPublic:  true,
-			SchoolTeacherCreatedAt: time.Now(),
-			SchoolTeacherUpdatedAt: time.Now(),
+			SchoolTeacherCreatedAt: now,
+			SchoolTeacherUpdatedAt: now,
 
 			SchoolTeacherUserTeacherNameSnapshot:        sptr(ut.Name),
 			SchoolTeacherUserTeacherAvatarURLSnapshot:   ut.AvatarURL,
 			SchoolTeacherUserTeacherWhatsappURLSnapshot: ut.WhatsappURL,
 			SchoolTeacherUserTeacherTitlePrefixSnapshot: ut.TitlePrefix,
 			SchoolTeacherUserTeacherTitleSuffixSnapshot: ut.TitleSuffix,
+			// JSONB sections & csst akan ikut default DB ('[]') kalau tidak di-set di sini
 		}
+
+		log.Printf("[JOIN-TEACHER] creating school_teacher row=%+v", rec)
+
 		if err := tx.Create(rec).Error; err != nil {
+			log.Printf("[JOIN-TEACHER] create school_teacher failed err=%v", err)
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mendaftarkan sebagai pengajar")
 		}
 		created = *rec
 
+		log.Printf(
+			"[JOIN-TEACHER] created school_teacher_id=%s school_id=%s user_teacher_id=%s teacher_code=%v",
+			created.SchoolTeacherID.String(),
+			created.SchoolTeacherSchoolID.String(),
+			created.SchoolTeacherUserTeacherID.String(),
+			created.SchoolTeacherCode,
+		)
+
 		// statistik (best-effort)
 		if err := ctrl.Stats.EnsureForSchool(tx, schoolID); err == nil {
 			_ = ctrl.Stats.IncActiveTeachers(tx, schoolID, +1)
+		} else {
+			log.Printf("[JOIN-TEACHER] stats EnsureForSchool failed school_id=%s err=%v", schoolID.String(), err)
 		}
 
 		// grant role 'teacher'
 		if err := grantTeacherRole(tx, userID, schoolID); err != nil {
-			log.Printf("[WARN] grant teacher role failed: %v", err)
+			log.Printf("[JOIN-TEACHER] grant teacher role failed user_id=%s school_id=%s err=%v", userID.String(), schoolID.String(), err)
 		}
 
 		return nil
@@ -193,7 +239,7 @@ func (ctrl *SchoolTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 		return toJSONErr(c, err)
 	}
 
-	return helper.JsonCreated(c, "Berhasil bergabung sebagai pengajar", yDTO.NewSchoolTeacherResponse(&created))
+	return helper.JsonCreated(c, "Berhasil bergabung sebagai pengajar", teacherDTO.NewSchoolTeacherResponse(&created))
 }
 
 /* ===================== Helpers ===================== */
@@ -219,4 +265,68 @@ func VerifyCodeHash(plain string, hash []byte) bool {
 	}
 	err := bcrypt.CompareHashAndPassword(hash, []byte(plain))
 	return err == nil
+}
+
+// GenerateTeacherCodeForSchool
+// Format: {school_number}{tahun_masuk}{auto_increment_per_sekolah}
+//
+// Contoh:
+//
+//	school_number = 12
+//	tahun = 2025
+//	guru aktif saat ini = 7
+//	→ nextIdx = 8
+//	→ code = "001220250008"
+//
+// Tiap sekolah punya sequence-nya sendiri,
+// walaupun semua data di tabel school_teachers yang sama.
+func GenerateTeacherCodeForSchool(ctx context.Context, db *gorm.DB, schoolID uuid.UUID) (plainCode string, hash []byte, err error) {
+	if schoolID == uuid.Nil {
+		return "", nil, fmt.Errorf("school_id tidak valid")
+	}
+
+	// 1) Ambil school_number dari tabel schools
+	var sc struct {
+		Number int64 `gorm:"column:school_number"`
+	}
+	if err := db.WithContext(ctx).
+		Model(&schoolModel.SchoolModel{}).
+		Select("school_number").
+		Where("school_id = ? AND school_deleted_at IS NULL", schoolID).
+		Scan(&sc).Error; err != nil {
+		return "", nil, fmt.Errorf("gagal membaca school_number: %w", err)
+	}
+	if sc.Number < 0 {
+		sc.Number = 0
+	}
+
+	// 2) Hitung guru AKTIF di sekolah ini (per sekolah)
+	var teacherCount int64
+	if err := db.WithContext(ctx).Raw(`
+		SELECT COUNT(*)
+		FROM school_teachers
+		WHERE school_teacher_school_id = ?
+		  AND school_teacher_deleted_at IS NULL
+		  AND school_teacher_is_active = TRUE
+	`, schoolID).Scan(&teacherCount).Error; err != nil {
+		return "", nil, fmt.Errorf("gagal menghitung guru di sekolah: %w", err)
+	}
+
+	year := time.Now().Year()
+	nextIdx := teacherCount + 1
+
+	// 3) Bentuk kode:
+	//    - school_number: 4 digit
+	//    - tahun: 4 digit
+	//    - auto increment: 4 digit
+	//    TANPA strip → contoh: 001220250008
+	plainCode = fmt.Sprintf("%04d%04d%04d", sc.Number, year, nextIdx)
+
+	// 4) Hash pakai helper (kalau nanti mau dipakai juga sebagai kode rahasia)
+	hash, err = HashCode(plainCode)
+	if err != nil {
+		return "", nil, fmt.Errorf("gagal hash teacher code: %w", err)
+	}
+
+	return plainCode, hash, nil
 }

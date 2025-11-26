@@ -14,7 +14,7 @@ import (
 	"madinahsalam_backend/internals/features/school/academics/academic_terms/dto"
 	termModel "madinahsalam_backend/internals/features/school/academics/academic_terms/model"
 
-	feeRuleModel "madinahsalam_backend/internals/features/finance/billings/model" // ⬅️ NEW
+	feeRuleModel "madinahsalam_backend/internals/features/finance/billings/model"
 	classSectionModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 	classModel "madinahsalam_backend/internals/features/school/classes/classes/model"
 
@@ -26,12 +26,16 @@ import (
 
 var fallbackValidator = validator.New()
 
-// Struct khusus kalau ada include
+// Struct khusus kalau ada include.
+// NOTE: dto.AcademicTermResponseDTO sekarang SUDAH termasuk:
+//   - total classes/sections/students/teachers/enrollments
+//   - total students male/female
+//   - academic_term_stats jsonb
 type AcademicTermWithRelations struct {
 	Term          dto.AcademicTermResponseDTO           `json:"term"`
 	Classes       []classModel.ClassModel               `json:"classes,omitempty"`
 	ClassSections []classSectionModel.ClassSectionModel `json:"class_sections,omitempty"`
-	FeeRules      []feeRuleModel.FeeRule                `json:"fee_rules,omitempty"` // ⬅️ NEW
+	FeeRules      []feeRuleModel.FeeRule                `json:"fee_rules,omitempty"`
 }
 
 /* ================= Handlers ================= */
@@ -48,7 +52,7 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	rawInclude := strings.TrimSpace(c.Query("include", ""))
 	includeClasses := false
 	includeSections := false
-	includeFeeRules := false // ⬅️ NEW
+	includeFeeRules := false
 	if rawInclude != "" {
 		for _, part := range strings.Split(rawInclude, ",") {
 			p := strings.ToLower(strings.TrimSpace(part))
@@ -57,7 +61,7 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 				includeClasses = true
 			case "class_sections", "sections", "class-section":
 				includeSections = true
-			case "fee_rules", "fee-rules", "feerules", "fees": // ⬅️ beberapa alias santai
+			case "fee_rules", "fee-rules", "feerules", "fees":
 				includeFeeRules = true
 			}
 		}
@@ -197,12 +201,12 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	// ===== Pagination (pakai helper) =====
 	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)
 
-	// Kalau tidak request include sama sekali → B/C lama
+	// Kalau tidak request include sama sekali → B/C lama (pure DTO list)
 	if !includeClasses && !includeSections && !includeFeeRules {
 		return helper.JsonList(c, "ok", dto.FromModels(list), pg)
 	}
 
-	// Kalau nggak ada data, tapi include diminta → return kosong dengan shape baru
+	// Kalau nggak ada data, tapi include diminta → return kosong dengan shape include
 	if len(list) == 0 {
 		return helper.JsonList(c, "ok", []AcademicTermWithRelations{}, pg)
 	}
@@ -322,7 +326,7 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	for i, tDTO := range termDTOs {
 		tid := list[i].AcademicTermID
 		item := AcademicTermWithRelations{
-			Term: tDTO,
+			Term: tDTO, // <-- sudah include semua stats terbaru
 		}
 		if includeClasses {
 			item.Classes = classesByTerm[tid]

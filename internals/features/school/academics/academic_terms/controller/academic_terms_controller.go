@@ -331,10 +331,6 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
    DELETE (soft) — DKM only
    DELETE /admin/academic-terms/:id
 ========================================================= */
-/* =========================================================
-   DELETE (soft) — DKM only
-   DELETE /admin/academic-terms/:id
-========================================================= */
 
 func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
 	// optional locals DB
@@ -373,7 +369,7 @@ func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
 	var classCount int64
 	if err := ctl.DB.
 		Model(&classModel.ClassModel{}).
-		Where("class_school_id = ? AND class_academic_term_id = ? AND class_deleted_at IS NULL", schoolID, id).
+		Where("class_school_id = ? AND class_term_id = ? AND class_deleted_at IS NULL", schoolID, id).
 		Count(&classCount).Error; err != nil {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal mengecek relasi kelas")
 	}
@@ -388,7 +384,6 @@ func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
 	}
 
 	if classCount > 0 || sectionCount > 0 {
-		// Bisa kamu ganti msg sesuai kebutuhan UX
 		return httpErr(c, fiber.StatusConflict,
 			"Tidak dapat menghapus tahun akademik karena masih ada kelas/rombel yang menggunakan tahun akademik ini. Silakan nonaktifkan atau pindahkan kelas & rombel terlebih dahulu.",
 		)
@@ -492,8 +487,8 @@ func (ctl *AcademicTermController) SetActive(c *fiber.Ctx) error {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Jika ingin eksklusif hanya 1 aktif per school, uncomment blok ini:
-	// if err := ctl.DB.Model(&model.AcademicTerm{}).
+	// Kalau mau eksklusif 1 aktif per sekolah, bisa diaktifkan:
+	// if err := ctl.DB.Model(&termModel.AcademicTermModel{}).
 	// 	Where("academic_term_school_id = ? AND academic_term_id <> ?", schoolID, id).
 	// 	Update("academic_term_is_active", false).Error; err != nil {
 	// 	return httpErr(c, fiber.StatusInternalServerError, "Gagal menonaktifkan term lain")
@@ -502,7 +497,9 @@ func (ctl *AcademicTermController) SetActive(c *fiber.Ctx) error {
 	if err := ctl.DB.Model(&ent).Update("academic_term_is_active", true).Error; err != nil {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal mengaktifkan term")
 	}
-	if err := ctl.DB.First(&ent, "academic_term_id = ?", id).Error; err != nil {
+	if err := ctl.DB.
+		Where("academic_term_school_id = ? AND academic_term_id = ?", schoolID, id).
+		First(&ent).Error; err != nil {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal refresh data")
 	}
 	return helper.JsonUpdated(c, "Berhasil mengaktifkan tahun akademik", dto.FromModel(ent))

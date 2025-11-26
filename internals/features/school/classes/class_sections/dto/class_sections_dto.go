@@ -14,6 +14,8 @@ import (
 	// models
 	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 	m "madinahsalam_backend/internals/features/school/classes/class_sections/model"
+
+	"gorm.io/datatypes"
 )
 
 /* =========================================================
@@ -284,8 +286,8 @@ func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 		deletedAt = &t
 	}
 
-	// helper: to raw JSON
-	toRaw := func(j []byte) json.RawMessage {
+	// helper: to raw JSON (dari datatypes.JSON)
+	toRaw := func(j datatypes.JSON) json.RawMessage {
 		if len(j) == 0 {
 			return nil
 		}
@@ -1120,7 +1122,7 @@ type TeacherPersonLite struct {
 	TeacherNumber *string `json:"teacher_number,omitempty"` // nomor induk / kode guru di sekolah
 }
 
-func teacherLiteFromJSON(raw []byte) *TeacherPersonLite {
+func teacherLiteFromJSON(raw datatypes.JSON) *TeacherPersonLite {
 	if len(raw) == 0 {
 		return nil
 	}
@@ -1194,8 +1196,8 @@ type ClassSectionCompact struct {
 	ClassSectionAcademicTermID                   *uuid.UUID `json:"class_section_academic_term_id,omitempty"`
 	ClassSectionAcademicTermNameSnapshot         *string    `json:"class_section_academic_term_name_snapshot,omitempty"`
 	ClassSectionAcademicTermSlugSnapshot         *string    `json:"class_section_academic_term_slug_snapshot,omitempty"`
-	ClassSectionAcademicTermAcademicYearSnapshot *string    `json:"class_section_academic_term_academic_year_snapshot,omitempty"`
-	ClassSectionAcademicTermAngkatanSnapshot     *int       `json:"class_section_academic_term_angkatan_snapshot,omitempty"`
+	ClassSectionAcademicTermAcademicYearSnapshot *string    `json:"class_section_academic_year_snapshot,omitempty"`
+	ClassSectionAcademicTermAngkatanSnapshot     *int       `json:"class_section_angkatan_snapshot,omitempty"`
 
 	SubjectTeachers []csstModel.ClassSectionSubjectTeacherModel `json:"class_section_subject_teachers,omitempty"`
 }

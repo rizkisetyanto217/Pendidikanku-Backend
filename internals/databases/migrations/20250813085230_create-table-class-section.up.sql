@@ -105,6 +105,11 @@ CREATE TABLE IF NOT EXISTS class_sections (
   -- housekeeping snapshot timestamp
   class_section_snapshot_updated_at TIMESTAMPTZ,
 
+  class_section_total_students_male   INTEGER NOT NULL DEFAULT 0,
+  class_section_total_students_female INTEGER NOT NULL DEFAULT 0,
+  class_section_total_class_class_section_subject_teachers
+    INTEGER NOT NULL DEFAULT 0,
+
   -- Status & audit
   class_section_is_active  BOOLEAN     NOT NULL DEFAULT TRUE,
   class_section_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

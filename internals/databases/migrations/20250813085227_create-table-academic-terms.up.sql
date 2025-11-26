@@ -8,27 +8,36 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;   -- trigram untuk GIN trgm
 -- TABLE: academic_terms (plural) + columns singular
 -- =========================================================
 CREATE TABLE IF NOT EXISTS academic_terms (
-  academic_term_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  academic_term_school_id     UUID NOT NULL
+  academic_term_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  academic_term_school_id UUID NOT NULL
     REFERENCES schools(school_id) ON DELETE CASCADE,
 
   academic_term_academic_year TEXT NOT NULL,  -- contoh: '2026/2027'
   academic_term_name          TEXT NOT NULL,  -- 'Ganjil' | 'Genap' | 'Pendek' | dst.
 
-  academic_term_start_date    TIMESTAMPTZ NOT NULL,
-  academic_term_end_date      TIMESTAMPTZ NOT NULL,
-  academic_term_is_active     BOOLEAN   NOT NULL DEFAULT TRUE,
+  academic_term_start_date TIMESTAMPTZ NOT NULL,
+  academic_term_end_date   TIMESTAMPTZ NOT NULL,
+  academic_term_is_active  BOOLEAN   NOT NULL DEFAULT TRUE,
 
-  academic_term_code          VARCHAR(24),     -- ex: 2026GJ
-  academic_term_slug          VARCHAR(50),     -- URL-friendly per tenan
+  academic_term_code VARCHAR(24),     -- ex: 2026GJ
+  academic_term_slug VARCHAR(50),     -- URL-friendly per tenant
+
+  academic_term_total_classes           INTEGER NOT NULL DEFAULT 0,
+  academic_term_total_class_sections    INTEGER NOT NULL DEFAULT 0,
+  academic_term_total_students          INTEGER NOT NULL DEFAULT 0,
+  academic_term_total_students_male     INTEGER NOT NULL DEFAULT 0,
+  academic_term_total_students_female   INTEGER NOT NULL DEFAULT 0,
+  academic_term_total_teachers          INTEGER NOT NULL DEFAULT 0,
+  academic_term_total_class_enrollments INTEGER NOT NULL DEFAULT 0,
+  academic_term_stats                   JSONB,
 
   -- angkatan (opsional). Disimpan sebagai tahun masuk/angkatan (mis. 2024).
-  academic_term_angkatan      INTEGER,
+  academic_term_angkatan    INTEGER,
 
-  academic_term_description   TEXT,
+  academic_term_description TEXT,
 
   -- half-open range [start, end) - IMMUTABLE via explicit timezone
-  academic_term_period        DATERANGE GENERATED ALWAYS AS
+  academic_term_period DATERANGE GENERATED ALWAYS AS
     (
       daterange(
         (academic_term_start_date AT TIME ZONE 'UTC')::date,
@@ -37,9 +46,9 @@ CREATE TABLE IF NOT EXISTS academic_terms (
       )
     ) STORED,
 
-  academic_term_created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  academic_term_updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  academic_term_deleted_at    TIMESTAMPTZ,
+  academic_term_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  academic_term_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  academic_term_deleted_at TIMESTAMPTZ,
 
   CHECK (academic_term_end_date >= academic_term_start_date)
 );

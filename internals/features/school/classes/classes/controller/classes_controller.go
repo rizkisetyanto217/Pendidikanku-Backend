@@ -19,9 +19,9 @@ import (
 	// Services & helpers
 	"madinahsalam_backend/internals/features/lembaga/stats/lembaga_stats/service"
 	academicTermsSnapshot "madinahsalam_backend/internals/features/school/academics/academic_terms/snapshot"
-	classSectionModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 	dto "madinahsalam_backend/internals/features/school/classes/classes/dto"
 	classmodel "madinahsalam_backend/internals/features/school/classes/classes/model"
+	classSectionModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 	classParentSnapshot "madinahsalam_backend/internals/features/school/classes/classes/snapshot"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
@@ -356,11 +356,12 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 
 	log.Printf("[CLASSES][CREATE] ✅ done in %s", time.Since(start))
 
-	// ⬇️ INI BAGIAN PENTING: langsung balikin 1 object class
+	// ⬇️ balikin 1 object class
 	return helper.JsonCreated(c, "Kelas berhasil dibuat", dto.FromModel(m))
 }
 
 /* =========================== PATCH =========================== */
+
 // PATCH /admin/classes/:id
 func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 	// ---- Path param ----
@@ -644,6 +645,7 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 }
 
 /* =========================== DELETE (soft) =========================== */
+
 // DELETE /admin/classes/:id
 func (ctrl *ClassController) DeleteClass(c *fiber.Ctx) error {
 	classID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))

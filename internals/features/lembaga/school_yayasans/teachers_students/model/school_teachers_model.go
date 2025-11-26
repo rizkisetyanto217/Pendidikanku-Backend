@@ -39,7 +39,10 @@ var validTeacherEmployment = map[TeacherEmployment]struct{}{
 }
 
 func (e TeacherEmployment) String() string { return string(e) }
-func (e TeacherEmployment) Valid() bool    { _, ok := validTeacherEmployment[e]; return ok }
+func (e TeacherEmployment) Valid() bool {
+	_, ok := validTeacherEmployment[e]
+	return ok
+}
 
 // DB round-trip (enum)
 func (e TeacherEmployment) Value() (driver.Value, error) {
@@ -51,6 +54,7 @@ func (e TeacherEmployment) Value() (driver.Value, error) {
 	}
 	return string(e), nil
 }
+
 func (e *TeacherEmployment) Scan(value any) error {
 	if value == nil {
 		*e = ""
@@ -110,14 +114,7 @@ type SchoolTeacherModel struct {
 	SchoolTeacherUserTeacherWhatsappURLSnapshot *string `gorm:"type:varchar(50);column:school_teacher_user_teacher_whatsapp_url_snapshot" json:"school_teacher_user_teacher_whatsapp_url_snapshot,omitempty"`
 	SchoolTeacherUserTeacherTitlePrefixSnapshot *string `gorm:"type:varchar(20);column:school_teacher_user_teacher_title_prefix_snapshot" json:"school_teacher_user_teacher_title_prefix_snapshot,omitempty"`
 	SchoolTeacherUserTeacherTitleSuffixSnapshot *string `gorm:"type:varchar(30);column:school_teacher_user_teacher_title_suffix_snapshot" json:"school_teacher_user_teacher_title_suffix_snapshot,omitempty"`
-	SchoolTeacherUserTeacherGenderSnapshot      *string `gorm:"type:varchar(20);column:school_teacher_user_teacher_gender_snapshot" json:"school_teacher_user_teacher_gender_snapshot,omitempty"` // NEW
-
-	// MASJID SNAPSHOT (/me)
-	SchoolTeacherSchoolNameSnapshot          *string `gorm:"type:varchar(100);column:school_teacher_school_name_snapshot" json:"school_teacher_school_name_snapshot,omitempty"`
-	SchoolTeacherSchoolSlugSnapshot          *string `gorm:"type:varchar(100);column:school_teacher_school_slug_snapshot" json:"school_teacher_school_slug_snapshot,omitempty"`
-	SchoolTeacherSchoolLogoURLSnapshot       *string `gorm:"type:text;column:school_teacher_school_logo_url_snapshot" json:"school_teacher_school_logo_url_snapshot,omitempty"`
-	SchoolTeacherSchoolIconURLSnapshot       *string `gorm:"type:text;column:school_teacher_school_icon_url_snapshot" json:"school_teacher_school_icon_url_snapshot,omitempty"`
-	SchoolTeacherSchoolBackgroundURLSnapshot *string `gorm:"type:text;column:school_teacher_school_background_url_snapshot" json:"school_teacher_school_background_url_snapshot,omitempty"`
+	SchoolTeacherUserTeacherGenderSnapshot      *string `gorm:"type:varchar(20);column:school_teacher_user_teacher_gender_snapshot" json:"school_teacher_user_teacher_gender_snapshot,omitempty"`
 
 	// JSONB: sections & csst (NOT NULL DEFAULT '[]'::jsonb)
 	SchoolTeacherSections datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'::jsonb;column:school_teacher_sections" json:"school_teacher_sections"`

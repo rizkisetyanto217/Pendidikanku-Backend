@@ -80,10 +80,11 @@ type ClassParentAndTermSnapshot struct {
 	ParentLevel *int16
 
 	// term
-	TermID   *uuid.UUID
-	TermName *string
-	TermSlug *string
-	TermYear *string
+	TermID       *uuid.UUID
+	TermName     *string
+	TermSlug     *string
+	TermYear     *string
+	TermAngkatan *int
 }
 
 func snapshotClassParentAndTerm(tx *gorm.DB, schoolID, classID uuid.UUID) (*ClassParentAndTermSnapshot, error) {
@@ -119,7 +120,8 @@ func snapshotClassParentAndTerm(tx *gorm.DB, schoolID, classID uuid.UUID) (*Clas
 			c.class_academic_term_id       AS term_id,
 			at.academic_term_name          AS term_name,
 			at.academic_term_slug          AS term_slug,
-			at.academic_term_academic_year AS term_year
+			at.academic_term_academic_year AS term_year,
+			at.academic_term_angkatan      AS term_angkatan
 		FROM classes c
 		LEFT JOIN %s cp
 		  ON cp.class_parent_id = c.class_class_parent_id
@@ -133,18 +135,19 @@ func snapshotClassParentAndTerm(tx *gorm.DB, schoolID, classID uuid.UUID) (*Clas
 	`, parentTbl)
 
 	type dbRow struct {
-		SchoolID    uuid.UUID  `gorm:"column:school_id"`
-		ClassID     uuid.UUID  `gorm:"column:class_id"`
-		ClassName   string     `gorm:"column:class_name"`
-		ClassSlug   string     `gorm:"column:class_slug"`
-		ParentID    *uuid.UUID `gorm:"column:parent_id"`
-		ParentName  *string    `gorm:"column:parent_name"`
-		ParentSlug  *string    `gorm:"column:parent_slug"`
-		ParentLevel *int16     `gorm:"column:parent_level"`
-		TermID      *uuid.UUID `gorm:"column:term_id"`
-		TermName    *string    `gorm:"column:term_name"`
-		TermSlug    *string    `gorm:"column:term_slug"`
-		TermYear    *string    `gorm:"column:term_year"`
+		SchoolID     uuid.UUID  `gorm:"column:school_id"`
+		ClassID      uuid.UUID  `gorm:"column:class_id"`
+		ClassName    string     `gorm:"column:class_name"`
+		ClassSlug    string     `gorm:"column:class_slug"`
+		ParentID     *uuid.UUID `gorm:"column:parent_id"`
+		ParentName   *string    `gorm:"column:parent_name"`
+		ParentSlug   *string    `gorm:"column:parent_slug"`
+		ParentLevel  *int16     `gorm:"column:parent_level"`
+		TermID       *uuid.UUID `gorm:"column:term_id"`
+		TermName     *string    `gorm:"column:term_name"`
+		TermSlug     *string    `gorm:"column:term_slug"`
+		TermYear     *string    `gorm:"column:term_year"`
+		TermAngkatan *int       `gorm:"column:term_angkatan"`
 	}
 	var r dbRow
 
@@ -186,10 +189,11 @@ func snapshotClassParentAndTerm(tx *gorm.DB, schoolID, classID uuid.UUID) (*Clas
 		ParentSlug:  trim(r.ParentSlug),
 		ParentLevel: r.ParentLevel,
 
-		TermID:   r.TermID,
-		TermName: trim(r.TermName),
-		TermSlug: trim(r.TermSlug),
-		TermYear: trim(r.TermYear),
+		TermID:       r.TermID,
+		TermName:     trim(r.TermName),
+		TermSlug:     trim(r.TermSlug),
+		TermYear:     trim(r.TermYear),
+		TermAngkatan: r.TermAngkatan,
 	}, nil
 }
 
@@ -240,6 +244,7 @@ func applyClassParentAndTermSnapshotToSection(mcs *secModel.ClassSectionModel, s
 	mcs.ClassSectionAcademicTermNameSnapshot = s.TermName
 	mcs.ClassSectionAcademicTermSlugSnapshot = s.TermSlug
 	mcs.ClassSectionAcademicTermAcademicYearSnapshot = s.TermYear
+	mcs.ClassSectionAcademicTermAngkatanSnapshot = s.TermAngkatan
 
 	// ---------- housekeeping ----------
 	ts := time.Now()
@@ -329,7 +334,11 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 
 	// ⬇️ hanya DKM/admin yang boleh buat section
 	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
-		return err
+		log.Printf("[SECTIONS][CREATE] ❌ ensure DKM school failed: %v", err)
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusForbidden, "Hanya DKM/Admin yang diizinkan untuk mengelola section")
 	}
 
 	// ---- Parse req ----
