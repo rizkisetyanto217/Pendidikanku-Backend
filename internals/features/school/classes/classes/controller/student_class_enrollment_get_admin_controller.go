@@ -79,6 +79,9 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 	// ====== CATEGORY filter (registration / spp / dll) ======
 	category := strings.TrimSpace(c.Query("category"))
 
+	// ====== PAYMENT STATUS filter (paid / pending / dll) ======
+	paymentStatus := strings.ToLower(strings.TrimSpace(c.Query("payment_status")))
+
 	// view mode
 	view := strings.ToLower(strings.TrimSpace(c.Query("view"))) // "", "compact", "summary", "full"
 
@@ -178,6 +181,14 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 		`, category, category)
 	}
 
+	// ===== PAYMENT STATUS filter (JSONB) =====
+	if paymentStatus != "" {
+		// contoh: ?payment_status=paid → hanya yang payment_status = 'paid' di snapshot
+		base = base.Where(`
+			LOWER(student_class_enrollments_payment_snapshot->>'payment_status') = ?
+		`, paymentStatus)
+	}
+
 	// ===== Q search (nama siswa / nama kelas / nama term) =====
 	if strings.TrimSpace(q.Q) != "" {
 		pat := "%" + strings.TrimSpace(q.Q) + "%"
@@ -193,9 +204,6 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 	if err := base.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "failed to count")
 	}
-
-	// file: internals/features/school/academics/classes/controller/student_class_enrollment_list_controller.go
-	// ... atasnya tetap sama ...
 
 	// ========== data ==========
 	tx := base
@@ -215,7 +223,7 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 			"student_class_enrollments_class_name_snapshot",
 			"student_class_enrollments_class_slug_snapshot",
 
-			// 👇 SNAPSHOT MURID LENGKAP (BIAR DTO KEISI)
+			// SNAPSHOT MURID LENGKAP
 			"student_class_enrollments_user_profile_avatar_url_snapshot",
 			"student_class_enrollments_user_profile_whatsapp_url_snapshot",
 			"student_class_enrollments_user_profile_parent_name_snapshot",
