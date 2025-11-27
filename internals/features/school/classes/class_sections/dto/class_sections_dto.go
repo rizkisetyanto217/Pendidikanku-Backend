@@ -1190,6 +1190,16 @@ type ClassSectionCompact struct {
 	ClassSectionClassID *uuid.UUID `json:"class_section_class_id,omitempty"`
 	ClassSectionSlug    *string    `json:"class_section_slug,omitempty"`
 
+	// --- NEW: class snapshots ---
+	ClassSectionClassNameSnapshot *string `json:"class_section_class_name_snapshot,omitempty"`
+	ClassSectionClassSlugSnapshot *string `json:"class_section_class_slug_snapshot,omitempty"`
+
+	// --- NEW: parent snapshots (kalau mau dipakai di FE) ---
+	ClassSectionClassParentID            *uuid.UUID `json:"class_section_class_parent_id,omitempty"`
+	ClassSectionClassParentNameSnapshot  *string    `json:"class_section_class_parent_name_snapshot,omitempty"`
+	ClassSectionClassParentSlugSnapshot  *string    `json:"class_section_class_parent_slug_snapshot,omitempty"`
+	ClassSectionClassParentLevelSnapshot *int16     `json:"class_section_class_parent_level_snapshot,omitempty"`
+
 	// Info dasar tambahan
 	ClassSectionCode     *string `json:"class_section_code,omitempty"`
 	ClassSectionSchedule *string `json:"class_section_schedule,omitempty"`
@@ -1242,10 +1252,8 @@ type ClassSectionCompact struct {
 func FromModelsCompact(rows []m.ClassSectionModel) []ClassSectionCompact {
 	out := make([]ClassSectionCompact, 0, len(rows))
 	for _, cs := range rows {
-		// bikin copy biar aman pointer ke slug
 		slug := cs.ClassSectionSlug
 
-		// helper untuk stats JSON
 		var statsRaw json.RawMessage
 		if len(cs.ClassSectionStats) > 0 {
 			statsRaw = json.RawMessage(cs.ClassSectionStats)
@@ -1264,7 +1272,6 @@ func FromModelsCompact(rows []m.ClassSectionModel) []ClassSectionCompact {
 			ClassSectionTotalStudents: cs.ClassSectionTotalStudents,
 			ClassSectionIsActive:      cs.ClassSectionIsActive,
 
-			// stats
 			ClassSectionTotalStudentsActive:       cs.ClassSectionTotalStudentsActive,
 			ClassSectionTotalStudentsMale:         cs.ClassSectionTotalStudentsMale,
 			ClassSectionTotalStudentsFemale:       cs.ClassSectionTotalStudentsFemale,
@@ -1272,7 +1279,6 @@ func FromModelsCompact(rows []m.ClassSectionModel) []ClassSectionCompact {
 			ClassSectionTotalStudentsFemaleActive: cs.ClassSectionTotalStudentsFemaleActive,
 			ClassSectionStats:                     statsRaw,
 
-			// CSST totals
 			ClassSectionTotalClassClassSectionSubjectTeachers:       cs.ClassSectionTotalClassClassSectionSubjectTeachers,
 			ClassSectionTotalClassClassSectionSubjectTeachersActive: cs.ClassSectionTotalClassClassSectionSubjectTeachersActive,
 
@@ -1287,6 +1293,17 @@ func FromModelsCompact(rows []m.ClassSectionModel) []ClassSectionCompact {
 			ClassSectionClassRoomNameSnapshot:     cs.ClassSectionClassRoomNameSnapshot,
 			ClassSectionClassRoomLocationSnapshot: cs.ClassSectionClassRoomLocationSnapshot,
 
+			// --- NEW: class snapshots ---
+			ClassSectionClassNameSnapshot: cs.ClassSectionClassNameSnapshot,
+			ClassSectionClassSlugSnapshot: cs.ClassSectionClassSlugSnapshot,
+
+			// --- NEW: parent snapshots ---
+			ClassSectionClassParentID:            cs.ClassSectionClassParentID,
+			ClassSectionClassParentNameSnapshot:  cs.ClassSectionClassParentNameSnapshot,
+			ClassSectionClassParentSlugSnapshot:  cs.ClassSectionClassParentSlugSnapshot,
+			ClassSectionClassParentLevelSnapshot: cs.ClassSectionClassParentLevelSnapshot,
+
+			// TERM
 			ClassSectionAcademicTermID:                   cs.ClassSectionAcademicTermID,
 			ClassSectionAcademicTermNameSnapshot:         cs.ClassSectionAcademicTermNameSnapshot,
 			ClassSectionAcademicTermSlugSnapshot:         cs.ClassSectionAcademicTermSlugSnapshot,
@@ -1294,7 +1311,6 @@ func FromModelsCompact(rows []m.ClassSectionModel) []ClassSectionCompact {
 			ClassSectionAcademicTermAngkatanSnapshot:     cs.ClassSectionAcademicTermAngkatanSnapshot,
 		}
 
-		// Decode snapshot homeroom & assistant
 		if t := teacherLiteFromJSON(cs.ClassSectionSchoolTeacherSnapshot); t != nil {
 			item.HomeroomTeacher = t
 		}

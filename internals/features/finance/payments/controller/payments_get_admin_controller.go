@@ -2,7 +2,6 @@
 package controller
 
 import (
-	"strconv"
 	"strings"
 	"time"
 
@@ -10,22 +9,25 @@ import (
 
 	dto "madinahsalam_backend/internals/features/finance/payments/dto"
 	model "madinahsalam_backend/internals/features/finance/payments/model"
+	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 /* =========================================================
    Admin/DKM — List payments by School
-   GET /api/a/:school_id/payments
+   GET /api/a/payments/list    (school_id dari token/context)
+   Query:
+     - view=compact|full (default: full)
 ========================================================= */
 
 func (h *PaymentController) ListPaymentsBySchoolAdmin(c *fiber.Ctx) error {
-	// --- 0) Ambil school_id dari PATH
-	sid, err := helperAuth.ParseSchoolIDFromPath(c)
+	// --- 0) Ambil school_id dari TOKEN/CONTEXT (bukan dari path lagi)
+	sid, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
 		return err
 	}
 
-	// --- 1) Guard: hanya DKM/Admin
+	// --- 1) Guard: hanya DKM/Admin untuk school ini
 	if aerr := helperAuth.EnsureDKMSchool(c, sid); aerr != nil {
 		return aerr
 	}
@@ -36,6 +38,10 @@ func (h *PaymentController) ListPaymentsBySchoolAdmin(c *fiber.Ctx) error {
 	methods := splitCSV(c.Query("method"))
 	providers := splitCSV(c.Query("provider"))
 	entryTypes := splitCSV(c.Query("entry_type"))
+	category := strings.TrimSpace(c.Query("category"))
+
+	// view mode: "", "compact", "full"
+	view := strings.ToLower(strings.TrimSpace(c.Query("view")))
 
 	var fromPtr, toPtr *time.Time
 	const dFmt = "2006-01-02"
@@ -51,22 +57,11 @@ func (h *PaymentController) ListPaymentsBySchoolAdmin(c *fiber.Ctx) error {
 		}
 	}
 
-	// ===== Paging & sorting =====
-	page := clampInt(parseIntDefault(c.Query("page"), 1), 1, 1_000_000)
-	perPage := clampInt(parseIntDefault(c.Query("per_page"), 20), 1, 200)
-
-	// fallback kompatibilitas: limit/offset
-	if limStr := strings.TrimSpace(c.Query("limit")); limStr != "" {
-		if lim := parseIntDefault(limStr, perPage); lim > 0 {
-			perPage = clampInt(lim, 1, 200)
-		}
-	}
-	if offStr := strings.TrimSpace(c.Query("offset")); offStr != "" {
-		if off := parseIntDefault(offStr, 0); off >= 0 {
-			page = off/perPage + 1
-		}
-	}
-	offset := (page - 1) * perPage
+	// ===== Paging & sorting (pakai helper) =====
+	paging := helper.ResolvePaging(c, 20, 200)
+	page := paging.Page
+	perPage := paging.PerPage
+	offset := paging.Offset
 
 	sort := strings.ToLower(strings.TrimSpace(c.Query("sort")))
 	order := "payment_created_at DESC"
@@ -79,7 +74,7 @@ func (h *PaymentController) ListPaymentsBySchoolAdmin(c *fiber.Ctx) error {
 		order = "payment_amount_idr ASC, payment_created_at DESC"
 	}
 
-	// --- 3) Query builder
+	// --- 3) Query builder (base)
 	db := h.DB.WithContext(c.Context()).Model(&model.Payment{}).
 		Where("payment_deleted_at IS NULL").
 		Where("payment_school_id = ?", sid)
@@ -103,59 +98,74 @@ func (h *PaymentController) ListPaymentsBySchoolAdmin(c *fiber.Ctx) error {
 		db = db.Where("payment_entry_type IN (?)", entryTypes)
 	}
 
+	// --- filter category dari JSONB payment_meta
+	if category != "" {
+		db = db.Where("payment_meta->>'fee_rule_gbk_category_snapshot' = ?", category)
+	}
+
 	if q != "" {
 		ilike := "%" + q + "%"
 		db = db.Where(`
 			COALESCE(payment_external_id,'') ILIKE ? OR
 			COALESCE(payment_gateway_reference,'') ILIKE ? OR
-			COALESCE(invoice_number,'') ILIKE ? OR
+			COALESCE(payment_invoice_number,'') ILIKE ? OR
 			COALESCE(payment_manual_reference,'') ILIKE ? OR
 			COALESCE(payment_description,'') ILIKE ?
 		`, ilike, ilike, ilike, ilike, ilike)
 	}
 
-	// --- 4) Count & data
+	// --- 4) Count
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "count failed: " + err.Error(),
+		return helper.JsonError(c, fiber.StatusInternalServerError, "count failed: "+err.Error())
+	}
+
+	// --- 5) Data
+	tx := db.Order(order).Limit(perPage).Offset(offset)
+
+	// optimisasi kolom saat view=compact
+	if view == "compact" {
+		tx = tx.Select([]string{
+			"payment_id",
+			"payment_status",
+			"payment_amount_idr",
+			"payment_method",
+			"payment_gateway_provider",
+			"payment_entry_type",
+
+			"payment_invoice_number",
+			"payment_external_id",
+			"payment_gateway_reference",
+			"payment_manual_reference",
+			"payment_description",
+
+			"payment_meta", // untuk ambil snapshot payer_name, student_name, dll
+			"payment_created_at",
 		})
 	}
 
 	var rows []model.Payment
-	if err := db.Order(order).Limit(perPage).Offset(offset).Find(&rows).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "query failed: " + err.Error(),
-		})
+	if err := tx.Find(&rows).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "query failed: "+err.Error())
 	}
 
-	// --- 5) Map → DTO
+	// --- 6) Pagination payload (standar helper)
+	pag := helper.BuildPaginationFromPage(total, page, perPage)
+
+	// --- 7) Mapping sesuai view
+	if view == "compact" {
+		compact := dto.FromModelsCompact(rows)
+		return helper.JsonList(c, "ok", compact, pag)
+	}
+
+	// default: full payload (PaymentResponse lama)
 	data := make([]*dto.PaymentResponse, 0, len(rows))
 	for i := range rows {
 		data = append(data, dto.FromModel(&rows[i]))
 	}
 
-	// --- 6) Pagination payload
-	totalPages := int((total + int64(perPage) - 1) / int64(perPage))
-	if totalPages == 0 {
-		totalPages = 1
-	}
-	hasNext := page < totalPages
-	hasPrev := page > 1
-
-	// --- 7) Return -> message, data, pagination sejajar
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"message": "ok",
-		"data":    data,
-		"pagination": fiber.Map{
-			"page":        page,
-			"per_page":    perPage,
-			"total":       total,
-			"total_pages": totalPages,
-			"has_next":    hasNext,
-			"has_prev":    hasPrev,
-		},
-	})
+	// --- 8) Return (pakai JsonList)
+	return helper.JsonList(c, "ok", data, pag)
 }
 
 /* ============== small utils ============== */
@@ -172,14 +182,4 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
-}
-
-func parseIntDefault(s string, def int) int {
-	if s == "" {
-		return def
-	}
-	if v, err := strconv.Atoi(s); err == nil {
-		return v
-	}
-	return def
 }
