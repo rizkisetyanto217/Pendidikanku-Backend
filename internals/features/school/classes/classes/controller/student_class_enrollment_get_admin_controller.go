@@ -352,8 +352,8 @@ func enrichEnrollmentClassSections(
 		return nil
 	}
 
-	// 3) Konversi ke DTO compact (sama seperti sebelumnya)
-	compact := csDTO.FromModelsCompact(secs)
+	// 3) Konversi ke DTO compact
+	compact := csDTO.FromModelsClassSectionCompact(secs)
 
 	// 4) Kalau diminta CSST, query CSST & group by section_id
 	var csstBySection map[uuid.UUID][]csstModel.ClassSectionSubjectTeacherModel
@@ -383,20 +383,21 @@ func enrichEnrollmentClassSections(
 
 	// 5) Group per class_id (pakai ClassSectionClassID dari compact)
 	byClass := make(map[uuid.UUID][]csDTO.ClassSectionCompact)
-	for i, s := range compact {
+	for i := range compact {
+		s := &compact[i]
 		if s.ClassSectionClassID == nil || *s.ClassSectionClassID == uuid.Nil {
 			continue
 		}
 
 		// kalau withCSST → tempel dulu ke field SubjectTeachers di compact
 		if withCSST {
-			secModel := secs[i] // FromModelsCompact biasanya preserve urutan
+			secModel := secs[i] // FromModelsClassSectionCompact preserve urutan
 			if list, ok := csstBySection[secModel.ClassSectionID]; ok && len(list) > 0 {
 				s.SubjectTeachers = list
 			}
 		}
 
-		byClass[*s.ClassSectionClassID] = append(byClass[*s.ClassSectionClassID], s)
+		byClass[*s.ClassSectionClassID] = append(byClass[*s.ClassSectionClassID], *s)
 	}
 
 	// 6) Tempel ke tiap enrollment lewat field `ClassSections`

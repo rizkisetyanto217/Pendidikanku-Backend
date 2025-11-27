@@ -1,4 +1,3 @@
-// file: internals/features/school/classes/class_sections/controller/student_class_section_controller.go
 package controller
 
 import (
@@ -22,6 +21,7 @@ import (
 // ?status=active|inactive|completed
 // ?q=...
 // ?include=class_sections,csst
+// ?view=compact|full
 // ?page=1&size=20
 func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	// 1) school dari TOKEN
@@ -40,6 +40,9 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	}
 
 	tx := ctl.DB.WithContext(c.Context())
+
+	// ----------------- PARSE VIEW -----------------
+	view := strings.ToLower(strings.TrimSpace(c.Query("view"))) // "", "compact", "full"
 
 	// ----------------- PARSE INCLUDE -----------------
 	includeRaw := strings.TrimSpace(c.Query("include"))
@@ -219,7 +222,16 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	pagination := helper.BuildPaginationFromOffset(total, offset, size)
 
 	// =====================================================================
-	//  MODE TANPA INCLUDE → balikkan seperti sebelumnya (backward compatible)
+	//  MODE VIEW=COMPACT → selalu balikin compact DTO,
+	//  abaikan include=class_sections,csst (biar ringan, konsisten kayak enrollment)
+	// =====================================================================
+	if view == "compact" {
+		out := dto.FromModelsStudentClassSectionCompact(rows)
+		return helper.JsonList(c, "OK", out, pagination)
+	}
+
+	// =====================================================================
+	//  MODE TANPA INCLUDE → balikkan seperti sebelumnya (full, tanpa nested)
 	//  (StudentClassSectionResp sekarang sudah include gender + student_code)
 	// =====================================================================
 	if !includeClassSections && !includeCSST {
@@ -231,7 +243,7 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	}
 
 	// =====================================================================
-	//  MODE include=class_sections / csst
+	//  MODE include=class_sections / csst → FULL + nested
 	// =====================================================================
 
 	// 1) Kumpulkan section_id unik dari hasil query
