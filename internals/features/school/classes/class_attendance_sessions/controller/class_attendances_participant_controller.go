@@ -15,10 +15,10 @@ import (
 	attendanceModel "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/model"
 	attendanceService "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/service"
 
+	snapSvc "madinahsalam_backend/internals/features/users/users/snapshot"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 	helperOSS "madinahsalam_backend/internals/helpers/oss"
-	snapSvc "madinahsalam_backend/internals/features/users/users/snapshot"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -26,6 +26,10 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+/* ======================================================
+   Controller
+====================================================== */
 
 type ClassAttendanceSessionParticipantController struct {
 	DB        *gorm.DB
@@ -53,11 +57,12 @@ func isDuplicateKey(err error) bool {
 		strings.Contains(s, "sqlstate 23505")
 }
 
-// ===============================
-// Snapshot helper (murid & ortu)
-// ===============================
+/* ======================================================
+   Snapshot helper (murid & ortu via user_profiles)
+====================================================== */
+
 type studentSnapshotRow struct {
-	UserID uuid.UUID `gorm:"column:user_id"`
+	ProfileID uuid.UUID `gorm:"column:profile_id"`
 }
 
 // Create: hydrate snapshot di level DTO (CreateRequest)
@@ -76,7 +81,7 @@ func (ctl *ClassAttendanceSessionParticipantController) hydrateStudentSnapshotFo
 		return nil
 	}
 
-	// 1) ambil user_id dari school_students
+	// 1) ambil user_profile_id dari school_students
 	var row studentSnapshotRow
 
 	err := ctl.DB.WithContext(ctx).
@@ -86,24 +91,24 @@ func (ctl *ClassAttendanceSessionParticipantController) hydrateStudentSnapshotFo
 			AND ss.school_student_school_id = ?
 			AND ss.school_student_deleted_at IS NULL
 		`, *req.ClassAttendanceSessionParticipantSchoolStudentID, schoolID).
-		Select(`ss.school_student_user_id AS user_id`).
+		Select(`ss.school_student_user_profile_id AS profile_id`).
 		Take(&row).Error
 
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// nggak fatal, cuma nggak ada student / user_id
+			// nggak fatal, cuma nggak ada student / profile_id
 			return nil
 		}
 		return err
 	}
 
-	if row.UserID == uuid.Nil {
-		// nggak ada user terkait
+	if row.ProfileID == uuid.Nil {
+		// nggak ada user_profile terkait
 		return nil
 	}
 
 	// 2) build snapshot dari user_profiles via snapsvc
-	up, err := snapSvc.BuildUserProfileSnapshotByUserID(ctx, ctl.DB, row.UserID)
+	up, err := snapSvc.BuildUserProfileSnapshotByProfileID(ctx, ctl.DB, row.ProfileID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			// user_profile belum ada → nggak fatal
@@ -154,7 +159,7 @@ func (ctl *ClassAttendanceSessionParticipantController) hydrateStudentSnapshotFo
 		return nil
 	}
 
-	// 1) ambil user_id dari school_students
+	// 1) ambil user_profile_id dari school_students
 	var row studentSnapshotRow
 
 	err := ctl.DB.WithContext(ctx).
@@ -163,7 +168,7 @@ func (ctl *ClassAttendanceSessionParticipantController) hydrateStudentSnapshotFo
 			ss.school_student_id = ?
 			AND ss.school_student_deleted_at IS NULL
 		`, *m.ClassAttendanceSessionParticipantSchoolStudentID).
-		Select(`ss.school_student_user_id AS user_id`).
+		Select(`ss.school_student_user_profile_id AS profile_id`).
 		Take(&row).Error
 
 	if err != nil {
@@ -172,12 +177,12 @@ func (ctl *ClassAttendanceSessionParticipantController) hydrateStudentSnapshotFo
 		}
 		return err
 	}
-	if row.UserID == uuid.Nil {
+	if row.ProfileID == uuid.Nil {
 		return nil
 	}
 
 	// 2) build snapshot dari user_profiles via snapsvc
-	up, err := snapSvc.BuildUserProfileSnapshotByUserID(ctx, ctl.DB, row.UserID)
+	up, err := snapSvc.BuildUserProfileSnapshotByProfileID(ctx, ctl.DB, row.ProfileID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil
@@ -208,9 +213,9 @@ func (ctl *ClassAttendanceSessionParticipantController) hydrateStudentSnapshotFo
 	return nil
 }
 
-// ===============================
-// Helper: resolve school dari token
-// ===============================
+/* ======================================================
+   Helper: resolve school dari token
+====================================================== */
 
 func (ctl *ClassAttendanceSessionParticipantController) resolveSchoolIDFromToken(c *fiber.Ctx) (uuid.UUID, error) {
 	// beberapa helper auth pakai DB dari Locals
@@ -231,9 +236,9 @@ func (ctl *ClassAttendanceSessionParticipantController) resolveSchoolIDFromToken
 	return schoolID, nil
 }
 
-// ===============================
-// Handlers
-// ===============================
+/* ======================================================
+   Handlers
+====================================================== */
 
 /*
 =========================================================
@@ -654,7 +659,7 @@ func (ctl *ClassAttendanceSessionParticipantController) Patch(c *fiber.Ctx) erro
 			return err
 		}
 
-		// kalau snapshot masih kosong & participant student → coba hydrate dari user_profiles
+		// hydrate snapshot setelah patch (kalau kind/student & id berubah)
 		if err := ctl.hydrateStudentSnapshotForModel(c.Context(), &m); err != nil {
 			return err
 		}
