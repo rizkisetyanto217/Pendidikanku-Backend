@@ -1421,26 +1421,29 @@ func (ctrl *ClassAttendanceSessionController) prefetchParticipants(
 	}
 
 	type paRow struct {
-		ID, SessionID     uuid.UUID
-		SchoolStudentID   *uuid.UUID
-		Kind, State       string
-		TypeID            *uuid.UUID
-		Desc, UserNote    *string
-		TeacherNote       *string
-		Score             *float64
-		IsPassed          *bool
-		CheckinAt         *time.Time
-		CheckoutAt        *time.Time
-		LateSeconds       *int
-		CreatedAt         time.Time
-		UpdatedAt         time.Time
-		MarkedAt          *time.Time
-		MarkedByTeacherID *uuid.UUID
-		Method            *string
-		TeacherRole       *string
-		Lat               *float64
-		Lng               *float64
-		DistanceM         *int
+		ID                uuid.UUID  `gorm:"column:class_attendance_session_participant_id"`
+		SessionID         uuid.UUID  `gorm:"column:class_attendance_session_participant_session_id"`
+		SchoolStudentID   *uuid.UUID `gorm:"column:class_attendance_session_participant_school_student_id"`
+		Kind              string     `gorm:"column:class_attendance_session_participant_kind"`
+		State             string     `gorm:"column:class_attendance_session_participant_state"`
+		TypeID            *uuid.UUID `gorm:"column:class_attendance_session_participant_type_id"`
+		Desc              *string    `gorm:"column:class_attendance_session_participant_desc"`
+		Score             *float64   `gorm:"column:class_attendance_session_participant_score"`
+		IsPassed          *bool      `gorm:"column:class_attendance_session_participant_is_passed"`
+		UserNote          *string    `gorm:"column:class_attendance_session_participant_user_note"`
+		TeacherNote       *string    `gorm:"column:class_attendance_session_participant_teacher_note"`
+		CheckinAt         *time.Time `gorm:"column:class_attendance_session_participant_checkin_at"`
+		CheckoutAt        *time.Time `gorm:"column:class_attendance_session_participant_checkout_at"`
+		LateSeconds       *int       `gorm:"column:class_attendance_session_participant_late_seconds"`
+		MarkedAt          *time.Time `gorm:"column:class_attendance_session_participant_marked_at"`
+		MarkedByTeacherID *uuid.UUID `gorm:"column:class_attendance_session_participant_marked_by_teacher_id"`
+		Method            *string    `gorm:"column:class_attendance_session_participant_method"`
+		TeacherRole       *string    `gorm:"column:class_attendance_session_participant_teacher_role"`
+		Lat               *float64   `gorm:"column:class_attendance_session_participant_lat"`
+		Lng               *float64   `gorm:"column:class_attendance_session_participant_lng"`
+		DistanceM         *int       `gorm:"column:class_attendance_session_participant_distance_m"`
+		CreatedAt         time.Time  `gorm:"column:class_attendance_session_participant_created_at"`
+		UpdatedAt         time.Time  `gorm:"column:class_attendance_session_participant_updated_at"`
 	}
 
 	var paRows []paRow
