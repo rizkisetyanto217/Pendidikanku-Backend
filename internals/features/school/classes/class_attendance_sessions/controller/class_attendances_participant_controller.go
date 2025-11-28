@@ -18,6 +18,7 @@ import (
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 	helperOSS "madinahsalam_backend/internals/helpers/oss"
+	snapSvc "madinahsalam_backend/internals/features/users/users/snapshot"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -52,21 +53,14 @@ func isDuplicateKey(err error) bool {
 		strings.Contains(s, "sqlstate 23505")
 }
 
-const dateLayout = "2006-01-02"
-
 // ===============================
 // Snapshot helper (murid & ortu)
 // ===============================
 type studentSnapshotRow struct {
-	StudentName        string  `gorm:"column:student_name"`
-	StudentAvatarURL   *string `gorm:"column:student_avatar_url"`
-	StudentWhatsappURL *string `gorm:"column:student_whatsapp_url"`
-	ParentName         *string `gorm:"column:parent_name"`
-	ParentWhatsappURL  *string `gorm:"column:parent_whatsapp_url"`
-	StudentGender      *string `gorm:"column:student_gender"`
-	StudentCode        *string `gorm:"column:student_code"`
+	UserID uuid.UUID `gorm:"column:user_id"`
 }
 
+// Create: hydrate snapshot di level DTO (CreateRequest)
 func (ctl *ClassAttendanceSessionParticipantController) hydrateStudentSnapshotForParticipant(
 	ctx context.Context,
 	schoolID uuid.UUID,
@@ -78,10 +72,11 @@ func (ctl *ClassAttendanceSessionParticipantController) hydrateStudentSnapshotFo
 	}
 
 	// kalau sudah ada snapshot (diisi manual) → skip
-	if req.ClassAttendanceSessionParticipantStudentNameSnapshot != nil {
+	if req.ClassAttendanceSessionParticipantUserProfileNameSnapshot != nil {
 		return nil
 	}
 
+	// 1) ambil user_id dari school_students
 	var row studentSnapshotRow
 
 	err := ctl.DB.WithContext(ctx).
@@ -91,49 +86,123 @@ func (ctl *ClassAttendanceSessionParticipantController) hydrateStudentSnapshotFo
 			AND ss.school_student_school_id = ?
 			AND ss.school_student_deleted_at IS NULL
 		`, *req.ClassAttendanceSessionParticipantSchoolStudentID, schoolID).
-		Select(`
-			COALESCE(
-				ss.school_student_user_profile_name_snapshot,
-				''
-			) AS student_name,
-			ss.school_student_user_profile_avatar_url_snapshot          AS student_avatar_url,
-			ss.school_student_user_profile_whatsapp_url_snapshot        AS student_whatsapp_url,
-			ss.school_student_user_profile_parent_name_snapshot         AS parent_name,
-			ss.school_student_user_profile_parent_whatsapp_url_snapshot AS parent_whatsapp_url,
-			ss.school_student_user_profile_gender_snapshot              AS student_gender,
-			ss.school_student_code                                      AS student_code
-		`).
+		Select(`ss.school_student_user_id AS user_id`).
 		Take(&row).Error
 
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// nggak fatal, cuma nggak ada snapshot
+			// nggak fatal, cuma nggak ada student / user_id
 			return nil
 		}
 		return err
 	}
 
-	// isi snapshot hanya kalau kosong
-	if req.ClassAttendanceSessionParticipantStudentNameSnapshot == nil && strings.TrimSpace(row.StudentName) != "" {
-		req.ClassAttendanceSessionParticipantStudentNameSnapshot = &row.StudentName
+	if row.UserID == uuid.Nil {
+		// nggak ada user terkait
+		return nil
 	}
-	if req.ClassAttendanceSessionParticipantStudentAvatarURLSnapshot == nil && row.StudentAvatarURL != nil {
-		req.ClassAttendanceSessionParticipantStudentAvatarURLSnapshot = row.StudentAvatarURL
+
+	// 2) build snapshot dari user_profiles via snapsvc
+	up, err := snapSvc.BuildUserProfileSnapshotByUserID(ctx, ctl.DB, row.UserID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// user_profile belum ada → nggak fatal
+			return nil
+		}
+		return err
 	}
-	if req.ClassAttendanceSessionParticipantStudentWhatsappURLSnapshot == nil && row.StudentWhatsappURL != nil {
-		req.ClassAttendanceSessionParticipantStudentWhatsappURLSnapshot = row.StudentWhatsappURL
+
+	// 3) isi snapshot hanya kalau kosong
+	if req.ClassAttendanceSessionParticipantUserProfileNameSnapshot == nil && strings.TrimSpace(up.Name) != "" {
+		req.ClassAttendanceSessionParticipantUserProfileNameSnapshot = &up.Name
 	}
-	if req.ClassAttendanceSessionParticipantParentNameSnapshot == nil && row.ParentName != nil {
-		req.ClassAttendanceSessionParticipantParentNameSnapshot = row.ParentName
+	if req.ClassAttendanceSessionParticipantUserProfileAvatarURLSnapshot == nil && up.AvatarURL != nil {
+		req.ClassAttendanceSessionParticipantUserProfileAvatarURLSnapshot = up.AvatarURL
 	}
-	if req.ClassAttendanceSessionParticipantParentWhatsappURLSnapshot == nil && row.ParentWhatsappURL != nil {
-		req.ClassAttendanceSessionParticipantParentWhatsappURLSnapshot = row.ParentWhatsappURL
+	if req.ClassAttendanceSessionParticipantUserProfileWhatsappURLSnapshot == nil && up.WhatsappURL != nil {
+		req.ClassAttendanceSessionParticipantUserProfileWhatsappURLSnapshot = up.WhatsappURL
 	}
-	if req.ClassAttendanceSessionParticipantStudentGenderSnapshot == nil && row.StudentGender != nil {
-		req.ClassAttendanceSessionParticipantStudentGenderSnapshot = row.StudentGender
+	if req.ClassAttendanceSessionParticipantUserProfileParentNameSnapshot == nil && up.ParentName != nil {
+		req.ClassAttendanceSessionParticipantUserProfileParentNameSnapshot = up.ParentName
 	}
-	if req.ClassAttendanceSessionParticipantStudentCodeSnapshot == nil && row.StudentCode != nil {
-		req.ClassAttendanceSessionParticipantStudentCodeSnapshot = row.StudentCode
+	if req.ClassAttendanceSessionParticipantUserProfileParentWhatsappURLSnapshot == nil && up.ParentWhatsappURL != nil {
+		req.ClassAttendanceSessionParticipantUserProfileParentWhatsappURLSnapshot = up.ParentWhatsappURL
+	}
+	if req.ClassAttendanceSessionParticipantUserProfileGenderSnapshot == nil && up.Gender != nil {
+		req.ClassAttendanceSessionParticipantUserProfileGenderSnapshot = up.Gender
+	}
+
+	return nil
+}
+
+// Patch: hydrate snapshot di level Model
+func (ctl *ClassAttendanceSessionParticipantController) hydrateStudentSnapshotForModel(
+	ctx context.Context,
+	m *attendanceModel.ClassAttendanceSessionParticipantModel,
+) error {
+	// hanya untuk participant kind = student & punya school_student_id
+	if m.ClassAttendanceSessionParticipantKind != attendanceModel.ParticipantKindStudent {
+		return nil
+	}
+	if m.ClassAttendanceSessionParticipantSchoolStudentID == nil ||
+		*m.ClassAttendanceSessionParticipantSchoolStudentID == uuid.Nil {
+		return nil
+	}
+
+	// kalau sudah ada snapshot name → anggap sudah keisi, jangan override
+	if m.ClassAttendanceSessionParticipantUserProfileNameSnapshot != nil {
+		return nil
+	}
+
+	// 1) ambil user_id dari school_students
+	var row studentSnapshotRow
+
+	err := ctl.DB.WithContext(ctx).
+		Table("school_students AS ss").
+		Where(`
+			ss.school_student_id = ?
+			AND ss.school_student_deleted_at IS NULL
+		`, *m.ClassAttendanceSessionParticipantSchoolStudentID).
+		Select(`ss.school_student_user_id AS user_id`).
+		Take(&row).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return err
+	}
+	if row.UserID == uuid.Nil {
+		return nil
+	}
+
+	// 2) build snapshot dari user_profiles via snapsvc
+	up, err := snapSvc.BuildUserProfileSnapshotByUserID(ctx, ctl.DB, row.UserID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return err
+	}
+
+	// 3) isi snapshot hanya kalau kosong
+	if m.ClassAttendanceSessionParticipantUserProfileNameSnapshot == nil && strings.TrimSpace(up.Name) != "" {
+		m.ClassAttendanceSessionParticipantUserProfileNameSnapshot = &up.Name
+	}
+	if m.ClassAttendanceSessionParticipantUserProfileAvatarURLSnapshot == nil && up.AvatarURL != nil {
+		m.ClassAttendanceSessionParticipantUserProfileAvatarURLSnapshot = up.AvatarURL
+	}
+	if m.ClassAttendanceSessionParticipantUserProfileWhatsappURLSnapshot == nil && up.WhatsappURL != nil {
+		m.ClassAttendanceSessionParticipantUserProfileWhatsappURLSnapshot = up.WhatsappURL
+	}
+	if m.ClassAttendanceSessionParticipantUserProfileParentNameSnapshot == nil && up.ParentName != nil {
+		m.ClassAttendanceSessionParticipantUserProfileParentNameSnapshot = up.ParentName
+	}
+	if m.ClassAttendanceSessionParticipantUserProfileParentWhatsappURLSnapshot == nil && up.ParentWhatsappURL != nil {
+		m.ClassAttendanceSessionParticipantUserProfileParentWhatsappURLSnapshot = up.ParentWhatsappURL
+	}
+	if m.ClassAttendanceSessionParticipantUserProfileGenderSnapshot == nil && up.Gender != nil {
+		m.ClassAttendanceSessionParticipantUserProfileGenderSnapshot = up.Gender
 	}
 
 	return nil
@@ -584,6 +653,12 @@ func (ctl *ClassAttendanceSessionParticipantController) Patch(c *fiber.Ctx) erro
 		if err := req.ApplyPatch(&m); err != nil {
 			return err
 		}
+
+		// kalau snapshot masih kosong & participant student → coba hydrate dari user_profiles
+		if err := ctl.hydrateStudentSnapshotForModel(c.Context(), &m); err != nil {
+			return err
+		}
+
 		if err := tx.Save(&m).Error; err != nil {
 			return err
 		}

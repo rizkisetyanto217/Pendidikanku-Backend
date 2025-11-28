@@ -17,6 +17,8 @@ import (
 	"github.com/google/uuid"
 )
 
+const dateLayout = "2006-01-02"
+
 // di: internals/features/attendance/controller/class_attendance_session_participant_controller.go
 
 /*

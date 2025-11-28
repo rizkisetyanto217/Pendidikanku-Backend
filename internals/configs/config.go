@@ -142,3 +142,8 @@ func (l *GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (stri
 		log.Printf("[QUERY] %s | %s | %d rows | %s", file, elapsed, rows, sql)
 	}
 }
+
+
+
+
+

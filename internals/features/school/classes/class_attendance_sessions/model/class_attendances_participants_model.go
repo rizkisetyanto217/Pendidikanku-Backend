@@ -94,14 +94,13 @@ type ClassAttendanceSessionParticipantModel struct {
 	// keterlambatan (detik)
 	ClassAttendanceSessionParticipantLateSeconds *int `gorm:"column:class_attendance_session_participant_late_seconds" json:"class_attendance_session_participant_late_seconds,omitempty"`
 
-	// 🔎 Snapshot profil siswa & ortu saat sesi dibuat
-	ClassAttendanceSessionParticipantStudentNameSnapshot        *string `gorm:"type:varchar(80);column:class_attendance_session_participant_student_name_snapshot" json:"class_attendance_session_participant_student_name_snapshot,omitempty"`
-	ClassAttendanceSessionParticipantStudentAvatarURLSnapshot   *string `gorm:"type:varchar(255);column:class_attendance_session_participant_student_avatar_url_snapshot" json:"class_attendance_session_participant_student_avatar_url_snapshot,omitempty"`
-	ClassAttendanceSessionParticipantStudentWhatsappURLSnapshot *string `gorm:"type:varchar(50);column:class_attendance_session_participant_student_whatsapp_url_snapshot" json:"class_attendance_session_participant_student_whatsapp_url_snapshot,omitempty"`
-	ClassAttendanceSessionParticipantParentNameSnapshot         *string `gorm:"type:varchar(80);column:class_attendance_session_participant_parent_name_snapshot" json:"class_attendance_session_participant_parent_name_snapshot,omitempty"`
-	ClassAttendanceSessionParticipantParentWhatsappURLSnapshot  *string `gorm:"type:varchar(50);column:class_attendance_session_participant_parent_whatsapp_url_snapshot" json:"class_attendance_session_participant_parent_whatsapp_url_snapshot,omitempty"`
-	ClassAttendanceSessionParticipantStudentGenderSnapshot      *string `gorm:"type:varchar(20);column:class_attendance_session_participant_student_gender_snapshot" json:"class_attendance_session_participant_student_gender_snapshot,omitempty"`
-	ClassAttendanceSessionParticipantStudentCodeSnapshot        *string `gorm:"type:varchar(50);column:class_attendance_session_participant_student_code_snapshot" json:"class_attendance_session_participant_student_code_snapshot,omitempty"`
+	// Snapshot users_profile (per siswa saat sesi dibuat)
+	ClassAttendanceSessionParticipantUserProfileNameSnapshot              *string `gorm:"type:varchar(80);column:class_attendance_session_participant_user_profile_name_snapshot" json:"class_attendance_session_participant_user_profile_name_snapshot,omitempty"`
+	ClassAttendanceSessionParticipantUserProfileAvatarURLSnapshot         *string `gorm:"type:varchar(255);column:class_attendance_session_participant_user_profile_avatar_url_snapshot" json:"class_attendance_session_participant_user_profile_avatar_url_snapshot,omitempty"`
+	ClassAttendanceSessionParticipantUserProfileWhatsappURLSnapshot       *string `gorm:"type:varchar(50);column:class_attendance_session_participant_user_profile_whatsapp_url_snapshot" json:"class_attendance_session_participant_user_profile_whatsapp_url_snapshot,omitempty"`
+	ClassAttendanceSessionParticipantUserProfileParentNameSnapshot        *string `gorm:"type:varchar(80);column:class_attendance_session_participant_user_profile_parent_name_snapshot" json:"class_attendance_session_participant_user_profile_parent_name_snapshot,omitempty"`
+	ClassAttendanceSessionParticipantUserProfileParentWhatsappURLSnapshot *string `gorm:"type:varchar(50);column:class_attendance_session_participant_user_profile_parent_whatsapp_url_snapshot" json:"class_attendance_session_participant_user_profile_parent_whatsapp_url_snapshot,omitempty"`
+	ClassAttendanceSessionParticipantUserProfileGenderSnapshot            *string `gorm:"type:varchar(20);column:class_attendance_session_participant_user_profile_gender_snapshot" json:"class_attendance_session_participant_user_profile_gender_snapshot,omitempty"`
 
 	// catatan tambahan
 	ClassAttendanceSessionParticipantUserNote    *string `gorm:"type:text;column:class_attendance_session_participant_user_note" json:"class_attendance_session_participant_user_note,omitempty"`

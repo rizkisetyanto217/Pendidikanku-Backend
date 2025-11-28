@@ -1,4 +1,3 @@
-// file: internals/features/school/classes/class_attendance_sessions/controller/list_controller.go
 package controller
 
 import (
@@ -305,8 +304,10 @@ func (ctrl *ClassAttendanceSessionController) listStudentTimeline(
 
 	// Filter participant di level join (akan otomatis menghilangkan sesi yang tidak punya participant jika filter dipakai)
 	if state != "" {
-		q = q.Where("LOWER(p.class_attendance_session_participant_state) = ?", state)
+		// enum, cukup bandingkan langsung tanpa LOWER()
+		q = q.Where("p.class_attendance_session_participant_state = ?", state)
 	}
+
 	if typeIDPtr != nil {
 		q = q.Where("p.class_attendance_session_participant_type_id = ?", *typeIDPtr)
 	}
@@ -522,8 +523,10 @@ func (ctrl *ClassAttendanceSessionController) listTeacherTimeline(
 
 	// Filter participant di level join
 	if state != "" {
-		q = q.Where("LOWER(p.class_attendance_session_participant_state) = ?", state)
+		// enum attendance_state_enum
+		q = q.Where("p.class_attendance_session_participant_state = ?", state)
 	}
+
 	if typeIDPtr != nil {
 		q = q.Where("p.class_attendance_session_participant_type_id = ?", *typeIDPtr)
 	}
@@ -1325,10 +1328,12 @@ func (ctrl *ClassAttendanceSessionController) listSessionsDefault(
 	return helper.JsonList(c, "ok", items, pg)
 }
 
-/* =========================================================
-   PREFETCH PARTICIPANTS
-========================================================= */
+/*
+	=========================================================
+	  PREFETCH PARTICIPANTS
 
+=========================================================
+*/
 func (ctrl *ClassAttendanceSessionController) prefetchParticipants(
 	c *fiber.Ctx,
 	schoolID uuid.UUID,
@@ -1377,10 +1382,12 @@ func (ctrl *ClassAttendanceSessionController) prefetchParticipants(
 		Where("p.class_attendance_session_participant_session_id IN ?", pageIDs)
 
 	if state != "" {
-		paQ = paQ.Where("LOWER(p.class_attendance_session_participant_state) = ?", state)
+		// enum attendance_state_enum → langsung bandingkan
+		paQ = paQ.Where("p.class_attendance_session_participant_state = ?", state)
 	}
 	if kind != "" {
-		paQ = paQ.Where("LOWER(p.class_attendance_session_participant_kind) = ?", kind)
+		// enum participant_kind_enum → langsung bandingkan
+		paQ = paQ.Where("p.class_attendance_session_participant_kind = ?", kind)
 	}
 	if typeIDPtr != nil {
 		paQ = paQ.Where("p.class_attendance_session_participant_type_id = ?", *typeIDPtr)
@@ -1399,6 +1406,7 @@ func (ctrl *ClassAttendanceSessionController) prefetchParticipants(
 		paQ = paQ.Where("p.class_attendance_session_participant_is_passed = ?", *isPassedPtr)
 	}
 
+	// Scope kalau bukan admin/teacher → hanya peserta yg terkait user tsb
 	if !isAdmin && !isTeacher {
 		if userID == uuid.Nil {
 			return helper.JsonError(c, fiber.StatusUnauthorized, "User tidak terautentik")
@@ -1497,6 +1505,24 @@ func (ctrl *ClassAttendanceSessionController) prefetchParticipants(
 			Lng:               r.Lng,
 			DistanceM:         r.DistanceM,
 		})
+	}
+
+	// 🔹 Tambahan: kalau ada filter participant_kind (teacher/student)
+	// tapi tidak ada satupun row peserta untuk session tsb,
+	// tetap buat placeholder dengan state = "unknown"
+	if kind != "" {
+		for _, sid := range pageIDs {
+			if parts, ok := partMap[sid]; !ok || len(parts) == 0 {
+				partMap[sid] = []SessionParticipantLite{
+					{
+						ParticipantID: uuid.Nil,
+						SessionID:     sid,
+						Kind:          kind,
+						State:         "unknown",
+					},
+				}
+			}
+		}
 	}
 
 	return nil
