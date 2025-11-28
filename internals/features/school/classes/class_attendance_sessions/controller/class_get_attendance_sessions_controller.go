@@ -83,6 +83,18 @@ func queryBoolFlag(raw string) bool {
 	return raw == "1" || raw == "true" || raw == "yes"
 }
 
+func queryBoolFlagInverse(raw string) bool {
+	// "0"/"false"/"no" → false
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	if raw == "0" || raw == "false" || raw == "no" {
+		return false
+	}
+	if raw == "" {
+		return true
+	}
+	return true
+}
+
 /* =================================================================
    LIST /admin|/u/class-attendance-sessions
    + support mode:
@@ -94,8 +106,7 @@ func queryBoolFlag(raw string) bool {
        * teacher_id=true  → pakai teacher dari token
        * student_id=true  → pakai student dari token
      - student_timeline=1 → mode khusus timeline murid
-       (StudentSessionAttendanceItem, selalu 1 row per sesi
-        dgn participant state, default "unknown" kalau belum ada)
+     - teacher_timeline=1 → mode khusus timeline guru
 ================================================================= */
 
 func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fiber.Ctx) error {
@@ -110,12 +121,13 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		return helper.JsonError(c, http.StatusForbidden, "Scope school tidak ditemukan")
 	}
 
-	// ===== Mode: student timeline (optional) =====
+	// ===== Mode: timeline (student / teacher) =====
 	isStudentTimeline := queryBoolFlag(c.Query("student_timeline"))
+	isTeacherTimeline := queryBoolFlag(c.Query("teacher_timeline"))
 
 	// include_session: kalau false → Session dikosongkan
 	includeSession := true
-	if isStudentTimeline {
+	if isStudentTimeline || isTeacherTimeline {
 		if !queryBoolFlagInverse(c.Query("include_session")) {
 			// pakai flag terbalik: 0/false/no → false
 			includeSession = false
@@ -127,6 +139,10 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		if err := helperAuth.EnsureStudentSchool(c, schoolID); err != nil {
 			return err
 		}
+	} else if isTeacherTimeline {
+		if err := helperAuth.EnsureTeacherSchool(c, schoolID); err != nil {
+			return err
+		}
 	} else {
 		if err := helperAuth.EnsureDKMOrTeacherSchool(c, schoolID); err != nil {
 			return err
@@ -134,10 +150,13 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	}
 
 	// ----------------------------------------------------------------
-	// MODE KHUSUS: STUDENT TIMELINE
+	// MODE KHUSUS: STUDENT / TEACHER TIMELINE
 	// ----------------------------------------------------------------
 	if isStudentTimeline {
 		return ctrl.listStudentTimeline(c, schoolID, includeSession)
+	}
+	if isTeacherTimeline {
+		return ctrl.listTeacherTimeline(c, schoolID, includeSession)
 	}
 
 	// ----------------------------------------------------------------
@@ -172,18 +191,6 @@ func resolveSchoolID(c *fiber.Ctx) (uuid.UUID, error) {
 	return schoolID, nil
 }
 
-func queryBoolFlagInverse(raw string) bool {
-	// "0"/"false"/"no" → false
-	raw = strings.ToLower(strings.TrimSpace(raw))
-	if raw == "0" || raw == "false" || raw == "no" {
-		return false
-	}
-	if raw == "" {
-		return true
-	}
-	return true
-}
-
 /* =========================================================
    MODE: STUDENT TIMELINE
 ========================================================= */
@@ -205,7 +212,7 @@ func (ctrl *ClassAttendanceSessionController) listStudentTimeline(
 	}
 
 	// 2) Filter tanggal (pakai pola: date_from/date_to/range/month)
-	df, dt, err := resolveStudentTimelineDateRange(c)
+	df, dt, err := resolveTimelineDateRange(c)
 	if err != nil {
 		return err
 	}
@@ -267,7 +274,15 @@ func (ctrl *ClassAttendanceSessionController) listStudentTimeline(
 	// 5) Base query: mulai dari SESSIONS, left join participant 1 murid
 	q := db.Table("class_attendance_sessions AS cas").
 		Where("cas.class_attendance_session_school_id = ?", schoolID).
-		Where("cas.class_attendance_session_deleted_at IS NULL")
+		Where("cas.class_attendance_session_deleted_at IS NULL").
+		Joins(`
+        JOIN student_class_section_subject_teachers scst
+          ON scst.student_class_section_subject_teacher_school_id = cas.class_attendance_session_school_id
+         AND scst.student_class_section_subject_teacher_csst_id = cas.class_attendance_session_csst_id
+         AND scst.student_class_section_subject_teacher_student_id = ?
+         AND scst.student_class_section_subject_teacher_is_active = TRUE
+         AND scst.student_class_section_subject_teacher_deleted_at IS NULL
+    `, studentID)
 
 	// Filter tanggal di level session
 	if df != nil && dt != nil {
@@ -315,28 +330,26 @@ func (ctrl *ClassAttendanceSessionController) listStudentTimeline(
 	var rows []row
 	if err := q.
 		Select(`
-		cas.class_attendance_session_id,
-		cas.class_attendance_session_school_id,
-		cas.class_attendance_session_date,
-		cas.class_attendance_session_starts_at,
-		cas.class_attendance_session_ends_at,
-		cas.class_attendance_session_title,
-		cas.class_attendance_session_display_title,
-		cas.class_attendance_session_general_info,
-		cas.class_attendance_session_status,
-		cas.class_attendance_session_attendance_status,
-		cas.class_attendance_session_subject_name_snapshot,
-		cas.class_attendance_session_subject_code_snapshot,
-		cas.class_attendance_session_section_name_snapshot,
-		cas.class_attendance_session_room_name_snapshot,
-		cas.class_attendance_session_type_snapshot,
-
-		-- ⬇️ tambahan
-		cas.class_attendance_session_csst_snapshot,
-
-		p.class_attendance_session_participant_id,
-		p.class_attendance_session_participant_state
-	`).
+			cas.class_attendance_session_id,
+			cas.class_attendance_session_school_id,
+			cas.class_attendance_session_date,
+			cas.class_attendance_session_starts_at,
+			cas.class_attendance_session_ends_at,
+			cas.class_attendance_session_title,
+			cas.class_attendance_session_display_title,
+			cas.class_attendance_session_general_info,
+			cas.class_attendance_session_status,
+			cas.class_attendance_session_attendance_status,
+			cas.class_attendance_session_subject_name_snapshot,
+			cas.class_attendance_session_subject_code_snapshot,
+			cas.class_attendance_session_section_name_snapshot,
+			cas.class_attendance_session_room_name_snapshot,
+			cas.class_attendance_session_type_id,
+			cas.class_attendance_session_type_snapshot,
+			cas.class_attendance_session_csst_snapshot,
+			p.class_attendance_session_participant_id,
+			p.class_attendance_session_participant_state
+		`).
 		Order(`
 			cas.class_attendance_session_date ASC,
 			cas.class_attendance_session_starts_at ASC NULLS LAST,
@@ -381,7 +394,7 @@ func (ctrl *ClassAttendanceSessionController) listStudentTimeline(
 				ClassAttendanceSessionSectionNameSnapshot: r.SectionNameSnapshot,
 				ClassAttendanceSessionRoomNameSnapshot:    r.RoomNameSnapshot,
 
-				ClassAttendanceSessionCSSTSnapshot:        jsonToMap(r.CSSTSnap),
+				ClassAttendanceSessionCSSTSnapshot: jsonToMap(r.CSSTSnap),
 
 				ClassAttendanceSessionTypeId:       r.TypeID,
 				ClassAttendanceSessionTypeSnapshot: jsonToMap(r.TypeSnap),
@@ -407,7 +420,230 @@ func (ctrl *ClassAttendanceSessionController) listStudentTimeline(
 	return helper.JsonList(c, "ok", items, pg)
 }
 
-func resolveStudentTimelineDateRange(c *fiber.Ctx) (*time.Time, *time.Time, error) {
+/* =========================================================
+   MODE: TEACHER TIMELINE
+   (mirip student_timeline tapi anchor di guru)
+========================================================= */
+
+func (ctrl *ClassAttendanceSessionController) listTeacherTimeline(
+	c *fiber.Ctx,
+	schoolID uuid.UUID,
+	includeSession bool,
+) error {
+	const defaultUnknownState = "unknown"
+
+	// 1) Ambil school_teacher_id dari TOKEN (required)
+	teacherID, err := helperAuth.GetSchoolTeacherIDForSchool(c, schoolID)
+	if err != nil {
+		return err
+	}
+	if teacherID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusForbidden, "school_teacher_id tidak ditemukan di token")
+	}
+
+	// 2) Filter tanggal (pakai pola: date_from/date_to/range/month)
+	df, dt, err := resolveTimelineDateRange(c)
+	if err != nil {
+		return err
+	}
+
+	paging := helper.ResolvePaging(c, 20, 200)
+
+	// 3) Filter participant (state/type/is_passed)
+	state := strings.ToLower(strings.TrimSpace(c.Query("participant_state")))
+
+	typeIDPtr, err := parseUUIDPtr(c.Query("participant_type_id"), "participant_type_id")
+	if err != nil {
+		return err
+	}
+
+	var isPassedPtr *bool
+	if s := strings.TrimSpace(c.Query("participant_is_passed")); s != "" {
+		if b, e := strconv.ParseBool(s); e == nil {
+			isPassedPtr = &b
+		} else {
+			return helper.JsonError(c, fiber.StatusBadRequest, "participant_is_passed tidak valid (true/false)")
+		}
+	}
+
+	// 4) Row hasil join session + participant (1 guru, bisa null)
+	type row struct {
+		// Session
+		SessionID           uuid.UUID      `gorm:"column:class_attendance_session_id"`
+		SessionSchoolID     uuid.UUID      `gorm:"column:class_attendance_session_school_id"`
+		Date                time.Time      `gorm:"column:class_attendance_session_date"`
+		StartsAt            *time.Time     `gorm:"column:class_attendance_session_starts_at"`
+		EndsAt              *time.Time     `gorm:"column:class_attendance_session_ends_at"`
+		Title               *string        `gorm:"column:class_attendance_session_title"`
+		DisplayTitle        *string        `gorm:"column:class_attendance_session_display_title"`
+		Gen                 *string        `gorm:"column:class_attendance_session_general_info"`
+		Status              string         `gorm:"column:class_attendance_session_status"`
+		AttendanceStatus    string         `gorm:"column:class_attendance_session_attendance_status"`
+		SubjectNameSnapshot *string        `gorm:"column:class_attendance_session_subject_name_snapshot"`
+		SubjectCodeSnapshot *string        `gorm:"column:class_attendance_session_subject_code_snapshot"`
+		SectionNameSnapshot *string        `gorm:"column:class_attendance_session_section_name_snapshot"`
+		RoomNameSnapshot    *string        `gorm:"column:class_attendance_session_room_name_snapshot"`
+		TypeID              *uuid.UUID     `gorm:"column:class_attendance_session_type_id"`
+		TypeSnap            datatypes.JSON `gorm:"column:class_attendance_session_type_snapshot"`
+		CSSTSnap            datatypes.JSON `gorm:"column:class_attendance_session_csst_snapshot"`
+
+		// Participant guru (bisa NULL)
+		ParticipantID          *uuid.UUID `gorm:"column:class_attendance_session_participant_id"`
+		ParticipantState       *string    `gorm:"column:class_attendance_session_participant_state"`
+		ParticipantTeacherRole *string    `gorm:"column:class_attendance_session_participant_teacher_role"`
+	}
+
+	db := ctrl.DB
+
+	// 5) Base query: sessions yang memang dia ajar
+	q := db.Table("class_attendance_sessions AS cas").
+		Where("cas.class_attendance_session_school_id = ?", schoolID).
+		Where("cas.class_attendance_session_deleted_at IS NULL").
+		Where("cas.class_attendance_session_teacher_id = ?", teacherID)
+
+	// Filter tanggal di level session
+	if df != nil && dt != nil {
+		q = q.Where("cas.class_attendance_session_date BETWEEN ? AND ?", *df, *dt)
+	} else if df != nil {
+		q = q.Where("cas.class_attendance_session_date >= ?", *df)
+	} else if dt != nil {
+		q = q.Where("cas.class_attendance_session_date <= ?", *dt)
+	}
+
+	// LEFT JOIN participants khusus guru ini
+	q = q.Joins(`
+		LEFT JOIN class_attendance_session_participants AS p
+		       ON p.class_attendance_session_participant_session_id = cas.class_attendance_session_id
+		      AND p.class_attendance_session_participant_school_id = cas.class_attendance_session_school_id
+		      AND p.class_attendance_session_participant_school_teacher_id = ?
+		      AND p.class_attendance_session_participant_kind = 'teacher'
+		      AND p.class_attendance_session_participant_deleted_at IS NULL
+	`, teacherID)
+
+	// Filter participant di level join
+	if state != "" {
+		q = q.Where("LOWER(p.class_attendance_session_participant_state) = ?", state)
+	}
+	if typeIDPtr != nil {
+		q = q.Where("p.class_attendance_session_participant_type_id = ?", *typeIDPtr)
+	}
+	if isPassedPtr != nil {
+		q = q.Where("p.class_attendance_session_participant_is_passed = ?", *isPassedPtr)
+	}
+
+	// 6) Hitung total (distinct per session)
+	var total int64
+	if err := q.Session(&gorm.Session{}).
+		Select("cas.class_attendance_session_id").
+		Distinct().
+		Count(&total).Error; err != nil {
+
+		pg := helper.BuildPaginationFromOffset(0, paging.Offset, paging.Limit)
+		empty := []sessiondto.TeacherSessionAttendanceItem{}
+		return helper.JsonList(c, "data tidak ditemukan", empty, pg)
+	}
+
+	// 7) Ambil page data
+	var rows []row
+	if err := q.
+		Select(`
+			cas.class_attendance_session_id,
+			cas.class_attendance_session_school_id,
+			cas.class_attendance_session_date,
+			cas.class_attendance_session_starts_at,
+			cas.class_attendance_session_ends_at,
+			cas.class_attendance_session_title,
+			cas.class_attendance_session_display_title,
+			cas.class_attendance_session_general_info,
+			cas.class_attendance_session_status,
+			cas.class_attendance_session_attendance_status,
+			cas.class_attendance_session_subject_name_snapshot,
+			cas.class_attendance_session_subject_code_snapshot,
+			cas.class_attendance_session_section_name_snapshot,
+			cas.class_attendance_session_room_name_snapshot,
+			cas.class_attendance_session_type_id,
+			cas.class_attendance_session_type_snapshot,
+			cas.class_attendance_session_csst_snapshot,
+			p.class_attendance_session_participant_id,
+			p.class_attendance_session_participant_state,
+			p.class_attendance_session_participant_teacher_role
+		`).
+		Order(`
+			cas.class_attendance_session_date ASC,
+			cas.class_attendance_session_starts_at ASC NULLS LAST,
+			cas.class_attendance_session_id ASC
+		`).
+		Limit(paging.Limit).
+		Offset(paging.Offset).
+		Find(&rows).Error; err != nil {
+
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil timeline kehadiran guru")
+	}
+
+	// 8) Map ke DTO TeacherSessionAttendanceItem
+	items := make([]sessiondto.TeacherSessionAttendanceItem, 0, len(rows))
+
+	for _, r := range rows {
+		gen := ""
+		if r.Gen != nil {
+			gen = *r.Gen
+		}
+
+		item := sessiondto.TeacherSessionAttendanceItem{}
+
+		if includeSession {
+			sess := sessiondto.ClassAttendanceSessionCompactResponse{
+				ClassAttendanceSessionId:       r.SessionID,
+				ClassAttendanceSessionSchoolId: r.SessionSchoolID,
+
+				ClassAttendanceSessionDate:     r.Date,
+				ClassAttendanceSessionStartsAt: r.StartsAt,
+				ClassAttendanceSessionEndsAt:   r.EndsAt,
+
+				ClassAttendanceSessionTitle:        r.Title,
+				ClassAttendanceSessionDisplayTitle: r.DisplayTitle,
+				ClassAttendanceSessionGeneralInfo:  gen,
+
+				ClassAttendanceSessionStatus:           r.Status,
+				ClassAttendanceSessionAttendanceStatus: r.AttendanceStatus,
+
+				ClassAttendanceSessionSubjectNameSnapshot: r.SubjectNameSnapshot,
+				ClassAttendanceSessionSubjectCodeSnapshot: r.SubjectCodeSnapshot,
+				ClassAttendanceSessionSectionNameSnapshot: r.SectionNameSnapshot,
+				ClassAttendanceSessionRoomNameSnapshot:    r.RoomNameSnapshot,
+				ClassAttendanceSessionCSSTSnapshot:        jsonToMap(r.CSSTSnap),
+
+				ClassAttendanceSessionTypeId:       r.TypeID,
+				ClassAttendanceSessionTypeSnapshot: jsonToMap(r.TypeSnap),
+			}
+			item.Session = sess
+		}
+
+		// Participant: kalau tidak ada row, state = "unknown"
+		if r.ParticipantID != nil {
+			item.Participant.ID = *r.ParticipantID
+		}
+		if r.ParticipantState != nil && strings.TrimSpace(*r.ParticipantState) != "" {
+			item.Participant.State = *r.ParticipantState
+		} else {
+			item.Participant.State = defaultUnknownState
+		}
+		if r.ParticipantTeacherRole != nil {
+			item.Participant.TeacherRole = r.ParticipantTeacherRole
+		}
+
+		items = append(items, item)
+	}
+
+	pg := helper.BuildPaginationFromOffset(total, paging.Offset, paging.Limit)
+	return helper.JsonList(c, "ok", items, pg)
+}
+
+/* =========================================================
+   TIMELINE DATE RANGE (dipakai student & teacher)
+========================================================= */
+
+func resolveTimelineDateRange(c *fiber.Ctx) (*time.Time, *time.Time, error) {
 	var df, dt *time.Time
 	var err error
 
@@ -1050,7 +1286,6 @@ func (ctrl *ClassAttendanceSessionController) listSessionsDefault(
 			ClassAttendanceSessionSubjectIdSnapshot:   r.SubjectIDSnapshot,
 			ClassAttendanceSessionCSSTIdSnapshot:      r.CSSTIDSnapshot,
 
-			// ⬅️ ini yang tadi hilang
 			ClassAttendanceSessionCSSTSnapshot: jsonToMap(r.CSSTSnap),
 
 			ClassAttendanceSessionTypeId:       r.TypeID,
@@ -1089,6 +1324,10 @@ func (ctrl *ClassAttendanceSessionController) listSessionsDefault(
 	}
 	return helper.JsonList(c, "ok", items, pg)
 }
+
+/* =========================================================
+   PREFETCH PARTICIPANTS
+========================================================= */
 
 func (ctrl *ClassAttendanceSessionController) prefetchParticipants(
 	c *fiber.Ctx,

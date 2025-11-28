@@ -943,3 +943,18 @@ type StudentSessionAttendanceListResponse struct {
 	Items []StudentSessionAttendanceItem `json:"items"`
 	Meta  ListMeta                       `json:"meta"`
 }
+
+// Timeline kehadiran per guru (anchor di guru & CSST / sesi yang dia ajar)
+type TeacherSessionAttendanceItem struct {
+	Session     ClassAttendanceSessionCompactResponse `json:"session"`
+	Participant struct {
+		ID          uuid.UUID `json:"participant_id"`
+		State       string    `json:"participant_state"`                  // present/absent/late/...
+		TeacherRole *string   `json:"participant_teacher_role,omitempty"` // primary/co/substitute/observer/assistant
+	} `json:"participant"`
+}
+
+type TeacherSessionAttendanceListResponse struct {
+	Items []TeacherSessionAttendanceItem `json:"items"`
+	Meta  ListMeta                       `json:"meta"`
+}
