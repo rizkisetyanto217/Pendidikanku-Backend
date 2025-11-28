@@ -36,32 +36,18 @@ func parseUUIDParam(c *fiber.Ctx, name string) (uuid.UUID, error) {
 }
 
 // helper: resolve schoolID dari context (id / slug) + enforce DKM/admin
+// helper: resolve schoolID dari token + enforce DKM/admin
 func (ctl *ClassAttendanceSessionParticipantTypeController) resolveDKMSchoolID(c *fiber.Ctx) (uuid.UUID, error) {
+	// pastikan DB ditaruh di Locals, karena helper auth biasa baca dari sini
 	c.Locals("DB", ctl.DB)
 
-	mc, err := helperAuth.ResolveSchoolContext(c)
+	// 1) ambil schoolID dari token (prefer teacher, lalu active-school)
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, err // helper sudah balikin JsonError yang proper
 	}
 
-	var schoolID uuid.UUID
-	switch {
-	case mc.ID != uuid.Nil:
-		schoolID = mc.ID
-	case strings.TrimSpace(mc.Slug) != "":
-		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
-		if er != nil {
-			if errors.Is(er, gorm.ErrRecordNotFound) {
-				return uuid.Nil, helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
-			}
-			return uuid.Nil, helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
-		}
-		schoolID = id
-	default:
-		return uuid.Nil, helperAuth.ErrSchoolContextMissing
-	}
-
-	// Hanya DKM/Admin di school ini
+	// 2) enforce role: hanya DKM/Admin di school ini
 	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return uuid.Nil, err
 	}
@@ -227,6 +213,7 @@ func (ctl *ClassAttendanceSessionParticipantTypeController) Patch(c *fiber.Ctx) 
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
+	// Apply patch ke model (termasuk config & meta)
 	in.ApplyPatch(&m)
 
 	// Simpan perubahan (select kolom yang diperbolehkan)
@@ -239,6 +226,13 @@ func (ctl *ClassAttendanceSessionParticipantTypeController) Patch(c *fiber.Ctx) 
 			"class_attendance_session_participant_type_color",
 			"class_attendance_session_participant_type_desc",
 			"class_attendance_session_participant_type_is_active",
+
+			"class_attendance_session_participant_type_allow_student_self_attendance",
+			"class_attendance_session_participant_type_allow_teacher_mark_attendance",
+			"class_attendance_session_participant_type_require_teacher_attendance",
+			"class_attendance_session_participant_type_require_attendance_reason",
+			"class_attendance_session_participant_type_meta",
+
 			"class_attendance_session_participant_type_updated_at",
 		).
 		Updates(&m).Error; err != nil {

@@ -386,6 +386,50 @@ CREATE INDEX IF NOT EXISTS gin_cas_type_snapshot
 
 
 
+-- =====================================================
+-- BACKFILL: isi flat keys di JSON snapshot
+-- supaya kolom GENERATED *_snapshot kebaca
+-- =====================================================
+UPDATE class_attendance_sessions
+SET class_attendance_session_csst_snapshot =
+  COALESCE(class_attendance_session_csst_snapshot, '{}'::jsonb)
+  ||
+  jsonb_strip_nulls(
+    jsonb_build_object(
+      -- CSST ID (optional, kalau mau ada juga di snapshot)
+      'csst_id',
+        NULLIF(btrim(class_attendance_session_csst_snapshot->>'csst_id'), ''),
+
+      -- SUBJECT (flat)
+      'subject_id',
+        NULLIF(btrim(class_attendance_session_csst_snapshot->'subject'->>'id'), ''),
+      'subject_code',
+        NULLIF(btrim(class_attendance_session_csst_snapshot->'subject'->>'code'), ''),
+      'subject_name',
+        NULLIF(btrim(class_attendance_session_csst_snapshot->'subject'->>'name'), ''),
+
+      -- CLASS SECTION (flat)
+      'section_id',
+        NULLIF(btrim(class_attendance_session_csst_snapshot->'class_section'->>'id'), ''),
+      'section_name',
+        NULLIF(btrim(class_attendance_session_csst_snapshot->'class_section'->>'name'), ''),
+
+      -- TEACHER (flat)
+      'teacher_id',
+        NULLIF(btrim(class_attendance_session_csst_snapshot->'school_teacher'->>'id'), ''),
+      'teacher_name',
+        NULLIF(btrim(class_attendance_session_csst_snapshot->'school_teacher'->>'name'), ''),
+
+      -- ROOM (flat, opsional)
+      'room_id',
+        NULLIF(btrim(class_attendance_session_csst_snapshot->'class_room'->>'id'), ''),
+      'room_name',
+        NULLIF(btrim(class_attendance_session_csst_snapshot->'class_room'->>'name'), '')
+    )
+  )
+WHERE class_attendance_session_csst_snapshot IS NOT NULL;
+
+
 
 -- =========================================
 -- TABLE: class_attendance_session_urls

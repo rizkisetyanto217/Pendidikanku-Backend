@@ -1,4 +1,3 @@
-// file: internals/features/school/classes/class_attendance_sessions/dto/dto.go
 package dto
 
 import (
@@ -31,6 +30,35 @@ func (p *PatchFieldSessions[T]) UnmarshalJSON(b []byte) error {
 		return err
 	}
 	p.Value = &v
+	return nil
+}
+
+func getStrFromAnyMap(m map[string]any, key string) *string {
+	if m == nil {
+		return nil
+	}
+	if v, ok := m[key]; ok {
+		if s, ok := v.(string); ok {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				return &s
+			}
+		}
+	}
+	return nil
+}
+
+func getUUIDFromAnyMap(m map[string]any, key string) *uuid.UUID {
+	if m == nil {
+		return nil
+	}
+	if v, ok := m[key]; ok {
+		if s, ok := v.(string); ok {
+			if id, err := uuid.Parse(strings.TrimSpace(s)); err == nil {
+				return &id
+			}
+		}
+	}
 	return nil
 }
 
@@ -420,7 +448,107 @@ type ListMeta struct {
 }
 
 /* ========================================================
-   4) Mapping: Create/Read
+   3b) COMPACT RESPONSE — untuk Agenda/List view guru
+   ======================================================== */
+
+// Compact response: untuk list ringan (agenda, kalender, timeline siswa)
+// Compact response: untuk list ringan (agenda, kalender, timeline siswa)
+type ClassAttendanceSessionCompactResponse struct {
+	ClassAttendanceSessionId       uuid.UUID `json:"class_attendance_session_id"`
+	ClassAttendanceSessionSchoolId uuid.UUID `json:"class_attendance_session_school_id"`
+
+	// Occurrence
+	ClassAttendanceSessionDate     time.Time  `json:"class_attendance_session_date"`
+	ClassAttendanceSessionStartsAt *time.Time `json:"class_attendance_session_starts_at,omitempty"`
+	ClassAttendanceSessionEndsAt   *time.Time `json:"class_attendance_session_ends_at,omitempty"`
+
+	// Identity & info ringan
+	ClassAttendanceSessionTitle        *string `json:"class_attendance_session_title,omitempty"`
+	ClassAttendanceSessionDisplayTitle *string `json:"class_attendance_session_display_title,omitempty"`
+	ClassAttendanceSessionGeneralInfo  string  `json:"class_attendance_session_general_info"`
+
+	// Lifecycle
+	ClassAttendanceSessionStatus           string `json:"class_attendance_session_status"`
+	ClassAttendanceSessionAttendanceStatus string `json:"class_attendance_session_attendance_status"`
+
+	// Snapshot matpel/kelas/ruang/guru (read-only, dari *_snapshot)
+	ClassAttendanceSessionSubjectNameSnapshot *string    `json:"class_attendance_session_subject_name_snapshot,omitempty"`
+	ClassAttendanceSessionSubjectCodeSnapshot *string    `json:"class_attendance_session_subject_code_snapshot,omitempty"`
+	ClassAttendanceSessionSectionNameSnapshot *string    `json:"class_attendance_session_section_name_snapshot,omitempty"`
+	ClassAttendanceSessionRoomNameSnapshot    *string    `json:"class_attendance_session_room_name_snapshot,omitempty"`
+	ClassAttendanceSessionTeacherNameSnapshot *string    `json:"class_attendance_session_teacher_name_snapshot,omitempty"`
+	ClassAttendanceSessionTeacherIdSnapshot   *uuid.UUID `json:"class_attendance_session_teacher_id_snapshot,omitempty"`
+	ClassAttendanceSessionSectionIdSnapshot   *uuid.UUID `json:"class_attendance_session_section_id_snapshot,omitempty"`
+	ClassAttendanceSessionSubjectIdSnapshot   *uuid.UUID `json:"class_attendance_session_subject_id_snapshot,omitempty"`
+	ClassAttendanceSessionCSSTIdSnapshot      *uuid.UUID `json:"class_attendance_session_csst_id_snapshot,omitempty"`
+
+	// ⬅️ Tambahan: raw CSST snapshot JSON
+	ClassAttendanceSessionCSSTSnapshot map[string]any `json:"class_attendance_session_csst_snapshot,omitempty"`
+
+	// TYPE ringkas
+	ClassAttendanceSessionTypeId       *uuid.UUID     `json:"class_attendance_session_type_id,omitempty"`
+	ClassAttendanceSessionTypeSnapshot map[string]any `json:"class_attendance_session_type_snapshot,omitempty"`
+}
+
+// Optional helper: mapping dari model penuh → compact
+func FromClassAttendanceSessionModelCompact(m model.ClassAttendanceSessionModel) ClassAttendanceSessionCompactResponse {
+	var typeSnap map[string]any
+	if m.ClassAttendanceSessionTypeSnapshot != nil {
+		typeSnap = map[string]any(m.ClassAttendanceSessionTypeSnapshot)
+	}
+
+	var csstSnap map[string]any
+	if m.ClassAttendanceSessionCSSTSnapshot != nil {
+		csstSnap = map[string]any(m.ClassAttendanceSessionCSSTSnapshot)
+	}
+
+	resp := ClassAttendanceSessionCompactResponse{
+		ClassAttendanceSessionId:       m.ClassAttendanceSessionID,
+		ClassAttendanceSessionSchoolId: m.ClassAttendanceSessionSchoolID,
+
+		ClassAttendanceSessionDate:     m.ClassAttendanceSessionDate,
+		ClassAttendanceSessionStartsAt: m.ClassAttendanceSessionStartsAt,
+		ClassAttendanceSessionEndsAt:   m.ClassAttendanceSessionEndsAt,
+
+		ClassAttendanceSessionTitle:        m.ClassAttendanceSessionTitle,
+		ClassAttendanceSessionDisplayTitle: m.ClassAttendanceSessionDisplayTitle,
+		ClassAttendanceSessionGeneralInfo:  m.ClassAttendanceSessionGeneralInfo,
+
+		ClassAttendanceSessionStatus:           string(m.ClassAttendanceSessionStatus),
+		ClassAttendanceSessionAttendanceStatus: string(m.ClassAttendanceSessionAttendanceStatus),
+
+		ClassAttendanceSessionSubjectNameSnapshot: m.ClassAttendanceSessionSubjectNameSnapshot,
+		ClassAttendanceSessionSubjectCodeSnapshot: m.ClassAttendanceSessionSubjectCodeSnapshot,
+		ClassAttendanceSessionSectionNameSnapshot: m.ClassAttendanceSessionSectionNameSnapshot,
+		ClassAttendanceSessionRoomNameSnapshot:    m.ClassAttendanceSessionRoomNameSnapshot,
+		ClassAttendanceSessionTeacherNameSnapshot: m.ClassAttendanceSessionTeacherNameSnapshot,
+		ClassAttendanceSessionTeacherIdSnapshot:   m.ClassAttendanceSessionTeacherIDSnapshot,
+		ClassAttendanceSessionSectionIdSnapshot:   m.ClassAttendanceSessionSectionIDSnapshot,
+		ClassAttendanceSessionSubjectIdSnapshot:   m.ClassAttendanceSessionSubjectIDSnapshot,
+		ClassAttendanceSessionCSSTIdSnapshot:      m.ClassAttendanceSessionCSSTIDSnapshot,
+
+		ClassAttendanceSessionCSSTSnapshot: csstSnap,
+
+		ClassAttendanceSessionTypeId:       m.ClassAttendanceSessionTypeID,
+		ClassAttendanceSessionTypeSnapshot: typeSnap,
+	}
+
+	// override dari CSST SNAPSHOT JSON kalau mau (kode kamu sebelumnya di sini)
+	// ...
+
+	return resp
+}
+
+func FromClassAttendanceSessionModelsCompact(models []model.ClassAttendanceSessionModel) []ClassAttendanceSessionCompactResponse {
+	out := make([]ClassAttendanceSessionCompactResponse, 0, len(models))
+	for _, m := range models {
+		out = append(out, FromClassAttendanceSessionModelCompact(m))
+	}
+	return out
+}
+
+/* ========================================================
+   4) Mapping: Create/Read (FULL)
    ======================================================== */
 
 func (r CreateClassAttendanceSessionRequest) ToModel() model.ClassAttendanceSessionModel {
@@ -796,4 +924,22 @@ func (r *UpdateClassAttendanceSessionRequest) NormalizeURLOps() {
 	for i := range r.URLsPatch {
 		r.URLsPatch[i].Normalize()
 	}
+}
+
+/* ========================================================
+   6) Timeline kehadiran per siswa
+   ======================================================== */
+
+type StudentSessionAttendanceItem struct {
+	Session     ClassAttendanceSessionCompactResponse `json:"session"`
+	Participant struct {
+		ID    uuid.UUID `json:"participant_id"`
+		State string    `json:"participant_state"` // present/absent/late/...
+	} `json:"participant"`
+}
+
+// Kalau mau pakai pattern List + Meta yang sama:
+type StudentSessionAttendanceListResponse struct {
+	Items []StudentSessionAttendanceItem `json:"items"`
+	Meta  ListMeta                       `json:"meta"`
 }

@@ -173,6 +173,8 @@ func getCSSTCore(tx *gorm.DB, schoolID, csstID uuid.UUID) (csstCore, error) {
 	return r, nil
 }
 
+// file: internals/features/school/class_schedules/controller/class_schedule_controller.go
+
 /*
 =========================
 
@@ -264,13 +266,13 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 				}
 				ruleModels[i].ClassScheduleRuleCSSTSlugSnapshot = core.Slug
 				ruleModels[i].ClassScheduleRuleCSSTSnapshot = datatypes.JSONMap{
-					"school_id":             core.SchoolID.String(),
-					"csst_id":               core.ID.String(),
-					"slug":                  core.Slug,
-					"section_id":            core.SectionID,
-					"subject_id":            core.SubjectID,
-					"teacher_id":            core.TeacherID,
-					"room_id":               core.RoomID,
+					"school_id":  core.SchoolID.String(),
+					"csst_id":    core.ID.String(),
+					"slug":       core.Slug,
+					"section_id": core.SectionID,
+					"subject_id": core.SubjectID,
+					"teacher_id": core.TeacherID,
+					"room_id":    core.RoomID,
 				}
 			}
 			if er := tx.Create(&ruleModels).Error; er != nil {
@@ -308,13 +310,13 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 
 				// Snapshot CSST (minimal namun cukup)
 				ms[i].ClassAttendanceSessionCSSTSnapshot = datatypes.JSONMap{
-					"school_id":             core.SchoolID.String(),
-					"csst_id":               core.ID.String(),
-					"slug":                  core.Slug,
-					"section_id":            core.SectionID,
-					"subject_id":            core.SubjectID,
-					"teacher_id":            core.TeacherID,
-					"room_id":               core.RoomID,
+					"school_id":  core.SchoolID.String(),
+					"csst_id":    core.ID.String(),
+					"slug":       core.Slug,
+					"section_id": core.SectionID,
+					"subject_id": core.SubjectID,
+					"teacher_id": core.TeacherID,
+					"room_id":    core.RoomID,
 				}
 
 				// Fallback override teacher/room jika payload kosong
@@ -351,7 +353,8 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 	sessionsGenerated := 0
 	var genErr error
 	if doGen {
-		var defCSST, defRoom, defTeacher *uuid.UUID
+		var defCSST, defRoom, defTeacher, defSessionTypeID *uuid.UUID
+
 		if req.DefaultCSSTID != nil {
 			v := *req.DefaultCSSTID
 			defCSST = &v
@@ -363,6 +366,11 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 		if req.DefaultTeacherID != nil {
 			v := *req.DefaultTeacherID
 			defTeacher = &v
+		}
+		// 🔥 NEW: ambil session_type_id dari payload utk default semua sesi hasil generate
+		if req.SessionTypeID != nil {
+			v := *req.SessionTypeID
+			defSessionTypeID = &v
 		}
 
 		// fallback dari sessions payload (kalau ada)
@@ -386,6 +394,7 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 				DefaultCSSTID:           defCSST,
 				DefaultRoomID:           defRoom,
 				DefaultTeacherID:        defTeacher,
+				DefaultSessionTypeID:    defSessionTypeID, // ⬅️ ini yang bikin type & snapshot keisi
 				DefaultAttendanceStatus: "open",
 				BatchSize:               500,
 			},

@@ -30,12 +30,22 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'attendance_state_enum') THEN
     CREATE TYPE attendance_state_enum AS ENUM ('present','absent','late','excused','sick','leave', 'unmarked');
   END IF;
+
+  -- =========================================================
+-- ENUM baru: attendance_window_mode_enum
+-- =========================================================
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'attendance_window_mode_enum') THEN
+    CREATE TYPE attendance_window_mode_enum AS ENUM (
+      'anytime',         -- bebas kapan saja
+      'same_day',        -- hanya di hari H (00:00–23:59 waktu lokal)
+      'three_days',      -- H-1, H, H+1
+      'session_time',    -- hanya saat sesi berlangsung
+      'relative_window'  -- pakai offset menit (open/close) relatif dari jam sesi
+    );
+  END IF;
 END$$;
 
--- =========================================
--- A) CLASS_ATTENDANCE_SESSION_PARTICIPANT_TYPES
---    (master jenis aktivitas/attendance per school)
--- =========================================
+
 CREATE TABLE IF NOT EXISTS class_attendance_session_participant_types (
   class_attendance_session_participant_type_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
@@ -50,6 +60,17 @@ CREATE TABLE IF NOT EXISTS class_attendance_session_participant_types (
   class_attendance_session_participant_type_color VARCHAR(20),
   class_attendance_session_participant_type_desc  TEXT,
 
+  -- konfigurasi per participant-type
+  class_attendance_session_participant_type_allow_student_self_attendance  BOOLEAN NOT NULL DEFAULT TRUE,
+  class_attendance_session_participant_type_allow_teacher_mark_attendance  BOOLEAN NOT NULL DEFAULT TRUE,
+  class_attendance_session_participant_type_require_teacher_attendance     BOOLEAN NOT NULL DEFAULT TRUE,
+  -- daftar state yang WAJIB punya alasan (reason) kalau dipilih
+  class_attendance_session_participant_type_require_attendance_reason
+    attendance_state_enum[] NOT NULL DEFAULT ARRAY['unmarked']::attendance_state_enum[],
+  class_attendance_session_participant_type_meta                           JSONB,
+  class_attendance_session_type_attendance_window_mode          attendance_window_mode_enum NOT NULL DEFAULT 'same_day',
+  class_attendance_session_type_attendance_open_offset_minutes  INT,
+  class_attendance_session_type_attendance_close_offset_minutes INT
   -- status
   class_attendance_session_participant_type_is_active BOOLEAN NOT NULL DEFAULT TRUE,
 

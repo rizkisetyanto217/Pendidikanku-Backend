@@ -14,7 +14,7 @@ import (
 
 /* =========================================================
    Helpers
-   ========================================================= */
+========================================================= */
 
 // Pastikan DATE yang disimpan konsisten (midnight UTC) agar tak bergeser
 func toUTCDateFromLocal(local time.Time) time.Time {
@@ -98,7 +98,7 @@ func parseClockHHMMSS(s string) (time.Duration, error) {
 	}
 	layouts := []string{"15:04:05", "15:04"}
 	for _, lo := range layouts {
-		if t, err := time.Parse(lo, ss); err == nil {
+		if t, err := time.Parse(lo, s); err == nil {
 			return time.Duration(t.Hour())*time.Hour +
 				time.Duration(t.Minute())*time.Minute +
 				time.Duration(t.Second())*time.Second, nil
@@ -127,11 +127,13 @@ type CreateClassAttendanceSessionLite struct {
 	SubjectID *uuid.UUID `json:"subject_id,omitempty" validate:"omitempty,uuid"`
 	SectionID *uuid.UUID `json:"section_id,omitempty" validate:"omitempty,uuid"`
 
+	// opsional type (manual session)
+	SessionTypeID *uuid.UUID `json:"session_type_id,omitempty" validate:"omitempty,uuid"`
+
 	Status *string `json:"status,omitempty" validate:"omitempty,oneof=scheduled ongoing completed canceled"`
 	Notes  *string `json:"notes,omitempty"  validate:"omitempty,max=500"`
 }
 
-// Mapper: sessions → models (butuh school & schedule id)
 // Mapper: sessions → models (butuh school & schedule id)
 func (r CreateClassScheduleRequest) SessionsToModels(
 	schoolID, scheduleID uuid.UUID,
@@ -219,6 +221,12 @@ func (r CreateClassScheduleRequest) SessionsToModels(
 			ClassAttendanceSessionCSSTID: s.CSSTID,
 		}
 
+		// opsional: session type (manual)
+		if s.SessionTypeID != nil {
+			m.ClassAttendanceSessionTypeID = s.SessionTypeID
+			// snapshot biarkan kosong; bisa di-enrich di service lain kalau perlu
+		}
+
 		out = append(out, m)
 	}
 	return out, nil
@@ -226,7 +234,7 @@ func (r CreateClassScheduleRequest) SessionsToModels(
 
 /* =========================================================
    1) REQUESTS (singular)
-   ========================================================= */
+========================================================= */
 
 // Create: school_id dipaksa dari controller (parameter ToModel).
 // Mendukung pengiriman RULES & SESSIONS langsung.
@@ -245,9 +253,12 @@ type CreateClassScheduleRequest struct {
 	GenerateSessions *bool `json:"generate_sessions,omitempty"` // default: true
 
 	// Defaults untuk semua sesi hasil generate (opsional)
-	DefaultCSSTID    *uuid.UUID `json:"default_csst_id" validate:"omitempty,uuid"`
-	DefaultRoomID    *uuid.UUID `json:"default_room_id" validate:"omitempty,uuid"`
+	DefaultCSSTID    *uuid.UUID `json:"default_csst_id"    validate:"omitempty,uuid"`
+	DefaultRoomID    *uuid.UUID `json:"default_room_id"    validate:"omitempty,uuid"`
 	DefaultTeacherID *uuid.UUID `json:"default_teacher_id" validate:"omitempty,uuid"`
+
+	// default session type untuk semua sesi hasil generate
+	SessionTypeID *uuid.UUID `json:"session_type_id,omitempty" validate:"omitempty,uuid"`
 
 	// RULES opsional — lite (tanpa schedule_id; akan diisi server)
 	Rules []CreateClassScheduleRuleLite `json:"rules" validate:"omitempty,dive"`
@@ -256,7 +267,6 @@ type CreateClassScheduleRequest struct {
 	Sessions []CreateClassAttendanceSessionLite `json:"sessions" validate:"omitempty,dive"`
 }
 
-// Lite rule untuk keperluan embed di CreateClassScheduleRequest
 // Lite rule untuk keperluan embed di CreateClassScheduleRequest
 type CreateClassScheduleRuleLite struct {
 	DayOfWeek        int     `json:"day_of_week"         validate:"required,min=1,max=7"`
@@ -398,7 +408,7 @@ func (r UpdateClassScheduleRequest) Apply(m *model.ClassScheduleModel) {
 
 /* =========================================================
    2) LIST QUERY
-   ========================================================= */
+========================================================= */
 
 type ListClassScheduleQuery struct {
 	Limit       *int    `query:"limit"        validate:"omitempty,min=1,max=200"`
@@ -422,7 +432,7 @@ type ListClassScheduleQuery struct {
 
 /* =========================================================
    3) RESPONSES (singular)
-   ========================================================= */
+========================================================= */
 
 type ClassScheduleResponse struct {
 	ClassScheduleID       uuid.UUID `json:"class_schedule_id"`
@@ -452,7 +462,7 @@ type ClassScheduleListResponse struct {
 
 /* =========================================================
    4) MAPPERS
-   ========================================================= */
+========================================================= */
 
 func FromModel(m model.ClassScheduleModel) ClassScheduleResponse {
 	var deletedAt *time.Time

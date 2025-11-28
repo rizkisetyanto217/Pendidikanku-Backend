@@ -9,6 +9,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
 	dto "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/dto"
@@ -122,9 +123,18 @@ type classAttendanceSessionTypeUpsertRequest struct {
 	ClassAttendanceSessionTypeColor *string `json:"class_attendance_session_type_color"`
 	ClassAttendanceSessionTypeIcon  *string `json:"class_attendance_session_type_icon"`
 
-	// control
+	// control umum
 	ClassAttendanceSessionTypeIsActive  *bool `json:"class_attendance_session_type_is_active"`
 	ClassAttendanceSessionTypeSortOrder *int  `json:"class_attendance_session_type_sort_order"`
+
+	// konfigurasi attendance
+	ClassAttendanceSessionTypeAllowStudentSelfAttendance *bool    `json:"class_attendance_session_type_allow_student_self_attendance"`
+	ClassAttendanceSessionTypeAllowTeacherMarkAttendance *bool    `json:"class_attendance_session_type_allow_teacher_mark_attendance"`
+	ClassAttendanceSessionTypeRequireTeacherAttendance   *bool    `json:"class_attendance_session_type_require_teacher_attendance"`
+	ClassAttendanceSessionTypeRequireAttendanceReason    []string `json:"class_attendance_session_type_require_attendance_reason"`
+
+	// meta fleksibel
+	ClassAttendanceSessionTypeMeta map[string]any `json:"class_attendance_session_type_meta"`
 }
 
 /* ======================================================
@@ -248,7 +258,7 @@ func (ctl *ClassAttendanceSessionTypeController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	// default control values
+	// default control values (selaras migration)
 	isActive := true
 	if body.ClassAttendanceSessionTypeIsActive != nil {
 		isActive = *body.ClassAttendanceSessionTypeIsActive
@@ -257,6 +267,31 @@ func (ctl *ClassAttendanceSessionTypeController) Create(c *fiber.Ctx) error {
 	sortOrder := 0
 	if body.ClassAttendanceSessionTypeSortOrder != nil {
 		sortOrder = *body.ClassAttendanceSessionTypeSortOrder
+	}
+
+	allowSelf := false
+	if body.ClassAttendanceSessionTypeAllowStudentSelfAttendance != nil {
+		allowSelf = *body.ClassAttendanceSessionTypeAllowStudentSelfAttendance
+	}
+
+	allowTeacherMark := true
+	if body.ClassAttendanceSessionTypeAllowTeacherMarkAttendance != nil {
+		allowTeacherMark = *body.ClassAttendanceSessionTypeAllowTeacherMarkAttendance
+	}
+
+	requireTeacher := false
+	if body.ClassAttendanceSessionTypeRequireTeacherAttendance != nil {
+		requireTeacher = *body.ClassAttendanceSessionTypeRequireTeacherAttendance
+	}
+
+	requireReason := body.ClassAttendanceSessionTypeRequireAttendanceReason
+	if requireReason == nil {
+		requireReason = []string{}
+	}
+
+	var meta datatypes.JSONMap
+	if body.ClassAttendanceSessionTypeMeta != nil {
+		meta = datatypes.JSONMap(body.ClassAttendanceSessionTypeMeta)
 	}
 
 	// 🔹 Generate base slug from name (ex: "Pertemuan Kelas" → "pertemuan-kelas")
@@ -287,6 +322,12 @@ func (ctl *ClassAttendanceSessionTypeController) Create(c *fiber.Ctx) error {
 		ClassAttendanceSessionTypeIcon:        body.ClassAttendanceSessionTypeIcon,
 		ClassAttendanceSessionTypeIsActive:    isActive,
 		ClassAttendanceSessionTypeSortOrder:   sortOrder,
+
+		ClassAttendanceSessionTypeAllowStudentSelfAttendance: allowSelf,
+		ClassAttendanceSessionTypeAllowTeacherMarkAttendance: allowTeacherMark,
+		ClassAttendanceSessionTypeRequireTeacherAttendance:   requireTeacher,
+		ClassAttendanceSessionTypeRequireAttendanceReason:    requireReason,
+		ClassAttendanceSessionTypeMeta:                       meta,
 	}
 
 	if err := ctl.DB.Create(row).Error; err != nil {
@@ -352,6 +393,25 @@ func (ctl *ClassAttendanceSessionTypeController) Update(c *fiber.Ctx) error {
 	}
 	if body.ClassAttendanceSessionTypeSortOrder != nil {
 		row.ClassAttendanceSessionTypeSortOrder = *body.ClassAttendanceSessionTypeSortOrder
+	}
+
+	// konfigurasi attendance
+	if body.ClassAttendanceSessionTypeAllowStudentSelfAttendance != nil {
+		row.ClassAttendanceSessionTypeAllowStudentSelfAttendance = *body.ClassAttendanceSessionTypeAllowStudentSelfAttendance
+	}
+	if body.ClassAttendanceSessionTypeAllowTeacherMarkAttendance != nil {
+		row.ClassAttendanceSessionTypeAllowTeacherMarkAttendance = *body.ClassAttendanceSessionTypeAllowTeacherMarkAttendance
+	}
+	if body.ClassAttendanceSessionTypeRequireTeacherAttendance != nil {
+		row.ClassAttendanceSessionTypeRequireTeacherAttendance = *body.ClassAttendanceSessionTypeRequireTeacherAttendance
+	}
+
+	if body.ClassAttendanceSessionTypeRequireAttendanceReason != nil {
+		row.ClassAttendanceSessionTypeRequireAttendanceReason = body.ClassAttendanceSessionTypeRequireAttendanceReason
+	}
+
+	if body.ClassAttendanceSessionTypeMeta != nil {
+		row.ClassAttendanceSessionTypeMeta = datatypes.JSONMap(body.ClassAttendanceSessionTypeMeta)
 	}
 
 	if err := ctl.DB.Save(&row).Error; err != nil {

@@ -4,7 +4,9 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -32,7 +34,7 @@ func stringsTrimLower(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))
 }
 
-const maxScheduleDays =  180 *2 // misal maksimal 2 tahun
+const maxScheduleDays = 180 * 2 // misal maksimal 2 tahun
 
 func ptr[T any](v T) *T { return &v }
 
@@ -47,15 +49,18 @@ type GenerateOptions struct {
 	DefaultCSSTID           *uuid.UUID
 	DefaultRoomID           *uuid.UUID
 	DefaultTeacherID        *uuid.UUID
+	DefaultSessionTypeID    *uuid.UUID // type default utk semua sesi generate
 	DefaultAttendanceStatus string
 	BatchSize               int
 }
 
-/* =========================
-   CSST rich loader
-   (tanpa information_schema, pakai schema fix)
-========================= */
+/*
+	=========================
+	  CSST rich loader
+	  (tanpa information_schema, pakai schema fix)
 
+=========================
+*/
 type csstRich struct {
 	ID       uuid.UUID `gorm:"column:id"`
 	SchoolID uuid.UUID `gorm:"column:school_id"`
@@ -73,21 +78,17 @@ type csstRich struct {
 	SectionName *string    `gorm:"column:section_name"`
 
 	// Teacher
-	TeacherID       *uuid.UUID `gorm:"column:teacher_id"`
-	TeacherCode     *string    `gorm:"column:teacher_code"`
-	TeacherName     *string    `gorm:"column:teacher_name"`
-	TeacherSnapshot *string    `gorm:"column:teacher_snapshot"` // raw JSON
+	TeacherID          *uuid.UUID `gorm:"column:teacher_id"`
+	TeacherCode        *string    `gorm:"column:teacher_code"`
+	TeacherName        *string    `gorm:"column:teacher_name"`
+	TeacherTitlePrefix *string    `gorm:"column:teacher_title_prefix"`
+	TeacherTitleSuffix *string    `gorm:"column:teacher_title_suffix"`
+	TeacherSnapshot    *string    `gorm:"column:teacher_snapshot"` // raw JSON
 
 	// Room
 	RoomID   *uuid.UUID `gorm:"column:room_id"`
 	RoomCode *string    `gorm:"column:room_code"`
 	RoomName *string    `gorm:"column:room_name"`
-
-	// Book
-	BookID       *uuid.UUID `gorm:"column:class_subject_book_id"`
-	BookCode     *string    `gorm:"column:book_code"`
-	BookName     *string    `gorm:"column:book_name"`
-	BookSnapshot *string    `gorm:"column:book_snapshot"` // raw JSON
 }
 
 func (g *Generator) getCSSTRich(
@@ -95,7 +96,7 @@ func (g *Generator) getCSSTRich(
 	expectSchool uuid.UUID,
 	csstID uuid.UUID,
 ) (*csstRich, error) {
-	// SQL statis berdasarkan schema terbaru
+	// SQL statis berdasarkan schema terbaru (tanpa kolom book_*)
 	q := `
 SELECT
   csst.class_section_subject_teacher_id                    AS id,
@@ -105,7 +106,7 @@ SELECT
     csst.class_section_subject_teacher_id::text
   )                                                        AS slug,
   COALESCE(
-    csst.class_section_subject_teacher_book_title_snapshot,
+    csst.class_section_subject_teacher_class_section_name_snapshot,
     csst.class_section_subject_teacher_subject_name_snapshot,
     sec.class_section_name
   )                                                        AS name,
@@ -114,17 +115,17 @@ SELECT
   csst.class_section_subject_teacher_subject_id_snapshot   AS subject_id,
   COALESCE(subj.subject_code,
            csst.class_section_subject_teacher_subject_code_snapshot)
-                                                           AS subject_code,
+    AS subject_code,
   COALESCE(subj.subject_name,
            csst.class_section_subject_teacher_subject_name_snapshot)
-                                                           AS subject_name,
+    AS subject_name,
   csst.class_section_subject_teacher_subject_slug_snapshot AS subject_slug,
 
   -- Section
   csst.class_section_subject_teacher_class_section_id      AS section_id,
   COALESCE(sec.class_section_name,
            csst.class_section_subject_teacher_class_section_name_snapshot)
-                                                           AS section_name,
+    AS section_name,
 
   -- Teacher
   csst.class_section_subject_teacher_school_teacher_id     AS teacher_id,
@@ -133,22 +134,18 @@ SELECT
     csst.class_section_subject_teacher_school_teacher_name_snapshot,
     tea.school_teacher_user_teacher_name_snapshot
   )                                                        AS teacher_name,
+  tea.school_teacher_user_teacher_title_prefix_snapshot    AS teacher_title_prefix,
+  tea.school_teacher_user_teacher_title_suffix_snapshot    AS teacher_title_suffix,
   csst.class_section_subject_teacher_school_teacher_snapshot::text
-                                                           AS teacher_snapshot,
+    AS teacher_snapshot,
 
   -- Room
   csst.class_section_subject_teacher_class_room_id         AS room_id,
   room.class_room_code                                     AS room_code,
   COALESCE(room.class_room_name,
            csst.class_section_subject_teacher_class_room_name_snapshot)
-                                                           AS room_name,
+    AS room_name
 
-  -- Book
-  csst.class_section_subject_teacher_class_subject_book_id AS class_subject_book_id,
-  NULL::text                                               AS book_code,
-  csst.class_section_subject_teacher_book_title_snapshot   AS book_name,
-  csst.class_section_subject_teacher_class_subject_book_snapshot::text
-                                                           AS book_snapshot
 FROM class_section_subject_teachers csst
 LEFT JOIN subjects subj
   ON subj.subject_id = csst.class_section_subject_teacher_subject_id_snapshot
@@ -193,18 +190,18 @@ func hydrateFromSnapshots(row *csstRich) {
 	}
 
 	// Teacher JSON: {"id":"...","name":"...","title_prefix":"Ustadz","title_suffix":"Lc",...}
-	if (row.TeacherName == nil || strings.TrimSpace(*row.TeacherName) == "") &&
+	if (row.TeacherName == nil || strings.TrimSpace(ptrStr(row.TeacherName)) == "") &&
 		row.TeacherSnapshot != nil && *row.TeacherSnapshot != "" && *row.TeacherSnapshot != "null" {
 		var m map[string]any
 		if json.Unmarshal([]byte(*row.TeacherSnapshot), &m) == nil {
 			if v, ok := m["name"].(string); ok && strings.TrimSpace(v) != "" {
-				pre, _ := m["title_prefix"].(string)
-				suf, _ := m["title_suffix"].(string)
-				full := strings.TrimSpace(strings.TrimSpace(pre+" ") + v)
-				if strings.TrimSpace(suf) != "" {
-					full = strings.TrimSpace(full + " " + suf)
-				}
-				row.TeacherName = ptr(full)
+				row.TeacherName = ptr(strings.TrimSpace(v))
+			}
+			if v, ok := m["title_prefix"].(string); ok && strings.TrimSpace(v) != "" && row.TeacherTitlePrefix == nil {
+				row.TeacherTitlePrefix = ptr(strings.TrimSpace(v))
+			}
+			if v, ok := m["title_suffix"].(string); ok && strings.TrimSpace(v) != "" && row.TeacherTitleSuffix == nil {
+				row.TeacherTitleSuffix = ptr(strings.TrimSpace(v))
 			}
 			if row.TeacherID == nil {
 				if v, ok := m["id"].(string); ok {
@@ -215,61 +212,18 @@ func hydrateFromSnapshots(row *csstRich) {
 			}
 			if row.TeacherCode == nil {
 				if v, ok := m["code"].(string); ok && strings.TrimSpace(v) != "" {
-					row.TeacherCode = &v
+					row.TeacherCode = ptr(strings.TrimSpace(v))
 				}
 			}
 		}
 	}
+}
 
-	// Book JSON: {"book": {...}, "subject": {"id","code","name","slug"}}
-	if row.BookSnapshot != nil && *row.BookSnapshot != "" && *row.BookSnapshot != "null" {
-		var m map[string]any
-		if json.Unmarshal([]byte(*row.BookSnapshot), &m) == nil {
-			if subj, ok := m["subject"].(map[string]any); ok {
-				if row.SubjectID == nil {
-					if v, ok := subj["id"].(string); ok {
-						if u, er := uuid.Parse(v); er == nil {
-							row.SubjectID = &u
-						}
-					}
-				}
-				if row.SubjectCode == nil {
-					if v, ok := subj["code"].(string); ok && strings.TrimSpace(v) != "" {
-						row.SubjectCode = &v
-					}
-				}
-				if row.SubjectName == nil {
-					if v, ok := subj["name"].(string); ok && strings.TrimSpace(v) != "" {
-						row.SubjectName = &v
-					}
-				}
-				if row.SubjectSlug == nil {
-					if v, ok := subj["slug"].(string); ok && strings.TrimSpace(v) != "" {
-						row.SubjectSlug = &v
-					}
-				}
-			}
-			if book, ok := m["book"].(map[string]any); ok {
-				if row.BookName == nil {
-					if v, ok := book["title"].(string); ok && strings.TrimSpace(v) != "" {
-						row.BookName = &v
-					}
-				}
-				if row.BookCode == nil {
-					if v, ok := book["code"].(string); ok && strings.TrimSpace(v) != "" {
-						row.BookCode = &v
-					}
-				}
-				if row.BookID == nil {
-					if v, ok := book["id"].(string); ok {
-						if u, er := uuid.Parse(v); er == nil {
-							row.BookID = &u
-						}
-					}
-				}
-			}
-		}
+func ptrStr(p *string) string {
+	if p == nil {
+		return ""
 	}
+	return *p
 }
 
 /* =========================
@@ -277,8 +231,11 @@ func hydrateFromSnapshots(row *csstRich) {
 ========================= */
 
 func putStr(m datatypes.JSONMap, key string, v *string) {
-	if v != nil && strings.TrimSpace(*v) != "" {
-		m[key] = strings.TrimSpace(*v)
+	if v != nil {
+		s := strings.TrimSpace(*v)
+		if s != "" {
+			m[key] = s
+		}
 	}
 }
 
@@ -295,44 +252,87 @@ func (g *Generator) buildCSSTSnapshotJSON(
 ) (datatypes.JSONMap, *uuid.UUID, *string, error) {
 	// a) RICH loader (schema fix, tanpa information_schema)
 	if rich, err := g.getCSSTRich(ctx, expectSchoolID, csstID); err == nil && rich != nil {
+		// --- base snapshot ---
 		out := datatypes.JSONMap{
-			"csst_id":   rich.ID.String(),
-			"school_id": rich.SchoolID.String(),
-			"slug":      rich.Slug,
-		}
-		if rich.Name != nil && strings.TrimSpace(*rich.Name) != "" {
-			out["name"] = strings.TrimSpace(*rich.Name)
+			"csst_id":     rich.ID.String(),
+			"school_id":   rich.SchoolID.String(),
+			"slug":        rich.Slug,
+			"source":      "generator_v2",
+			"captured_at": time.Now().UTC().Format(time.RFC3339Nano),
 		}
 
+		// =====================
 		// Subject
+		// =====================
+		subjectObj := datatypes.JSONMap{}
+		putUUID(subjectObj, "id", rich.SubjectID)
+		putStr(subjectObj, "code", rich.SubjectCode)
+		putStr(subjectObj, "name", rich.SubjectName)
+		putStr(subjectObj, "slug", rich.SubjectSlug)
+		if len(subjectObj) > 0 {
+			out["subject"] = subjectObj
+		}
+		// flat keys (sinkron dengan kolom GENERATED di SQL)
 		putUUID(out, "subject_id", rich.SubjectID)
 		putStr(out, "subject_code", rich.SubjectCode)
 		putStr(out, "subject_name", rich.SubjectName)
-		putStr(out, "subject_slug", rich.SubjectSlug)
 
-		// Section
+		// ==========================
+		// Class Section
+		// ==========================
+		sectionObj := datatypes.JSONMap{}
+		putUUID(sectionObj, "id", rich.SectionID)
+		putStr(sectionObj, "name", rich.SectionName)
+		if len(sectionObj) > 0 {
+			out["class_section"] = sectionObj
+		}
+		// flat keys
 		putUUID(out, "section_id", rich.SectionID)
 		putStr(out, "section_name", rich.SectionName)
 
-		// Teacher
+		// ==========================
+		// School Teacher
+		// ==========================
+		teacherObj := datatypes.JSONMap{}
+		putUUID(teacherObj, "id", rich.TeacherID)
+		putStr(teacherObj, "code", rich.TeacherCode)
+		putStr(teacherObj, "name", rich.TeacherName)
+		putStr(teacherObj, "title_prefix", rich.TeacherTitlePrefix)
+		putStr(teacherObj, "title_suffix", rich.TeacherTitleSuffix)
+		if len(teacherObj) > 0 {
+			out["school_teacher"] = teacherObj
+		}
+		// flat keys
 		putUUID(out, "teacher_id", rich.TeacherID)
-		putStr(out, "teacher_code", rich.TeacherCode)
 		putStr(out, "teacher_name", rich.TeacherName)
 
-		// Room
+		// =====================
+		// Class Room
+		// =====================
+		roomObj := datatypes.JSONMap{}
+		putUUID(roomObj, "id", rich.RoomID)
+		putStr(roomObj, "code", rich.RoomCode)
+		putStr(roomObj, "name", rich.RoomName)
+		if len(roomObj) > 0 {
+			out["class_room"] = roomObj
+		}
+		// flat keys
 		putUUID(out, "room_id", rich.RoomID)
-		putStr(out, "room_code", rich.RoomCode)
 		putStr(out, "room_name", rich.RoomName)
 
-		// Book
-		putUUID(out, "class_subject_book_id", rich.BookID)
-		putStr(out, "class_subject_book_code", rich.BookCode)
-		putStr(out, "class_subject_book_name", rich.BookName)
+		// =====================
+		// Base name untuk judul
+		// =====================
+		// Prioritas pakai subject.name, fallback ke rich.Name
+		baseName := rich.SubjectName
+		if baseName == nil || strings.TrimSpace(*baseName) == "" {
+			baseName = rich.Name
+		}
 
-		return out, rich.TeacherID, rich.Name, nil
+		return out, rich.TeacherID, baseName, nil
 	}
 
-	// b) Fallback paket snapshot lama
+	// b) Fallback paket snapshot lama (biarin sama persis; nggak usah diubah)
 	if s, tid, name, err := func() (datatypes.JSONMap, *uuid.UUID, *string, error) {
 		tx := g.DB.WithContext(ctx)
 		cs, er := snapshotCSST.ValidateAndSnapshotCSST(tx, expectSchoolID, csstID)
@@ -358,7 +358,7 @@ func (g *Generator) buildCSSTSnapshotJSON(
 }
 
 /* =========================
-   Rules & snapshots
+   Rule snapshot
 ========================= */
 
 type ruleRow struct {
@@ -399,6 +399,156 @@ func buildRuleSnapshot(r ruleRow) datatypes.JSONMap {
 		out["weeks_of_month"] = arr
 	}
 	return out
+}
+
+/*
+	=========================
+	  Session Type helper
+	  (auto-generate default type per tenant)
+
+=========================
+*/
+type sessionTypeRow struct {
+	ID       uuid.UUID `gorm:"column:class_attendance_session_type_id"`
+	SchoolID uuid.UUID `gorm:"column:class_attendance_session_type_school_id"`
+	Slug     string    `gorm:"column:class_attendance_session_type_slug"`
+	Name     string    `gorm:"column:class_attendance_session_type_name"`
+	// meta visual
+	Description *string `gorm:"column:class_attendance_session_type_description"`
+	Color       *string `gorm:"column:class_attendance_session_type_color"`
+	Icon        *string `gorm:"column:class_attendance_session_type_icon"`
+
+	// konfigurasi attendance (sesuai ALTER TABLE terbaru)
+	AllowStudentSelfAttendance bool           `gorm:"column:class_attendance_session_type_allow_student_self_attendance"`
+	AllowTeacherMarkAttendance bool           `gorm:"column:class_attendance_session_type_allow_teacher_mark_attendance"`
+	RequireTeacherAttendance   bool           `gorm:"column:class_attendance_session_type_require_teacher_attendance"`
+	RequireAttendanceReason    pq.StringArray `gorm:"column:class_attendance_session_type_require_attendance_reason"`
+
+	// ✅ kolom baru window mode + offset
+	AttendanceWindowMode         string `gorm:"column:class_attendance_session_type_attendance_window_mode"`
+	AttendanceOpenOffsetMinutes  *int   `gorm:"column:class_attendance_session_type_attendance_open_offset_minutes"`
+	AttendanceCloseOffsetMinutes *int   `gorm:"column:class_attendance_session_type_attendance_close_offset_minutes"`
+}
+
+// ensureDefaultSessionType:
+// - cari type default (slug fix) per tenant
+// - kalau belum ada, buat
+// - return row utk dipakai di semua sesi hasil generate
+func (g *Generator) ensureDefaultSessionType(
+	ctx context.Context,
+	schoolID uuid.UUID,
+) (*sessionTypeRow, error) {
+	if schoolID == uuid.Nil {
+		return nil, fmt.Errorf("ensureDefaultSessionType: schoolID kosong")
+	}
+
+	// slug & name default bisa kamu ganti sesuai kebutuhan
+	const slug = "kbm-regular"
+	const name = "Pertemuan KBM"
+
+	var row sessionTypeRow
+
+	// 1) Cek existing (alive)
+	if err := g.DB.WithContext(ctx).
+		Table("class_attendance_session_types").
+		Where(`
+			class_attendance_session_type_school_id = ?
+			AND lower(class_attendance_session_type_slug) = lower(?)
+			AND class_attendance_session_type_deleted_at IS NULL
+		`, schoolID, slug).
+		Limit(1).
+		Scan(&row).Error; err != nil {
+		return nil, err
+	}
+	if row.ID != uuid.Nil {
+		return &row, nil
+	}
+
+	// 2) Belum ada → buat baru
+	now := time.Now()
+
+	desc := "Sesi kehadiran hasil generate otomatis dari jadwal"
+	color := "#2563eb"       // biru (opsional)
+	icon := "CalendarCheck2" // nama icon di FE (opsional)
+	isActive := true
+	sortOrder := 10
+
+	insert := map[string]any{
+		"class_attendance_session_type_school_id":                     schoolID,
+		"class_attendance_session_type_slug":                          slug,
+		"class_attendance_session_type_name":                          name,
+		"class_attendance_session_type_description":                   desc,
+		"class_attendance_session_type_color":                         color,
+		"class_attendance_session_type_icon":                          icon,
+		"class_attendance_session_type_is_active":                     isActive,
+		"class_attendance_session_type_sort_order":                    sortOrder,
+		"class_attendance_session_type_created_at":                    now,
+		"class_attendance_session_type_updated_at":                    now,
+		"class_attendance_session_type_allow_student_self_attendance": true,
+		"class_attendance_session_type_allow_teacher_mark_attendance": true,
+		"class_attendance_session_type_require_teacher_attendance":    true,
+		"class_attendance_session_type_require_attendance_reason":     pq.StringArray{"unmarked"},
+
+		// ✅ kalau mau override default SQL secara eksplisit:
+		"class_attendance_session_type_attendance_window_mode": "same_day",
+		// offset biarkan NULL / tidak di-set kalau belum kepakai
+	}
+
+	if err := g.DB.WithContext(ctx).
+		Table("class_attendance_session_types").
+		Create(&insert).Error; err != nil {
+		// Kemungkinan race condition unique index → coba select ulang
+		if !strings.Contains(strings.ToLower(err.Error()), "uq_castype_school_slug_alive") {
+			return nil, err
+		}
+	}
+
+	// 3) Ambil lagi setelah insert
+	row = sessionTypeRow{}
+	if err := g.DB.WithContext(ctx).
+		Table("class_attendance_session_types").
+		Where(`
+			class_attendance_session_type_school_id = ?
+			AND lower(class_attendance_session_type_slug) = lower(?)
+			AND class_attendance_session_type_deleted_at IS NULL
+		`, schoolID, slug).
+		Limit(1).
+		Scan(&row).Error; err != nil {
+		return nil, err
+	}
+	if row.ID == uuid.Nil {
+		return nil, fmt.Errorf("ensureDefaultSessionType: gagal mengambil row setelah insert")
+	}
+
+	return &row, nil
+}
+
+// Ambil type by ID, dengan guard tenant
+func (g *Generator) getSessionTypeByID(
+	ctx context.Context,
+	schoolID uuid.UUID,
+	typeID uuid.UUID,
+) (*sessionTypeRow, error) {
+	if schoolID == uuid.Nil || typeID == uuid.Nil {
+		return nil, fmt.Errorf("getSessionTypeByID: schoolID/typeID kosong")
+	}
+
+	var row sessionTypeRow
+	if err := g.DB.WithContext(ctx).
+		Table("class_attendance_session_types").
+		Where(`
+			class_attendance_session_type_school_id = ?
+			AND class_attendance_session_type_id = ?
+			AND class_attendance_session_type_deleted_at IS NULL
+		`, schoolID, typeID).
+		Limit(1).
+		Scan(&row).Error; err != nil {
+		return nil, err
+	}
+	if row.ID == uuid.Nil {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return &row, nil
 }
 
 /* =========================
@@ -461,6 +611,142 @@ func (g *Generator) GenerateSessionsForScheduleWithOpts(
 		return 0, fmt.Errorf(
 			"date range too long for schedule %s: %d days (max %d)",
 			sch.ClassScheduleID, daysSpan, maxScheduleDays,
+		)
+	}
+
+	// 1.5) Siapkan default Session Type untuk semua sesi hasil generate
+	var defTypeID *uuid.UUID
+	var defTypeSnap datatypes.JSONMap
+
+	// Prioritas: DefaultSessionTypeID dari caller (schedule payload)
+	if opts.DefaultSessionTypeID != nil && *opts.DefaultSessionTypeID != uuid.Nil {
+		st, er := g.getSessionTypeByID(ctx, sch.ClassScheduleSchoolID, *opts.DefaultSessionTypeID)
+		if er != nil {
+			if errors.Is(er, gorm.ErrRecordNotFound) {
+				log.Printf(
+					"[Generator.GenerateSessionsForSchedule] invalid session_type_id=%s for schedule=%s school=%s (not found / different tenant)",
+					opts.DefaultSessionTypeID.String(),
+					scheduleID,
+					sch.ClassScheduleSchoolID,
+				)
+				return 0, fmt.Errorf("session_type_id tidak ditemukan atau bukan milik sekolah ini")
+			}
+
+			log.Printf(
+				"[Generator.GenerateSessionsForSchedule] error loading session_type_id=%s for schedule=%s school=%s: %v",
+				opts.DefaultSessionTypeID.String(),
+				scheduleID,
+				sch.ClassScheduleSchoolID,
+				er,
+			)
+			return 0, fmt.Errorf("gagal mengambil session_type_id: %w", er)
+		}
+
+		if st != nil {
+			defTypeID = &st.ID
+			defTypeSnap = datatypes.JSONMap{
+				"type_id":   st.ID.String(),
+				"school_id": st.SchoolID.String(),
+				"slug":      st.Slug,
+				"name":      st.Name,
+			}
+			if st.Description != nil && strings.TrimSpace(*st.Description) != "" {
+				defTypeSnap["description"] = strings.TrimSpace(*st.Description)
+			}
+			if st.Color != nil && strings.TrimSpace(*st.Color) != "" {
+				defTypeSnap["color"] = strings.TrimSpace(*st.Color) // <- pakai *st.Color
+			}
+			if st.Icon != nil && strings.TrimSpace(*st.Icon) != "" {
+				defTypeSnap["icon"] = strings.TrimSpace(*st.Icon)
+			}
+
+			// ---- attendance config ikut masuk snapshot type ----
+			defTypeSnap["allow_student_self_attendance"] = st.AllowStudentSelfAttendance
+			defTypeSnap["allow_teacher_mark_attendance"] = st.AllowTeacherMarkAttendance
+			defTypeSnap["require_teacher_attendance"] = st.RequireTeacherAttendance
+			if len(st.RequireAttendanceReason) > 0 {
+				defTypeSnap["require_attendance_reason"] = []string(st.RequireAttendanceReason)
+			} else {
+				// default snapshot: jika kolom kosong, anggap require reason utk state "unmarked"
+				defTypeSnap["require_attendance_reason"] = []string{"unmarked"}
+			}
+
+			// ✅ kolom baru: window mode + offset
+			mode := strings.TrimSpace(st.AttendanceWindowMode)
+			if mode == "" {
+				mode = "same_day" // fallback ke default enum di SQL
+			}
+			defTypeSnap["attendance_window_mode"] = mode
+
+			if st.AttendanceOpenOffsetMinutes != nil {
+				defTypeSnap["attendance_open_offset_minutes"] = *st.AttendanceOpenOffsetMinutes
+			}
+			if st.AttendanceCloseOffsetMinutes != nil {
+				defTypeSnap["attendance_close_offset_minutes"] = *st.AttendanceCloseOffsetMinutes
+			}
+		}
+	}
+
+	// Kalau belum ada dari payload → fallback ke default auto ("kbm-regular")
+	if defTypeID == nil {
+		if st, er := g.ensureDefaultSessionType(ctx, sch.ClassScheduleSchoolID); er == nil && st != nil {
+			defTypeID = &st.ID
+			defTypeSnap = datatypes.JSONMap{
+				"type_id":   st.ID.String(),
+				"school_id": st.SchoolID.String(),
+				"slug":      st.Slug,
+				"name":      st.Name,
+			}
+			if st.Description != nil && strings.TrimSpace(*st.Description) != "" {
+				defTypeSnap["description"] = strings.TrimSpace(*st.Description)
+			}
+			if st.Color != nil && strings.TrimSpace(*st.Color) != "" {
+				defTypeSnap["color"] = strings.TrimSpace(*st.Color)
+			}
+			if st.Icon != nil && strings.TrimSpace(*st.Icon) != "" {
+				defTypeSnap["icon"] = strings.TrimSpace(*st.Icon)
+			}
+
+			// attendance config juga disimpan di snapshot
+			defTypeSnap["allow_student_self_attendance"] = st.AllowStudentSelfAttendance
+			defTypeSnap["allow_teacher_mark_attendance"] = st.AllowTeacherMarkAttendance
+			defTypeSnap["require_teacher_attendance"] = st.RequireTeacherAttendance
+			if len(st.RequireAttendanceReason) > 0 {
+				defTypeSnap["require_attendance_reason"] = []string(st.RequireAttendanceReason)
+			} else {
+				// default snapshot: jika kosong, pakai "unmarked"
+				defTypeSnap["require_attendance_reason"] = []string{"unmarked"}
+			}
+
+			// ✅ kolom baru: window mode + offset
+			mode := strings.TrimSpace(st.AttendanceWindowMode)
+			if mode == "" {
+				mode = "same_day"
+			}
+			defTypeSnap["attendance_window_mode"] = mode
+
+			if st.AttendanceOpenOffsetMinutes != nil {
+				defTypeSnap["attendance_open_offset_minutes"] = *st.AttendanceOpenOffsetMinutes
+			}
+			if st.AttendanceCloseOffsetMinutes != nil {
+				defTypeSnap["attendance_close_offset_minutes"] = *st.AttendanceCloseOffsetMinutes
+			}
+
+		} else if er != nil {
+			log.Printf(
+				"[Generator.GenerateSessionsForSchedule] ensureDefaultSessionType failed for schedule=%s school=%s: %v",
+				scheduleID,
+				sch.ClassScheduleSchoolID,
+				er,
+			)
+		}
+	}
+
+	if defTypeID == nil {
+		log.Printf(
+			"[Generator.GenerateSessionsForSchedule] no session type resolved for schedule=%s school=%s; sessions will have nil type",
+			scheduleID,
+			sch.ClassScheduleSchoolID,
 		)
 	}
 
@@ -600,13 +886,35 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time`
 			}
 		}
 
-		// Title otomatis "<nama CSST> pertemuan ke-N"
+		// Title otomatis + slug per pertemuan
 		if baseName != nil && strings.TrimSpace(*baseName) != "" && effCSST != nil {
 			key := *effCSST
 			meetingCountByCSST[key] = meetingCountByCSST[key] + 1
 			n := meetingCountByCSST[key]
+
+			// Title: "<nama CSST> pertemuan ke-N"
 			title := fmt.Sprintf("%s pertemuan ke-%d", strings.TrimSpace(*baseName), n)
 			row.ClassAttendanceSessionTitle = &title
+
+			// Slug: "<slug_csst>-pertemuan-N" (kalau slug session masih kosong)
+			if row.ClassAttendanceSessionSlug == nil || strings.TrimSpace(ptrStr(row.ClassAttendanceSessionSlug)) == "" {
+				var baseSlug string
+				if v, ok := effCSSTSnap["slug"]; ok {
+					if s, ok2 := v.(string); ok2 {
+						baseSlug = strings.TrimSpace(s)
+					}
+				}
+				if baseSlug != "" {
+					slug := fmt.Sprintf("%s-pertemuan-%d", baseSlug, n)
+					row.ClassAttendanceSessionSlug = &slug
+				}
+			}
+		}
+
+		// TYPE default (generate otomatis)
+		if defTypeID != nil {
+			row.ClassAttendanceSessionTypeID = defTypeID
+			row.ClassAttendanceSessionTypeSnapshot = defTypeSnap
 		}
 	}
 

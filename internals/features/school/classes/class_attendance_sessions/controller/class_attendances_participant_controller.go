@@ -13,6 +13,7 @@ import (
 
 	attendanceDTO "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/dto"
 	attendanceModel "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/model"
+	attendanceService "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/service"
 
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
@@ -28,12 +29,15 @@ import (
 type ClassAttendanceSessionParticipantController struct {
 	DB        *gorm.DB
 	Validator *validator.Validate
+
+	PermSvc *attendanceService.AttendancePermissionService
 }
 
 func NewClassAttendanceSessionParticipantController(db *gorm.DB) *ClassAttendanceSessionParticipantController {
 	return &ClassAttendanceSessionParticipantController{
 		DB:        db,
 		Validator: validator.New(),
+		PermSvc:   attendanceService.NewAttendancePermissionService(db),
 	}
 }
 
@@ -51,32 +55,8 @@ func isDuplicateKey(err error) bool {
 const dateLayout = "2006-01-02"
 
 // ===============================
-// Helpers
-// ===============================
-
-// Pastikan session milik school ini (tenant-safe)
-func (ctl *ClassAttendanceSessionParticipantController) ensureSessionBelongsToSchool(c *fiber.Ctx, sessionID, schoolID uuid.UUID) error {
-	var count int64
-	if err := ctl.DB.WithContext(c.Context()).
-		Table("class_attendance_sessions").
-		Where(`
-			class_attendance_session_id = ?
-			AND class_attendance_session_school_id = ?
-			AND class_attendance_session_deleted_at IS NULL
-		`, sessionID, schoolID).
-		Count(&count).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
-	}
-	if count == 0 {
-		return fiber.NewError(fiber.StatusForbidden, "Session tidak ditemukan/diizinkan untuk school ini")
-	}
-	return nil
-}
-
-// ===============================
 // Snapshot helper (murid & ortu)
 // ===============================
-
 type studentSnapshotRow struct {
 	StudentName        string  `gorm:"column:student_name"`
 	StudentAvatarURL   *string `gorm:"column:student_avatar_url"`
@@ -104,30 +84,24 @@ func (ctl *ClassAttendanceSessionParticipantController) hydrateStudentSnapshotFo
 
 	var row studentSnapshotRow
 
-	// ⚠️ SESUAIKAN kolom & join ini dengan schema kamu bila perlu
 	err := ctl.DB.WithContext(ctx).
 		Table("school_students AS ss").
-		Joins(`
-			LEFT JOIN user_profiles AS up
-			   ON up.user_profile_id = ss.school_student_user_profile_id
-		`).
-		Joins(`
-			LEFT JOIN user_profiles AS pup
-			   ON pup.user_profile_id = ss.school_student_parent_user_profile_id
-		`).
 		Where(`
 			ss.school_student_id = ?
 			AND ss.school_student_school_id = ?
 			AND ss.school_student_deleted_at IS NULL
 		`, *req.ClassAttendanceSessionParticipantSchoolStudentID, schoolID).
 		Select(`
-			COALESCE(up.user_profile_name, '') AS student_name,
-			up.user_profile_avatar_url         AS student_avatar_url,
-			up.user_profile_whatsapp_url       AS student_whatsapp_url,
-			pup.user_profile_name              AS parent_name,
-			pup.user_profile_whatsapp_url      AS parent_whatsapp_url,
-			up.user_profile_gender             AS student_gender,
-			ss.school_student_code             AS student_code
+			COALESCE(
+				ss.school_student_user_profile_name_snapshot,
+				''
+			) AS student_name,
+			ss.school_student_user_profile_avatar_url_snapshot          AS student_avatar_url,
+			ss.school_student_user_profile_whatsapp_url_snapshot        AS student_whatsapp_url,
+			ss.school_student_user_profile_parent_name_snapshot         AS parent_name,
+			ss.school_student_user_profile_parent_whatsapp_url_snapshot AS parent_whatsapp_url,
+			ss.school_student_user_profile_gender_snapshot              AS student_gender,
+			ss.school_student_code                                      AS student_code
 		`).
 		Take(&row).Error
 
@@ -166,34 +140,44 @@ func (ctl *ClassAttendanceSessionParticipantController) hydrateStudentSnapshotFo
 }
 
 // ===============================
+// Helper: resolve school dari token
+// ===============================
+
+func (ctl *ClassAttendanceSessionParticipantController) resolveSchoolIDFromToken(c *fiber.Ctx) (uuid.UUID, error) {
+	// beberapa helper auth pakai DB dari Locals
+	c.Locals("DB", ctl.DB)
+
+	// 1) ambil school_id dari token / active-school
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
+	if err != nil {
+		// helper sudah balikin JsonError yang proper
+		return uuid.Nil, err
+	}
+
+	// 2) pastikan user adalah member school ini
+	if err := helperAuth.EnsureMemberSchool(c, schoolID); err != nil {
+		return uuid.Nil, err
+	}
+
+	return schoolID, nil
+}
+
+// ===============================
 // Handlers
 // ===============================
 
 /*
 =========================================================
-POST /class-attendance-session-participants (WITH URLs)
+POST /api/u/class-attendance-session-participants (WITH URLs)
 =========================================================
 */
 func (ctl *ClassAttendanceSessionParticipantController) CreateAttendanceParticipantsWithURLs(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
-	var schoolID uuid.UUID
 
-	// resolve school
-	if mc, err := helperAuth.ResolveSchoolContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-		if id, er := helperAuth.EnsureSchoolAccessDKM(c, mc); er == nil {
-			schoolID = id
-		} else {
-			if fe, ok := er.(*fiber.Error); ok {
-				return helper.JsonError(c, fe.Code, fe.Message)
-			}
-			return helper.JsonError(c, fiber.StatusForbidden, er.Error())
-		}
-	} else {
-		if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
-			schoolID = id
-		} else {
-			return helper.JsonError(c, fiber.StatusForbidden, "Scope school tidak ditemukan")
-		}
+	// resolve school via token (tanpa slug)
+	schoolID, err := ctl.resolveSchoolIDFromToken(c)
+	if err != nil {
+		return err
 	}
 
 	ct := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
@@ -311,32 +295,93 @@ func (ctl *ClassAttendanceSessionParticipantController) CreateAttendanceParticip
 	attReq.ClassAttendanceSessionParticipantSchoolID = schoolID
 
 	// =========================
-	// Auto kind: student / teacher + basic validation
+	// Tentukan kind + isi student/teacher ID dari token
 	// =========================
+
+	kindRaw := strVal(attReq.ClassAttendanceSessionParticipantKind)
+	kind := strings.ToLower(strings.TrimSpace(kindRaw))
+	if kind == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest,
+			"class_attendance_session_participant_kind wajib diisi (student/teacher)")
+	}
+	attReq.ClassAttendanceSessionParticipantKind = &kind
+
+	// cek apakah sudah diisi manual (misal admin kirim untuk orang lain)
 	hasStudent := attReq.ClassAttendanceSessionParticipantSchoolStudentID != nil &&
 		*attReq.ClassAttendanceSessionParticipantSchoolStudentID != uuid.Nil
 	hasTeacher := attReq.ClassAttendanceSessionParticipantSchoolTeacherID != nil &&
 		*attReq.ClassAttendanceSessionParticipantSchoolTeacherID != uuid.Nil
 
+	switch kind {
+	case "student":
+		if !hasStudent {
+			// ambil school_student_id yang terikat ke school ini dari token
+			studentID, err := helperAuth.GetSchoolStudentIDForSchool(c, schoolID)
+			if err != nil || studentID == uuid.Nil {
+				return helper.JsonError(c, fiber.StatusForbidden,
+					"Tidak dapat menentukan school_student_id dari token untuk school ini")
+			}
+			attReq.ClassAttendanceSessionParticipantSchoolStudentID = &studentID
+			hasStudent = true
+		}
+	case "teacher":
+		if !hasTeacher {
+			// ambil school_teacher_id yang terikat ke school ini dari token
+			teacherID, err := helperAuth.GetSchoolTeacherIDForSchool(c, schoolID)
+			if err != nil || teacherID == uuid.Nil {
+				return helper.JsonError(c, fiber.StatusForbidden,
+					"Tidak dapat menentukan school_teacher_id dari token untuk school ini")
+			}
+			attReq.ClassAttendanceSessionParticipantSchoolTeacherID = &teacherID
+			hasTeacher = true
+		}
+	default:
+		// assistant / guest dll → boleh pakai ID yang dikirim manual,
+		// di bawah tetap dicek minimal ada salah satu student/teacher jika memang diwajibkan
+	}
+
 	// minimal salah satu harus ada
 	if !hasStudent && !hasTeacher {
 		return helper.JsonError(c, fiber.StatusBadRequest,
-			"Minimal salah satu dari school_student_id atau school_teacher_id wajib diisi")
+			"Minimal salah satu dari school_student_id atau school_teacher_id wajib diisi (atau token harus punya konteks sesuai kind)")
 	}
 
-	if attReq.ClassAttendanceSessionParticipantKind == nil ||
-		strings.TrimSpace(*attReq.ClassAttendanceSessionParticipantKind) == "" {
+	// =========================
+	// Guard: session_id wajib ada
+	// =========================
+	if attReq.ClassAttendanceSessionParticipantSessionID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest,
+			"class_attendance_session_participant_session_id wajib diisi")
+	}
 
-		switch {
-		case hasTeacher && !hasStudent:
-			v := "teacher"
-			attReq.ClassAttendanceSessionParticipantKind = &v
-		case hasStudent && !hasTeacher:
-			v := "student"
-			attReq.ClassAttendanceSessionParticipantKind = &v
-		default:
-			v := "student"
-			attReq.ClassAttendanceSessionParticipantKind = &v
+	// =========================
+	// Cek PERMISSION absensi (window, flag type, status session, mapping CSST)
+	// =========================
+	if ctl.PermSvc != nil {
+		var studentIDPtr *uuid.UUID
+		var teacherIDPtr *uuid.UUID
+
+		if hasStudent {
+			studentIDPtr = attReq.ClassAttendanceSessionParticipantSchoolStudentID
+		}
+		if hasTeacher {
+			teacherIDPtr = attReq.ClassAttendanceSessionParticipantSchoolTeacherID
+		}
+
+		res, err := ctl.PermSvc.CheckSelfAttendancePermission(
+			c.Context(),
+			schoolID,
+			attReq.ClassAttendanceSessionParticipantSessionID,
+			kind,
+			studentIDPtr,
+			teacherIDPtr,
+		)
+		if err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengecek izin absensi: "+err.Error())
+		}
+		if !res.Allowed {
+			// kalau mau, FE bisa bedain pakai kode res.Code
+			return helper.JsonError(c, fiber.StatusForbidden, res.Message)
 		}
 	}
 
@@ -385,18 +430,6 @@ func (ctl *ClassAttendanceSessionParticipantController) CreateAttendanceParticip
 	// Validasi request
 	if err := ctl.Validator.Struct(&attReq); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-	}
-
-	// Tenant guard: session harus milik school
-	if err := ctl.ensureSessionBelongsToSchool(
-		c,
-		attReq.ClassAttendanceSessionParticipantSessionID,
-		schoolID,
-	); err != nil {
-		if fe, ok := err.(*fiber.Error); ok {
-			return helper.JsonError(c, fe.Code, fe.Message)
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	// =========================
@@ -456,29 +489,16 @@ func (ctl *ClassAttendanceSessionParticipantController) CreateAttendanceParticip
 
 /*
 =========================================================
-PATCH /class-attendance-session-participants/:id?
+PATCH /api/u/class-attendance-session-participants/:id?
 =========================================================
 */
 func (ctl *ClassAttendanceSessionParticipantController) Patch(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 
-	// Resolve school
-	var schoolID uuid.UUID
-	if mc, err := helperAuth.ResolveSchoolContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-		if id, er := helperAuth.EnsureSchoolAccessDKM(c, mc); er == nil {
-			schoolID = id
-		} else {
-			if fe, ok := er.(*fiber.Error); ok {
-				return helper.JsonError(c, fe.Code, fe.Message)
-			}
-			return helper.JsonError(c, fiber.StatusForbidden, er.Error())
-		}
-	} else {
-		if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
-			schoolID = id
-		} else {
-			return helper.JsonError(c, fiber.StatusForbidden, "Scope school tidak ditemukan")
-		}
+	// Resolve school dari token
+	schoolID, err := ctl.resolveSchoolIDFromToken(c)
+	if err != nil {
+		return err
 	}
 
 	var req attendanceDTO.ClassAttendanceSessionParticipantPatchRequest
@@ -633,28 +653,18 @@ func (ctl *ClassAttendanceSessionParticipantController) Patch(c *fiber.Ctx) erro
 	})
 }
 
-/* ========================= URL Delete (tetap) ========================= */
-
+/*
+=========================================================
+DELETE /api/u/class-attendance-session-participants/:id/urls/:url_id
+=========================================================
+*/
 func (ctl *ClassAttendanceSessionParticipantController) Delete(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 
-	// Resolve school
-	var schoolID uuid.UUID
-	if mc, err := helperAuth.ResolveSchoolContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-		if id, er := helperAuth.EnsureSchoolAccessDKM(c, mc); er == nil {
-			schoolID = id
-		} else {
-			if fe, ok := er.(*fiber.Error); ok {
-				return helper.JsonError(c, fe.Code, fe.Message)
-			}
-			return helper.JsonError(c, fiber.StatusForbidden, er.Error())
-		}
-	} else {
-		if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
-			schoolID = id
-		} else {
-			return helper.JsonError(c, fiber.StatusForbidden, "Scope school tidak ditemukan")
-		}
+	// Resolve school dari token
+	schoolID, err := ctl.resolveSchoolIDFromToken(c)
+	if err != nil {
+		return err
 	}
 
 	participantID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
@@ -804,3 +814,19 @@ func mergeURL(cur *attendanceModel.ClassAttendanceSessionParticipantURLModel, pa
 }
 
 func ptrStr(s string) *string { return &s }
+
+// helper kecil buat ambil nilai string dari pointer
+func strVal(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+/*
+   ROUTE SLUG (saran)
+
+   POST   /api/u/class-attendance-session-participants
+   PATCH  /api/u/class-attendance-session-participants/:id
+   DELETE /api/u/class-attendance-session-participants/:id/urls/:url_id
+*/
