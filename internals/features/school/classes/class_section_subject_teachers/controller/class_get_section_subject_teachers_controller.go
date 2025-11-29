@@ -163,9 +163,12 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		}
 		sectionIDs = ids
 	}
-
-	// parse teacher & subject ID (opsional)
+	// ============================
+	// parse teacher & subject ID
+	// ============================
 	var teacherID *uuid.UUID
+
+	// 1) PRIORITAS: teacher_id dari query param (kalau ada)
 	if teacherIDStr != "" {
 		if id, err := uuid.Parse(teacherIDStr); err == nil {
 			teacherID = &id

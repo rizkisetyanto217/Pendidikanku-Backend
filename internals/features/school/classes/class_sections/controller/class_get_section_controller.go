@@ -117,7 +117,7 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 	var (
 		sectionIDs []uuid.UUID
 		classIDs   []uuid.UUID
-		teacherIDs []uuid.UUID // filter by school_teacher
+		teacherIDs []uuid.UUID // filter by school_teacher (wali / asisten)
 		activeOnly *bool
 	)
 
@@ -175,9 +175,12 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		tx = tx.Where("class_section_class_id IN ?", classIDs)
 	}
 
-	// filter wali/teacher section ke kolom FK
+	// filter wali / assistant teacher ke dua kolom FK
 	if len(teacherIDs) > 0 {
-		tx = tx.Where("class_section_school_teacher_id IN ?", teacherIDs)
+		tx = tx.Where(
+			"(class_section_school_teacher_id IN ? OR class_section_assistant_school_teacher_id IN ?)",
+			teacherIDs, teacherIDs,
+		)
 	}
 
 	if activeOnly != nil {
