@@ -257,7 +257,6 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 
 	type assessmentWithExpand struct {
 		dto.AssessmentResponse
-		Type      *typeLite              `json:"type,omitempty"`
 		URLsCount *int                   `json:"urls_count,omitempty"`
 		Quizzes   []quizDTO.QuizResponse `json:"quizzes,omitempty"`
 	}
@@ -306,18 +305,6 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// attach TYPE per item jika diminta (boleh kamu matikan kalau nggak dipakai)
-	// di sini aku biarkan logika lama kalau suatu saat mau hidupkan lagi via include
-	// (sekarang default: tidak pakai include flag)
-	for i := range rows {
-		if rows[i].AssessmentTypeID == nil {
-			continue
-		}
-		if t, ok := typeMap[*rows[i].AssessmentTypeID]; ok {
-			tc := t
-			out[i].Type = &tc
-		}
-	}
 
 	// ================================
 	// SELALU: QUIZZES EXPAND

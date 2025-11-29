@@ -259,8 +259,10 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 	// =============== CSST SNAPSHOT (opsional, +auto teacher & auto-title) ===============
 	var csstSnap datatypes.JSONMap
 	var csstName *string
+
 	if req.Assessment.AssessmentClassSectionSubjectTeacherID != nil &&
 		*req.Assessment.AssessmentClassSectionSubjectTeacherID != uuid.Nil {
+
 		cs, er := snapshot.ValidateAndSnapshotCSST(
 			ctl.DB.WithContext(c.Context()),
 			mid,
@@ -272,16 +274,18 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 			}
 			return helper.JsonError(c, fiber.StatusBadRequest, er.Error())
 		}
-		// Auto-isi created_by_teacher_id
+
+		// simpan csst name utk autofill judul
+		csstName = cs.Name
+
+		// Auto-isi created_by_teacher_id kalau belum ada
 		if req.Assessment.AssessmentCreatedByTeacherID == nil &&
 			cs.TeacherID != nil && *cs.TeacherID != uuid.Nil {
 			tid := *cs.TeacherID
 			req.Assessment.AssessmentCreatedByTeacherID = &tid
 		}
-		// simpan csst name utk autofill judul
-		csstName = cs.Name
 
-		// Simpan snapshot (convert datatypes.JSON → JSONMap)
+		// Simpan snapshot FULL (sama persis dengan yg dipakai attendance session)
 		if jb := snapshot.ToJSON(cs); len(jb) > 0 {
 			var m map[string]any
 			_ = json.Unmarshal(jb, &m)
@@ -342,11 +346,16 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 	// ====== MODE: session ======
 	if mode == "session" {
 		var ann, col *sessRow
+
 		if hasAnn {
 			r, er := ctl.fetchSess(c, *req.Assessment.AssessmentAnnounceSessionID)
 			if er != nil {
+				if errors.Is(er, gorm.ErrRecordNotFound) {
+					tx.Rollback()
+					return helper.JsonError(c, fiber.StatusBadRequest, "Sesi announce tidak ditemukan")
+				}
 				tx.Rollback()
-				return helper.JsonError(c, fiber.StatusBadRequest, "Sesi announce tidak ditemukan")
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil sesi announce")
 			}
 			if r.Deleted != nil || r.SchoolID != mid {
 				tx.Rollback()
@@ -354,11 +363,16 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 			}
 			ann = r
 		}
+
 		if hasCol {
 			r, er := ctl.fetchSess(c, *req.Assessment.AssessmentCollectSessionID)
 			if er != nil {
+				if errors.Is(er, gorm.ErrRecordNotFound) {
+					tx.Rollback()
+					return helper.JsonError(c, fiber.StatusBadRequest, "Sesi collect tidak ditemukan")
+				}
 				tx.Rollback()
-				return helper.JsonError(c, fiber.StatusBadRequest, "Sesi collect tidak ditemukan")
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil sesi collect")
 			}
 			if r.Deleted != nil || r.SchoolID != mid {
 				tx.Rollback()
@@ -366,6 +380,7 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 			}
 			col = r
 		}
+
 		if ann != nil && col != nil && pickTime(col).Before(pickTime(ann)) {
 			tx.Rollback()
 			return helper.JsonError(c, fiber.StatusBadRequest, "collect_session harus sama atau setelah announce_session")
@@ -417,6 +432,7 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		if typeIsGradedSnap != nil {
 			row.AssessmentTypeIsGradedSnapshot = *typeIsGradedSnap
 		}
+
 	} else {
 		// ===== MODE: date =====
 		if req.Assessment.AssessmentStartAt != nil && req.Assessment.AssessmentDueAt != nil &&
@@ -440,7 +456,7 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		if typeSnap != nil {
 			row.AssessmentTypeSnapshot = typeSnap
 		}
-		if typeIsGradedSnap != nil { // 👈 TAMBAH INI
+		if typeIsGradedSnap != nil {
 			row.AssessmentTypeIsGradedSnapshot = *typeIsGradedSnap
 		}
 	}
@@ -506,10 +522,10 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		if err := tx.WithContext(c.Context()).
 			Model(&csstModel.ClassSectionSubjectTeacherModel{}).
 			Where(`
-			class_section_subject_teacher_school_id = ?
-			AND class_section_subject_teacher_id = ?
-			AND class_section_subject_teacher_deleted_at IS NULL
-		`, mid, *row.AssessmentClassSectionSubjectTeacherID).
+				class_section_subject_teacher_school_id = ?
+				AND class_section_subject_teacher_id = ?
+				AND class_section_subject_teacher_deleted_at IS NULL
+			`, mid, *row.AssessmentClassSectionSubjectTeacherID).
 			Updates(updates).Error; err != nil {
 
 			tx.Rollback()
@@ -633,21 +649,40 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 	// ==== (Opsional) update CSST snapshot bila CSST diubah ====
 	if req.AssessmentClassSectionSubjectTeacherID != nil {
 		if *req.AssessmentClassSectionSubjectTeacherID == uuid.Nil {
+			// clear relasi CSST
 			existing.AssessmentClassSectionSubjectTeacherID = nil
 			existing.AssessmentCSSTSnapshot = datatypes.JSONMap{}
 		} else {
-			cs, er := snapshot.ValidateAndSnapshotCSST(ctl.DB.WithContext(c.Context()), mid, *req.AssessmentClassSectionSubjectTeacherID)
+			cs, er := snapshot.ValidateAndSnapshotCSST(
+				ctl.DB.WithContext(c.Context()),
+				mid,
+				*req.AssessmentClassSectionSubjectTeacherID,
+			)
 			if er != nil {
 				if fe, ok := er.(*fiber.Error); ok {
 					return helper.JsonError(c, fe.Code, fe.Message)
 				}
 				return helper.JsonError(c, fiber.StatusBadRequest, er.Error())
 			}
+
 			existing.AssessmentClassSectionSubjectTeacherID = req.AssessmentClassSectionSubjectTeacherID
+
+			// Simpan snapshot FULL (sama seperti Create)
 			if jb := snapshot.ToJSON(cs); len(jb) > 0 {
 				var m map[string]any
 				_ = json.Unmarshal(jb, &m)
 				existing.AssessmentCSSTSnapshot = datatypes.JSONMap(m)
+			}
+
+			// Auto-isi created_by_teacher_id kalau:
+			// - user TIDAK mengirim AssessmentCreatedByTeacherID di PATCH
+			// - existing belum punya creator
+			if req.AssessmentCreatedByTeacherID == nil &&
+				existing.AssessmentCreatedByTeacherID == nil &&
+				cs.TeacherID != nil && *cs.TeacherID != uuid.Nil {
+
+				tid := *cs.TeacherID
+				existing.AssessmentCreatedByTeacherID = &tid
 			}
 		}
 	}
@@ -999,8 +1034,8 @@ func (ctl *AssessmentController) buildAssessmentTypeSnapshot(
 		"key":                       at.AssessmentTypeKey,
 		"name":                      at.AssessmentTypeName,
 		"show_correct_after_submit": at.AssessmentTypeShowCorrectAfterSubmit,
-		"is_graded":                 at.AssessmentTypeIsGraded, // 👈 snapshot JSON
-	}, at.AssessmentTypeIsGraded, nil // 👈 kembalikan juga bool-nya
+		"is_graded":                 at.AssessmentTypeIsGraded, // snapshot JSON
+	}, at.AssessmentTypeIsGraded, nil
 }
 
 func (ctl *AssessmentController) applyAssessmentTypePatch(
@@ -1018,7 +1053,7 @@ func (ctl *AssessmentController) applyAssessmentTypePatch(
 	if *req.AssessmentTypeID == uuid.Nil {
 		existing.AssessmentTypeID = nil
 		existing.AssessmentTypeSnapshot = datatypes.JSONMap{}
-		existing.AssessmentTypeIsGradedSnapshot = false // 👈 clear juga flag
+		existing.AssessmentTypeIsGradedSnapshot = false
 		return nil
 	}
 
@@ -1031,7 +1066,7 @@ func (ctl *AssessmentController) applyAssessmentTypePatch(
 	v := *req.AssessmentTypeID
 	existing.AssessmentTypeID = &v
 	existing.AssessmentTypeSnapshot = snap
-	existing.AssessmentTypeIsGradedSnapshot = graded // 👈 sinkron flag snapshot
+	existing.AssessmentTypeIsGradedSnapshot = graded
 	return nil
 }
 

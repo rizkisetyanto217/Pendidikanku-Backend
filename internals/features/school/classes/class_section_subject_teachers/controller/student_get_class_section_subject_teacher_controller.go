@@ -43,11 +43,10 @@ type CSSTIncluded struct {
 	SchoolID   uuid.UUID `json:"class_section_subject_teacher_school_id"`
 }
 
-// Embed full SCSST item (yang sudah include gender + student_code snapshot)
-// + nested CSST ketika include=csst
-type StudentCSSTWithCSST struct {
-	dto.StudentCSSTItem
-	CSST *CSSTIncluded `json:"class_section_subject_teacher,omitempty"`
+// CSST di atas + murid-murid di bawahnya
+type CSSTWithStudents struct {
+	CSSTIncluded
+	Students []dto.StudentCSSTItem `json:"students"`
 }
 
 /* =========================================================
@@ -159,14 +158,19 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 
 	pagination := helper.BuildPaginationFromPage(total, q.Page, q.PageSize)
 
-	// Kalau kosong → balikin [] sesuai mode
+	// Kalau kosong
 	if total == 0 {
 		if !wantCSST {
 			empty := []dto.StudentCSSTItem{}
 			return helper.JsonList(c, "ok", empty, pagination)
 		}
-		empty := []StudentCSSTWithCSST{}
-		return helper.JsonList(c, "ok", empty, pagination)
+
+		// include=csst → kembalikan struktur konsisten: csst null + students []
+		emptyStudents := []dto.StudentCSSTItem{}
+		return helper.JsonList(c, "ok", fiber.Map{
+			"class_section_subject_teacher": nil,
+			"students":                      emptyStudents,
+		}, pagination)
 	}
 
 	// 6) Ambil page
@@ -188,7 +192,7 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 	}
 
 	// =====================================================
-	//  MODE include=csst → embed detail CSST di tiap item
+	//  MODE include=csst → CSST 1x di atas, siswa di-nested
 	// =====================================================
 
 	// 1) kumpulkan csst_id unik dari rows
@@ -204,7 +208,7 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		csstIDs = append(csstIDs, id)
 	}
 
-	// 2) query tabel class_section_subject_teachers
+	// 2) query tabel class_section_subject_teachers → bentuk csstMap
 	csstMap := make(map[uuid.UUID]*CSSTIncluded)
 
 	if len(csstIDs) > 0 {
@@ -248,21 +252,32 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 3) bentuk payload: item + csst nested
-	out := make([]StudentCSSTWithCSST, 0, len(rows))
+	// 3) kumpulkan semua students dari rows
+	students := make([]dto.StudentCSSTItem, 0, len(rows))
 	for i := range rows {
-		base := toStudentCSSTItem(&rows[i])
-
-		var included *CSSTIncluded
-		if cs, ok := csstMap[rows[i].StudentClassSectionSubjectTeacherCSSTID]; ok {
-			included = cs
-		}
-
-		out = append(out, StudentCSSTWithCSST{
-			StudentCSSTItem: base,
-			CSST:            included,
-		})
+		students = append(students, toStudentCSSTItem(&rows[i]))
 	}
 
-	return helper.JsonList(c, "ok", out, pagination)
+	// pilih satu CSST (umumnya 1 csst_id per query)
+	var mainCSST *CSSTIncluded
+	for _, v := range csstMap {
+		mainCSST = v
+		break
+	}
+
+	// kalau entah bagaimana CSST tidak ada, tapi students ada → balikin students saja
+	if mainCSST == nil {
+		return helper.JsonList(c, "ok", fiber.Map{
+			"students": students,
+		}, pagination)
+	}
+
+	wrapped := &CSSTWithStudents{
+		CSSTIncluded: *mainCSST,
+		Students:     students,
+	}
+
+	return helper.JsonList(c, "ok", fiber.Map{
+		"class_section_subject_teacher": wrapped,
+	}, pagination)
 }

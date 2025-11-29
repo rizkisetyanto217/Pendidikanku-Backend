@@ -226,6 +226,12 @@ func (ctrl *ClassAttendanceSessionController) listStudentTimeline(
 		return err
 	}
 
+	// 3b) Filter by CSST (optional)
+	csstIDPtr, err := parseUUIDPtr(strings.TrimSpace(c.Query("csst_id")), "csst_id")
+	if err != nil {
+		return err
+	}
+
 	var isPassedPtr *bool
 	if s := strings.TrimSpace(c.Query("participant_is_passed")); s != "" {
 		if b, e := strconv.ParseBool(s); e == nil {
@@ -290,6 +296,11 @@ func (ctrl *ClassAttendanceSessionController) listStudentTimeline(
 		q = q.Where("cas.class_attendance_session_date >= ?", *df)
 	} else if dt != nil {
 		q = q.Where("cas.class_attendance_session_date <= ?", *dt)
+	}
+
+	// 🔹 Filter CSST (opsional)
+	if csstIDPtr != nil {
+		q = q.Where("cas.class_attendance_session_csst_id = ?", *csstIDPtr)
 	}
 
 	// LEFT JOIN participants khusus murid ini
@@ -466,6 +477,11 @@ func (ctrl *ClassAttendanceSessionController) listTeacherTimeline(
 			return helper.JsonError(c, fiber.StatusBadRequest, "participant_is_passed tidak valid (true/false)")
 		}
 	}
+	// 3b) Filter by CSST (optional)
+	csstIDPtr, err := parseUUIDPtr(strings.TrimSpace(c.Query("csst_id")), "csst_id")
+	if err != nil {
+		return err
+	}
 
 	// 4) Row hasil join session + participant (1 guru, bisa null)
 	type row struct {
@@ -509,6 +525,11 @@ func (ctrl *ClassAttendanceSessionController) listTeacherTimeline(
 		q = q.Where("cas.class_attendance_session_date >= ?", *df)
 	} else if dt != nil {
 		q = q.Where("cas.class_attendance_session_date <= ?", *dt)
+	}
+
+	// 🔹 Filter CSST (opsional)
+	if csstIDPtr != nil {
+		q = q.Where("cas.class_attendance_session_csst_id = ?", *csstIDPtr)
 	}
 
 	// LEFT JOIN participants khusus guru ini
