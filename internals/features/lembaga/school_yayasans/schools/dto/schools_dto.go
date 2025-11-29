@@ -167,13 +167,16 @@ type SchoolResp struct {
 	SchoolCreatedAt      time.Time  `json:"school_created_at"`
 	SchoolUpdatedAt      time.Time  `json:"school_updated_at"`
 	SchoolLastActivityAt *time.Time `json:"school_last_activity_at,omitempty"`
+
+	// ✅ Tambahan: profile sekolah (selalu dikirim, meskipun kosong)
+	SchoolProfile *SchoolProfileResponse `json:"school_profile"`
 }
 
 /* ===================== CONVERTERS ===================== */
 func FromModel(m *model.SchoolModel) SchoolResp {
 	levels := levelsFromJSON(m.SchoolLevels)
 
-	return SchoolResp{
+	resp := SchoolResp{
 		SchoolID:            m.SchoolID.String(),
 		SchoolYayasanID:     m.SchoolYayasanID,
 		SchoolCurrentPlanID: m.SchoolCurrentPlanID,
@@ -229,6 +232,21 @@ func FromModel(m *model.SchoolModel) SchoolResp {
 		SchoolUpdatedAt:      m.SchoolUpdatedAt,
 		SchoolLastActivityAt: m.SchoolLastActivityAt,
 	}
+
+	// ✅ mapping profile:
+	if m.SchoolProfile != nil {
+		// pakai converter yang sudah kamu buat di dto profile
+		profileResp := FromModelSchoolProfile(m.SchoolProfile)
+		resp.SchoolProfile = &profileResp
+	} else {
+		// belum ada row di school_profiles → tetap kirim object kosong
+		resp.SchoolProfile = &SchoolProfileResponse{
+			SchoolProfileID:       "",
+			SchoolProfileSchoolID: m.SchoolID.String(),
+		}
+	}
+
+	return resp
 }
 
 func ToModel(in *SchoolCreateReq, id uuid.UUID) *model.SchoolModel {

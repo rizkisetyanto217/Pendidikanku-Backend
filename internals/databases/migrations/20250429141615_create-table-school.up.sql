@@ -294,10 +294,8 @@ CREATE TABLE IF NOT EXISTS school_profiles (
   school_profile_description  TEXT,
   school_profile_founded_year INT,
 
-  -- Alamat & kontak publik
-  school_profile_address       TEXT,
+  -- Alamat & kontak publikschool_profile_address
   school_profile_contact_phone VARCHAR(30),
-  school_profile_contact_email VARCHAR(120),
 
   -- Sosial/link publik
   school_profile_google_maps_url           TEXT,
@@ -341,10 +339,6 @@ CREATE TABLE IF NOT EXISTS school_profiles (
     (school_profile_latitude IS NULL AND school_profile_longitude IS NULL)
     OR (school_profile_latitude BETWEEN -90 AND 90 AND school_profile_longitude BETWEEN -180 AND 180)
   ),
-  CONSTRAINT chk_mpp_contact_email CHECK (
-    school_profile_contact_email IS NULL
-    OR school_profile_contact_email ~* $$^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$$
-  ),
   CONSTRAINT chk_mpp_school_email CHECK (
     school_profile_school_email IS NULL
     OR school_profile_school_email ~* $$^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$$
@@ -370,9 +364,7 @@ CREATE INDEX IF NOT EXISTS idx_mpp_principal_user_id_alive
   ON school_profiles (school_profile_school_principal_user_id)
   WHERE school_profile_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_mpp_contact_email_lower_alive
-  ON school_profiles (LOWER(school_profile_contact_email))
-  WHERE school_profile_deleted_at IS NULL;
+
 
 CREATE INDEX IF NOT EXISTS idx_mpp_school_email_lower_alive
   ON school_profiles (LOWER(school_profile_school_email))
@@ -396,11 +388,6 @@ CREATE INDEX IF NOT EXISTS gist_mpp_earth_alive
   WHERE school_profile_deleted_at IS NULL
     AND school_profile_latitude IS NOT NULL
     AND school_profile_longitude IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS trgm_mpp_address_alive
-  ON school_profiles
-  USING gin (school_profile_address gin_trgm_ops)
-  WHERE school_profile_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS trgm_mpp_description_alive
   ON school_profiles

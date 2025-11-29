@@ -20,11 +20,7 @@ func AllLembagaRoutes(user fiber.Router, db *gorm.DB) {
 	school.Post("/", schoolCtrl.CreateSchoolDKM)
 
 	// Lebih spesifik dulu supaya tidak bentrok dengan "/:slug"
-	school.Get("/verified", schoolCtrl.GetAllVerifiedSchools)
-	school.Get("/verified/:id", schoolCtrl.GetVerifiedSchoolByID)
-
-	school.Get("/list", schoolCtrl.GetAllSchools)    // 📄 Semua school
-	school.Get("/:slug", schoolCtrl.GetSchoolBySlug) // 🔍 Detail by slug
+	school.Get("/list", schoolCtrl.GetSchools)       // 📄 Semua school
 
 	// 📄 Group: /school-profiles
 	profile := user.Group("/school-profiles")

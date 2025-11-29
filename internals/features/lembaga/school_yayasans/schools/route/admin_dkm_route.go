@@ -28,6 +28,9 @@ func SchoolAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	// create school (DKM) — masih pakai body & context
 	schools.Post("/", guard, schoolCtrl.CreateSchoolDKM)
 
+	// Lebih spesifik dulu supaya tidak bentrok dengan "/:slug"
+	schools.Get("/list", schoolCtrl.GetSchools) // 📄 Semua school
+
 	// 🔑 TEACHER CODE (Admin/DKM)
 	// school_id diambil dari token / active-school (ResolveSchoolIDFromContext)
 	schools.Get("/teacher-code", guard, schoolCtrl.GetTeacherCode)

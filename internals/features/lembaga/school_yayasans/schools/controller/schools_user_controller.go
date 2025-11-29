@@ -6,44 +6,128 @@ import (
 	"strings"
 
 	helper "madinahsalam_backend/internals/helpers"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
 	schoolDto "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/dto"
 	schoolModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/model"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
+/*
+🟢 GET SCHOOLS — super fleksibel + default ambil school dari token
 
-// 🟢 GET ALL SCHOOLS (filter by name & id/ids) + PAGINATION (?page=&per_page=)
-func (mc *SchoolController) GetAllSchools(c *fiber.Ctx) error {
-	log.Println("[INFO] Fetching all schools (paginated)")
+Bisa handle:
+
+  - List + paging:
+    GET /api/u/schools?page=1&per_page=20&q=madinah
+
+  - Filter by verified:
+    GET /api/u/schools?verified_only=1
+
+  - Filter by id(s):
+    GET /api/u/schools?id=<uuid>
+    GET /api/u/schools?ids=<uuid1>,<uuid2>
+
+  - Filter by slug:
+    GET /api/u/schools?slug=madinah-salam
+
+  - Detail by path param:
+    GET /api/u/schools/:id
+    GET /api/u/schools/slug/:slug
+
+  - Paksa single mode:
+    GET /api/u/schools?mode=single&id=<uuid>
+
+  - Default (nggak kirim apa-apa):
+    GET /api/u/schools
+    → otomatis pakai school_id dari token (via ResolveSchoolIDFromContext), single mode
+
+  - Include profile:
+    GET /api/u/schools?include=profile
+    GET /api/u/schools/:id?include=profile
+*/
+func (mc *SchoolController) GetSchools(c *fiber.Ctx) error {
+	log.Println("[INFO] [GetSchools] called")
+
+	// ==== path params (opsional) ====
+	pathID := strings.TrimSpace(c.Params("id"))
+	pathSlug := strings.TrimSpace(c.Params("slug"))
 
 	// ==== query params ====
-	q := strings.TrimSpace(c.Query("q"))          // search by name (ILIKE)
-	id := strings.TrimSpace(c.Query("id"))        // single id
-	idsParam := strings.TrimSpace(c.Query("ids")) // multiple ids, comma-separated
+	q := strings.TrimSpace(c.Query("q"))                        // search by name (ILIKE)
+	id := strings.TrimSpace(c.Query("id"))                      // single id (query)
+	idsParam := strings.TrimSpace(c.Query("ids"))               // multiple ids
+	slug := strings.TrimSpace(c.Query("slug"))                  // slug (query)
+	mode := strings.TrimSpace(c.Query("mode"))                  // "single" / "list"
+	verifiedOnly := strings.TrimSpace(c.Query("verified_only")) // "1"/"true"/...
+	includeParam := strings.TrimSpace(c.Query("include"))       // "profile", "profile,xxx"
 
-	// ==== paging params ====
-	// defaultPerPage=20; maxPerPage=100 (silakan sesuaikan)
-	paging := helper.ResolvePaging(c, 20, 100)
+	// path param override query param
+	if pathID != "" {
+		id = pathID
+	}
+	if pathSlug != "" {
+		slug = pathSlug
+	}
 
-	// ==== sesuaikan nama kolom sesuai skema DB ====
-	const colID = "school_id" // PK tabel (disesuaikan)
-	const colName = "school_name"    // kolom nama (ganti "school_name" jika perlu)
+	// parse include (profile)
+	wantProfile := false
+	if includeParam != "" {
+		for _, part := range strings.Split(includeParam, ",") {
+			if strings.TrimSpace(strings.ToLower(part)) == "profile" {
+				wantProfile = true
+				break
+			}
+		}
+	}
 
-	// ==== base query (filter) ====
+	// ==== tentukan single / list mode (sementara) ====
+	singleMode := false
+	if mode == "single" || mode == "detail" {
+		singleMode = true
+	}
+	if pathID != "" || pathSlug != "" {
+		singleMode = true
+	}
+
+	log.Printf("[INFO] [GetSchools] raw params: q=%q id=%q ids=%q slug=%q verified_only=%q mode=%q include=%q singleMode(init)=%v\n",
+		q, id, idsParam, slug, verifiedOnly, mode, includeParam, singleMode)
+
+	const colID = "school_id"
+	const colName = "school_name"
+
 	dbq := mc.DB.Model(&schoolModel.SchoolModel{})
 
-	// filter single id
+	// ==== include: profile (Preload relasi) ====
+	if wantProfile {
+		log.Println("[INFO] [GetSchools] include=profile → Preload(SchoolProfile)")
+		dbq = dbq.Preload("SchoolProfile")
+	}
+
+	// ==== filter verified_only ====
+	if verifiedOnly != "" {
+		val := strings.ToLower(verifiedOnly)
+		if val == "1" || val == "true" || val == "yes" {
+			dbq = dbq.Where("school_is_verified = ?", true)
+		} else if val == "0" || val == "false" || val == "no" {
+			// kalau mau khusus unverified-only, bisa aktifkan:
+			// dbq = dbq.Where("school_is_verified = ?", false)
+		}
+	}
+
+	// ==== filter single id (query/path) ====
 	if id != "" {
 		if _, err := uuid.Parse(id); err != nil {
+			log.Printf("[WARN] [GetSchools] invalid id UUID: %v\n", err)
 			return helper.JsonError(c, fiber.StatusBadRequest, "Parameter id tidak valid (harus UUID)")
 		}
 		dbq = dbq.Where(colID+" = ?", id)
 	}
 
-	// filter multiple ids
+	// ==== filter multiple ids ====
 	if idsParam != "" {
 		raw := strings.Split(idsParam, ",")
 		ids := make([]string, 0, len(raw))
@@ -53,6 +137,7 @@ func (mc *SchoolController) GetAllSchools(c *fiber.Ctx) error {
 				continue
 			}
 			if _, err := uuid.Parse(v); err != nil {
+				log.Printf("[WARN] [GetSchools] invalid UUID in ids: %v\n", err)
 				return helper.JsonError(c, fiber.StatusBadRequest, "Parameter ids mengandung UUID tidak valid")
 			}
 			ids = append(ids, v)
@@ -62,109 +147,90 @@ func (mc *SchoolController) GetAllSchools(c *fiber.Ctx) error {
 		}
 	}
 
-	// filter by name (ILIKE)
+	// ==== filter slug ====
+	if slug != "" {
+		dbq = dbq.Where("school_slug = ?", slug)
+	}
+
+	// ==== filter by name (ILIKE) ====
 	if q != "" {
 		dbq = dbq.Where(colName+" ILIKE ?", "%"+q+"%")
 	}
 
-	// ==== total count (sebelum limit/offset) ====
-	var total int64
-	if err := dbq.Count(&total).Error; err != nil {
-		log.Printf("[ERROR] Count schools failed: %v\n", err)
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data school")
+	// ==== DEFAULT: kalau tidak kirim filter apa-apa → pakai school_id dari context ====
+	noExplicitFilter := (q == "" && id == "" && idsParam == "" && slug == "" && verifiedOnly == "")
+	if noExplicitFilter {
+		// 🔥 pakai helper yang kamu kasih: ResolveSchoolIDFromContext
+		schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
+		if err != nil {
+			// catatan: ResolveSchoolIDFromContext sudah boleh return helper.JsonError(...)
+			// jadi di sini cukup return err apa adanya
+			log.Printf("[ERROR] [GetSchools] no filters + ResolveSchoolIDFromContext error: %v\n", err)
+			return err
+		}
+
+		if schoolID == uuid.Nil {
+			log.Println("[WARN] [GetSchools] no filters + ResolveSchoolIDFromContext returned Nil UUID")
+			return helper.JsonError(c, fiber.StatusBadRequest, "User tidak memiliki school aktif di token")
+		}
+
+		log.Printf("[INFO] [GetSchools] no filters → default to school_id from context: %s\n", schoolID)
+		dbq = dbq.Where(colID+" = ?", schoolID)
+
+		// default mode jadi single (karena konteks 1 sekolah aktif)
+		singleMode = true
 	}
 
-	// ==== ambil data page ini ====
-	// Optional: stabilkan urutan
+	// stabilkan order
 	dbq = dbq.Order(colName + " ASC")
+
+	// ==== SINGLE MODE ====
+	if singleMode {
+		var m schoolModel.SchoolModel
+		if err := dbq.First(&m).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				log.Printf("[WARN] [GetSchools] single mode - school not found\n")
+				return helper.JsonError(c, fiber.StatusNotFound, "School tidak ditemukan")
+			}
+			log.Printf("[ERROR] [GetSchools] single mode - query failed: %v\n", err)
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data school")
+		}
+
+		log.Printf(
+			"[SUCCESS] [GetSchools] single mode - got school: %s (%s), include_profile=%v\n",
+			m.SchoolName, m.SchoolID, wantProfile,
+		)
+
+		return helper.JsonOK(c, "ok", schoolDto.FromModel(&m))
+	}
+
+	// ==== LIST MODE (paginated) ====
+	paging := helper.ResolvePaging(c, 20, 100)
+
+	// total count
+	var total int64
+	if err := dbq.Count(&total).Error; err != nil {
+		log.Printf("[ERROR] [GetSchools] count failed: %v\n", err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data school")
+	}
 
 	var schools []schoolModel.SchoolModel
 	if err := dbq.
 		Limit(paging.Limit).
 		Offset(paging.Offset).
 		Find(&schools).Error; err != nil {
-		log.Printf("[ERROR] Failed to fetch schools: %v\n", err)
+		log.Printf("[ERROR] [GetSchools] list query failed: %v\n", err)
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data school")
 	}
 
-	log.Printf("[SUCCESS] Retrieved %d schools (page=%d per_page=%d total=%d)\n",
-		len(schools), paging.Page, paging.PerPage, total)
+	log.Printf("[SUCCESS] [GetSchools] list mode - got %d schools (page=%d per_page=%d total=%d include_profile=%v)\n",
+		len(schools), paging.Page, paging.PerPage, total, wantProfile)
 
-	// ==== mapping DTO ====
 	resp := make([]schoolDto.SchoolResp, 0, len(schools))
 	for i := range schools {
 		resp = append(resp, schoolDto.FromModel(&schools[i]))
 	}
 
-	// ==== build pagination dari offset/limit ====
 	pg := helper.BuildPaginationFromOffset(total, paging.Offset, paging.Limit)
-
 	return helper.JsonList(c, "ok", resp, pg)
-}
-
-// 🟢 GET VERIFIED SCHOOLS (tanpa paging param → seluruh data 1 halaman)
-func (mc *SchoolController) GetAllVerifiedSchools(c *fiber.Ctx) error {
-	log.Println("[INFO] Fetching all verified schools")
-
-	var schools []schoolModel.SchoolModel
-	if err := mc.DB.Where("school_is_verified = ?", true).Find(&schools).Error; err != nil {
-		log.Printf("[ERROR] Failed to fetch verified schools: %v\n", err)
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data school terverifikasi")
-	}
-
-	log.Printf("[SUCCESS] Retrieved %d verified schools\n", len(schools))
-
-	resp := make([]schoolDto.SchoolResp, 0, len(schools))
-	for i := range schools {
-		resp = append(resp, schoolDto.FromModel(&schools[i]))
-	}
-
-	total := len(resp)
-	pg := helper.Pagination{
-		Page:       1,
-		PerPage:    total,
-		Total:      int64(total),
-		TotalPages: 1,
-		HasNext:    false,
-		HasPrev:    false,
-	}
-	return helper.JsonList(c, "ok", resp, pg)
-}
-
-// 🟢 GET VERIFIED SCHOOL BY ID (single resource)
-func (mc *SchoolController) GetVerifiedSchoolByID(c *fiber.Ctx) error {
-	id := c.Params("id")
-	log.Printf("[INFO] Fetching verified school with ID: %s\n", id)
-
-	schoolUUID, err := uuid.Parse(id)
-	if err != nil {
-		log.Printf("[ERROR] Invalid UUID format: %v\n", err)
-		return helper.JsonError(c, fiber.StatusBadRequest, "Format ID tidak valid")
-	}
-
-	var m schoolModel.SchoolModel
-	if err := mc.DB.
-		Where("school_id = ? AND school_is_verified = ?", schoolUUID, true).
-		First(&m).Error; err != nil {
-		log.Printf("[ERROR] Verified school with ID %s not found\n", id)
-		return helper.JsonError(c, fiber.StatusNotFound, "School terverifikasi tidak ditemukan")
-	}
-
-	log.Printf("[SUCCESS] Retrieved verified school: %s\n", m.SchoolName)
-	return helper.JsonOK(c, "ok", schoolDto.FromModel(&m))
-}
-
-// 🟢 GET SCHOOL BY SLUG (single resource)
-func (mc *SchoolController) GetSchoolBySlug(c *fiber.Ctx) error {
-	slug := c.Params("slug")
-	log.Printf("[INFO] Fetching school with slug: %s\n", slug)
-
-	var m schoolModel.SchoolModel
-	if err := mc.DB.Where("school_slug = ?", slug).First(&m).Error; err != nil {
-		log.Printf("[ERROR] School with slug %s not found\n", slug)
-		return helper.JsonError(c, fiber.StatusNotFound, "School tidak ditemukan")
-	}
-
-	log.Printf("[SUCCESS] Retrieved school: %s\n", m.SchoolName)
-	return helper.JsonOK(c, "ok", schoolDto.FromModel(&m))
 }

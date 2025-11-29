@@ -20,9 +20,7 @@ type SchoolProfileCreateRequest struct {
 	SchoolProfileFoundedYear *int    `json:"school_profile_founded_year,omitempty"`
 
 	// Alamat & kontak
-	SchoolProfileAddress      *string `json:"school_profile_address,omitempty"`
 	SchoolProfileContactPhone *string `json:"school_profile_contact_phone,omitempty"`
-	SchoolProfileContactEmail *string `json:"school_profile_contact_email,omitempty"`
 
 	// Sosial/link publik
 	SchoolProfileGoogleMapsURL          *string `json:"school_profile_google_maps_url,omitempty"`
@@ -56,9 +54,7 @@ type SchoolProfileUpdateRequest struct {
 	SchoolProfileFoundedYear *int    `json:"school_profile_founded_year,omitempty"`
 
 	// Alamat & kontak
-	SchoolProfileAddress      *string `json:"school_profile_address,omitempty"`
 	SchoolProfileContactPhone *string `json:"school_profile_contact_phone,omitempty"`
-	SchoolProfileContactEmail *string `json:"school_profile_contact_email,omitempty"`
 
 	// Sosial/link publik
 	SchoolProfileGoogleMapsURL          *string `json:"school_profile_google_maps_url,omitempty"`
@@ -86,45 +82,44 @@ type SchoolProfileUpdateRequest struct {
 	SchoolProfileSchoolIsBoarding      *bool      `json:"school_profile_school_is_boarding,omitempty"`
 }
 
-/* =======================================================
-   RESPONSE DTO
-   ======================================================= */
+/*
+=======================================================
 
+	RESPONSE DTO
+	=======================================================
+*/
 type SchoolProfileResponse struct {
 	SchoolProfileID       string `json:"school_profile_id"`
 	SchoolProfileSchoolID string `json:"school_profile_school_id"`
 
-	SchoolProfileDescription *string `json:"school_profile_description,omitempty"`
-	SchoolProfileFoundedYear *int    `json:"school_profile_founded_year,omitempty"`
+	SchoolProfileDescription *string `json:"school_profile_description"`
+	SchoolProfileFoundedYear *int    `json:"school_profile_founded_year"`
 
 	// Alamat & kontak
-	SchoolProfileAddress      *string `json:"school_profile_address,omitempty"`
-	SchoolProfileContactPhone *string `json:"school_profile_contact_phone,omitempty"`
-	SchoolProfileContactEmail *string `json:"school_profile_contact_email,omitempty"`
-
+	SchoolProfileContactPhone *string `json:"school_profile_contact_phone"`
 	// Sosial/link publik
-	SchoolProfileGoogleMapsURL          *string `json:"school_profile_google_maps_url,omitempty"`
-	SchoolProfileInstagramURL           *string `json:"school_profile_instagram_url,omitempty"`
-	SchoolProfileWhatsappURL            *string `json:"school_profile_whatsapp_url,omitempty"`
-	SchoolProfileYoutubeURL             *string `json:"school_profile_youtube_url,omitempty"`
-	SchoolProfileFacebookURL            *string `json:"school_profile_facebook_url,omitempty"`
-	SchoolProfileTiktokURL              *string `json:"school_profile_tiktok_url,omitempty"`
-	SchoolProfileWhatsappGroupIkhwanURL *string `json:"school_profile_whatsapp_group_ikhwan_url,omitempty"`
-	SchoolProfileWhatsappGroupAkhwatURL *string `json:"school_profile_whatsapp_group_akhwat_url,omitempty"`
-	SchoolProfileWebsiteURL             *string `json:"school_profile_website_url,omitempty"`
+	SchoolProfileGoogleMapsURL          *string `json:"school_profile_google_maps_url"`
+	SchoolProfileInstagramURL           *string `json:"school_profile_instagram_url"`
+	SchoolProfileWhatsappURL            *string `json:"school_profile_whatsapp_url"`
+	SchoolProfileYoutubeURL             *string `json:"school_profile_youtube_url"`
+	SchoolProfileFacebookURL            *string `json:"school_profile_facebook_url"`
+	SchoolProfileTiktokURL              *string `json:"school_profile_tiktok_url"`
+	SchoolProfileWhatsappGroupIkhwanURL *string `json:"school_profile_whatsapp_group_ikhwan_url"`
+	SchoolProfileWhatsappGroupAkhwatURL *string `json:"school_profile_whatsapp_group_akhwat_url"`
+	SchoolProfileWebsiteURL             *string `json:"school_profile_website_url"`
 
 	// Koordinat
-	SchoolProfileLatitude  *float64 `json:"school_profile_latitude,omitempty"`
-	SchoolProfileLongitude *float64 `json:"school_profile_longitude,omitempty"`
+	SchoolProfileLatitude  *float64 `json:"school_profile_latitude"`
+	SchoolProfileLongitude *float64 `json:"school_profile_longitude"`
 
 	// Profil sekolah
-	SchoolProfileSchoolNPSN            *string    `json:"school_profile_school_npsn,omitempty"`
-	SchoolProfileSchoolNSS             *string    `json:"school_profile_school_nss,omitempty"`
-	SchoolProfileSchoolAccreditation   *string    `json:"school_profile_school_accreditation,omitempty"`
-	SchoolProfileSchoolPrincipalUserID *uuid.UUID `json:"school_profile_school_principal_user_id,omitempty"`
-	SchoolProfileSchoolEmail           *string    `json:"school_profile_school_email,omitempty"`
-	SchoolProfileSchoolAddress         *string    `json:"school_profile_school_address,omitempty"`
-	SchoolProfileSchoolStudentCapacity *int       `json:"school_profile_school_student_capacity,omitempty"`
+	SchoolProfileSchoolNPSN            *string    `json:"school_profile_school_npsn"`
+	SchoolProfileSchoolNSS             *string    `json:"school_profile_school_nss"`
+	SchoolProfileSchoolAccreditation   *string    `json:"school_profile_school_accreditation"`
+	SchoolProfileSchoolPrincipalUserID *uuid.UUID `json:"school_profile_school_principal_user_id"`
+	SchoolProfileSchoolEmail           *string    `json:"school_profile_school_email"`
+	SchoolProfileSchoolAddress         *string    `json:"school_profile_school_address"`
+	SchoolProfileSchoolStudentCapacity *int       `json:"school_profile_school_student_capacity"`
 	SchoolProfileSchoolIsBoarding      bool       `json:"school_profile_school_is_boarding"`
 
 	// Read-only timestamps
@@ -145,9 +140,7 @@ func FromModelSchoolProfile(p *m.SchoolProfileModel) SchoolProfileResponse {
 		SchoolProfileFoundedYear: p.SchoolProfileFoundedYear,
 
 		// Alamat & kontak
-		SchoolProfileAddress:      p.SchoolProfileAddress,
 		SchoolProfileContactPhone: p.SchoolProfileContactPhone,
-		SchoolProfileContactEmail: p.SchoolProfileContactEmail,
 
 		// Sosial/link
 		SchoolProfileGoogleMapsURL:          p.SchoolProfileGoogleMapsURL,
@@ -187,9 +180,7 @@ func ToModelSchoolProfileCreate(req *SchoolProfileCreateRequest) *m.SchoolProfil
 		SchoolProfileDescription: req.SchoolProfileDescription,
 		SchoolProfileFoundedYear: req.SchoolProfileFoundedYear,
 
-		SchoolProfileAddress:      req.SchoolProfileAddress,
 		SchoolProfileContactPhone: req.SchoolProfileContactPhone,
-		SchoolProfileContactEmail: req.SchoolProfileContactEmail,
 
 		SchoolProfileGoogleMapsURL:          req.SchoolProfileGoogleMapsURL,
 		SchoolProfileInstagramURL:           req.SchoolProfileInstagramURL,
@@ -228,14 +219,8 @@ func ApplyPatchToModel(p *m.SchoolProfileModel, req *SchoolProfileUpdateRequest)
 		p.SchoolProfileFoundedYear = req.SchoolProfileFoundedYear
 	}
 
-	if req.SchoolProfileAddress != nil {
-		p.SchoolProfileAddress = req.SchoolProfileAddress
-	}
 	if req.SchoolProfileContactPhone != nil {
 		p.SchoolProfileContactPhone = req.SchoolProfileContactPhone
-	}
-	if req.SchoolProfileContactEmail != nil {
-		p.SchoolProfileContactEmail = req.SchoolProfileContactEmail
 	}
 
 	if req.SchoolProfileGoogleMapsURL != nil {

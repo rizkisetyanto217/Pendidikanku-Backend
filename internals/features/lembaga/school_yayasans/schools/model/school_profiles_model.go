@@ -17,9 +17,7 @@ type SchoolProfileModel struct {
 	SchoolProfileFoundedYear *int    `gorm:"type:int;column:school_profile_founded_year"                                      json:"school_profile_founded_year,omitempty"`
 
 	// Alamat & kontak publik
-	SchoolProfileAddress      *string `gorm:"type:text;column:school_profile_address"                                         json:"school_profile_address,omitempty"`
 	SchoolProfileContactPhone *string `gorm:"type:varchar(30);column:school_profile_contact_phone"                            json:"school_profile_contact_phone,omitempty"`
-	SchoolProfileContactEmail *string `gorm:"type:varchar(120);column:school_profile_contact_email"                           json:"school_profile_contact_email,omitempty"`
 
 	// Sosial/link publik (incl. maps)
 	SchoolProfileGoogleMapsURL          *string `gorm:"type:text;column:school_profile_google_maps_url"                      json:"school_profile_google_maps_url,omitempty"`

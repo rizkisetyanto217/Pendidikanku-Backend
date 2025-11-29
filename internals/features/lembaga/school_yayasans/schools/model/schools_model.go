@@ -102,6 +102,9 @@ type SchoolModel struct {
 
 	SchoolNumber int64 `gorm:"column:school_number" json:"school_number"`
 
+	// ✅ RELASI KE PROFILE (ini yang dibutuhkan Preload("SchoolProfile"))
+	SchoolProfile *SchoolProfileModel `gorm:"foreignKey:SchoolProfileSchoolID;references:SchoolID" json:"school_profile,omitempty"`
+
 	// Audit & soft delete
 	SchoolCreatedAt      time.Time      `gorm:"type:timestamptz;not null;default:now();autoCreateTime;column:school_created_at" json:"school_created_at"`
 	SchoolUpdatedAt      time.Time      `gorm:"type:timestamptz;not null;default:now();autoUpdateTime;column:school_updated_at" json:"school_updated_at"`
