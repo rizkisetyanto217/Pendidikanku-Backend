@@ -219,6 +219,9 @@ type CreateClassAttendanceSessionRequest struct {
 	ClassAttendanceSessionGeneralInfo string  `json:"class_attendance_session_general_info" validate:"required"`
 	ClassAttendanceSessionNote        *string `json:"class_attendance_session_note"         validate:"omitempty"`
 
+	// 🔢 Optional — nomor pertemuan
+	ClassAttendanceSessionMeetingNumber *int `json:"class_attendance_session_meeting_number" validate:"omitempty,min=1,max=365"`
+
 	// Optional — lifecycle
 	ClassAttendanceSessionStatus           *string `json:"class_attendance_session_status"            validate:"omitempty,oneof=scheduled ongoing completed canceled"`
 	ClassAttendanceSessionAttendanceStatus *string `json:"class_attendance_session_attendance_status" validate:"omitempty,oneof=open closed"`
@@ -287,6 +290,9 @@ type UpdateClassAttendanceSessionRequest struct {
 	ClassAttendanceSessionTitle       PatchFieldSessions[string] `json:"class_attendance_session_title"`
 	ClassAttendanceSessionGeneralInfo PatchFieldSessions[string] `json:"class_attendance_session_general_info"`
 	ClassAttendanceSessionNote        PatchFieldSessions[string] `json:"class_attendance_session_note"`
+
+	// 🔢 Meeting number (boleh nil untuk clear)
+	ClassAttendanceSessionMeetingNumber PatchFieldSessions[int] `json:"class_attendance_session_meeting_number"`
 
 	// Lifecycle
 	ClassAttendanceSessionStatus           PatchFieldSessions[string] `json:"class_attendance_session_status"`
@@ -368,6 +374,9 @@ type ClassAttendanceSessionResponse struct {
 	// Info & rekap
 	ClassAttendanceSessionGeneralInfo string  `json:"class_attendance_session_general_info"`
 	ClassAttendanceSessionNote        *string `json:"class_attendance_session_note,omitempty"`
+
+	// 🔢 Meeting number
+	ClassAttendanceSessionMeetingNumber *int `json:"class_attendance_session_meeting_number,omitempty"`
 
 	// Counters
 	ClassAttendanceSessionPresentCount *int `json:"class_attendance_session_present_count,omitempty"`
@@ -467,6 +476,9 @@ type ClassAttendanceSessionCompactResponse struct {
 	ClassAttendanceSessionDisplayTitle *string `json:"class_attendance_session_display_title,omitempty"`
 	ClassAttendanceSessionGeneralInfo  string  `json:"class_attendance_session_general_info"`
 
+	// 🔢 Meeting number
+	ClassAttendanceSessionMeetingNumber *int `json:"class_attendance_session_meeting_number,omitempty"`
+
 	// Lifecycle
 	ClassAttendanceSessionStatus           string `json:"class_attendance_session_status"`
 	ClassAttendanceSessionAttendanceStatus string `json:"class_attendance_session_attendance_status"`
@@ -513,6 +525,9 @@ func FromClassAttendanceSessionModelCompact(m model.ClassAttendanceSessionModel)
 		ClassAttendanceSessionTitle:        m.ClassAttendanceSessionTitle,
 		ClassAttendanceSessionDisplayTitle: m.ClassAttendanceSessionDisplayTitle,
 		ClassAttendanceSessionGeneralInfo:  m.ClassAttendanceSessionGeneralInfo,
+
+		// 🔢 meeting number
+		ClassAttendanceSessionMeetingNumber: m.ClassAttendanceSessionMeetingNumber,
 
 		ClassAttendanceSessionStatus:           string(m.ClassAttendanceSessionStatus),
 		ClassAttendanceSessionAttendanceStatus: string(m.ClassAttendanceSessionAttendanceStatus),
@@ -570,6 +585,10 @@ func (r CreateClassAttendanceSessionRequest) ToModel() model.ClassAttendanceSess
 		ClassAttendanceSessionTitle:       r.ClassAttendanceSessionTitle,
 		ClassAttendanceSessionGeneralInfo: r.ClassAttendanceSessionGeneralInfo,
 		ClassAttendanceSessionNote:        r.ClassAttendanceSessionNote,
+
+		// 🔢 meeting number
+		ClassAttendanceSessionMeetingNumber: r.ClassAttendanceSessionMeetingNumber,
+
 		// Overrides & resources
 		ClassAttendanceSessionOriginalStartAt: r.ClassAttendanceSessionOriginalStartAt,
 		ClassAttendanceSessionOriginalEndAt:   r.ClassAttendanceSessionOriginalEndAt,
@@ -661,6 +680,9 @@ func FromClassAttendanceSessionModel(m model.ClassAttendanceSessionModel) ClassA
 
 		ClassAttendanceSessionGeneralInfo: m.ClassAttendanceSessionGeneralInfo,
 		ClassAttendanceSessionNote:        m.ClassAttendanceSessionNote,
+
+		// 🔢 meeting number
+		ClassAttendanceSessionMeetingNumber: m.ClassAttendanceSessionMeetingNumber,
 
 		// Counters
 		ClassAttendanceSessionPresentCount: m.ClassAttendanceSessionPresentCount,
@@ -779,6 +801,12 @@ func (r UpdateClassAttendanceSessionRequest) Apply(m *model.ClassAttendanceSessi
 	}
 	if v, ok := r.ClassAttendanceSessionNote.Get(); ok {
 		m.ClassAttendanceSessionNote = v
+	}
+
+	// 🔢 Meeting number
+	if v, ok := r.ClassAttendanceSessionMeetingNumber.Get(); ok {
+		// v bisa nil (clear) atau pointer ke int (set nilai)
+		m.ClassAttendanceSessionMeetingNumber = v
 	}
 
 	// Lifecycle

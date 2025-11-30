@@ -801,6 +801,58 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time`
 	meetingCountByCSST := map[uuid.UUID]int{}
 	roomFromCSSTCache := map[uuid.UUID]*uuid.UUID{}
 
+	// ===============================
+	// Preload offset meeting number
+	// ===============================
+	existingMeetingOffset := map[uuid.UUID]int{}
+
+	// Kumpulkan semua CSST yang akan dipakai (dari rules + default)
+	csstIDsSet := map[uuid.UUID]struct{}{}
+	if opts.DefaultCSSTID != nil && *opts.DefaultCSSTID != uuid.Nil {
+		csstIDsSet[*opts.DefaultCSSTID] = struct{}{}
+	}
+	for _, r := range rr {
+		if r.CSSTID != nil && *r.CSSTID != uuid.Nil {
+			csstIDsSet[*r.CSSTID] = struct{}{}
+		}
+	}
+
+	if len(csstIDsSet) > 0 {
+		ids := make([]uuid.UUID, 0, len(csstIDsSet))
+		for id := range csstIDsSet {
+			ids = append(ids, id)
+		}
+
+		type meetingRow struct {
+			CSSTID uuid.UUID `gorm:"column:csst_id"`
+			MaxNo  *int      `gorm:"column:max_no"`
+		}
+		var mm []meetingRow
+
+		// Ambil max meeting_number per CSST yang sudah pernah ada
+		if err := g.DB.WithContext(ctx).
+			Raw(`
+				SELECT
+				  class_attendance_session_csst_id AS csst_id,
+				  MAX(class_attendance_session_meeting_number) AS max_no
+				FROM class_attendance_sessions
+				WHERE class_attendance_session_school_id = ?
+				  AND class_attendance_session_csst_id = ANY(?)
+				  AND class_attendance_session_deleted_at IS NULL
+				GROUP BY class_attendance_session_csst_id
+			`, sch.ClassScheduleSchoolID, pq.Array(ids)).
+			Scan(&mm).Error; err != nil {
+			// Kalau gagal, jangan matiin generator, cukup log aja
+			log.Printf("[Generator] failed preload meeting offsets: %v", err)
+		} else {
+			for _, m := range mm {
+				if m.MaxNo != nil {
+					existingMeetingOffset[m.CSSTID] = *m.MaxNo
+				}
+			}
+		}
+	}
+
 	// 3) Expand occurrences
 	rows := make([]sessModel.ClassAttendanceSessionModel, 0, 1024)
 
@@ -886,17 +938,27 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time`
 			}
 		}
 
-		// Title otomatis + slug per pertemuan
+		// Title otomatis + meeting number + slug per pertemuan
 		if baseName != nil && strings.TrimSpace(*baseName) != "" && effCSST != nil {
 			key := *effCSST
-			meetingCountByCSST[key] = meetingCountByCSST[key] + 1
-			n := meetingCountByCSST[key]
 
-			// Title: "<nama CSST> pertemuan ke-N"
-			title := fmt.Sprintf("%s pertemuan ke-%d", strings.TrimSpace(*baseName), n)
+			// offset existing (max meeting number sebelumnya)
+			offset := existingMeetingOffset[key] // default 0 kalau nggak ada
+
+			// counter run ini
+			meetingCountByCSST[key] = meetingCountByCSST[key] + 1
+
+			// nomor final = existing max + urutan baru
+			n := offset + meetingCountByCSST[key]
+
+			// 🔢 simpan nomor pertemuan ke kolom khusus
+			row.ClassAttendanceSessionMeetingNumber = ptr(n)
+
+			// 🏷️ title: hanya nama CSST (tanpa "pertemuan ke-N")
+			title := strings.TrimSpace(*baseName)
 			row.ClassAttendanceSessionTitle = &title
 
-			// Slug: "<slug_csst>-pertemuan-N" (kalau slug session masih kosong)
+			// 🔗 slug: "<slug_csst>-pertemuan-N" (kalau slug session masih kosong)
 			if row.ClassAttendanceSessionSlug == nil || strings.TrimSpace(ptrStr(row.ClassAttendanceSessionSlug)) == "" {
 				var baseSlug string
 				if v, ok := effCSSTSnap["slug"]; ok {

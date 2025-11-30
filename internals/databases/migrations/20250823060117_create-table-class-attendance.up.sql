@@ -144,6 +144,8 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_session_sick_count    INT,
   class_attendance_session_leave_count   INT,
 
+  class_attendance_session_meeting_number SMALLINT,
+
   -- ===== Snapshot CSST (sumber data turunan) =====
   class_attendance_session_csst_snapshot JSONB,
 
@@ -236,6 +238,16 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
 -- =========================================
 -- INDEXES (idempotent)
 -- =========================================
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_school_csst_date_start_alive
+ON class_attendance_sessions (
+  class_attendance_session_school_id,
+  class_attendance_session_csst_id,
+  class_attendance_session_date,
+  class_attendance_session_starts_at
+)
+WHERE class_attendance_session_deleted_at IS NULL;
+
 
 -- Pair unik id+tenant
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_id_tenant

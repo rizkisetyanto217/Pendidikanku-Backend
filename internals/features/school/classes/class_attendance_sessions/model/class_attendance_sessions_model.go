@@ -78,6 +78,9 @@ type ClassAttendanceSessionModel struct {
 	ClassAttendanceSessionGeneralInfo string  `gorm:"type:text;not null;default:'';column:class_attendance_session_general_info" json:"class_attendance_session_general_info"`
 	ClassAttendanceSessionNote        *string `gorm:"type:text;column:class_attendance_session_note" json:"class_attendance_session_note,omitempty"`
 
+	// 🔢 Nomor pertemuan (meeting number)
+	ClassAttendanceSessionMeetingNumber *int `gorm:"column:class_attendance_session_meeting_number" json:"class_attendance_session_meeting_number,omitempty"`
+
 	ClassAttendanceSessionPresentCount *int `gorm:"column:class_attendance_session_present_count" json:"class_attendance_session_present_count,omitempty"`
 	ClassAttendanceSessionAbsentCount  *int `gorm:"column:class_attendance_session_absent_count" json:"class_attendance_session_absent_count,omitempty"`
 	ClassAttendanceSessionLateCount    *int `gorm:"column:class_attendance_session_late_count" json:"class_attendance_session_late_count,omitempty"`

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv" // ⭐ NEW: buat parse meeting_number dari multipart
 	"strings"
 	"time"
 
@@ -169,6 +170,13 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 		req.ClassAttendanceSessionGeneralInfo = strings.TrimSpace(c.FormValue("class_attendance_session_general_info"))
 		if v := strings.TrimSpace(c.FormValue("class_attendance_session_note")); v != "" {
 			req.ClassAttendanceSessionNote = &v
+		}
+
+		// ⭐ NEW: meeting number dari multipart
+		if v := strings.TrimSpace(c.FormValue("class_attendance_session_meeting_number")); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				req.ClassAttendanceSessionMeetingNumber = &n
+			}
 		}
 
 		// Lifecycle (opsional)
@@ -526,7 +534,7 @@ LIMIT 1`
 			return fiber.NewError(fiber.StatusConflict, "Sesi kehadiran untuk tanggal tersebut sudah ada")
 		}
 
-		// --- Auto-Title (opsional) ---
+		// --- Auto-Title (opsional) + sinkron meeting_number ---
 		if (req.ClassAttendanceSessionTitle == nil || strings.TrimSpace(*req.ClassAttendanceSessionTitle) == "") &&
 			req.ClassAttendanceSessionCSSTId != nil && *req.ClassAttendanceSessionCSSTId != uuid.Nil {
 
@@ -561,7 +569,16 @@ LIMIT 1`
 				_ = q.Count(&n).Error
 				n++ // sesi yang akan dibuat ini
 
-				title := fmt.Sprintf("%s pertemuan ke-%d", baseName, n)
+				// ⭐ NEW: sinkron ke meeting_number kalau belum ada
+				var meetingNo int
+				if req.ClassAttendanceSessionMeetingNumber != nil && *req.ClassAttendanceSessionMeetingNumber > 0 {
+					meetingNo = *req.ClassAttendanceSessionMeetingNumber
+				} else {
+					meetingNo = int(n)
+					req.ClassAttendanceSessionMeetingNumber = &meetingNo
+				}
+
+				title := fmt.Sprintf("%s pertemuan ke-%d", baseName, meetingNo)
 				req.ClassAttendanceSessionTitle = &title
 			}
 		}
