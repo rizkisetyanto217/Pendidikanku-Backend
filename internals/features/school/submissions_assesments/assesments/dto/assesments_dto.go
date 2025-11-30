@@ -134,7 +134,7 @@ func (r *CreateAssessmentRequest) ToModel() assessModel.AssessmentModel {
 		AssessmentSubmissionMode:               assessModel.SubmissionModeDate, // akan dioverride di controller
 		AssessmentIsPublished:                  *r.AssessmentIsPublished,
 		AssessmentAllowSubmission:              *r.AssessmentAllowSubmission,
-		// Counters submissions biarkan pakai default DB (0)
+		// Snapshot fields & counters pakai default DB / diisi di service
 	}
 
 	return row
@@ -269,6 +269,7 @@ func (r *PatchAssessmentRequest) Apply(m *assessModel.AssessmentModel) {
 
 ========================================================
 */
+
 type AssessmentResponse struct {
 	AssessmentID       uuid.UUID `json:"assessment_id"`
 	AssessmentSchoolID uuid.UUID `json:"assessment_school_id"`
@@ -302,6 +303,25 @@ type AssessmentResponse struct {
 	// flag hasil grading tipe assessment
 	AssessmentTypeIsGradedSnapshot bool `json:"assessment_type_is_graded_snapshot"`
 
+	// Snapshot aturan dari AssessmentType (pada saat assessment dibuat)
+	AssessmentShuffleQuestionsSnapshot       bool   `json:"assessment_shuffle_questions_snapshot"`
+	AssessmentShuffleOptionsSnapshot         bool   `json:"assessment_shuffle_options_snapshot"`
+	AssessmentShowCorrectAfterSubmitSnapshot bool   `json:"assessment_show_correct_after_submit_snapshot"`
+	AssessmentStrictModeSnapshot             bool   `json:"assessment_strict_mode_snapshot"`
+	AssessmentTimeLimitMinSnapshot           *int   `json:"assessment_time_limit_min_snapshot,omitempty"`
+	AssessmentAttemptsAllowedSnapshot        int    `json:"assessment_attempts_allowed_snapshot"`
+	AssessmentRequireLoginSnapshot           bool   `json:"assessment_require_login_snapshot"`
+	AssessmentScoreAggregationModeSnapshot   string `json:"assessment_score_aggregation_mode_snapshot"`
+
+	AssessmentAllowLateSubmissionSnapshot         bool    `json:"assessment_allow_late_submission_snapshot"`
+	AssessmentLatePenaltyPercentSnapshot          float64 `json:"assessment_late_penalty_percent_snapshot"`
+	AssessmentPassingScorePercentSnapshot         float64 `json:"assessment_passing_score_percent_snapshot"`
+	AssessmentShowScoreAfterSubmitSnapshot        bool    `json:"assessment_show_score_after_submit_snapshot"`
+	AssessmentShowCorrectAfterClosedSnapshot      bool    `json:"assessment_show_correct_after_closed_snapshot"`
+	AssessmentAllowReviewBeforeSubmitSnapshot     bool    `json:"assessment_allow_review_before_submit_snapshot"`
+	AssessmentRequireCompleteAttemptSnapshot      bool    `json:"assessment_require_complete_attempt_snapshot"`
+	AssessmentShowDetailsAfterAllAttemptsSnapshot bool    `json:"assessment_show_details_after_all_attempts_snapshot"`
+
 	AssessmentCreatedByTeacherID *uuid.UUID `json:"assessment_created_by_teacher_id,omitempty"`
 
 	AssessmentSubmissionMode    string     `json:"assessment_submission_mode"`
@@ -311,9 +331,6 @@ type AssessmentResponse struct {
 	AssessmentCSSTSnapshot            map[string]any `json:"assessment_csst_snapshot,omitempty"`
 	AssessmentAnnounceSessionSnapshot map[string]any `json:"assessment_announce_session_snapshot,omitempty"`
 	AssessmentCollectSessionSnapshot  map[string]any `json:"assessment_collect_session_snapshot,omitempty"`
-
-	// Snapshot tipe assessment (key, name, weight, rules, dll)
-	AssessmentTypeSnapshot map[string]any `json:"assessment_type_snapshot,omitempty"`
 
 	AssessmentCreatedAt time.Time `json:"assessment_created_at"`
 	AssessmentUpdatedAt time.Time `json:"assessment_updated_at"`
@@ -362,11 +379,31 @@ func FromModelAssesment(m assessModel.AssessmentModel) AssessmentResponse {
 		AssessmentIsPublished:          m.AssessmentIsPublished,
 		AssessmentAllowSubmission:      m.AssessmentAllowSubmission,
 
-		// mirror kolom model
+		// counters
 		AssessmentSubmissionsTotal:       m.AssessmentSubmissionsTotal,
 		AssessmentSubmissionsGradedTotal: m.AssessmentSubmissionsGradedTotal,
 
+		// flag hasil grading type
 		AssessmentTypeIsGradedSnapshot: m.AssessmentTypeIsGradedSnapshot,
+
+		// snapshot rules dari AssessmentType
+		AssessmentShuffleQuestionsSnapshot:       m.AssessmentShuffleQuestionsSnapshot,
+		AssessmentShuffleOptionsSnapshot:         m.AssessmentShuffleOptionsSnapshot,
+		AssessmentShowCorrectAfterSubmitSnapshot: m.AssessmentShowCorrectAfterSubmitSnapshot,
+		AssessmentStrictModeSnapshot:             m.AssessmentStrictModeSnapshot,
+		AssessmentTimeLimitMinSnapshot:           m.AssessmentTimeLimitMinSnapshot,
+		AssessmentAttemptsAllowedSnapshot:        m.AssessmentAttemptsAllowedSnapshot,
+		AssessmentRequireLoginSnapshot:           m.AssessmentRequireLoginSnapshot,
+		AssessmentScoreAggregationModeSnapshot:   m.AssessmentScoreAggregationModeSnapshot,
+
+		AssessmentAllowLateSubmissionSnapshot:         m.AssessmentAllowLateSubmissionSnapshot,
+		AssessmentLatePenaltyPercentSnapshot:          m.AssessmentLatePenaltyPercentSnapshot,
+		AssessmentPassingScorePercentSnapshot:         m.AssessmentPassingScorePercentSnapshot,
+		AssessmentShowScoreAfterSubmitSnapshot:        m.AssessmentShowScoreAfterSubmitSnapshot,
+		AssessmentShowCorrectAfterClosedSnapshot:      m.AssessmentShowCorrectAfterClosedSnapshot,
+		AssessmentAllowReviewBeforeSubmitSnapshot:     m.AssessmentAllowReviewBeforeSubmitSnapshot,
+		AssessmentRequireCompleteAttemptSnapshot:      m.AssessmentRequireCompleteAttemptSnapshot,
+		AssessmentShowDetailsAfterAllAttemptsSnapshot: m.AssessmentShowDetailsAfterAllAttemptsSnapshot,
 
 		AssessmentCreatedByTeacherID: m.AssessmentCreatedByTeacherID,
 
@@ -377,8 +414,6 @@ func FromModelAssesment(m assessModel.AssessmentModel) AssessmentResponse {
 		AssessmentCSSTSnapshot:            toMap(m.AssessmentCSSTSnapshot),
 		AssessmentAnnounceSessionSnapshot: toMap(m.AssessmentAnnounceSessionSnapshot),
 		AssessmentCollectSessionSnapshot:  toMap(m.AssessmentCollectSessionSnapshot),
-
-		AssessmentTypeSnapshot: toMap(m.AssessmentTypeSnapshot),
 
 		AssessmentCreatedAt: m.AssessmentCreatedAt,
 		AssessmentUpdatedAt: m.AssessmentUpdatedAt,

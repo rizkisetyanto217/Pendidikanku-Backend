@@ -2,18 +2,22 @@
 package controller
 
 import (
+	"strings"
+
 	dto "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/dto"
 	assessmentModel "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/model"
 	helper "madinahsalam_backend/internals/helpers"
-	"strings"
+	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
-
-	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
-// GET /assessment-types?active=&q=&limit=&offset=&sort_by=&sort_dir=
+/* ======================================================
+   HANDLER: GET /assessment-types
+   Query: ?active=&q=&limit=&offset=&sort_by=&sort_dir=
+====================================================== */
+
 func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 	// Pastikan helper slug→id bisa akses DB dari context (kalau masih butuh fallback)
 	c.Locals("DB", ctl.DB)
@@ -48,13 +52,16 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 			}
 			schoolID = id
 		} else {
-			return helper.JsonError(c, helperAuth.ErrSchoolContextMissing.Code, helperAuth.ErrSchoolContextMissing.Message)
+			return helper.JsonError(
+				c,
+				helperAuth.ErrSchoolContextMissing.Code,
+				helperAuth.ErrSchoolContextMissing.Message,
+			)
 		}
 	}
 
 	// =====================================================
 	// 2) Authorize: minimal member school (any role)
-	//    (student/teacher/dkm/admin/bendahara)
 	// =====================================================
 	if err := helperAuth.EnsureMemberSchool(c, schoolID); err != nil {
 		// EnsureMemberSchool sudah balikin JsonError yang rapi

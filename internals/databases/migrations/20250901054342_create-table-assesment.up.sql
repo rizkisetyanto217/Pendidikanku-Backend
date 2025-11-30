@@ -7,45 +7,47 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
--- =========================================================
--- 1) ASSESSMENT_TYPES (master types)
---    - tabel plural
---    - kolom singular (prefix assessment_type_)
---    - menyimpan default rule perilaku kuis/penilaian
--- =========================================================
+-- ======================================================================
+-- 1) TABLE: assessment_types
+--    - Master setting / preset
+--    - Default policy untuk kuis/ujian/tugas
+-- ======================================================================
 CREATE TABLE IF NOT EXISTS assessment_types (
   assessment_type_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   assessment_type_school_id UUID NOT NULL
     REFERENCES schools(school_id) ON DELETE CASCADE,
 
-  assessment_type_key  VARCHAR(32)  NOT NULL,  -- unik per school (uas, uts, tugas, ...)
+  assessment_type_key  VARCHAR(32)  NOT NULL,
   assessment_type_name VARCHAR(120) NOT NULL,
 
-  -- Bobot untuk perhitungan nilai akhir (0–100%)
-  assessment_type_weight_percent NUMERIC(5,2) NOT NULL DEFAULT 0
-    CHECK (assessment_type_weight_percent >= 0 AND assessment_type_weight_percent <= 100),
+  -- Bobot nilai akhir (0–100)
+  assessment_type_weight_percent NUMERIC(5,2)
+    NOT NULL DEFAULT 0
+    CHECK (
+      assessment_type_weight_percent >= 0
+      AND assessment_type_weight_percent <= 100
+    ),
 
   -- ============================
-  -- Default pengaturan kuis
-  -- (diambil dari React QuizSettings)
+  -- DEFAULT QUIZ SETTINGS
   -- ============================
 
-  -- Acak urutan pertanyaan
+  -- Acak urutan pertanyaan & opsi
   assessment_type_shuffle_questions BOOLEAN NOT NULL DEFAULT FALSE,
-
-  -- Acak urutan opsi jawaban
   assessment_type_shuffle_options  BOOLEAN NOT NULL DEFAULT FALSE,
 
   -- Tampilkan jawaban benar / review setelah submit
   assessment_type_show_correct_after_submit BOOLEAN NOT NULL DEFAULT TRUE,
 
-  -- Satu pertanyaan per halaman (pagination saat mengerjakan)
-  assessment_type_one_question_per_page BOOLEAN NOT NULL DEFAULT FALSE,
+  -- ✅ Strict mode (gantikan one_question_per_page + prevent_back_navigation)
+  -- Interpretasi di layer app:
+  --   - bisa di-mapping jadi 1 soal per halaman,
+  --   - tidak boleh back,
+  --   - dll
+  assessment_type_strict_mode BOOLEAN NOT NULL DEFAULT FALSE,
 
-  assessment_type_is_graded BOOLEAN NOT NULL DEFAULT FALSE,
-
-  -- Batas waktu pengerjaan (menit); NULL = tanpa batas
+  -- Batas waktu (menit); NULL = tanpa batas
   assessment_type_time_limit_min INTEGER
     CHECK (assessment_type_time_limit_min IS NULL OR assessment_type_time_limit_min >= 0),
 
@@ -56,50 +58,63 @@ CREATE TABLE IF NOT EXISTS assessment_types (
   -- Wajib login saat mengerjakan
   assessment_type_require_login BOOLEAN NOT NULL DEFAULT TRUE,
 
-  -- Blok navigasi "back" (kurangi kecurangan)
-  assessment_type_prevent_back_navigation BOOLEAN NOT NULL DEFAULT FALSE,
-
   -- Status aktif type ini
   assessment_type_is_active BOOLEAN NOT NULL DEFAULT TRUE,
+
+  -- Type ini menghasilkan nilai (graded) atau cuma hadir / survey
+  assessment_type_is_graded BOOLEAN NOT NULL DEFAULT TRUE,
+
+  -- ========== Default Late Policy ==========
+  assessment_type_allow_late_submission BOOLEAN NOT NULL DEFAULT FALSE,
+
+  assessment_type_late_penalty_percent NUMERIC(5,2)
+    NOT NULL DEFAULT 0
+    CHECK (
+      assessment_type_late_penalty_percent >= 0
+      AND assessment_type_late_penalty_percent <= 100
+    ),
+
+  -- Minimal nilai lulus
+  assessment_type_passing_score_percent NUMERIC(5,2)
+    NOT NULL DEFAULT 0
+    CHECK (
+      assessment_type_passing_score_percent >= 0
+      AND assessment_type_passing_score_percent <= 100
+    ),
+
+  -- Cara agregasi nilai kalau ada banyak attempt
+  -- (latest / highest / average)
+  assessment_type_score_aggregation_mode VARCHAR(20) NOT NULL DEFAULT 'latest',
+
+  -- Behavior skor & review
+  assessment_type_show_score_after_submit        BOOLEAN NOT NULL DEFAULT TRUE,
+  assessment_type_show_correct_after_closed      BOOLEAN NOT NULL DEFAULT FALSE,
+  assessment_type_allow_review_before_submit     BOOLEAN NOT NULL DEFAULT TRUE,
+  assessment_type_require_complete_attempt       BOOLEAN NOT NULL DEFAULT TRUE,
+  assessment_type_show_details_after_all_attempts BOOLEAN NOT NULL DEFAULT FALSE,
 
   assessment_type_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   assessment_type_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   assessment_type_deleted_at TIMESTAMPTZ
 );
 
--- Pair unik id+tenant (tenant-safe)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_types_id_tenant
   ON assessment_types (assessment_type_id, assessment_type_school_id);
 
--- Unik per school + key (alive only, case-insensitive)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_types_key_per_school_alive
   ON assessment_types (assessment_type_school_id, LOWER(assessment_type_key))
   WHERE assessment_type_deleted_at IS NULL;
 
--- Listing aktif / filter umum
 CREATE INDEX IF NOT EXISTS idx_assessment_types_school_active
   ON assessment_types (assessment_type_school_id, assessment_type_is_active)
   WHERE assessment_type_deleted_at IS NULL;
 
--- BRIN waktu
 CREATE INDEX IF NOT EXISTS brin_assessment_types_created_at
   ON assessment_types USING BRIN (assessment_type_created_at);
 
 
 -- =========================================================
--- 0) TENANT-SAFE GUARD PADA CSST (unik pair id+tenant)
--- =========================================================
-CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_id_school
-ON class_section_subject_teachers (
-  class_section_subject_teacher_id,
-  class_section_subject_teacher_school_id
-);
-
--- =========================================================
--- 2) ASSESSMENTS — clean relation (ONLY TO CSST) + saklar session
--- =========================================================
--- =========================================================
--- ENUM: assessment_kind_enum (bentuk assessment)
+-- 1) ENUM: assessment_kind_enum
 -- =========================================================
 DO $$
 BEGIN
@@ -113,23 +128,24 @@ BEGIN
   END IF;
 END$$;
 
-
-
+-- =========================================================
+-- 2) TABLE: assessments (sinkron dengan AssessmentModel)
+-- =========================================================
 CREATE TABLE IF NOT EXISTS assessments (
   assessment_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   assessment_school_id UUID NOT NULL
     REFERENCES schools(school_id) ON DELETE CASCADE,
 
-  -- Hanya relasi ke CSST (tenant tidak dipaksa komposit di DB)
+  -- Relasi ke CSST (single FK)
   assessment_class_section_subject_teacher_id UUID NULL,
 
   -- Tipe penilaian (kategori akademik, tenant-safe di-backend)
   assessment_type_id UUID,
 
-  assessment_slug VARCHAR(160),
-
-  assessment_title       VARCHAR(180) NOT NULL,
+  -- Identitas
+  assessment_slug  VARCHAR(160),
+  assessment_title VARCHAR(180) NOT NULL,
   assessment_description TEXT,
 
   -- Jadwal by date
@@ -138,8 +154,8 @@ CREATE TABLE IF NOT EXISTS assessments (
   assessment_published_at TIMESTAMPTZ,
   assessment_closed_at    TIMESTAMPTZ,
 
-  -- Pengaturan
-  assessment_kind assessment_kind_enum NOT NULL DEFAULT 'quiz', -- bentuk: quiz / assignment_upload / offline / survey
+  -- Pengaturan dasar assessment
+  assessment_kind assessment_kind_enum NOT NULL DEFAULT 'quiz',
   assessment_duration_minutes       INT,
   assessment_total_attempts_allowed INT NOT NULL DEFAULT 1,
   assessment_max_score NUMERIC(5,2) NOT NULL DEFAULT 100
@@ -148,26 +164,53 @@ CREATE TABLE IF NOT EXISTS assessments (
   -- total quiz/komponen quiz di assessment ini (global, sama untuk semua siswa)
   assessment_quiz_total SMALLINT NOT NULL DEFAULT 0,
 
+  -- agregat submissions (diupdate dari service)
+  assessment_submissions_total       INT NOT NULL DEFAULT 0,
+  assessment_submissions_graded_total INT NOT NULL DEFAULT 0,
+
   assessment_is_published     BOOLEAN NOT NULL DEFAULT TRUE,
   assessment_allow_submission BOOLEAN NOT NULL DEFAULT TRUE,
 
-  -- Audit
-  assessment_created_by_teacher_id UUID,
-
+  -- Flag apakah assessment type ini menghasilkan nilai (graded) — snapshot
   assessment_type_is_graded_snapshot BOOLEAN NOT NULL DEFAULT FALSE,
 
-  assessment_type_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  -- =========================
+  -- Snapshot aturan dari AssessmentType (per assessment)
+  -- =========================
 
-  -- Snapshot
-  assessment_csst_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  -- Quiz behaviour
+  assessment_shuffle_questions_snapshot       BOOLEAN NOT NULL DEFAULT FALSE,
+  assessment_shuffle_options_snapshot         BOOLEAN NOT NULL DEFAULT FALSE,
+  assessment_show_correct_after_submit_snapshot BOOLEAN NOT NULL DEFAULT TRUE,
+  assessment_strict_mode_snapshot             BOOLEAN NOT NULL DEFAULT FALSE,
+  assessment_time_limit_min_snapshot          INT,
+  assessment_attempts_allowed_snapshot        INT NOT NULL DEFAULT 1,
+  assessment_require_login_snapshot           BOOLEAN NOT NULL DEFAULT TRUE,
+  assessment_score_aggregation_mode_snapshot  VARCHAR(20) NOT NULL DEFAULT 'latest',
+
+  -- Late policy & visibility
+  assessment_allow_late_submission_snapshot         BOOLEAN NOT NULL DEFAULT FALSE,
+  assessment_late_penalty_percent_snapshot          NUMERIC(5,2) NOT NULL DEFAULT 0,
+  assessment_passing_score_percent_snapshot         NUMERIC(5,2) NOT NULL DEFAULT 0,
+  assessment_show_score_after_submit_snapshot       BOOLEAN NOT NULL DEFAULT TRUE,
+  assessment_show_correct_after_closed_snapshot     BOOLEAN NOT NULL DEFAULT FALSE,
+  assessment_allow_review_before_submit_snapshot    BOOLEAN NOT NULL DEFAULT TRUE,
+  assessment_require_complete_attempt_snapshot      BOOLEAN NOT NULL DEFAULT TRUE,
+  assessment_show_details_after_all_attempts_snapshot BOOLEAN NOT NULL DEFAULT FALSE,
+
+  -- Audit pembuat (opsional)
+  assessment_created_by_teacher_id UUID,
+
+  -- Snapshots relasi (CSST & sesi kehadiran)
+  assessment_csst_snapshot            JSONB NOT NULL DEFAULT '{}'::jsonb,
   assessment_announce_session_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
   assessment_collect_session_snapshot  JSONB NOT NULL DEFAULT '{}'::jsonb,
 
-  -- Saklar masa depan (per session)
+  -- Mode pengumpulan (by date / by session)
   assessment_submission_mode TEXT NOT NULL DEFAULT 'date'
     CHECK (assessment_submission_mode IN ('date','session')),
-  assessment_announce_session_id UUID,  -- opsional
-  assessment_collect_session_id  UUID,  -- opsional
+  assessment_announce_session_id UUID,
+  assessment_collect_session_id  UUID,
 
   -- Timestamps
   assessment_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -281,7 +324,7 @@ CREATE INDEX IF NOT EXISTS idx_assessments_kind_alive
 CREATE INDEX IF NOT EXISTS brin_assessments_created_at
   ON assessments USING BRIN (assessment_created_at);
 
-  -- Index opsional, kalau nanti sering dipakai buat sort/filter
+-- Index tambahan untuk agregat submissions
 CREATE INDEX IF NOT EXISTS idx_assessments_submissions_total_alive
   ON assessments (assessment_school_id, assessment_submissions_total)
   WHERE assessment_deleted_at IS NULL;
@@ -289,7 +332,6 @@ CREATE INDEX IF NOT EXISTS idx_assessments_submissions_total_alive
 CREATE INDEX IF NOT EXISTS idx_assessments_submissions_graded_total_alive
   ON assessments (assessment_school_id, assessment_submissions_graded_total)
   WHERE assessment_deleted_at IS NULL;
-
 
 -- =========================================================
 -- 7) ASSESSMENT_URLS (selaras dgn announcement_urls)

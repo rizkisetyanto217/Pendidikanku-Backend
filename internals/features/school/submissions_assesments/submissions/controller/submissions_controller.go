@@ -278,7 +278,7 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 	}
 
 	// ---------- Transaksi ----------
-	var created *model.Submission
+	var created *model.SubmissionModel
 
 	if err := ctrl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
 		// 1) Simpan submission pakai DTO → Model
@@ -476,7 +476,7 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 	{
 		var count int64
 		if err := ctrl.DB.WithContext(c.Context()).
-			Model(&model.Submission{}).
+			Model(&model.SubmissionModel{}).
 			Where("submission_id = ? AND submission_school_id = ? AND submission_deleted_at IS NULL", subID, schoolID).
 			Count(&count).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())

@@ -30,7 +30,7 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 
 	// 3) Base query: semua submission milik school ini
 	tx := ctrl.DB.WithContext(c.Context()).
-		Model(&model.Submission{}).
+		Model(&model.SubmissionModel{}).
 		Where(`
 			submission_school_id = ?
 			AND submission_deleted_at IS NULL
@@ -78,7 +78,7 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	var rows []model.Submission
+	var rows []model.SubmissionModel
 	if err := tx.
 		Order("submission_created_at DESC").
 		Offset(paging.Offset).

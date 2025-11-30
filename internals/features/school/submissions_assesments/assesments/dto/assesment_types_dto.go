@@ -23,18 +23,33 @@ type CreateAssessmentTypeRequest struct {
 	AssessmentTypeWeightPercent float64   `json:"assessment_type_weight_percent" validate:"gte=0,lte=100"`
 
 	AssessmentTypeIsActive *bool `json:"assessment_type_is_active" validate:"omitempty"`
-	AssessmentTypeIsGraded *bool `json:"assessment_type_is_graded" validate:"omitempty"` // 👈 baru
+	AssessmentTypeIsGraded *bool `json:"assessment_type_is_graded" validate:"omitempty"`
 
-	// ===== Default quiz settings (optional di request; pakai default kalau null) =====
+	// ===== Default quiz settings =====
 
 	AssessmentTypeShuffleQuestions       *bool `json:"assessment_type_shuffle_questions" validate:"omitempty"`
 	AssessmentTypeShuffleOptions         *bool `json:"assessment_type_shuffle_options" validate:"omitempty"`
 	AssessmentTypeShowCorrectAfterSubmit *bool `json:"assessment_type_show_correct_after_submit" validate:"omitempty"`
-	AssessmentTypeOneQuestionPerPage     *bool `json:"assessment_type_one_question_per_page" validate:"omitempty"`
-	AssessmentTypeTimeLimitMin           *int  `json:"assessment_type_time_limit_min" validate:"omitempty,min=0"`
-	AssessmentTypeAttemptsAllowed        *int  `json:"assessment_type_attempts_allowed" validate:"omitempty,min=1"`
-	AssessmentTypeRequireLogin           *bool `json:"assessment_type_require_login" validate:"omitempty"`
-	AssessmentTypePreventBackNavigation  *bool `json:"assessment_type_prevent_back_navigation" validate:"omitempty"`
+
+	// ✅ ganti 2 flag jadi satu strict mode
+	AssessmentTypeStrictMode *bool `json:"assessment_type_strict_mode" validate:"omitempty"`
+
+	AssessmentTypeTimeLimitMin    *int  `json:"assessment_type_time_limit_min" validate:"omitempty,min=0"`
+	AssessmentTypeAttemptsAllowed *int  `json:"assessment_type_attempts_allowed" validate:"omitempty,min=1"`
+	AssessmentTypeRequireLogin    *bool `json:"assessment_type_require_login" validate:"omitempty"`
+
+	// ===== Default late policy & scoring =====
+
+	AssessmentTypeAllowLateSubmission  *bool    `json:"assessment_type_allow_late_submission" validate:"omitempty"`
+	AssessmentTypeLatePenaltyPercent   *float64 `json:"assessment_type_late_penalty_percent" validate:"omitempty,gte=0,lte=100"`
+	AssessmentTypePassingScorePercent  *float64 `json:"assessment_type_passing_score_percent" validate:"omitempty,gte=0,lte=100"`
+	AssessmentTypeScoreAggregationMode *string  `json:"assessment_type_score_aggregation_mode" validate:"omitempty,oneof=latest highest average"`
+
+	AssessmentTypeShowScoreAfterSubmit        *bool `json:"assessment_type_show_score_after_submit" validate:"omitempty"`
+	AssessmentTypeShowCorrectAfterClosed      *bool `json:"assessment_type_show_correct_after_closed" validate:"omitempty"`
+	AssessmentTypeAllowReviewBeforeSubmit     *bool `json:"assessment_type_allow_review_before_submit" validate:"omitempty"`
+	AssessmentTypeRequireCompleteAttempt      *bool `json:"assessment_type_require_complete_attempt" validate:"omitempty"`
+	AssessmentTypeShowDetailsAfterAllAttempts *bool `json:"assessment_type_show_details_after_all_attempts" validate:"omitempty"`
 }
 
 // Patch (PATCH /assessment-types/:id) — partial update
@@ -42,16 +57,27 @@ type PatchAssessmentTypeRequest struct {
 	AssessmentTypeName          *string  `json:"assessment_type_name" validate:"omitempty,max=120"`
 	AssessmentTypeWeightPercent *float64 `json:"assessment_type_weight_percent" validate:"omitempty,gte=0,lte=100"`
 	AssessmentTypeIsActive      *bool    `json:"assessment_type_is_active" validate:"omitempty"`
-	AssessmentTypeIsGraded      *bool    `json:"assessment_type_is_graded" validate:"omitempty"` // 👈 baru
+
+	AssessmentTypeIsGraded *bool `json:"assessment_type_is_graded" validate:"omitempty"`
 
 	AssessmentTypeShuffleQuestions       *bool `json:"assessment_type_shuffle_questions" validate:"omitempty"`
 	AssessmentTypeShuffleOptions         *bool `json:"assessment_type_shuffle_options" validate:"omitempty"`
 	AssessmentTypeShowCorrectAfterSubmit *bool `json:"assessment_type_show_correct_after_submit" validate:"omitempty"`
-	AssessmentTypeOneQuestionPerPage     *bool `json:"assessment_type_one_question_per_page" validate:"omitempty"`
+	AssessmentTypeStrictMode             *bool `json:"assessment_type_strict_mode" validate:"omitempty"`
 	AssessmentTypeTimeLimitMin           *int  `json:"assessment_type_time_limit_min" validate:"omitempty,min=0"`
 	AssessmentTypeAttemptsAllowed        *int  `json:"assessment_type_attempts_allowed" validate:"omitempty,min=1"`
 	AssessmentTypeRequireLogin           *bool `json:"assessment_type_require_login" validate:"omitempty"`
-	AssessmentTypePreventBackNavigation  *bool `json:"assessment_type_prevent_back_navigation" validate:"omitempty"`
+
+	AssessmentTypeAllowLateSubmission  *bool    `json:"assessment_type_allow_late_submission" validate:"omitempty"`
+	AssessmentTypeLatePenaltyPercent   *float64 `json:"assessment_type_late_penalty_percent" validate:"omitempty,gte=0,lte=100"`
+	AssessmentTypePassingScorePercent  *float64 `json:"assessment_type_passing_score_percent" validate:"omitempty,gte=0,lte=100"`
+	AssessmentTypeScoreAggregationMode *string  `json:"assessment_type_score_aggregation_mode" validate:"omitempty,oneof=latest highest average"`
+
+	AssessmentTypeShowScoreAfterSubmit        *bool `json:"assessment_type_show_score_after_submit" validate:"omitempty"`
+	AssessmentTypeShowCorrectAfterClosed      *bool `json:"assessment_type_show_correct_after_closed" validate:"omitempty"`
+	AssessmentTypeAllowReviewBeforeSubmit     *bool `json:"assessment_type_allow_review_before_submit" validate:"omitempty"`
+	AssessmentTypeRequireCompleteAttempt      *bool `json:"assessment_type_require_complete_attempt" validate:"omitempty"`
+	AssessmentTypeShowDetailsAfterAllAttempts *bool `json:"assessment_type_show_details_after_all_attempts" validate:"omitempty"`
 }
 
 // List filter (GET /assessment-types)
@@ -76,18 +102,28 @@ type AssessmentTypeResponse struct {
 	AssessmentTypeName          string    `json:"assessment_type_name"`
 	AssessmentTypeWeightPercent float64   `json:"assessment_type_weight_percent"`
 
-	// Default quiz settings (dibaca frontend buat seed QuizSettings)
+	// Default quiz settings
 	AssessmentTypeShuffleQuestions       bool `json:"assessment_type_shuffle_questions"`
 	AssessmentTypeShuffleOptions         bool `json:"assessment_type_shuffle_options"`
 	AssessmentTypeShowCorrectAfterSubmit bool `json:"assessment_type_show_correct_after_submit"`
-	AssessmentTypeOneQuestionPerPage     bool `json:"assessment_type_one_question_per_page"`
+	AssessmentTypeStrictMode             bool `json:"assessment_type_strict_mode"`
 	AssessmentTypeTimeLimitMin           *int `json:"assessment_type_time_limit_min,omitempty"`
 	AssessmentTypeAttemptsAllowed        int  `json:"assessment_type_attempts_allowed"`
 	AssessmentTypeRequireLogin           bool `json:"assessment_type_require_login"`
-	AssessmentTypePreventBackNavigation  bool `json:"assessment_type_prevent_back_navigation"`
+
+	// Late & scoring policy
+	AssessmentTypeAllowLateSubmission         bool    `json:"assessment_type_allow_late_submission"`
+	AssessmentTypeLatePenaltyPercent          float64 `json:"assessment_type_late_penalty_percent"`
+	AssessmentTypePassingScorePercent         float64 `json:"assessment_type_passing_score_percent"`
+	AssessmentTypeScoreAggregationMode        string  `json:"assessment_type_score_aggregation_mode"`
+	AssessmentTypeShowScoreAfterSubmit        bool    `json:"assessment_type_show_score_after_submit"`
+	AssessmentTypeShowCorrectAfterClosed      bool    `json:"assessment_type_show_correct_after_closed"`
+	AssessmentTypeAllowReviewBeforeSubmit     bool    `json:"assessment_type_allow_review_before_submit"`
+	AssessmentTypeRequireCompleteAttempt      bool    `json:"assessment_type_require_complete_attempt"`
+	AssessmentTypeShowDetailsAfterAllAttempts bool    `json:"assessment_type_show_details_after_all_attempts"`
 
 	AssessmentTypeIsActive bool `json:"assessment_type_is_active"`
-	AssessmentTypeIsGraded bool `json:"assessment_type_is_graded"` // 👈 baru
+	AssessmentTypeIsGraded bool `json:"assessment_type_is_graded"`
 
 	AssessmentTypeCreatedAt time.Time `json:"assessment_type_created_at"`
 	AssessmentTypeUpdatedAt time.Time `json:"assessment_type_updated_at"`
@@ -111,19 +147,19 @@ func (r CreateAssessmentTypeRequest) Normalize() CreateAssessmentTypeRequest {
 }
 
 func (r CreateAssessmentTypeRequest) ToModel() model.AssessmentTypeModel {
-	// Default active = true agar tidak menimpa default DB dengan false (zero value)
+	// Default active = true
 	isActive := true
 	if r.AssessmentTypeIsActive != nil {
 		isActive = *r.AssessmentTypeIsActive
 	}
 
-	// Default: secara umum assessment type adalah graded
+	// Default: type graded
 	isGraded := true
 	if r.AssessmentTypeIsGraded != nil {
 		isGraded = *r.AssessmentTypeIsGraded
 	}
 
-	// Default untuk quiz settings — harus sync dengan default di SQL
+	// Quiz settings default (sync dengan default di DB/model)
 	shuffleQuestions := false
 	if r.AssessmentTypeShuffleQuestions != nil {
 		shuffleQuestions = *r.AssessmentTypeShuffleQuestions
@@ -139,9 +175,10 @@ func (r CreateAssessmentTypeRequest) ToModel() model.AssessmentTypeModel {
 		showCorrect = *r.AssessmentTypeShowCorrectAfterSubmit
 	}
 
-	onePerPage := false
-	if r.AssessmentTypeOneQuestionPerPage != nil {
-		onePerPage = *r.AssessmentTypeOneQuestionPerPage
+	// strict mode default false
+	strictMode := false
+	if r.AssessmentTypeStrictMode != nil {
+		strictMode = *r.AssessmentTypeStrictMode
 	}
 
 	var timeLimit *int
@@ -159,9 +196,50 @@ func (r CreateAssessmentTypeRequest) ToModel() model.AssessmentTypeModel {
 		requireLogin = *r.AssessmentTypeRequireLogin
 	}
 
-	preventBack := false
-	if r.AssessmentTypePreventBackNavigation != nil {
-		preventBack = *r.AssessmentTypePreventBackNavigation
+	// Late & scoring defaults (sync dengan default DB/model)
+	allowLate := false
+	if r.AssessmentTypeAllowLateSubmission != nil {
+		allowLate = *r.AssessmentTypeAllowLateSubmission
+	}
+
+	latePenalty := 0.0
+	if r.AssessmentTypeLatePenaltyPercent != nil {
+		latePenalty = *r.AssessmentTypeLatePenaltyPercent
+	}
+
+	passingScore := 0.0
+	if r.AssessmentTypePassingScorePercent != nil {
+		passingScore = *r.AssessmentTypePassingScorePercent
+	}
+
+	scoreAgg := "latest"
+	if r.AssessmentTypeScoreAggregationMode != nil && strings.TrimSpace(*r.AssessmentTypeScoreAggregationMode) != "" {
+		scoreAgg = strings.TrimSpace(*r.AssessmentTypeScoreAggregationMode)
+	}
+
+	showScoreAfterSubmit := true
+	if r.AssessmentTypeShowScoreAfterSubmit != nil {
+		showScoreAfterSubmit = *r.AssessmentTypeShowScoreAfterSubmit
+	}
+
+	showCorrectAfterClosed := false
+	if r.AssessmentTypeShowCorrectAfterClosed != nil {
+		showCorrectAfterClosed = *r.AssessmentTypeShowCorrectAfterClosed
+	}
+
+	allowReviewBeforeSubmit := true
+	if r.AssessmentTypeAllowReviewBeforeSubmit != nil {
+		allowReviewBeforeSubmit = *r.AssessmentTypeAllowReviewBeforeSubmit
+	}
+
+	requireCompleteAttempt := true
+	if r.AssessmentTypeRequireCompleteAttempt != nil {
+		requireCompleteAttempt = *r.AssessmentTypeRequireCompleteAttempt
+	}
+
+	showDetailsAfterAllAttempts := false
+	if r.AssessmentTypeShowDetailsAfterAllAttempts != nil {
+		showDetailsAfterAllAttempts = *r.AssessmentTypeShowDetailsAfterAllAttempts
 	}
 
 	return model.AssessmentTypeModel{
@@ -173,14 +251,23 @@ func (r CreateAssessmentTypeRequest) ToModel() model.AssessmentTypeModel {
 		AssessmentTypeShuffleQuestions:       shuffleQuestions,
 		AssessmentTypeShuffleOptions:         shuffleOptions,
 		AssessmentTypeShowCorrectAfterSubmit: showCorrect,
-		AssessmentTypeOneQuestionPerPage:     onePerPage,
+		AssessmentTypeStrictMode:             strictMode,
 		AssessmentTypeTimeLimitMin:           timeLimit,
 		AssessmentTypeAttemptsAllowed:        attempts,
 		AssessmentTypeRequireLogin:           requireLogin,
-		AssessmentTypePreventBackNavigation:  preventBack,
 
 		AssessmentTypeIsActive: isActive,
-		AssessmentTypeIsGraded: isGraded, // 👈 baru masuk model
+		AssessmentTypeIsGraded: isGraded,
+
+		AssessmentTypeAllowLateSubmission:         allowLate,
+		AssessmentTypeLatePenaltyPercent:          latePenalty,
+		AssessmentTypePassingScorePercent:         passingScore,
+		AssessmentTypeScoreAggregationMode:        scoreAgg,
+		AssessmentTypeShowScoreAfterSubmit:        showScoreAfterSubmit,
+		AssessmentTypeShowCorrectAfterClosed:      showCorrectAfterClosed,
+		AssessmentTypeAllowReviewBeforeSubmit:     allowReviewBeforeSubmit,
+		AssessmentTypeRequireCompleteAttempt:      requireCompleteAttempt,
+		AssessmentTypeShowDetailsAfterAllAttempts: showDetailsAfterAllAttempts,
 	}
 }
 
@@ -195,7 +282,7 @@ func (p PatchAssessmentTypeRequest) Apply(m *model.AssessmentTypeModel) {
 	if p.AssessmentTypeIsActive != nil {
 		m.AssessmentTypeIsActive = *p.AssessmentTypeIsActive
 	}
-	if p.AssessmentTypeIsGraded != nil { // 👈 baru
+	if p.AssessmentTypeIsGraded != nil {
 		m.AssessmentTypeIsGraded = *p.AssessmentTypeIsGraded
 	}
 
@@ -208,12 +295,11 @@ func (p PatchAssessmentTypeRequest) Apply(m *model.AssessmentTypeModel) {
 	if p.AssessmentTypeShowCorrectAfterSubmit != nil {
 		m.AssessmentTypeShowCorrectAfterSubmit = *p.AssessmentTypeShowCorrectAfterSubmit
 	}
-	if p.AssessmentTypeOneQuestionPerPage != nil {
-		m.AssessmentTypeOneQuestionPerPage = *p.AssessmentTypeOneQuestionPerPage
+	if p.AssessmentTypeStrictMode != nil {
+		m.AssessmentTypeStrictMode = *p.AssessmentTypeStrictMode
 	}
 	if p.AssessmentTypeTimeLimitMin != nil {
-		// Catatan: dengan desain ini kita belum bisa "clear" jadi NULL lewat PATCH (hanya ubah nilai).
-		// Kalau butuh clear, nanti bisa ditambah flag khusus.
+		// Catatan: belum bisa clear ke NULL, hanya overwrite nilai.
 		m.AssessmentTypeTimeLimitMin = p.AssessmentTypeTimeLimitMin
 	}
 	if p.AssessmentTypeAttemptsAllowed != nil {
@@ -222,8 +308,36 @@ func (p PatchAssessmentTypeRequest) Apply(m *model.AssessmentTypeModel) {
 	if p.AssessmentTypeRequireLogin != nil {
 		m.AssessmentTypeRequireLogin = *p.AssessmentTypeRequireLogin
 	}
-	if p.AssessmentTypePreventBackNavigation != nil {
-		m.AssessmentTypePreventBackNavigation = *p.AssessmentTypePreventBackNavigation
+
+	if p.AssessmentTypeAllowLateSubmission != nil {
+		m.AssessmentTypeAllowLateSubmission = *p.AssessmentTypeAllowLateSubmission
+	}
+	if p.AssessmentTypeLatePenaltyPercent != nil {
+		m.AssessmentTypeLatePenaltyPercent = *p.AssessmentTypeLatePenaltyPercent
+	}
+	if p.AssessmentTypePassingScorePercent != nil {
+		m.AssessmentTypePassingScorePercent = *p.AssessmentTypePassingScorePercent
+	}
+	if p.AssessmentTypeScoreAggregationMode != nil {
+		mode := strings.TrimSpace(*p.AssessmentTypeScoreAggregationMode)
+		if mode != "" {
+			m.AssessmentTypeScoreAggregationMode = mode
+		}
+	}
+	if p.AssessmentTypeShowScoreAfterSubmit != nil {
+		m.AssessmentTypeShowScoreAfterSubmit = *p.AssessmentTypeShowScoreAfterSubmit
+	}
+	if p.AssessmentTypeShowCorrectAfterClosed != nil {
+		m.AssessmentTypeShowCorrectAfterClosed = *p.AssessmentTypeShowCorrectAfterClosed
+	}
+	if p.AssessmentTypeAllowReviewBeforeSubmit != nil {
+		m.AssessmentTypeAllowReviewBeforeSubmit = *p.AssessmentTypeAllowReviewBeforeSubmit
+	}
+	if p.AssessmentTypeRequireCompleteAttempt != nil {
+		m.AssessmentTypeRequireCompleteAttempt = *p.AssessmentTypeRequireCompleteAttempt
+	}
+	if p.AssessmentTypeShowDetailsAfterAllAttempts != nil {
+		m.AssessmentTypeShowDetailsAfterAllAttempts = *p.AssessmentTypeShowDetailsAfterAllAttempts
 	}
 }
 
@@ -238,14 +352,23 @@ func FromModel(m model.AssessmentTypeModel) AssessmentTypeResponse {
 		AssessmentTypeShuffleQuestions:       m.AssessmentTypeShuffleQuestions,
 		AssessmentTypeShuffleOptions:         m.AssessmentTypeShuffleOptions,
 		AssessmentTypeShowCorrectAfterSubmit: m.AssessmentTypeShowCorrectAfterSubmit,
-		AssessmentTypeOneQuestionPerPage:     m.AssessmentTypeOneQuestionPerPage,
+		AssessmentTypeStrictMode:             m.AssessmentTypeStrictMode,
 		AssessmentTypeTimeLimitMin:           m.AssessmentTypeTimeLimitMin,
 		AssessmentTypeAttemptsAllowed:        m.AssessmentTypeAttemptsAllowed,
 		AssessmentTypeRequireLogin:           m.AssessmentTypeRequireLogin,
-		AssessmentTypePreventBackNavigation:  m.AssessmentTypePreventBackNavigation,
+
+		AssessmentTypeAllowLateSubmission:         m.AssessmentTypeAllowLateSubmission,
+		AssessmentTypeLatePenaltyPercent:          m.AssessmentTypeLatePenaltyPercent,
+		AssessmentTypePassingScorePercent:         m.AssessmentTypePassingScorePercent,
+		AssessmentTypeScoreAggregationMode:        m.AssessmentTypeScoreAggregationMode,
+		AssessmentTypeShowScoreAfterSubmit:        m.AssessmentTypeShowScoreAfterSubmit,
+		AssessmentTypeShowCorrectAfterClosed:      m.AssessmentTypeShowCorrectAfterClosed,
+		AssessmentTypeAllowReviewBeforeSubmit:     m.AssessmentTypeAllowReviewBeforeSubmit,
+		AssessmentTypeRequireCompleteAttempt:      m.AssessmentTypeRequireCompleteAttempt,
+		AssessmentTypeShowDetailsAfterAllAttempts: m.AssessmentTypeShowDetailsAfterAllAttempts,
 
 		AssessmentTypeIsActive: m.AssessmentTypeIsActive,
-		AssessmentTypeIsGraded: m.AssessmentTypeIsGraded, // 👈 baru ikut ke response
+		AssessmentTypeIsGraded: m.AssessmentTypeIsGraded,
 
 		AssessmentTypeCreatedAt: m.AssessmentTypeCreatedAt,
 		AssessmentTypeUpdatedAt: m.AssessmentTypeUpdatedAt,

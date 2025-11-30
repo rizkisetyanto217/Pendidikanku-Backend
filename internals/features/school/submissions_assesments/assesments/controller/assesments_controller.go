@@ -205,6 +205,77 @@ func resolveSchoolForDKMOrTeacher(c *fiber.Ctx) (uuid.UUID, error) {
 	return schoolID, nil
 }
 
+/* ========================================================
+   Helpers untuk AssessmentType snapshot (baru, tanpa JSON)
+======================================================== */
+
+func resetAssessmentTypeSnapshotFields(a *model.AssessmentModel) {
+	a.AssessmentTypeIsGradedSnapshot = false
+
+	a.AssessmentShuffleQuestionsSnapshot = false
+	a.AssessmentShuffleOptionsSnapshot = false
+	a.AssessmentShowCorrectAfterSubmitSnapshot = false
+	a.AssessmentStrictModeSnapshot = false
+	a.AssessmentTimeLimitMinSnapshot = nil
+	a.AssessmentAttemptsAllowedSnapshot = 0
+	a.AssessmentRequireLoginSnapshot = false
+	a.AssessmentScoreAggregationModeSnapshot = ""
+
+	a.AssessmentAllowLateSubmissionSnapshot = false
+	a.AssessmentLatePenaltyPercentSnapshot = 0
+	a.AssessmentPassingScorePercentSnapshot = 0
+	a.AssessmentShowScoreAfterSubmitSnapshot = false
+	a.AssessmentShowCorrectAfterClosedSnapshot = false
+	a.AssessmentAllowReviewBeforeSubmitSnapshot = false
+	a.AssessmentRequireCompleteAttemptSnapshot = false
+	a.AssessmentShowDetailsAfterAllAttemptsSnapshot = false
+}
+
+func (ctl *AssessmentController) hydrateAssessmentTypeSnapshot(
+	c *fiber.Ctx,
+	schoolID uuid.UUID,
+	a *model.AssessmentModel,
+	typeID uuid.UUID,
+) error {
+	var at model.AssessmentTypeModel
+	if err := ctl.DB.WithContext(c.Context()).
+		Where(`
+			assessment_type_id = ?
+			AND assessment_type_school_id = ?
+			AND assessment_type_deleted_at IS NULL
+		`, typeID, schoolID).
+		Take(&at).Error; err != nil {
+
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fiber.NewError(fiber.StatusBadRequest, "Tipe assessment tidak ditemukan")
+		}
+		return err
+	}
+
+	a.AssessmentTypeID = &typeID
+	a.AssessmentTypeIsGradedSnapshot = at.AssessmentTypeIsGraded
+
+	a.AssessmentShuffleQuestionsSnapshot = at.AssessmentTypeShuffleQuestions
+	a.AssessmentShuffleOptionsSnapshot = at.AssessmentTypeShuffleOptions
+	a.AssessmentShowCorrectAfterSubmitSnapshot = at.AssessmentTypeShowCorrectAfterSubmit
+	a.AssessmentStrictModeSnapshot = at.AssessmentTypeStrictMode
+	a.AssessmentTimeLimitMinSnapshot = at.AssessmentTypeTimeLimitMin
+	a.AssessmentAttemptsAllowedSnapshot = at.AssessmentTypeAttemptsAllowed
+	a.AssessmentRequireLoginSnapshot = at.AssessmentTypeRequireLogin
+	a.AssessmentScoreAggregationModeSnapshot = at.AssessmentTypeScoreAggregationMode
+
+	a.AssessmentAllowLateSubmissionSnapshot = at.AssessmentTypeAllowLateSubmission
+	a.AssessmentLatePenaltyPercentSnapshot = at.AssessmentTypeLatePenaltyPercent
+	a.AssessmentPassingScorePercentSnapshot = at.AssessmentTypePassingScorePercent
+	a.AssessmentShowScoreAfterSubmitSnapshot = at.AssessmentTypeShowScoreAfterSubmit
+	a.AssessmentShowCorrectAfterClosedSnapshot = at.AssessmentTypeShowCorrectAfterClosed
+	a.AssessmentAllowReviewBeforeSubmitSnapshot = at.AssessmentTypeAllowReviewBeforeSubmit
+	a.AssessmentRequireCompleteAttemptSnapshot = at.AssessmentTypeRequireCompleteAttempt
+	a.AssessmentShowDetailsAfterAllAttemptsSnapshot = at.AssessmentTypeShowDetailsAfterAllAttempts
+
+	return nil
+}
+
 /* ===============================
    Handlers
 =============================== */
@@ -300,22 +371,6 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		req.Assessment.AssessmentCreatedByTeacherID,
 	); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-	}
-
-	// =============== Assessment Type SNAPSHOT (opsional) ===============
-	var typeSnap datatypes.JSONMap
-	var typeIsGradedSnap *bool
-
-	if req.Assessment.AssessmentTypeID != nil && *req.Assessment.AssessmentTypeID != uuid.Nil {
-		ts, graded, er := ctl.buildAssessmentTypeSnapshot(c, mid, *req.Assessment.AssessmentTypeID)
-		if er != nil {
-			if fe, ok := er.(*fiber.Error); ok {
-				return helper.JsonError(c, fe.Code, fe.Message)
-			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, er.Error())
-		}
-		typeSnap = ts
-		typeIsGradedSnap = &graded
 	}
 
 	// ====== Tentukan mode dari presence sesi ======
@@ -425,14 +480,6 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 			row.AssessmentCollectSessionSnapshot = makeSessionSnap(col)
 		}
 
-		// Snapshot tipe assessment
-		if typeSnap != nil {
-			row.AssessmentTypeSnapshot = typeSnap
-		}
-		if typeIsGradedSnap != nil {
-			row.AssessmentTypeIsGradedSnapshot = *typeIsGradedSnap
-		}
-
 	} else {
 		// ===== MODE: date =====
 		if req.Assessment.AssessmentStartAt != nil && req.Assessment.AssessmentDueAt != nil &&
@@ -451,14 +498,20 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		if csstSnap != nil {
 			row.AssessmentCSSTSnapshot = csstSnap
 		}
+	}
 
-		// Snapshot tipe assessment
-		if typeSnap != nil {
-			row.AssessmentTypeSnapshot = typeSnap
+	// ==== Sync assessment type snapshot (tanpa JSON) ====
+	if row.AssessmentTypeID != nil && *row.AssessmentTypeID != uuid.Nil {
+		if err := ctl.hydrateAssessmentTypeSnapshot(c, mid, &row, *row.AssessmentTypeID); err != nil {
+			tx.Rollback()
+			if fe, ok := err.(*fiber.Error); ok {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 		}
-		if typeIsGradedSnap != nil {
-			row.AssessmentTypeIsGradedSnapshot = *typeIsGradedSnap
-		}
+	} else {
+		row.AssessmentTypeID = nil
+		resetAssessmentTypeSnapshotFields(&row)
 	}
 
 	// ===== Auto-slug assessment (unik per school) =====
@@ -1006,37 +1059,8 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 }
 
 /* ========================================================
-   Helpers tambahan untuk Assessment Type Snapshot
+   Helpers tambahan untuk Assessment Type Snapshot (PATCH)
 ======================================================== */
-
-func (ctl *AssessmentController) buildAssessmentTypeSnapshot(
-	c *fiber.Ctx,
-	schoolID uuid.UUID,
-	typeID uuid.UUID,
-) (datatypes.JSONMap, bool, error) {
-	var at model.AssessmentTypeModel
-	if err := ctl.DB.WithContext(c.Context()).
-		Where(`
-			assessment_type_id = ?
-			AND assessment_type_school_id = ?
-			AND assessment_type_deleted_at IS NULL
-		`, typeID, schoolID).
-		Take(&at).Error; err != nil {
-
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, false, fiber.NewError(fiber.StatusBadRequest, "Tipe assessment tidak ditemukan")
-		}
-		return nil, false, err
-	}
-
-	return datatypes.JSONMap{
-		"id":                        at.AssessmentTypeID,
-		"key":                       at.AssessmentTypeKey,
-		"name":                      at.AssessmentTypeName,
-		"show_correct_after_submit": at.AssessmentTypeShowCorrectAfterSubmit,
-		"is_graded":                 at.AssessmentTypeIsGraded, // snapshot JSON
-	}, at.AssessmentTypeIsGraded, nil
-}
 
 func (ctl *AssessmentController) applyAssessmentTypePatch(
 	c *fiber.Ctx,
@@ -1049,25 +1073,15 @@ func (ctl *AssessmentController) applyAssessmentTypePatch(
 		return nil
 	}
 
-	// Kalau dikirim UUID nil → clear type + snapshot
+	// Kalau dikirim UUID nil → clear type + semua snapshot
 	if *req.AssessmentTypeID == uuid.Nil {
 		existing.AssessmentTypeID = nil
-		existing.AssessmentTypeSnapshot = datatypes.JSONMap{}
-		existing.AssessmentTypeIsGradedSnapshot = false
+		resetAssessmentTypeSnapshotFields(existing)
 		return nil
 	}
 
-	// Else: load type & set snapshot
-	snap, graded, err := ctl.buildAssessmentTypeSnapshot(c, schoolID, *req.AssessmentTypeID)
-	if err != nil {
-		return err
-	}
-
-	v := *req.AssessmentTypeID
-	existing.AssessmentTypeID = &v
-	existing.AssessmentTypeSnapshot = snap
-	existing.AssessmentTypeIsGradedSnapshot = graded
-	return nil
+	// Else: load type & set snapshot scalar
+	return ctl.hydrateAssessmentTypeSnapshot(c, schoolID, existing, *req.AssessmentTypeID)
 }
 
 // DELETE /assessments/:id (soft delete)
@@ -1091,7 +1105,7 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 	// 🔒 GUARD: cek apakah assessment masih dipakai oleh submissions
 	var usedCount int64
 	if err := ctl.DB.WithContext(c.Context()).
-		Model(&submissionsModel.Submission{}).
+		Model(&submissionsModel.SubmissionModel{}).
 		Where(`
 			submission_school_id = ?
 			AND submission_assessment_id = ?

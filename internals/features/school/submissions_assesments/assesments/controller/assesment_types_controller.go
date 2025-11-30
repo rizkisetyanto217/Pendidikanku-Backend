@@ -104,19 +104,14 @@ func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
 
 	now := time.Now()
 
-	// Build model dari DTO (supaya semua quiz settings ikut keisi dengan default)
+	// Build model dari DTO (supaya semua quiz settings + late policy ikut keisi dengan default)
 	row := req.ToModel()
 	row.AssessmentTypeID = uuid.New()
 	row.AssessmentTypeCreatedAt = now
 	row.AssessmentTypeUpdatedAt = now
 
-	// 🔥 AUTO: set assessment_type_is_graded dari weight
-	// kalau mau strict: aktif & berbobot -> graded
-	if row.AssessmentTypeWeightPercent > 0 && row.AssessmentTypeIsActive {
-		row.AssessmentTypeIsGraded = true
-	} else {
-		row.AssessmentTypeIsGraded = false
-	}
+	// ❌ Dulu: AUTO override is_graded berdasarkan weight
+	// ✅ Sekarang: hormati flag dari request / default DTO
 
 	// Validasi agregat aktif ≤ 100
 	if row.AssessmentTypeIsActive {
@@ -240,6 +235,9 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 	if req.AssessmentTypeIsActive != nil {
 		updates["assessment_type_is_active"] = *req.AssessmentTypeIsActive
 	}
+	if req.AssessmentTypeIsGraded != nil {
+		updates["assessment_type_is_graded"] = *req.AssessmentTypeIsGraded
+	}
 
 	// ===== quiz settings =====
 	if req.AssessmentTypeShuffleQuestions != nil {
@@ -251,12 +249,11 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 	if req.AssessmentTypeShowCorrectAfterSubmit != nil {
 		updates["assessment_type_show_correct_after_submit"] = *req.AssessmentTypeShowCorrectAfterSubmit
 	}
-	if req.AssessmentTypeOneQuestionPerPage != nil {
-		updates["assessment_type_one_question_per_page"] = *req.AssessmentTypeOneQuestionPerPage
+	if req.AssessmentTypeStrictMode != nil {
+		updates["assessment_type_strict_mode"] = *req.AssessmentTypeStrictMode
 	}
 	if req.AssessmentTypeTimeLimitMin != nil {
 		// Catatan: dengan desain ini kita belum bisa clear ke NULL (tanpa batas) via PATCH.
-		// Kalau mau, nanti bisa tambahin flag khusus mis. time_limit_min_null=true.
 		updates["assessment_type_time_limit_min"] = *req.AssessmentTypeTimeLimitMin
 	}
 	if req.AssessmentTypeAttemptsAllowed != nil {
@@ -265,8 +262,37 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 	if req.AssessmentTypeRequireLogin != nil {
 		updates["assessment_type_require_login"] = *req.AssessmentTypeRequireLogin
 	}
-	if req.AssessmentTypePreventBackNavigation != nil {
-		updates["assessment_type_prevent_back_navigation"] = *req.AssessmentTypePreventBackNavigation
+
+	// ===== late policy & scoring =====
+	if req.AssessmentTypeAllowLateSubmission != nil {
+		updates["assessment_type_allow_late_submission"] = *req.AssessmentTypeAllowLateSubmission
+	}
+	if req.AssessmentTypeLatePenaltyPercent != nil {
+		updates["assessment_type_late_penalty_percent"] = *req.AssessmentTypeLatePenaltyPercent
+	}
+	if req.AssessmentTypePassingScorePercent != nil {
+		updates["assessment_type_passing_score_percent"] = *req.AssessmentTypePassingScorePercent
+	}
+	if req.AssessmentTypeScoreAggregationMode != nil {
+		mode := strings.TrimSpace(*req.AssessmentTypeScoreAggregationMode)
+		if mode != "" {
+			updates["assessment_type_score_aggregation_mode"] = mode
+		}
+	}
+	if req.AssessmentTypeShowScoreAfterSubmit != nil {
+		updates["assessment_type_show_score_after_submit"] = *req.AssessmentTypeShowScoreAfterSubmit
+	}
+	if req.AssessmentTypeShowCorrectAfterClosed != nil {
+		updates["assessment_type_show_correct_after_closed"] = *req.AssessmentTypeShowCorrectAfterClosed
+	}
+	if req.AssessmentTypeAllowReviewBeforeSubmit != nil {
+		updates["assessment_type_allow_review_before_submit"] = *req.AssessmentTypeAllowReviewBeforeSubmit
+	}
+	if req.AssessmentTypeRequireCompleteAttempt != nil {
+		updates["assessment_type_require_complete_attempt"] = *req.AssessmentTypeRequireCompleteAttempt
+	}
+	if req.AssessmentTypeShowDetailsAfterAllAttempts != nil {
+		updates["assessment_type_show_details_after_all_attempts"] = *req.AssessmentTypeShowDetailsAfterAllAttempts
 	}
 
 	if len(updates) == 0 {
@@ -294,8 +320,8 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// ⬇⬇⬇ sinkronkan assessment_type_is_graded_snapshot di semua assessment yang pakai type ini
-	isGraded := after.AssessmentTypeWeightPercent > 0
+	// ⬇ Sinkronkan assessment_type_is_graded_snapshot di semua assessment yang pakai type ini
+	isGraded := after.AssessmentTypeIsGraded
 
 	if err := ctl.DB.WithContext(c.Context()).
 		Model(&assessmentModel.AssessmentModel{}).

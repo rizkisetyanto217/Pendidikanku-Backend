@@ -20,7 +20,7 @@ const (
 	SubmissionStatusReturned    SubmissionStatus = "returned"
 )
 
-type Submission struct {
+type SubmissionModel struct {
 	SubmissionID       uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:submission_id" json:"submission_id"`
 	SubmissionSchoolID uuid.UUID `gorm:"type:uuid;not null;column:submission_school_id" json:"submission_school_id"`
 
@@ -59,4 +59,4 @@ type Submission struct {
 	SubmissionDeletedAt gorm.DeletedAt `gorm:"column:submission_deleted_at;index" json:"submission_deleted_at,omitempty"`
 }
 
-func (Submission) TableName() string { return "submissions" }
+func (SubmissionModel) TableName() string { return "submissions" }

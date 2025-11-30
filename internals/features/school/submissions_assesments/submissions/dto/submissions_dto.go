@@ -52,12 +52,12 @@ type CreateSubmissionRequest struct {
 	SubmissionIsLate      *bool                      `json:"submission_is_late,omitempty"`
 }
 
-func (r CreateSubmissionRequest) ToModel() subModel.Submission {
+func (r CreateSubmissionRequest) ToModel() subModel.SubmissionModel {
 	status := subModel.SubmissionStatusSubmitted
 	if r.SubmissionStatus != nil {
 		status = *r.SubmissionStatus
 	}
-	return subModel.Submission{
+	return subModel.SubmissionModel{
 		SubmissionSchoolID:     r.SubmissionSchoolID,
 		SubmissionAssessmentID: r.SubmissionAssessmentID,
 		SubmissionStudentID:    r.SubmissionStudentID,
@@ -263,7 +263,7 @@ type SubmissionResponse struct {
 	SubmissionDeletedAt *time.Time `json:"submission_deleted_at,omitempty"`
 }
 
-func FromModel(m *subModel.Submission) SubmissionResponse {
+func FromModel(m *subModel.SubmissionModel) SubmissionResponse {
 	var del *time.Time
 	if m.SubmissionDeletedAt.Valid {
 		t := m.SubmissionDeletedAt.Time
@@ -300,7 +300,7 @@ func FromModel(m *subModel.Submission) SubmissionResponse {
 	}
 }
 
-func FromModels(list []subModel.Submission) []SubmissionResponse {
+func FromModels(list []subModel.SubmissionModel) []SubmissionResponse {
 	out := make([]SubmissionResponse, 0, len(list))
 	for i := range list {
 		out = append(out, FromModel(&list[i]))
