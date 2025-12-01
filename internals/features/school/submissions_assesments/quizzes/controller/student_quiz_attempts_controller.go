@@ -1,3 +1,4 @@
+// file: internals/features/school/submissions_assesments/quizzes/controller/student_quiz_attempts_controller.go
 package controller
 
 import (
@@ -7,6 +8,7 @@ import (
 	validator "github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
 	qdto "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/dto"
@@ -157,6 +159,15 @@ func (ctl *StudentQuizAttemptsController) Create(c *fiber.Ctx) error {
 	req.StudentQuizAttemptStudentID = &sid
 
 	m := req.ToModel()
+
+	// ⚠️ Penting: pastikan JSON & status tidak kosong
+	if len(m.StudentQuizAttemptHistory) == 0 {
+		m.StudentQuizAttemptHistory = datatypes.JSON([]byte("[]"))
+	}
+	if !validAttemptStatus(m.StudentQuizAttemptStatus) {
+		m.StudentQuizAttemptStatus = qmodel.StudentQuizAttemptInProgress
+	}
+
 	if err := ctl.DB.Create(m).Error; err != nil {
 		if isUniqueViolation(err) {
 			return helper.JsonError(c, fiber.StatusConflict, "Duplikat / melanggar unique index")
@@ -174,7 +185,7 @@ func (ctl *StudentQuizAttemptsController) Create(c *fiber.Ctx) error {
 func (ctl *StudentQuizAttemptsController) Patch(c *fiber.Ctx) error {
 	ctl.ensureValidator()
 
-	// Student dilarang patch
+	// Student dilarang patch (patch ini buat admin/dkm/teacher / internal)
 	if helperAuth.IsStudent(c) {
 		return helper.JsonError(c, fiber.StatusForbidden, "Hanya admin/dkm/teacher yang diizinkan mengubah attempt")
 	}
@@ -210,6 +221,14 @@ func (ctl *StudentQuizAttemptsController) Patch(c *fiber.Ctx) error {
 
 	if err := req.ApplyToModel(&m); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Patch tidak valid")
+	}
+
+	// Jaga-jaga: status tetap valid, history nggak null
+	if !validAttemptStatus(m.StudentQuizAttemptStatus) {
+		m.StudentQuizAttemptStatus = qmodel.StudentQuizAttemptInProgress
+	}
+	if len(m.StudentQuizAttemptHistory) == 0 {
+		m.StudentQuizAttemptHistory = datatypes.JSON([]byte("[]"))
 	}
 
 	if err := ctl.DB.Save(&m).Error; err != nil {

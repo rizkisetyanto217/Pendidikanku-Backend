@@ -3,12 +3,31 @@
    TABLE: student_quiz_attempts (JSON version)
    1 row = 1 student × 1 quiz (per school)
    - history: semua attempt dalam JSONB
-   - best_*: nilai tertinggi
-   - last_*: nilai attempt terakhir
+   - status : in_progress / submitted / finished / abandoned
+   - best_* : nilai tertinggi
+   - last_* : nilai attempt terakhir
    - count  : total attempt
    ======================================================================= */
 
 BEGIN;
+
+-- Enum status attempt
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type
+    WHERE typname = 'student_quiz_attempt_status_enum'
+  ) THEN
+    CREATE TYPE student_quiz_attempt_status_enum AS ENUM (
+      'in_progress',
+      'submitted',
+      'finished',
+      'abandoned'
+    );
+  END IF;
+END;
+$$;
 
 CREATE TABLE IF NOT EXISTS student_quiz_attempts (
   -- PK teknis
@@ -18,6 +37,14 @@ CREATE TABLE IF NOT EXISTS student_quiz_attempts (
   student_quiz_attempt_school_id  uuid NOT NULL,
   student_quiz_attempt_quiz_id    uuid NOT NULL,
   student_quiz_attempt_student_id uuid NOT NULL,
+
+  -- Status attempt saat ini (dipakai untuk filter / list)
+  student_quiz_attempt_status student_quiz_attempt_status_enum
+    NOT NULL DEFAULT 'in_progress',
+
+  -- Waktu attempt terakhir dimulai & selesai (global)
+  student_quiz_attempt_started_at  timestamptz,
+  student_quiz_attempt_finished_at timestamptz,
 
   -- Semua riwayat attempt (termasuk jawaban) dalam JSONB
   student_quiz_attempt_history jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -72,10 +99,26 @@ CREATE INDEX IF NOT EXISTS idx_sqa_quiz_student
     student_quiz_attempt_student_id
   );
 
+-- Index status (buat list siswa per quiz & status)
+CREATE INDEX IF NOT EXISTS idx_sqa_status
+  ON student_quiz_attempts (
+    student_quiz_attempt_school_id,
+    student_quiz_attempt_quiz_id,
+    student_quiz_attempt_status
+  );
+
 -- BRIN index untuk query berdasarkan waktu
 CREATE INDEX IF NOT EXISTS brin_sqa_created_at
   ON student_quiz_attempts
   USING BRIN (student_quiz_attempt_created_at);
+
+CREATE INDEX IF NOT EXISTS brin_sqa_started_at
+  ON student_quiz_attempts
+  USING BRIN (student_quiz_attempt_started_at);
+
+CREATE INDEX IF NOT EXISTS brin_sqa_finished_at
+  ON student_quiz_attempts
+  USING BRIN (student_quiz_attempt_finished_at);
 
 CREATE INDEX IF NOT EXISTS brin_sqa_last_started_at
   ON student_quiz_attempts
@@ -87,6 +130,3 @@ CREATE INDEX IF NOT EXISTS brin_sqa_last_started_at
 --   USING GIN (student_quiz_attempt_history);
 
 COMMIT;
-
--- +migrate Down
--- DROP TABLE IF EXISTS student_quiz_attempts;

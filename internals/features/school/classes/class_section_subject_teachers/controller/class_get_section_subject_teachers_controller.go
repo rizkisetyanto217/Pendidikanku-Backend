@@ -1,3 +1,4 @@
+// file: internals/features/lembaga/class_section_subject_teachers/controller/csst_list_controller.go
 package controller
 
 import (
@@ -58,21 +59,7 @@ func parseUUIDList(s string) ([]uuid.UUID, error) {
 
 /* ================================ Handler (NO-JOIN) ================================ */
 
-// Satu endpoint:
-//
-//	GET /api/u/class-section-subject-teachers/list
-//
-// Filter via query:
-//   - ?id=uuid,uuid2
-//   - ?class_section_id=uuid,uuid2 atau ?section_id=uuid,uuid2
-//   - ?teacher_id=uuid
-//   - ?subject_id=uuid
-//   - ?q=...
-//   - ?is_active=...
-//   - ?with_deleted=...
-//   - ?order_by=created_at|updated_at|subject_name|section_name|teacher_name|slug
-//   - ?sort=asc|desc
-//   - paging: ?page=&per_page= (ResolvePaging) atau ?limit=&offset=
+// GET /api/u/class-section-subject-teachers/list
 func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	// === School context ===
 	var schoolID uuid.UUID
@@ -82,7 +69,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		schoolID = sid
 	}
 
-	// (opsional) fallback: :school_id
+	// fallback: :school_id
 	if schoolID == uuid.Nil {
 		if raw := strings.TrimSpace(c.Params("school_id")); raw != "" {
 			id, err := uuid.Parse(raw)
@@ -163,12 +150,9 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		}
 		sectionIDs = ids
 	}
-	// ============================
-	// parse teacher & subject ID
-	// ============================
-	var teacherID *uuid.UUID
 
-	// 1) PRIORITAS: teacher_id dari query param (kalau ada)
+	// parse teacher & subject ID
+	var teacherID *uuid.UUID
 	if teacherIDStr != "" {
 		if id, err := uuid.Parse(teacherIDStr); err == nil {
 			teacherID = &id

@@ -53,11 +53,12 @@ type CSSTWithStudents struct {
    LIST
 ========================================================= */
 
-// GET /api/a/student-csst
-// ?student_id=<uuid>
+// GET /api/u/student-class-section-subject-teachers/list
+// ?student_id=<uuid> | me
 // ?csst_id=<uuid>   // alias, diisi ke q.CSSTID
 // ?is_active=true|false
-// ?include=csst
+// ?include=csst     // nested: satu CSST + students[]
+// ?view=csst        // list CSST yang diikuti student (tanpa rows student)
 // ?q=...
 // ?page=1&page_size=20
 func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
@@ -70,6 +71,15 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 	// 2) Guard: staff (teacher/dkm/admin/bendahara)
 	if err := helperAuth.EnsureStaffSchool(c, schoolID); err != nil {
 		return err
+	}
+
+	// 🔹 Normalize student_id=me sebelum QueryParser (supaya nggak ke-parse sebagai UUID)
+	studentIDRaw := strings.TrimSpace(c.Query("student_id"))
+	studentIDIsMe := false
+	if strings.EqualFold(studentIDRaw, "me") {
+		studentIDIsMe = true
+		// hapus dari query args supaya QueryParser nggak error
+		c.Context().QueryArgs().Del("student_id")
 	}
 
 	// 3) Parse query ke struct DTO
@@ -87,6 +97,15 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		q.CSSTID = &id
 	}
 
+	// 🔹 Handle student_id=me → isi q.StudentID dari token
+	if studentIDIsMe {
+		studentID, err := helperAuth.ResolveStudentIDFromContext(c, schoolID)
+		if err != nil {
+			return err
+		}
+		q.StudentID = &studentID
+	}
+
 	// --- parse include ---
 	includeRaw := strings.ToLower(strings.TrimSpace(c.Query("include")))
 	wantCSST := false
@@ -99,6 +118,10 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		}
 	}
 
+	// --- parse view ---
+	viewRaw := strings.ToLower(strings.TrimSpace(c.Query("view")))
+	viewCSST := viewRaw == "csst" || viewRaw == "csst_only" || viewRaw == "csst_list"
+
 	// Paging default
 	if q.Page <= 0 {
 		q.Page = 1
@@ -107,7 +130,7 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		q.PageSize = 20
 	}
 
-	// 4) Base query
+	// 4) Base query (join table)
 	tx := ctl.DB.WithContext(c.Context()).
 		Model(&model.StudentClassSectionSubjectTeacher{}).
 		Where("student_class_section_subject_teacher_school_id = ?", schoolID)
@@ -160,17 +183,13 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 
 	// Kalau kosong
 	if total == 0 {
-		if !wantCSST {
+		if !wantCSST && !viewCSST {
 			empty := []dto.StudentCSSTItem{}
 			return helper.JsonList(c, "ok", empty, pagination)
 		}
 
-		// include=csst → kembalikan struktur konsisten: csst null + students []
-		emptyStudents := []dto.StudentCSSTItem{}
-		return helper.JsonList(c, "ok", fiber.Map{
-			"class_section_subject_teacher": nil,
-			"students":                      emptyStudents,
-		}, pagination)
+		// include=csst / view=csst → kembalikan struktur konsisten
+		return helper.JsonList(c, "ok", []any{}, pagination)
 	}
 
 	// 6) Ambil page
@@ -182,7 +201,79 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal mengambil data")
 	}
 
-	// ---------- mode default: TANPA include=csst ----------
+	/* ============================================
+	   MODE view=csst → daftar CSST yang diikuti student
+	   ============================================ */
+	if viewCSST {
+		// 1) kumpulkan csst_id unik dari rows
+		csstSet := make(map[uuid.UUID]struct{})
+		for i := range rows {
+			if rows[i].StudentClassSectionSubjectTeacherCSSTID != uuid.Nil {
+				csstSet[rows[i].StudentClassSectionSubjectTeacherCSSTID] = struct{}{}
+			}
+		}
+
+		if len(csstSet) == 0 {
+			items := []CSSTIncluded{}
+			return helper.JsonList(c, "ok", items, pagination)
+		}
+
+		csstIDs := make([]uuid.UUID, 0, len(csstSet))
+		for id := range csstSet {
+			csstIDs = append(csstIDs, id)
+		}
+
+		// 2) query tabel class_section_subject_teachers
+		var csstRows []model.ClassSectionSubjectTeacherModel
+		if err := ctl.DB.WithContext(c.Context()).
+			Model(&model.ClassSectionSubjectTeacherModel{}).
+			Where("class_section_subject_teacher_school_id = ?", schoolID).
+			Where("class_section_subject_teacher_id IN ?", csstIDs).
+			Find(&csstRows).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal mengambil data csst")
+		}
+
+		items := make([]CSSTIncluded, 0, len(csstRows))
+		for i := range csstRows {
+			cs := csstRows[i]
+			item := CSSTIncluded{
+				ID:                  cs.ClassSectionSubjectTeacherID,
+				Slug:                cs.ClassSectionSubjectTeacherSlug,
+				SubjectName:         cs.ClassSectionSubjectTeacherSubjectNameSnapshot,
+				SubjectCode:         cs.ClassSectionSubjectTeacherSubjectCodeSnapshot,
+				SubjectSlug:         cs.ClassSectionSubjectTeacherSubjectSlugSnapshot,
+				TeacherNameSnapshot: cs.ClassSectionSubjectTeacherSchoolTeacherNameSnapshot,
+				ClassSectionID:      cs.ClassSectionSubjectTeacherClassSectionID,
+				ClassSectionName:    cs.ClassSectionSubjectTeacherClassSectionNameSnapshot,
+				ClassSectionCode:    cs.ClassSectionSubjectTeacherClassSectionCodeSnapshot,
+				ClassSectionSlug:    cs.ClassSectionSubjectTeacherClassSectionSlugSnapshot,
+				DeliveryMode:        string(cs.ClassSectionSubjectTeacherDeliveryMode),
+				EnrolledCount:       cs.ClassSectionSubjectTeacherEnrolledCount,
+				MinPassingScore:     cs.ClassSectionSubjectTeacherMinPassingScore,
+				ClassRoomName:       cs.ClassSectionSubjectTeacherClassRoomNameSnapshot,
+				IsActive:            cs.ClassSectionSubjectTeacherIsActive,
+				SchoolID:            cs.ClassSectionSubjectTeacherSchoolID,
+				CreatedAt:           cs.ClassSectionSubjectTeacherCreatedAt.Format(time.RFC3339),
+				UpdatedAt:           cs.ClassSectionSubjectTeacherUpdatedAt.Format(time.RFC3339),
+				TotalBooks:          cs.ClassSectionSubjectTeacherTotalBooks,
+			}
+			if cs.ClassSectionSubjectTeacherDeletedAt.Valid {
+				s := cs.ClassSectionSubjectTeacherDeletedAt.Time.Format(time.RFC3339)
+				item.DeletedAt = &s
+			}
+			items = append(items, item)
+		}
+
+		// (opsional) kalau mau, bisa override pagination ke jumlah CSST unik.
+		// totalCSST := int64(len(items))
+		// pagination = helper.BuildPaginationFromPage(totalCSST, q.Page, q.PageSize)
+
+		return helper.JsonList(c, "ok", items, pagination)
+	}
+
+	/* ============================================
+	   MODE default: TANPA include=csst
+	   ============================================ */
 	if !wantCSST {
 		items := make([]dto.StudentCSSTItem, 0, len(rows))
 		for i := range rows {
@@ -191,9 +282,9 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		return helper.JsonList(c, "ok", items, pagination)
 	}
 
-	// =====================================================
-	//  MODE include=csst → CSST 1x di atas, siswa di-nested
-	// =====================================================
+	/* ============================================
+	   MODE include=csst → satu CSST + students[]
+	   ============================================ */
 
 	// 1) kumpulkan csst_id unik dari rows
 	csstSet := make(map[uuid.UUID]struct{})
@@ -252,17 +343,21 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 3) kumpulkan semua students dari rows
-	students := make([]dto.StudentCSSTItem, 0, len(rows))
-	for i := range rows {
-		students = append(students, toStudentCSSTItem(&rows[i]))
+	// 3) pilih satu CSST utama (kontrak sekarang: 1 CSST per respons nested)
+	var mainCSST *CSSTIncluded
+	var mainCSSTID uuid.UUID
+	for id, v := range csstMap {
+		mainCSST = v
+		mainCSSTID = id
+		break
 	}
 
-	// pilih satu CSST (umumnya 1 csst_id per query)
-	var mainCSST *CSSTIncluded
-	for _, v := range csstMap {
-		mainCSST = v
-		break
+	// 4) kumpulkan students HANYA untuk CSST utama
+	students := make([]dto.StudentCSSTItem, 0, len(rows))
+	for i := range rows {
+		if rows[i].StudentClassSectionSubjectTeacherCSSTID == mainCSSTID {
+			students = append(students, toStudentCSSTItem(&rows[i]))
+		}
 	}
 
 	// kalau entah bagaimana CSST tidak ada, tapi students ada → balikin students saja

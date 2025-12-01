@@ -2,6 +2,7 @@
 package controller
 
 import (
+	"log"
 	"strings"
 	"time"
 
@@ -66,7 +67,6 @@ func queryBoolFlag(raw string) bool {
 }
 
 // resolveTimelineDateRange dipakai di mode timeline (student/teacher)
-// pola sama kayak di controller class-attendance-sessions
 func resolveTimelineDateRange(c *fiber.Ctx) (*time.Time, *time.Time, error) {
 	var df, dt *time.Time
 	var err error
@@ -132,10 +132,7 @@ func resolveTimelineDateRange(c *fiber.Ctx) (*time.Time, *time.Time, error) {
 	return df, dt, nil
 }
 
-// Resolve school utk list assessment:
-// 1) Coba dari active_school (token)
-// 2) Kalau tidak ada, pakai ResolveSchoolContext (id/slug)
-// 3) Semua jalur wajib cek membership (UserHasSchool)
+// Resolve school utk list assessment
 func resolveSchoolForAssessmentList(c *fiber.Ctx) (uuid.UUID, error) {
 	// 1) Dari token: active_school
 	if sid, err := helperAuth.GetActiveSchoolID(c); err == nil && sid != uuid.Nil {
@@ -175,6 +172,25 @@ func resolveSchoolForAssessmentList(c *fiber.Ctx) (uuid.UUID, error) {
 	return uuid.Nil, helperAuth.ErrSchoolContextMissing
 }
 
+// Ringkasan attempt quiz per student (dipakai di student_timeline)
+type studentQuizAttemptLite struct {
+	AttemptID uuid.UUID `json:"attempt_id"`
+	QuizID    uuid.UUID `json:"quiz_id"`
+
+	Status string `json:"status"` // in_progress | submitted | finished | abandoned | not_attempted
+	Count  int    `json:"count"`
+
+	BestRaw        *float64   `json:"best_raw,omitempty"`
+	BestPercent    *float64   `json:"best_percent,omitempty"`
+	BestStartedAt  *time.Time `json:"best_started_at,omitempty"`
+	BestFinishedAt *time.Time `json:"best_finished_at,omitempty"`
+
+	LastRaw        *float64   `json:"last_raw,omitempty"`
+	LastPercent    *float64   `json:"last_percent,omitempty"`
+	LastStartedAt  *time.Time `json:"last_started_at,omitempty"`
+	LastFinishedAt *time.Time `json:"last_finished_at,omitempty"`
+}
+
 // timelineProgress lebih informatif
 type timelineProgress struct {
 	State       string     `json:"state"`                  // not_opened | ongoing | overdue | submitted | submitted_late | graded | graded_late | unknown
@@ -184,13 +200,19 @@ type timelineProgress struct {
 	SubmittedAt *time.Time `json:"submitted_at,omitempty"` // dari submission
 	GradedAt    *time.Time `json:"graded_at,omitempty"`    // dari submission
 	Score       *float64   `json:"score"`                  // SELALU dikirim, null kalau belum dinilai
-	Status      string     `json:"status,omitempty"`       // copy dari submission_status (submitted/graded/dll)
+	Status      string     `json:"status,omitempty"`       // copy dari submission_status
 }
 
 // Participant (untuk student/teacher timeline assessment)
 type AssessmentParticipantLite struct {
 	ParticipantID    uuid.UUID `json:"participant_id"`
 	ParticipantState string    `json:"participant_state"`
+}
+
+// Quiz + attempt student (untuk mode student_timeline)
+type quizWithAttempt struct {
+	quizDTO.QuizResponse
+	StudentAttempt *studentQuizAttemptLite `json:"student_attempt,omitempty"`
 }
 
 // helper: pilih waktu paling "akhir" dari dua pointer (boleh nil)
@@ -212,26 +234,16 @@ func latestTime(a, b *time.Time) time.Time {
 }
 
 // GET /assessments
-// Query (opsional):
-//
-//	type_id, csst_id, id, ids, is_published, is_graded, q, limit, offset, sort_by, sort_dir
-//	with_urls, urls_published_only, urls_limit_per, urls_order
-//
-// Timeline khusus:
-//
-//	student_timeline=1  → scope ke murid (pakai token) + date range (resolveTimelineDateRange)
-//	teacher_timeline=1  → scope ke guru  (pakai token) + date range (resolveTimelineDateRange)
 func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 	// Pastikan helper slug→id bisa akses DB dari context
 	c.Locals("DB", ctl.DB)
 
-	// 1) Resolve school (prioritas token, lalu id/slug) + cek membership
+	// 1) Resolve school
 	mid, err := resolveSchoolForAssessmentList(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
-		// fallback: bad request kalau error bukan fiber.Error
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
@@ -252,11 +264,9 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 	)
 
 	if isStudentTimeline {
-		// Guard role
 		if err := helperAuth.EnsureStudentSchool(c, mid); err != nil {
 			return err
 		}
-
 		studentID, err = helperAuth.GetSchoolStudentIDForSchool(c, mid)
 		if err != nil {
 			return err
@@ -264,17 +274,14 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		if studentID == uuid.Nil {
 			return helper.JsonError(c, fiber.StatusForbidden, "school_student_id tidak ditemukan di token")
 		}
-
 		df, dt, err = resolveTimelineDateRange(c)
 		if err != nil {
 			return err
 		}
 	} else if isTeacherTimeline {
-		// Guard role
 		if err := helperAuth.EnsureTeacherSchool(c, mid); err != nil {
 			return err
 		}
-
 		teacherID, err = helperAuth.GetSchoolTeacherIDForSchool(c, mid)
 		if err != nil {
 			return err
@@ -282,7 +289,6 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		if teacherID == uuid.Nil {
 			return helper.JsonError(c, fiber.StatusForbidden, "school_teacher_id tidak ditemukan di token")
 		}
-
 		df, dt, err = resolveTimelineDateRange(c)
 		if err != nil {
 			return err
@@ -294,7 +300,6 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		typeIDStr = strings.TrimSpace(c.Query("type_id"))
 		csstIDStr = strings.TrimSpace(c.Query("csst_id"))
 
-		// filter by assessment_id / ids
 		idStr  = strings.TrimSpace(c.Query("id"))
 		idsStr = strings.TrimSpace(c.Query("ids"))
 
@@ -306,10 +311,9 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		sortDir  = strings.TrimSpace(c.Query("sort_dir"))
 	)
 
-	// opsi URL (metadata saja – implementasi URL bisa nyusul)
 	withURLs := eqTrue(c.Query("with_urls"))
 	urlsPublishedOnly := eqTrue(c.Query("urls_published_only"))
-	urlsLimitPer := atoiOr(0, c.Query("urls_limit_per")) // 0 = tanpa batas
+	urlsLimitPer := atoiOr(0, c.Query("urls_limit_per"))
 	urlsOrder := strings.ToLower(strings.TrimSpace(c.Query("urls_order")))
 
 	// parse filter type & csst
@@ -365,7 +369,6 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		isPublished = &b
 	}
 
-	// filter graded / ungraded (pakai snapshot is_graded)
 	var isGraded *bool
 	if gs := strings.TrimSpace(c.Query("is_graded")); gs != "" {
 		b := strings.EqualFold(gs, "true") || gs == "1"
@@ -381,15 +384,12 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		sdPtr = &sortDir
 	}
 
-	// 4) Base query (hanya alive)
+	// 4) Base query
 	qry := ctl.DB.WithContext(c.Context()).
 		Model(&model.AssessmentModel{}).
 		Where("assessment_school_id = ? AND assessment_deleted_at IS NULL", mid)
 
-	// ===============================
-	// SCOPE KHUSUS TIMELINE
-	// ===============================
-	// Student timeline: join ke student_class_section_subject_teachers
+	// SCOPE TIMELINE
 	if isStudentTimeline {
 		qry = qry.Joins(`
 			JOIN student_class_section_subject_teachers scst
@@ -400,8 +400,6 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 			 AND scst.student_class_section_subject_teacher_deleted_at IS NULL
 		`, studentID)
 	}
-
-	// Teacher timeline: join ke class_section_subject_teachers
 	if isTeacherTimeline {
 		qry = qry.Joins(`
 			JOIN class_section_subject_teachers csst
@@ -413,7 +411,7 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		`, teacherID)
 	}
 
-	// Filter tanggal khusus timeline (pakai start_at/due_at; fallback created_at)
+	// Filter tanggal timeline
 	if (isStudentTimeline || isTeacherTimeline) && (df != nil || dt != nil) {
 		if df != nil && dt != nil {
 			qry = qry.Where(`
@@ -522,10 +520,10 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 	// 5) Build response DTO
 	type assessmentWithExpand struct {
 		dto.AssessmentResponse
-		URLsCount       *int                   `json:"urls_count,omitempty"`
-		Quizzes         []quizDTO.QuizResponse `json:"quizzes,omitempty"`
-		StudentProgress *timelineProgress      `json:"student_progress,omitempty"`
-		TeacherProgress *timelineProgress      `json:"teacher_progress,omitempty"`
+		URLsCount       *int              `json:"urls_count,omitempty"`
+		Quizzes         []quizWithAttempt `json:"quizzes,omitempty"`
+		Submissions     *timelineProgress `json:"submissions,omitempty"`      // ⬅️ ganti dari student_progress
+		TeacherProgress *timelineProgress `json:"teacher_progress,omitempty"` // utk teacher_timeline
 
 		Participant *AssessmentParticipantLite `json:"participant,omitempty"`
 	}
@@ -536,7 +534,6 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 			AssessmentResponse: dto.FromModelAssesment(rows[i]),
 		}
 
-		// Kalau mode timeline (student/teacher), selalu kasih participant default "unknown"
 		if isStudentTimeline || isTeacherTimeline {
 			item.Participant = &AssessmentParticipantLite{
 				ParticipantID:    uuid.Nil,
@@ -567,6 +564,9 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 			aIDs = append(aIDs, r.AssessmentID)
 		}
 
+		log.Printf("[AssessmentList] PREFETCH SUBMISSIONS: school=%s student=%s assessment_ids=%v",
+			mid.String(), studentID.String(), aIDs)
+
 		var srows []submissionRow
 		if err := ctl.DB.WithContext(c.Context()).
 			Model(&submissionModel.SubmissionModel{}).
@@ -583,30 +583,31 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 			Where("submission_assessment_id IN ?", aIDs).
 			Where("submission_student_id = ?", studentID).
 			Scan(&srows).Error; err != nil {
+
+			log.Printf("[AssessmentList] ERROR PREFETCH SUBMISSIONS: %v", err)
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil submissions")
 		}
 
-		// pilih submission "terbaik" per assessment:
-		// prioritas: graded > submitted, lalu terbaru by submitted_at/graded_at
+		log.Printf("[AssessmentList] PREFETCH SUBMISSIONS: got %d rows", len(srows))
+
 		for _, sr := range srows {
+			log.Printf("[AssessmentList] SUBMISSION ROW: assessment=%s submission=%s status=%s score=%v submitted_at=%v graded_at=%v",
+				sr.AssessmentID, sr.SubmissionID, sr.Status, sr.Score, sr.SubmittedAt, sr.GradedAt)
+
 			prev, ok := submissionMap[sr.AssessmentID]
 			if !ok {
 				submissionMap[sr.AssessmentID] = sr
 				continue
 			}
 
-			// tentukan graded dari status / graded_at
 			prevIsGraded := strings.EqualFold(prev.Status, "graded") || prev.GradedAt != nil
 			currIsGraded := strings.EqualFold(sr.Status, "graded") || sr.GradedAt != nil
 
-			// kalau sebelumnya belum graded, tapi sekarang graded → pakai yang graded
 			if !prevIsGraded && currIsGraded {
 				submissionMap[sr.AssessmentID] = sr
 				continue
 			}
 
-			// kalau sama-sama graded atau sama-sama belum graded:
-			// bandingkan submitted_at / graded_at yang lebih baru
 			prevTime := latestTime(prev.SubmittedAt, prev.GradedAt)
 			currTime := latestTime(sr.SubmittedAt, sr.GradedAt)
 
@@ -631,7 +632,6 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 			state := "unknown"
 			overdue := false
 
-			// base: hanya dari start/due (tanpa submission)
 			switch {
 			case start != nil && now.Before(*start):
 				state = "not_opened"
@@ -646,7 +646,6 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 				state = "unknown"
 			}
 
-			// progress struct (akan di-enrich kalau ada submission)
 			p := &timelineProgress{
 				State:   state,
 				Overdue: overdue,
@@ -654,7 +653,6 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 				DueAt:   due,
 			}
 
-			// ==== OVERRIDE dengan data submission (khusus student_timeline) ====
 			if isStudentTimeline {
 				if sub, ok := submissionMap[rows[i].AssessmentID]; ok {
 					p.SubmittedAt = sub.SubmittedAt
@@ -666,7 +664,6 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 
 					switch {
 					case isGradedSub:
-						// cek apakah graded (atau submitted) lewat due
 						late := false
 						if due != nil {
 							tRef := latestTime(sub.SubmittedAt, sub.GradedAt)
@@ -680,9 +677,7 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 							state = "graded"
 						}
 						overdue = due != nil && now.After(*due)
-
 					default:
-						// belum graded → submitted
 						late := false
 						if due != nil && sub.SubmittedAt != nil && sub.SubmittedAt.After(*due) {
 							late = true
@@ -698,7 +693,6 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 					p.State = state
 					p.Overdue = overdue
 
-					// Isi participant info
 					if out[i].Participant == nil {
 						out[i].Participant = &AssessmentParticipantLite{}
 					}
@@ -708,7 +702,8 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 			}
 
 			if isStudentTimeline {
-				out[i].StudentProgress = p
+				// ⬅️ ganti dari out[i].StudentProgress = p
+				out[i].Submissions = p
 			}
 			if isTeacherTimeline {
 				out[i].TeacherProgress = p
@@ -717,10 +712,9 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 	}
 
 	// ================================
-	// SELALU: QUIZZES EXPAND
+	// SELALU: QUIZZES + STUDENT ATTEMPTS (per-quiz)
 	// ================================
 	if len(rows) > 0 {
-		// Ambil semua assessment_id di page ini
 		aIDs := make([]uuid.UUID, 0, len(rows))
 		for i := range rows {
 			aIDs = append(aIDs, rows[i].AssessmentID)
@@ -732,27 +726,124 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 			Where("quiz_school_id = ? AND quiz_deleted_at IS NULL", mid).
 			Where("quiz_assessment_id IN ?", aIDs).
 			Find(&qrows).Error; err != nil {
+
+			log.Printf("[AssessmentList] ERROR FETCH QUIZZES: %v", err)
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil quizzes")
 		}
 
-		quizMap := make(map[uuid.UUID][]quizDTO.QuizResponse, len(aIDs))
+		log.Printf("[AssessmentList] QUIZZES: school=%s got %d quiz rows for assessments=%v",
+			mid.String(), len(qrows), aIDs)
+
+		// Map: assessment_id -> []quizWithAttempt
+		quizMap := make(map[uuid.UUID][]quizWithAttempt, len(aIDs))
 		for i := range qrows {
 			if qrows[i].QuizAssessmentID == nil {
+				log.Printf("[AssessmentList] QUIZ ROW WITHOUT assessment_id: quiz_id=%s", qrows[i].QuizID)
 				continue
 			}
 			aid := *qrows[i].QuizAssessmentID
-			quizMap[aid] = append(quizMap[aid], quizDTO.FromModel(&qrows[i]))
+			qResp := quizDTO.FromModel(&qrows[i])
+
+			quizMap[aid] = append(quizMap[aid], quizWithAttempt{
+				QuizResponse:   qResp,
+				StudentAttempt: nil, // diisi nanti kalau student_timeline
+			})
 		}
 
-		// tempel ke output
-		for i := range rows {
-			if qs, ok := quizMap[rows[i].AssessmentID]; ok && len(qs) > 0 {
-				out[i].Quizzes = qs
+		// Prefetch attempts (map: quiz_id -> attempt)
+		attemptByQuiz := map[uuid.UUID]*studentQuizAttemptLite{}
+
+		if isStudentTimeline && len(qrows) > 0 {
+			qIDs := make([]uuid.UUID, 0, len(qrows))
+			for i := range qrows {
+				qIDs = append(qIDs, qrows[i].QuizID)
 			}
+
+			log.Printf("[AssessmentList] PREFETCH QUIZ ATTEMPTS: school=%s student=%s quiz_ids=%v",
+				mid.String(), studentID.String(), qIDs)
+
+			var arows []quizModel.StudentQuizAttemptModel
+			if err := ctl.DB.WithContext(c.Context()).
+				Model(&quizModel.StudentQuizAttemptModel{}).
+				Where("student_quiz_attempt_school_id = ?", mid).
+				Where("student_quiz_attempt_student_id = ?", studentID).
+				Where("student_quiz_attempt_quiz_id IN ?", qIDs).
+				Find(&arows).Error; err != nil {
+
+				log.Printf("[AssessmentList] ERROR FETCH QUIZ ATTEMPTS: %v", err)
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil quiz attempts")
+			}
+
+			log.Printf("[AssessmentList] QUIZ ATTEMPTS: got %d rows", len(arows))
+
+			for i := range arows {
+				ar := arows[i]
+
+				log.Printf("[AssessmentList] QUIZ ATTEMPT ROW: quiz=%s attempt=%s status=%s count=%d",
+					ar.StudentQuizAttemptQuizID, ar.StudentQuizAttemptID, ar.StudentQuizAttemptStatus, ar.StudentQuizAttemptCount)
+
+				attemptByQuiz[ar.StudentQuizAttemptQuizID] = &studentQuizAttemptLite{
+					AttemptID: ar.StudentQuizAttemptID,
+					QuizID:    ar.StudentQuizAttemptQuizID,
+
+					Status: string(ar.StudentQuizAttemptStatus),
+					Count:  ar.StudentQuizAttemptCount,
+
+					BestRaw:        ar.StudentQuizAttemptBestRaw,
+					BestPercent:    ar.StudentQuizAttemptBestPercent,
+					BestStartedAt:  ar.StudentQuizAttemptBestStartedAt,
+					BestFinishedAt: ar.StudentQuizAttemptBestFinishedAt,
+
+					LastRaw:        ar.StudentQuizAttemptLastRaw,
+					LastPercent:    ar.StudentQuizAttemptLastPercent,
+					LastStartedAt:  ar.StudentQuizAttemptLastStartedAt,
+					LastFinishedAt: ar.StudentQuizAttemptLastFinishedAt,
+				}
+			}
+		}
+
+		// Tempel ke output
+		for i := range rows {
+			aid := rows[i].AssessmentID
+
+			qs, ok := quizMap[aid]
+			if !ok || len(qs) == 0 {
+				continue
+			}
+
+			// Kalau bukan student_timeline → tinggal assign saja
+			if !isStudentTimeline {
+				out[i].Quizzes = qs
+				continue
+			}
+
+			attachedCount := 0
+
+			// Student timeline: isi StudentAttempt per quiz
+			for j := range qs {
+				qid := qs[j].QuizID
+
+				if att, ok := attemptByQuiz[qid]; ok {
+					qs[j].StudentAttempt = att
+				} else {
+					qs[j].StudentAttempt = &studentQuizAttemptLite{
+						AttemptID: uuid.Nil,
+						QuizID:    qid,
+						Status:    "not_attempted",
+						Count:     0,
+					}
+				}
+				attachedCount++
+			}
+
+			log.Printf("[AssessmentList] ATTACH ATTEMPTS: assessment=%s attached_attempts=%d",
+				aid.String(), attachedCount)
+
+			out[i].Quizzes = qs
 		}
 	}
 
-	// 6) Return response — pakai JsonListEx + pagination offset/limit
+	// 6) Return response
 	return helper.JsonListEx(
 		c,
 		"OK",

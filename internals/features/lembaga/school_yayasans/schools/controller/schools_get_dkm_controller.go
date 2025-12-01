@@ -229,6 +229,49 @@ func (mc *SchoolController) CreateSchoolDKM(c *fiber.Ctx) error {
 	}
 	verifNotes := ptrStrTrim(c.FormValue("school_verification_notes"))
 
+	// 🔹 Contact person
+	contactPersonName := ptrStrTrim(c.FormValue("school_contact_person_name"))
+	contactPersonPhone := ptrStrTrim(c.FormValue("school_contact_person_phone"))
+
+	// 🔹 Tenant profile (default: school_basic)
+	tenantProfileRaw := strings.TrimSpace(c.FormValue("school_tenant_profile"))
+	if tenantProfileRaw == "" {
+		tenantProfileRaw = string(schoolDto.TenantProfileSchoolBasic)
+	}
+	tenantProfileRaw = strings.ToLower(tenantProfileRaw)
+
+	// 🔹 Default attendance entry mode (default: both)
+	attendanceModeRaw := strings.TrimSpace(c.FormValue("school_default_attendance_entry_mode"))
+	if attendanceModeRaw == "" {
+		attendanceModeRaw = string(schoolDto.AttendanceEntryBoth)
+	}
+	attendanceModeRaw = strings.ToLower(attendanceModeRaw)
+
+	// 🔹 Timezone (default: Asia/Jakarta)
+	tzStr := strings.TrimSpace(c.FormValue("school_timezone"))
+	if tzStr == "" {
+		tzStr = "Asia/Jakarta"
+	}
+	timezone := ptrStrTrim(tzStr)
+
+	// 🔹 Default KKM (min passing score)
+	var defaultMinScore *int
+	if s := strings.TrimSpace(c.FormValue("school_default_min_passing_score")); s != "" {
+		if v, err := strconv.Atoi(s); err == nil {
+			defaultMinScore = &v
+		}
+	}
+
+	// 🔹 Settings JSON (optional)
+	var schoolSettings datatypes.JSON
+	if raw := strings.TrimSpace(c.FormValue("school_settings")); raw != "" {
+		if json.Valid([]byte(raw)) {
+			schoolSettings = datatypes.JSON([]byte(raw))
+		} else {
+			lg("school_settings invalid json, ignored", "raw", raw)
+		}
+	}
+
 	levels := parseLevelsFromMultipart(c)
 
 	// Files (opsional)
@@ -258,6 +301,15 @@ func (mc *SchoolController) CreateSchoolDKM(c *fiber.Ctx) error {
 		"hasBackground", bgFH != nil,
 		"compatSlot", slot,
 		"hasCompatFile", compatFH != nil,
+		"tenant_profile", tenantProfileRaw,
+		"attendance_mode", attendanceModeRaw,
+		"timezone", tzStr,
+		"default_min_score", func() string {
+			if defaultMinScore == nil {
+				return "<nil>"
+			}
+			return strconv.Itoa(*defaultMinScore)
+		}(),
 	)
 
 	// TX
@@ -290,7 +342,18 @@ func (mc *SchoolController) CreateSchoolDKM(c *fiber.Ctx) error {
 			SchoolIsActive:           true,
 			SchoolVerificationStatus: schoolModel.VerificationStatus(strings.ToLower(verifStatus)),
 			SchoolVerificationNotes:  verifNotes,
-			SchoolIsIslamicSchool:    isSchool,
+
+			SchoolContactPersonName:  contactPersonName,
+			SchoolContactPersonPhone: contactPersonPhone,
+
+			SchoolIsIslamicSchool: isSchool,
+			SchoolTenantProfile:   schoolModel.TenantProfile(tenantProfileRaw),
+
+			// 🔹 Pengaturan baru
+			SchoolDefaultAttendanceEntryMode: schoolModel.AttendanceEntryMode(attendanceModeRaw),
+			SchoolTimezone:                   timezone,
+			SchoolDefaultMinPassingScore:     defaultMinScore,
+			SchoolSettings:                   schoolSettings,
 
 			SchoolCreatedAt: now,
 			SchoolUpdatedAt: now,

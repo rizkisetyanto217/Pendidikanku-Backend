@@ -45,6 +45,11 @@ type CSSTSnapshot struct {
 	// baru: slug nested
 	ClassSectionSlug  *string `json:"class_section_slug,omitempty"`
 	SchoolTeacherSlug *string `json:"school_teacher_slug,omitempty"`
+
+	// 🔹 baru: snapshot attendance entry mode efektif (string enum)
+	// disamakan key JSON-nya dengan yang di model biar gampang trace:
+	// "class_section_subject_teacher_school_attendance_entry_mode_snapshot"
+	AttendanceEntryMode *string `json:"class_section_subject_teacher_school_attendance_entry_mode_snapshot,omitempty"`
 }
 
 /* ======================================================
@@ -211,6 +216,13 @@ func ValidateAndSnapshotCSST(
 		"slug",
 	)
 
+	// 🔹 attendance entry mode snapshot di CSST
+	attendanceModeCol := firstExisting(cols,
+		"class_section_subject_teacher_school_attendance_entry_mode_snapshot",
+		"school_attendance_entry_mode_snapshot",
+		"attendance_entry_mode_snapshot",
+	)
+
 	deletedCol := firstExisting(cols,
 		"class_section_subject_teacher_deleted_at",
 		"deleted_at",
@@ -252,6 +264,7 @@ func ValidateAndSnapshotCSST(
 	teacherTitlePrefixExpr := toTextExpr(teacherTitlePrefixCol)
 	teacherTitleSuffixExpr := toTextExpr(teacherTitleSuffixCol)
 	schoolTeacherSlugExpr := toTextExpr(schoolTeacherSlugCol)
+	attendanceModeExpr := toTextExpr(attendanceModeCol)
 
 	whereDeleted := ""
 	if deletedCol != "" {
@@ -275,7 +288,8 @@ func ValidateAndSnapshotCSST(
 			%s       AS slug,
 			%s       AS teacher_title_prefix,
 			%s       AS teacher_title_suffix,
-			%s       AS school_teacher_slug
+			%s       AS school_teacher_slug,
+			%s       AS school_attendance_entry_mode
 		FROM class_section_subject_teachers csst
 		WHERE csst.%s = ? %s
 		LIMIT 1
@@ -296,6 +310,7 @@ func ValidateAndSnapshotCSST(
 		teacherTitlePrefixExpr,
 		teacherTitleSuffixExpr,
 		schoolTeacherSlugExpr,
+		attendanceModeExpr,
 		idCol,
 		whereDeleted,
 	)
@@ -317,6 +332,7 @@ func ValidateAndSnapshotCSST(
 		TeacherTitlePref  *string    `gorm:"column:teacher_title_prefix"`
 		TeacherTitleSuf   *string    `gorm:"column:teacher_title_suffix"`
 		SchoolTeacherSlug *string    `gorm:"column:school_teacher_slug"`
+		AttendanceMode    *string    `gorm:"column:school_attendance_entry_mode"`
 	}
 
 	if err := tx.Raw(q, csstID).Scan(&row).Error; err != nil {
@@ -367,6 +383,8 @@ func ValidateAndSnapshotCSST(
 
 		ClassSectionSlug:  trimPtr(row.ClassSectionSlug),
 		SchoolTeacherSlug: trimPtr(row.SchoolTeacherSlug),
+
+		AttendanceEntryMode: trimPtr(row.AttendanceMode),
 	}
 
 	// 🔍 Enrich dari school_teachers kalau name/prefix/suffix/slug belum ada,
@@ -515,6 +533,7 @@ func ToJSON(cs *CSSTSnapshot) datatypes.JSON {
 		slugVal             string
 		titlePrefixVal      string
 		titleSuffixVal      string
+		attendanceModeVal   string
 	)
 
 	if cs.Name != nil {
@@ -549,6 +568,9 @@ func ToJSON(cs *CSSTSnapshot) datatypes.JSON {
 	}
 	if cs.TeacherTitleSuffix != nil {
 		titleSuffixVal = strings.TrimSpace(*cs.TeacherTitleSuffix)
+	}
+	if cs.AttendanceEntryMode != nil {
+		attendanceModeVal = strings.TrimSpace(*cs.AttendanceEntryMode)
 	}
 
 	// === label name dengan fallback ===
@@ -628,6 +650,11 @@ func ToJSON(cs *CSSTSnapshot) datatypes.JSON {
 			st["title_suffix"] = titleSuffixVal
 		}
 		m["school_teacher"] = st
+	}
+	// 🔹 attendance entry mode efektif (root)
+	if attendanceModeVal != "" {
+		// disamakan dengan json tag di model + snapshot
+		m["class_section_subject_teacher_school_attendance_entry_mode_snapshot"] = attendanceModeVal
 	}
 
 	b, _ := json.Marshal(m)

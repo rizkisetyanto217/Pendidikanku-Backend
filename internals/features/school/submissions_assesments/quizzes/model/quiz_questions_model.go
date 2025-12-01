@@ -24,6 +24,21 @@ const (
 )
 
 /* =========================================================
+   History item
+   ========================================================= */
+
+type QuizQuestionHistoryItem struct {
+	Version     int             `json:"version"`
+	SavedAt     time.Time       `json:"saved_at"`
+	ChangeKind  string          `json:"change_kind,omitempty"` // "major" / "minor" (kalau mau dipakai nanti)
+	Text        string          `json:"text"`
+	Answers     json.RawMessage `json:"answers,omitempty"`
+	Correct     *string         `json:"correct,omitempty"`
+	Explanation *string         `json:"explanation,omitempty"`
+	Points      float64         `json:"points"`
+}
+
+/* =========================================================
    QuizQuestion (quiz_questions)
    ========================================================= */
 
@@ -41,11 +56,18 @@ type QuizQuestionModel struct {
 	QuizQuestionType QuizQuestionType `gorm:"type:varchar(8);not null;column:quiz_question_type" json:"quiz_question_type"`
 
 	// Isi & penilaian
-	QuizQuestionText        string         `gorm:"type:text;not null;column:quiz_question_text" json:"quiz_question_text"`
-	QuizQuestionPoints      float64        `gorm:"type:numeric(6,2);not null;default:1;column:quiz_question_points" json:"quiz_question_points"`
-	QuizQuestionAnswers     datatypes.JSON `gorm:"type:jsonb;column:quiz_question_answers" json:"quiz_question_answers,omitempty"`
-	QuizQuestionCorrect     *string        `gorm:"type:char(1);column:quiz_question_correct" json:"quiz_question_correct,omitempty"`
-	QuizQuestionExplanation *string        `gorm:"type:text;column:quiz_question_explanation" json:"quiz_question_explanation,omitempty"`
+	QuizQuestionText   string  `gorm:"type:text;not null;column:quiz_question_text" json:"quiz_question_text"`
+	QuizQuestionPoints float64 `gorm:"type:numeric(6,2);not null;default:1;column:quiz_question_points" json:"quiz_question_points"`
+
+	// JSON object: { "A": "...", "B": "...", ... }
+	QuizQuestionAnswers datatypes.JSON `gorm:"type:jsonb;column:quiz_question_answers" json:"quiz_question_answers,omitempty"`
+	// Key jawaban benar, harus salah satu key di Answers
+	QuizQuestionCorrect     *string `gorm:"type:text;column:quiz_question_correct" json:"quiz_question_correct,omitempty"`
+	QuizQuestionExplanation *string `gorm:"type:text;column:quiz_question_explanation" json:"quiz_question_explanation,omitempty"`
+
+	// Versioning ringan
+	QuizQuestionVersion int            `gorm:"type:int;not null;default:1;column:quiz_question_version" json:"quiz_question_version"`
+	QuizQuestionHistory datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'::jsonb;column:quiz_question_history" json:"quiz_question_history"`
 
 	// Unique pair (quiz_question_id, quiz_question_quiz_id)
 	_ struct{} `gorm:"uniqueIndex:uq_quiz_question_id_quiz"`
@@ -61,6 +83,10 @@ type QuizQuestionModel struct {
 
 func (QuizQuestionModel) TableName() string { return "quiz_questions" }
 
+/* =========================================================
+   Domain validation
+   ========================================================= */
+
 func (m *QuizQuestionModel) ValidateShape() error {
 	// text wajib
 	if strings.TrimSpace(m.QuizQuestionText) == "" {
@@ -73,43 +99,89 @@ func (m *QuizQuestionModel) ValidateShape() error {
 
 	switch m.QuizQuestionType {
 	case QuizQuestionTypeEssay:
-		// essay: tidak boleh punya correct; answers boleh kosong
+		// ESSAY: tidak boleh punya answers & correct (mirror constraint DB)
+		if len(m.QuizQuestionAnswers) > 0 {
+			return errors.New("essay question must not have quiz_question_answers")
+		}
 		if m.QuizQuestionCorrect != nil {
 			return errors.New("essay question must not have quiz_question_correct")
 		}
 		return nil
 
 	case QuizQuestionTypeSingle:
-		// single: harus ada correct A..D dan answers valid (array/object)
-		if m.QuizQuestionCorrect == nil {
+		// SINGLE: wajib punya correct & answers
+		if m.QuizQuestionCorrect == nil || strings.TrimSpace(*m.QuizQuestionCorrect) == "" {
 			return errors.New("single choice requires quiz_question_correct")
-		}
-		c := strings.ToUpper(strings.TrimSpace(*m.QuizQuestionCorrect))
-		if c != "A" && c != "B" && c != "C" && c != "D" {
-			return errors.New("quiz_question_correct must be one of A,B,C,D")
 		}
 		if len(m.QuizQuestionAnswers) == 0 {
 			return errors.New("single choice requires quiz_question_answers")
 		}
-		var v any
-		if err := json.Unmarshal(m.QuizQuestionAnswers, &v); err != nil {
+
+		// answers harus JSON object: { "A": "...", "B": "...", ... }
+		var raw any
+		if err := json.Unmarshal(m.QuizQuestionAnswers, &raw); err != nil {
 			return fmt.Errorf("quiz_question_answers invalid json: %w", err)
 		}
-		switch vv := v.(type) {
-		case []any:
-			if len(vv) < 2 {
-				return errors.New("quiz_question_answers array must have at least 2 options")
-			}
-		case map[string]any:
-			// opsional: cek minimal A & B ada
-			// _, hasA := vv["A"]; _, hasB := vv["B"]
-			// if !hasA || !hasB { return errors.New("answers object should contain at least A and B") }
-		default:
-			return errors.New("quiz_question_answers must be array or object")
+
+		obj, ok := raw.(map[string]any)
+		if !ok {
+			return errors.New("quiz_question_answers must be a json object with keys like A,B,C")
 		}
+		if len(obj) < 2 {
+			return errors.New("quiz_question_answers must contain at least 2 options")
+		}
+
+		// cek: correct harus salah satu key di answers
+		key := strings.TrimSpace(*m.QuizQuestionCorrect)
+		if key == "" {
+			return errors.New("quiz_question_correct cannot be empty")
+		}
+		if _, exists := obj[key]; !exists {
+			return fmt.Errorf("quiz_question_correct %q must be one of the keys in quiz_question_answers", key)
+		}
+
 		return nil
 
 	default:
 		return errors.New("invalid quiz_question_type")
 	}
+}
+
+/* =========================================================
+   History helper
+   ========================================================= */
+
+// AppendHistorySnapshot dipanggil saat perubahan "major":
+// - Menyimpan snapshot state lama ke QuizQuestionHistory
+// - Menaikkan QuizQuestionVersion
+func (m *QuizQuestionModel) AppendHistorySnapshot(changeKind string) error {
+	kind := strings.ToLower(strings.TrimSpace(changeKind))
+
+	var items []QuizQuestionHistoryItem
+	if len(m.QuizQuestionHistory) > 0 {
+		_ = json.Unmarshal(m.QuizQuestionHistory, &items)
+	}
+
+	item := QuizQuestionHistoryItem{
+		Version:     m.QuizQuestionVersion,
+		SavedAt:     time.Now().UTC(),
+		ChangeKind:  kind,
+		Text:        m.QuizQuestionText,
+		Answers:     json.RawMessage(m.QuizQuestionAnswers),
+		Correct:     m.QuizQuestionCorrect,
+		Explanation: m.QuizQuestionExplanation,
+		Points:      m.QuizQuestionPoints,
+	}
+
+	items = append(items, item)
+
+	buf, err := json.Marshal(items)
+	if err != nil {
+		return fmt.Errorf("failed to marshal quiz_question_history: %w", err)
+	}
+
+	m.QuizQuestionHistory = datatypes.JSON(buf)
+	m.QuizQuestionVersion++
+
+	return nil
 }

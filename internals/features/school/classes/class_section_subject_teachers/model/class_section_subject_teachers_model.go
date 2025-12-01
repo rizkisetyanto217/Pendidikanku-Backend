@@ -17,6 +17,15 @@ const (
 	DeliveryModeHybrid  ClassDeliveryMode = "hybrid"
 )
 
+/* ===== ENUM: attendance_entry_mode_enum (copy dari SchoolModel) ===== */
+type AttendanceEntryMode string
+
+const (
+	AttendanceEntryTeacherOnly AttendanceEntryMode = "teacher_only"
+	AttendanceEntryStudentOnly AttendanceEntryMode = "student_only"
+	AttendanceEntryBoth        AttendanceEntryMode = "both"
+)
+
 /*
 =========================================================
 
@@ -52,6 +61,11 @@ type ClassSectionSubjectTeacherModel struct {
 
 	/* ===== Delivery mode (enum) ===== */
 	ClassSectionSubjectTeacherDeliveryMode ClassDeliveryMode `gorm:"type:class_delivery_mode_enum;not null;default:'offline';column:class_section_subject_teacher_delivery_mode" json:"class_section_subject_teacher_delivery_mode"`
+
+	/* ===== SNAPSHOT: attendance entry mode efektif di CSST ===== */
+	// Kalau kosong → diset saat create dari School.SchoolDefaultAttendanceEntryMode
+	// Kalau guru isi custom → diset ke nilai custom itu
+	ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot *AttendanceEntryMode `gorm:"type:attendance_entry_mode_enum;column:class_section_subject_teacher_school_attendance_entry_mode_snapshot" json:"class_section_subject_teacher_school_attendance_entry_mode_snapshot,omitempty"`
 
 	/* ===== SECTION snapshots (tanpa JSONB) ===== */
 	ClassSectionSubjectTeacherClassSectionID           uuid.UUID `gorm:"type:uuid;not null;column:class_section_subject_teacher_class_section_id" json:"class_section_subject_teacher_class_section_id"`

@@ -125,6 +125,10 @@ type CreateClassSectionSubjectTeacherRequest struct {
 	// enum: offline|online|hybrid
 	ClassSectionSubjectTeacherDeliveryMode *csstModel.ClassDeliveryMode `json:"class_section_subject_teacher_delivery_mode" validate:"omitempty,oneof=offline online hybrid"`
 
+	// 🆕 Attendance entry mode per CSST (boleh kosong, nanti fallback ke default school di service)
+	// enum: teacher_only | student_only | both
+	ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot *csstModel.AttendanceEntryMode `json:"class_section_subject_teacher_school_attendance_entry_mode_snapshot" validate:"omitempty,oneof=teacher_only student_only both"`
+
 	// Target pertemuan & KKM spesifik CSST (opsional)
 	ClassSectionSubjectTeacherTotalMeetingsTarget *int `json:"class_section_subject_teacher_total_meetings_target" validate:"omitempty"`
 	ClassSectionSubjectTeacherMinPassingScore     *int `json:"class_section_subject_teacher_min_passing_score" validate:"omitempty,gte=0"`
@@ -149,6 +153,9 @@ type UpdateClassSectionSubjectTeacherRequest struct {
 	ClassSectionSubjectTeacherGroupURL     *string                      `json:"class_section_subject_teacher_group_url" validate:"omitempty,max=2000"`
 	ClassSectionSubjectTeacherCapacity     *int                         `json:"class_section_subject_teacher_capacity" validate:"omitempty"`
 	ClassSectionSubjectTeacherDeliveryMode *csstModel.ClassDeliveryMode `json:"class_section_subject_teacher_delivery_mode" validate:"omitempty,oneof=offline online hybrid"`
+
+	// 🆕 Bisa update custom attendance mode juga
+	ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot *csstModel.AttendanceEntryMode `json:"class_section_subject_teacher_school_attendance_entry_mode_snapshot" validate:"omitempty,oneof=teacher_only student_only both"`
 
 	ClassSectionSubjectTeacherTotalMeetingsTarget *int `json:"class_section_subject_teacher_total_meetings_target" validate:"omitempty"`
 	ClassSectionSubjectTeacherMinPassingScore     *int `json:"class_section_subject_teacher_min_passing_score" validate:"omitempty,gte=0"`
@@ -195,6 +202,9 @@ type ClassSectionSubjectTeacherResponse struct {
 	// ➕ NEW: gender breakdown
 	ClassSectionSubjectTeacherTotalStudentsMale   int `json:"class_section_subject_teacher_total_students_male"`
 	ClassSectionSubjectTeacherTotalStudentsFemale int `json:"class_section_subject_teacher_total_students_female"`
+
+	// 🆕 Attendance mode efektif yang dipakai di CSST (hasil snapshot)
+	ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot *string `json:"class_section_subject_teacher_school_attendance_entry_mode_snapshot,omitempty"`
 
 	/* ===== SECTION snapshots (varchar/text) ===== */
 	ClassSectionSubjectTeacherClassSectionSlugSnapshot *string `json:"class_section_subject_teacher_class_section_slug_snapshot,omitempty"`
@@ -277,6 +287,11 @@ func (r CreateClassSectionSubjectTeacherRequest) ToModel() csstModel.ClassSectio
 		m.ClassSectionSubjectTeacherMinPassingScore = r.ClassSectionSubjectTeacherMinPassingScore
 	}
 
+	// 🆕 kalau create langsung mau set custom attendance, boleh diisi di sini
+	if r.ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot != nil {
+		m.ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot = r.ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot
+	}
+
 	return m
 }
 
@@ -325,6 +340,10 @@ func (r UpdateClassSectionSubjectTeacherRequest) Apply(m *csstModel.ClassSection
 	if r.ClassSectionSubjectTeacherIsActive != nil {
 		m.ClassSectionSubjectTeacherIsActive = *r.ClassSectionSubjectTeacherIsActive
 	}
+	// 🆕 update custom attendance mode
+	if r.ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot != nil {
+		m.ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot = r.ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot
+	}
 }
 
 func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherModel) ClassSectionSubjectTeacherResponse {
@@ -332,6 +351,13 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 	if m.ClassSectionSubjectTeacherDeletedAt.Valid {
 		t := m.ClassSectionSubjectTeacherDeletedAt.Time
 		deletedAt = &t
+	}
+
+	// 🆕 convert enum pointer → *string untuk JSON
+	var attendanceSnapshot *string
+	if m.ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot != nil {
+		v := string(*m.ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot)
+		attendanceSnapshot = &v
 	}
 
 	return ClassSectionSubjectTeacherResponse{
@@ -364,6 +390,9 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 		// ➕ gender breakdown
 		ClassSectionSubjectTeacherTotalStudentsMale:   m.ClassSectionSubjectTeacherTotalStudentsMale,
 		ClassSectionSubjectTeacherTotalStudentsFemale: m.ClassSectionSubjectTeacherTotalStudentsFemale,
+
+		// 🆕 attendance snapshot
+		ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot: attendanceSnapshot,
 
 		// SECTION snapshots
 		ClassSectionSubjectTeacherClassSectionSlugSnapshot: m.ClassSectionSubjectTeacherClassSectionSlugSnapshot,

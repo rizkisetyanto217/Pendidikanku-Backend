@@ -29,6 +29,13 @@ BEGIN
   END IF;
 END$$;
 
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'attendance_entry_mode_enum') THEN
+    CREATE TYPE attendance_entry_mode_enum AS ENUM ('teacher_only', 'student_only', 'both');
+  END IF;
+END$$;
+
 -- =========================================================
 -- TABLE: SCHOOLS
 -- =========================================================
@@ -97,6 +104,15 @@ CREATE TABLE IF NOT EXISTS schools (
   school_background_object_key_old       TEXT,
   school_background_delete_pending_until TIMESTAMPTZ,
 
+  -- Default mode absensi: teacher_only / student_only / both
+  school_default_attendance_entry_mode attendance_entry_mode_enum
+    NOT NULL DEFAULT 'both',
+
+  -- Global settings sekolah
+  school_timezone VARCHAR(50),
+  school_default_min_passing_score INT,
+  school_settings JSONB NOT NULL DEFAULT '{}'::jsonb,
+
   -- Audit
   school_created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   school_updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -111,18 +127,24 @@ CREATE TABLE IF NOT EXISTS schools (
   CONSTRAINT chk_school_slug_format
     CHECK (school_slug ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$'),
   CONSTRAINT chk_school_domain_format
-    CHECK (school_domain IS NULL OR school_domain ~* '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z]{2,})+$')
+    CHECK (school_domain IS NULL OR school_domain ~* '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z]{2,})+$'),
+  CONSTRAINT chk_school_default_min_passing_score
+    CHECK (
+      school_default_min_passing_score IS NULL
+      OR school_default_min_passing_score BETWEEN 0 AND 100
+    ),
+  CONSTRAINT chk_school_settings_is_object
+    CHECK (
+      school_settings IS NULL
+      OR jsonb_typeof(school_settings) = 'object'
+    )
 );
 
 -- =========================================================
 -- SCHOOL NUMBER: sequence + default + pengisian existing
 -- =========================================================
 
--- 1) Pastikan kolom ada (kalau tabel sudah lama)
-ALTER TABLE schools
-  ADD COLUMN IF NOT EXISTS school_number BIGINT;
-
--- 2) Sequence untuk school_number
+-- 1) Sequence untuk school_number
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -135,11 +157,11 @@ BEGIN
   END IF;
 END$$;
 
--- 3) Set default pakai sequence
+-- 2) Set default pakai sequence
 ALTER TABLE schools
   ALTER COLUMN school_number SET DEFAULT nextval('schools_school_number_seq');
 
--- 4) Inisialisasi nilai untuk row yang sudah ada (hanya yang masih NULL)
+-- 3) Inisialisasi nilai untuk row yang sudah ada (hanya yang masih NULL)
 DO $$
 DECLARE
   max_num BIGINT;
@@ -152,15 +174,60 @@ BEGIN
    WHERE school_number IS NULL;
 END$$;
 
--- 5) Unique index untuk memastikan tidak ada duplikasi number
+-- 4) Unique index untuk memastikan tidak ada duplikasi number
 CREATE UNIQUE INDEX IF NOT EXISTS ux_schools_school_number
   ON schools (school_number);
+
+-- =========================================================
+-- PATCH: untuk schema lama (kalau kolom baru belum ada)
+-- =========================================================
+ALTER TABLE schools
+  ADD COLUMN IF NOT EXISTS school_timezone VARCHAR(50),
+  ADD COLUMN IF NOT EXISTS school_default_min_passing_score INT,
+  ADD COLUMN IF NOT EXISTS school_settings JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'schools'::regclass
+      AND conname = 'chk_school_default_min_passing_score'
+  ) THEN
+    ALTER TABLE schools
+      ADD CONSTRAINT chk_school_default_min_passing_score
+      CHECK (
+        school_default_min_passing_score IS NULL
+        OR school_default_min_passing_score BETWEEN 0 AND 100
+      );
+  END IF;
+END$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'schools'::regclass
+      AND conname = 'chk_school_settings_is_object'
+  ) THEN
+    ALTER TABLE schools
+      ADD CONSTRAINT chk_school_settings_is_object
+      CHECK (
+        school_settings IS NULL
+        OR jsonb_typeof(school_settings) = 'object'
+      );
+  END IF;
+END$$;
+
+-- (Opsional) pastikan default attendance mode sudah 'both'
+ALTER TABLE schools
+  ALTER COLUMN school_default_attendance_entry_mode SET DEFAULT 'both';
 
 -- =========================================================
 -- FK plan (idempotent, toleran delete)
 -- =========================================================
 ALTER TABLE schools
   DROP CONSTRAINT IF EXISTS schools_school_current_plan_id_fkey;
+
 ALTER TABLE schools
   ADD CONSTRAINT schools_school_current_plan_id_fkey
   FOREIGN KEY (school_current_plan_id)
@@ -218,7 +285,7 @@ CREATE INDEX IF NOT EXISTS brin_schools_created_at
   ON schools USING brin (school_created_at);
 
 CREATE INDEX IF NOT EXISTS idx_schools_active_alive
-  ON schools(school_is_active)
+  ON schools (school_is_active)
   WHERE school_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_schools_tenant_profile
@@ -235,6 +302,10 @@ CREATE INDEX IF NOT EXISTS brin_schools_background_delete_pending_until
 
 CREATE INDEX IF NOT EXISTS idx_schools_city_alive
   ON schools (school_city)
+  WHERE school_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_schools_default_attendance_entry_mode_alive
+  ON schools (school_default_attendance_entry_mode)
   WHERE school_deleted_at IS NULL;
 
 -- =========================================================
@@ -277,7 +348,6 @@ BEGIN
     EXECUTE FUNCTION sync_school_is_verified();
   END IF;
 END$$;
-
 
 
 -- =====================================================================

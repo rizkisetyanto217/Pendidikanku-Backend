@@ -25,10 +25,20 @@ const (
 type TenantProfile string
 
 const (
-	TenantTeacherSolo       TenantProfile = "teacher_solo"
-	TenantTeacherPlusSchool TenantProfile = "teacher_plus_school"
-	TenantSchoolBasic       TenantProfile = "school_basic"
-	TenantSchoolComplex     TenantProfile = "school_complex"
+	TenantProfileStudent     TenantProfile = "student"
+	TenantProfileTeacherSolo TenantProfile = "teacher_solo"
+	TenantProfileTeacherPlus TenantProfile = "teacher_plus"
+	TenantProfileSchoolBasic TenantProfile = "school_basic"
+	TenantProfileSchoolPlus  TenantProfile = "school_plus"
+)
+
+// Go mapping untuk attendance_entry_mode_enum
+type AttendanceEntryMode string
+
+const (
+	AttendanceEntryTeacherOnly AttendanceEntryMode = "teacher_only"
+	AttendanceEntryStudentOnly AttendanceEntryMode = "student_only"
+	AttendanceEntryBoth        AttendanceEntryMode = "both"
 )
 
 /* =========================
@@ -51,7 +61,7 @@ type SchoolModel struct {
 
 	// Domain & slug
 	SchoolDomain *string `gorm:"type:varchar(50);column:school_domain" json:"school_domain,omitempty"`
-	SchoolSlug   string  `gorm:"type:varchar(100);uniqueIndex;not null;column:school_slug" json:"school_slug"`
+	SchoolSlug   string  `gorm:"type:varchar(100);not null;column:school_slug" json:"school_slug"`
 
 	// Status & verifikasi
 	SchoolIsActive           bool               `gorm:"type:boolean;not null;default:true;column:school_is_active" json:"school_is_active"`
@@ -67,13 +77,11 @@ type SchoolModel struct {
 	// Flag
 	SchoolIsIslamicSchool bool `gorm:"type:boolean;not null;default:false;column:school_is_islamic_school" json:"school_is_islamic_school"`
 
-	// Peruntukan tenant
-	SchoolTenantProfile TenantProfile `gorm:"type:tenant_profile_enum;not null;default:'teacher_solo';column:school_tenant_profile" json:"school_tenant_profile"`
+	// Peruntukan tenant (sync dengan ENUM di DB)
+	SchoolTenantProfile TenantProfile `gorm:"type:tenant_profile_enum;not null;default:'school_basic';column:school_tenant_profile" json:"school_tenant_profile"`
 
 	// Levels (JSONB array/tag-style)
 	SchoolLevels datatypes.JSON `gorm:"type:jsonb;column:school_levels" json:"school_levels,omitempty"`
-	// Alternatif yang lebih ketat (butuh GORM dengan JSONType):
-	// SchoolLevels datatypes.JSONType[[]string] `gorm:"type:jsonb;column:school_levels" json:"school_levels,omitempty"`
 
 	// === Teacher invite/join code (hash + waktu set) ===
 	SchoolTeacherCodeHash  []byte     `gorm:"type:bytea;column:school_teacher_code_hash" json:"school_teacher_code_hash,omitempty"`
@@ -100,7 +108,16 @@ type SchoolModel struct {
 	SchoolBackgroundObjectKeyOld       *string    `gorm:"type:text;column:school_background_object_key_old" json:"school_background_object_key_old,omitempty"`
 	SchoolBackgroundDeletePendingUntil *time.Time `gorm:"type:timestamptz;column:school_background_delete_pending_until" json:"school_background_delete_pending_until,omitempty"`
 
-	SchoolNumber int64 `gorm:"column:school_number" json:"school_number"`
+	// Running number
+	SchoolNumber int64 `gorm:"type:bigint;column:school_number" json:"school_number"`
+
+	// Default mode absensi sekolah
+	SchoolDefaultAttendanceEntryMode AttendanceEntryMode `gorm:"type:attendance_entry_mode_enum;not null;default:'both';column:school_default_attendance_entry_mode" json:"school_default_attendance_entry_mode"`
+
+	// Global settings sekolah
+	SchoolTimezone               *string        `gorm:"type:varchar(50);column:school_timezone" json:"school_timezone,omitempty"`
+	SchoolDefaultMinPassingScore *int           `gorm:"type:int;column:school_default_min_passing_score" json:"school_default_min_passing_score,omitempty"`
+	SchoolSettings               datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'::jsonb;column:school_settings" json:"school_settings"`
 
 	// ✅ RELASI KE PROFILE (ini yang dibutuhkan Preload("SchoolProfile"))
 	SchoolProfile *SchoolProfileModel `gorm:"foreignKey:SchoolProfileSchoolID;references:SchoolID" json:"school_profile,omitempty"`

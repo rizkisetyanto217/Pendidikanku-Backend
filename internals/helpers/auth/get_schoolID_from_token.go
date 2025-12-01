@@ -358,6 +358,26 @@ func HasRoleInSchool(c *fiber.Ctx, schoolID uuid.UUID, role string) bool {
 	return false
 }
 
+func hasAnyRole(userRoles, allowed []string) bool {
+	m := make(map[string]struct{}, len(userRoles))
+	for _, r := range userRoles {
+		r = strings.ToLower(strings.TrimSpace(r))
+		if r != "" {
+			m[r] = struct{}{}
+		}
+	}
+	for _, a := range allowed {
+		a = strings.ToLower(strings.TrimSpace(a))
+		if a == "" {
+			continue
+		}
+		if _, ok := m[a]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 /* ============================================
    active_school_id & school_id helpers
    ============================================ */
@@ -798,26 +818,45 @@ func ensureRolesInSchool(
 		return nil
 	}
 
-	// 2) Presence gate
+	// 2) Presence gate: pastikan school ini memang ada di token
 	if !isSchoolPresentInToken(c, schoolID) {
 		return helper.JsonError(c, fiber.StatusForbidden, "School ini tidak ada dalam token Anda")
 	}
 
-	// 3) (Opsional) Stale-token gate
+	// 3) (opsional) Stale-token gate
 	if err := rejectIfTokenStale(c); err != nil {
 		return err
 	}
 
-	// 4) Cek peran di school_roles
-	for _, r := range roles {
-		r = strings.ToLower(strings.TrimSpace(r))
-		if HasRoleInSchool(c, schoolID, r) {
-			markGuardOK(c, schoolID)
-			return nil
+	// 4) PRIORITAS: gunakan structured school_roles kalau tersedia
+	if entries, err := parseSchoolRoles(c); err == nil && len(entries) > 0 {
+		var entry *SchoolRolesEntry
+		for i := range entries {
+			if entries[i].SchoolID == schoolID {
+				entry = &entries[i]
+				break
+			}
 		}
+
+		// Kalau ada entry untuk school ini di school_roles,
+		// maka itu jadi sumber kebenaran utama
+		if entry != nil {
+			if hasAnyRole(entry.Roles, roles) {
+				markGuardOK(c, schoolID)
+				return nil
+			}
+			// Token bilang kamu BUKAN salah satu dari roles yang diizinkan
+			if strings.TrimSpace(forbidMessage) == "" {
+				forbidMessage = "Tidak diizinkan"
+			}
+			return helper.JsonError(c, fiber.StatusForbidden, forbidMessage)
+		}
+
+		// Ada school_roles tapi tidak ada entry utk schoolID ini → tolak
+		return helper.JsonError(c, fiber.StatusForbidden, "School ini tidak ada dalam token Anda")
 	}
 
-	// 5) Legacy fallback
+	// 5) Kalau BELUM pakai mekanisme school_roles → baru pakai legacy fallback
 	if legacyFallback != nil && legacyFallback() {
 		markGuardOK(c, schoolID)
 		return nil
@@ -893,6 +932,63 @@ func ResolveSchoolIDFromContext(c *fiber.Ctx) (uuid.UUID, error) {
 
 	// 3) Kalau tetap nggak ada, unauthorized / bad context
 	return uuid.Nil, helper.JsonError(c, fiber.StatusUnauthorized, "school context not found in token")
+}
+
+func ResolveStudentIDFromContext(c *fiber.Ctx, schoolID uuid.UUID) (uuid.UUID, error) {
+	// 1) Ambil student_id dari token
+	// NOTE: parameter schoolID ke-2 sekarang dipakai untuk konsistensi signature,
+	// meskipun secara implementasi internal saat ini di-ignore.
+	studentID, err := GetStudentIDFromToken(c, schoolID)
+	if err != nil || studentID == uuid.Nil {
+		return uuid.Nil, helper.JsonError(c, fiber.StatusUnauthorized, "student context not found in token")
+	}
+
+	// 2) (opsional tapi lebih aman): pastikan memang murid di sekolah ini
+	if !IsStudentInSchool(c, schoolID) {
+		return uuid.Nil, helper.JsonError(c, fiber.StatusForbidden, "Hanya murid yang diizinkan di school ini")
+	}
+
+	return studentID, nil
+}
+
+// Resolver akses: DKM/Admin atau Teacher pada school tsb, dengan school_id DARI TOKEN.
+// Resolver akses: minimal Teacher / DKM / Admin pada school tsb,
+// dengan school_id diambil dari context/token.
+// Resolver akses: minimal Teacher / DKM / Admin pada school tsb,
+// dengan school_id diambil dari context/token.
+func ResolveSchoolForDKMOrTeacher(c *fiber.Ctx) (uuid.UUID, error) {
+	// 1) Ambil school_id dari context/token (prefer teacher-school dulu)
+	schoolID, err := ResolveSchoolIDFromContext(c)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if schoolID == uuid.Nil {
+		return uuid.Nil, ErrSchoolContextMissing
+	}
+
+	// 2) HARD GUARD:
+	//    Kalau user "murni murid" (student) dan bukan teacher/DKM/admin/owner,
+	//    langsung tolak di sini, berapapun konfigurasi legacy di bawah.
+	if IsStudent(c) &&
+		!IsTeacher(c) &&
+		!IsDKM(c) &&
+		!IsOwner(c) &&
+		!HasGlobalRole(c, "admin") &&
+		!HasGlobalRole(c, "superadmin") {
+
+		return uuid.Nil, helper.JsonError(
+			c,
+			fiber.StatusForbidden,
+			"Murid tidak diizinkan membuat atau mengubah assessment",
+		)
+	}
+
+	// 3) Guard normal pakai per-school role (DKM/Admin/Teacher)
+	if err := EnsureDKMOrTeacherSchool(c, schoolID); err != nil {
+		return uuid.Nil, err
+	}
+
+	return schoolID, nil
 }
 
 /* ============================================

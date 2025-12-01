@@ -34,6 +34,15 @@ Bisa handle:
   - Filter by slug:
     GET /api/u/schools?slug=madinah-salam
 
+  - Filter by tenant profile:
+    GET /api/u/schools?tenant_profile=school_basic
+
+  - Filter by default attendance mode:
+    GET /api/u/schools?attendance_mode=teacher_only|student_only|both
+
+  - Filter by city:
+    GET /api/u/schools?city=bekasi
+
   - Detail by path param:
     GET /api/u/schools/:id
     GET /api/u/schools/slug/:slug
@@ -63,7 +72,12 @@ func (mc *SchoolController) GetSchools(c *fiber.Ctx) error {
 	slug := strings.TrimSpace(c.Query("slug"))                  // slug (query)
 	mode := strings.TrimSpace(c.Query("mode"))                  // "single" / "list"
 	verifiedOnly := strings.TrimSpace(c.Query("verified_only")) // "1"/"true"/...
-	includeParam := strings.TrimSpace(c.Query("include"))       // "profile", "profile,xxx"
+
+	tenantProfile := strings.TrimSpace(c.Query("tenant_profile"))   // filter by tenant_profile
+	attendanceMode := strings.TrimSpace(c.Query("attendance_mode")) // filter by default attendance mode
+	cityFilter := strings.TrimSpace(c.Query("city"))                // filter by city (exact lower)
+
+	includeParam := strings.TrimSpace(c.Query("include")) // "profile", "profile,xxx"
 
 	// path param override query param
 	if pathID != "" {
@@ -93,8 +107,8 @@ func (mc *SchoolController) GetSchools(c *fiber.Ctx) error {
 		singleMode = true
 	}
 
-	log.Printf("[INFO] [GetSchools] raw params: q=%q id=%q ids=%q slug=%q verified_only=%q mode=%q include=%q singleMode(init)=%v\n",
-		q, id, idsParam, slug, verifiedOnly, mode, includeParam, singleMode)
+	log.Printf("[INFO] [GetSchools] raw params: q=%q id=%q ids=%q slug=%q verified_only=%q mode=%q include=%q tenant_profile=%q attendance_mode=%q city=%q singleMode(init)=%v\n",
+		q, id, idsParam, slug, verifiedOnly, mode, includeParam, tenantProfile, attendanceMode, cityFilter, singleMode)
 
 	const colID = "school_id"
 	const colName = "school_name"
@@ -157,8 +171,24 @@ func (mc *SchoolController) GetSchools(c *fiber.Ctx) error {
 		dbq = dbq.Where(colName+" ILIKE ?", "%"+q+"%")
 	}
 
+	// ==== filter by tenant_profile (opsional) ====
+	if tenantProfile != "" {
+		dbq = dbq.Where("school_tenant_profile = ?", strings.ToLower(tenantProfile))
+	}
+
+	// ==== filter by default attendance mode (opsional) ====
+	if attendanceMode != "" {
+		dbq = dbq.Where("school_default_attendance_entry_mode = ?", strings.ToLower(attendanceMode))
+	}
+
+	// ==== filter by city (opsional, exact lower) ====
+	if cityFilter != "" {
+		dbq = dbq.Where("LOWER(school_city) = ?", strings.ToLower(cityFilter))
+	}
+
 	// ==== DEFAULT: kalau tidak kirim filter apa-apa → pakai school_id dari context ====
-	noExplicitFilter := (q == "" && id == "" && idsParam == "" && slug == "" && verifiedOnly == "")
+	noExplicitFilter := (q == "" && id == "" && idsParam == "" && slug == "" && verifiedOnly == "" &&
+		tenantProfile == "" && attendanceMode == "" && cityFilter == "")
 	if noExplicitFilter {
 		// 🔥 pakai helper yang kamu kasih: ResolveSchoolIDFromContext
 		schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
@@ -201,6 +231,7 @@ func (mc *SchoolController) GetSchools(c *fiber.Ctx) error {
 			m.SchoolName, m.SchoolID, wantProfile,
 		)
 
+		// DTO FromModel sudah kirim semua field baru (attendance mode, timezone, settings, dsb)
 		return helper.JsonOK(c, "ok", schoolDto.FromModel(&m))
 	}
 

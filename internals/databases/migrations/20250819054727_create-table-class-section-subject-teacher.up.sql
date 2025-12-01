@@ -179,6 +179,9 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   -- Delivery mode
   class_section_subject_teacher_delivery_mode    class_delivery_mode_enum NOT NULL DEFAULT 'offline',
 
+  class_section_subject_teacher_school_attendance_entry_mode_snapshot
+    attendance_entry_mode_enum,
+
   /* =======================
      SECTION snapshot (tanpa JSONB)
      ======================= */
@@ -201,7 +204,7 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   /* =======================
      PEOPLE snapshot (teacher & assistant)
      ======================= */
-  class_section_subject_teacher_school_teacher_id                 UUID NOT NULL,
+  class_section_subject_teacher_school_teacher_id                 UUID,
   class_section_subject_teacher_school_teacher_slug_snapshot      VARCHAR(160),
   class_section_subject_teacher_school_teacher_snapshot           JSONB,
 
@@ -211,6 +214,7 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
 
   class_section_subject_teacher_school_teacher_name_snapshot           TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_school_teacher_snapshot->>'name')) STORED,
   class_section_subject_teacher_assistant_school_teacher_name_snapshot TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_assistant_school_teacher_snapshot->>'name')) STORED,
+
 
   /* =======================
      SUBJECT snapshot (via CLASS_SUBJECT)

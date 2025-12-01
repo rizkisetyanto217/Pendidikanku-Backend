@@ -51,11 +51,22 @@ func val(s *string) string {
 	}
 	return *s
 }
+
 func jsonEqual(a, b datatypes.JSON) bool {
 	if len(a) == 0 && len(b) == 0 {
 		return true
 	}
 	return string(a) == string(b)
+}
+
+func intPtrDiff(a, b *int) bool {
+	if a == nil && b == nil {
+		return false
+	}
+	if a == nil || b == nil {
+		return true
+	}
+	return *a != *b
 }
 
 // ====== KODE GURU: helper & endpoint ======
@@ -423,6 +434,20 @@ func (mc *SchoolController) Patch(c *fiber.Ctx) error {
 			updates["school_background_object_key_old"] = m.SchoolBackgroundObjectKeyOld
 			updates["school_background_delete_pending_until"] = m.SchoolBackgroundDeletePendingUntil
 		}
+	}
+
+	// 🔹 pengaturan akademik/global baru
+	if string(before.SchoolDefaultAttendanceEntryMode) != string(m.SchoolDefaultAttendanceEntryMode) {
+		updates["school_default_attendance_entry_mode"] = m.SchoolDefaultAttendanceEntryMode
+	}
+	if val(before.SchoolTimezone) != val(m.SchoolTimezone) {
+		updates["school_timezone"] = m.SchoolTimezone
+	}
+	if intPtrDiff(before.SchoolDefaultMinPassingScore, m.SchoolDefaultMinPassingScore) {
+		updates["school_default_min_passing_score"] = m.SchoolDefaultMinPassingScore
+	}
+	if !jsonEqual(before.SchoolSettings, m.SchoolSettings) {
+		updates["school_settings"] = m.SchoolSettings
 	}
 
 	if len(updates) == 1 { // cuma updated_at

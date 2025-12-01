@@ -14,13 +14,14 @@ import (
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
+	schoolModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/model"
 	modelSchoolTeacher "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
 	modelClassSection "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 
 	attendanceModel "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/model"
 	assessmentModel "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/model"
 
-	// DTO & Model
+	// DTO & Model (✅ pakai DTO lembaga)
 	dto "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/dto"
 	modelCSST "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 
@@ -379,6 +380,27 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		// 4) Build row dari DTO
 		row := req.ToModel()
 		row.ClassSectionSubjectTeacherSchoolID = schoolID
+
+		// 🔁 SNAPSHOT ATTENDANCE MODE (default school kalau kosong)
+		{
+			var school schoolModel.SchoolModel
+			if err := tx.WithContext(c.Context()).
+				Where("school_id = ? AND school_deleted_at IS NULL", schoolID).
+				First(&school).Error; err != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membaca pengaturan sekolah")
+			}
+
+			var eff modelCSST.AttendanceEntryMode
+			if req.ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot != nil &&
+				*req.ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot != "" {
+				// custom dari request
+				eff = *req.ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot
+			} else {
+				// fallback default sekolah
+				eff = modelCSST.AttendanceEntryMode(string(school.SchoolDefaultAttendanceEntryMode))
+			}
+			row.ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot = &eff
+		}
 
 		// Room (ID + JSON)
 		if finalClassRoomID != nil {

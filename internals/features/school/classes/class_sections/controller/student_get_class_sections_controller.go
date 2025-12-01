@@ -21,7 +21,7 @@ import (
 // ?status=active|inactive|completed
 // ?q=...
 // ?include=class_sections,csst
-// ?view=compact|full
+// ?view=compact|full|class_sections
 // ?page=1&size=20
 func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	// 1) school dari TOKEN
@@ -42,7 +42,9 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	tx := ctl.DB.WithContext(c.Context())
 
 	// ----------------- PARSE VIEW -----------------
-	view := strings.ToLower(strings.TrimSpace(c.Query("view"))) // "", "compact", "full"
+	view := strings.ToLower(strings.TrimSpace(c.Query("view"))) // "", "compact", "full", "class_sections"
+	viewCompact := view == "compact"
+	viewClassSections := view == "class_sections" || view == "sections" || view == "class_section"
 
 	// ----------------- PARSE INCLUDE -----------------
 	includeRaw := strings.TrimSpace(c.Query("include"))
@@ -65,6 +67,10 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	if includeCSST {
 		includeClassSections = true
 	}
+	// kalau view=class_sections, otomatis butuh class_sections
+	if viewClassSections {
+		includeClassSections = true
+	}
 
 	// ----------------- RESOLVE school_student_id -----------------
 	rawSchoolStudent := strings.TrimSpace(c.Query("school_student_id"))
@@ -73,7 +79,7 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 
 	if rawSchoolStudent == "" {
 		// kalau kosong:
-		// - staff  → boleh lihat semua (tanpa filter)
+		// - staff  → boleh lihat semua (tanpa filter student)
 		// - non-staff → auto "me"
 		if !isStaff {
 			rawSchoolStudent = "me"
@@ -174,7 +180,7 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		offset = 0
 	}
 
-	// BASE QUERY
+	// BASE QUERY ke tabel student_class_sections
 	q := tx.Model(&classSectionModel.StudentClassSection{}).
 		Where(`
 			student_class_section_school_id = ?
@@ -225,7 +231,7 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	//  MODE VIEW=COMPACT → selalu balikin compact DTO,
 	//  abaikan include=class_sections,csst (biar ringan, konsisten kayak enrollment)
 	// =====================================================================
-	if view == "compact" {
+	if viewCompact {
 		out := dto.FromModelsStudentClassSectionCompact(rows)
 		return helper.JsonList(c, "OK", out, pagination)
 	}
@@ -422,7 +428,16 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 5) Bentuk DTO nested
+	// 5) MODE view=class_sections → balikin hanya daftar class_section (+ CSST kalau includeCSST)
+	if viewClassSections {
+		list := make([]*ClassSectionIncluded, 0, len(classSectionMap))
+		for _, cs := range classSectionMap {
+			list = append(list, cs)
+		}
+		return helper.JsonList(c, "OK", list, pagination)
+	}
+
+	// 6) MODE default nested: per-enrollment + nested class_section (+ csst)
 	type StudentClassSectionWithClassSectionResp struct {
 		dto.StudentClassSectionResp
 		ClassSection *ClassSectionIncluded `json:"class_section,omitempty"`

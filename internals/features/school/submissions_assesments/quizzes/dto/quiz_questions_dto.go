@@ -1,4 +1,3 @@
-// file: internals/features/school/submissions_assesments/quizzes/dto/quiz_question_dto.go
 package dto
 
 import (
@@ -16,7 +15,7 @@ import (
    CREATE
 ========================================================= */
 
-// SINGLE: isi answers (object/array) + correct ('A'..'D').
+// SINGLE: isi answers (object) + correct (key, misal "A").
 // ESSAY : biarkan answers & correct kosong.
 type CreateQuizQuestionRequest struct {
 	QuizQuestionQuizID      uuid.UUID               `json:"quiz_question_quiz_id" validate:"required"`
@@ -24,8 +23,8 @@ type CreateQuizQuestionRequest struct {
 	QuizQuestionType        qmodel.QuizQuestionType `json:"quiz_question_type" validate:"required,oneof=single essay"`
 	QuizQuestionText        string                  `json:"quiz_question_text" validate:"required"`
 	QuizQuestionPoints      *float64                `json:"quiz_question_points" validate:"omitempty,gte=0"`
-	QuizQuestionAnswers     *json.RawMessage        `json:"quiz_question_answers" validate:"omitempty"` // object/array (SINGLE) atau null
-	QuizQuestionCorrect     *string                 `json:"quiz_question_correct" validate:"omitempty,oneof=A B C D a b c d"`
+	QuizQuestionAnswers     *json.RawMessage        `json:"quiz_question_answers" validate:"omitempty"` // object untuk SINGLE
+	QuizQuestionCorrect     *string                 `json:"quiz_question_correct" validate:"omitempty"` // key di answers, misal "A"
 	QuizQuestionExplanation *string                 `json:"quiz_question_explanation" validate:"omitempty"`
 }
 
@@ -42,7 +41,7 @@ func (r *CreateQuizQuestionRequest) ToModel() (*qmodel.QuizQuestionModel, error)
 
 	var correct *string
 	if r.QuizQuestionCorrect != nil {
-		c := strings.ToUpper(strings.TrimSpace(*r.QuizQuestionCorrect))
+		c := strings.TrimSpace(*r.QuizQuestionCorrect)
 		correct = &c
 	}
 
@@ -55,9 +54,10 @@ func (r *CreateQuizQuestionRequest) ToModel() (*qmodel.QuizQuestionModel, error)
 		QuizQuestionAnswers:     ans,
 		QuizQuestionCorrect:     correct,
 		QuizQuestionExplanation: trimPtr(r.QuizQuestionExplanation),
+		// Version dan History pakai default DB (version=1, history=[])
 	}
 
-	// Jika model punya validator domain-level, panggil di sini.
+	// Domain-level validation
 	if err := m.ValidateShape(); err != nil {
 		return nil, err
 	}
@@ -74,14 +74,27 @@ type PatchQuizQuestionRequest struct {
 	QuizQuestionType        UpdateField[qmodel.QuizQuestionType] `json:"quiz_question_type"`      // single/essay
 	QuizQuestionText        UpdateField[string]                  `json:"quiz_question_text"`
 	QuizQuestionPoints      UpdateField[float64]                 `json:"quiz_question_points"`
-	QuizQuestionAnswers     UpdateField[json.RawMessage]         `json:"quiz_question_answers"` // object/array untuk SINGLE
-	QuizQuestionCorrect     UpdateField[string]                  `json:"quiz_question_correct"` // 'A'..'D' (OBJECT mode)
+	QuizQuestionAnswers     UpdateField[json.RawMessage]         `json:"quiz_question_answers"` // object untuk SINGLE
+	QuizQuestionCorrect     UpdateField[string]                  `json:"quiz_question_correct"` // key di answers
 	QuizQuestionExplanation UpdateField[string]                  `json:"quiz_question_explanation"`
+
+	// "major" → simpan snapshot ke history + naikkan version
+	// "minor" (atau kosong) → update tanpa history
+	ChangeKind string `json:"change_kind"` // optional: "major" / "minor"
 }
 
 // Terapkan patch langsung ke model yang sudah di-load, lalu validasi shape.
+// Di sini juga di-handle logika major/minor untuk history.
 func (p *PatchQuizQuestionRequest) ApplyToModel(m *qmodel.QuizQuestionModel) error {
-	// IDs
+	// 0) Handle history untuk perubahan mayor
+	kind := strings.ToLower(strings.TrimSpace(p.ChangeKind))
+	if kind == "major" {
+		if err := m.AppendHistorySnapshot("major"); err != nil {
+			return err
+		}
+	}
+
+	// 1) IDs
 	if p.QuizQuestionQuizID.ShouldUpdate() && !p.QuizQuestionQuizID.IsNull() {
 		m.QuizQuestionQuizID = p.QuizQuestionQuizID.Val()
 	}
@@ -89,12 +102,12 @@ func (p *PatchQuizQuestionRequest) ApplyToModel(m *qmodel.QuizQuestionModel) err
 		m.QuizQuestionSchoolID = p.QuizQuestionSchoolID.Val()
 	}
 
-	// Type
+	// 2) Type
 	if p.QuizQuestionType.ShouldUpdate() && !p.QuizQuestionType.IsNull() {
 		m.QuizQuestionType = p.QuizQuestionType.Val()
 	}
 
-	// Text
+	// 3) Text
 	if p.QuizQuestionText.ShouldUpdate() {
 		if p.QuizQuestionText.IsNull() {
 			return errors.New("quiz_question_text tidak boleh null")
@@ -102,7 +115,7 @@ func (p *PatchQuizQuestionRequest) ApplyToModel(m *qmodel.QuizQuestionModel) err
 		m.QuizQuestionText = strings.TrimSpace(p.QuizQuestionText.Val())
 	}
 
-	// Points
+	// 4) Points
 	if p.QuizQuestionPoints.ShouldUpdate() {
 		if p.QuizQuestionPoints.IsNull() {
 			m.QuizQuestionPoints = 1.0
@@ -111,7 +124,7 @@ func (p *PatchQuizQuestionRequest) ApplyToModel(m *qmodel.QuizQuestionModel) err
 		}
 	}
 
-	// Answers
+	// 5) Answers
 	if p.QuizQuestionAnswers.ShouldUpdate() {
 		if p.QuizQuestionAnswers.IsNull() {
 			m.QuizQuestionAnswers = nil
@@ -121,17 +134,17 @@ func (p *PatchQuizQuestionRequest) ApplyToModel(m *qmodel.QuizQuestionModel) err
 		}
 	}
 
-	// Correct
+	// 6) Correct
 	if p.QuizQuestionCorrect.ShouldUpdate() {
 		if p.QuizQuestionCorrect.IsNull() {
 			m.QuizQuestionCorrect = nil
 		} else {
-			c := strings.ToUpper(strings.TrimSpace(p.QuizQuestionCorrect.Val()))
+			c := strings.TrimSpace(p.QuizQuestionCorrect.Val())
 			m.QuizQuestionCorrect = &c
 		}
 	}
 
-	// Explanation
+	// 7) Explanation
 	if p.QuizQuestionExplanation.ShouldUpdate() {
 		if p.QuizQuestionExplanation.IsNull() {
 			m.QuizQuestionExplanation = nil
@@ -141,7 +154,7 @@ func (p *PatchQuizQuestionRequest) ApplyToModel(m *qmodel.QuizQuestionModel) err
 		}
 	}
 
-	// Final domain validation
+	// 8) Final domain validation
 	return m.ValidateShape()
 }
 
@@ -197,6 +210,8 @@ type QuizQuestionResponse struct {
 	Quiz *QuizLiteResponse `json:"quiz,omitempty"`
 }
 
+const timeRFC3339 = "2006-01-02T15:04:05Z07:00"
+
 func FromModelQuizQuestion(m *qmodel.QuizQuestionModel) *QuizQuestionResponse {
 	var ans *json.RawMessage
 	if len(m.QuizQuestionAnswers) > 0 {
@@ -242,5 +257,3 @@ func FromModelsQuizQuestions(arr []qmodel.QuizQuestionModel) []*QuizQuestionResp
 /* =========================================================
    Utils
 ========================================================= */
-
-const timeRFC3339 = "2006-01-02T15:04:05Z07:00"

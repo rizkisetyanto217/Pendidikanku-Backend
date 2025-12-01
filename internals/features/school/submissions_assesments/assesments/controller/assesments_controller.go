@@ -186,24 +186,6 @@ func (ctl *AssessmentController) assertTeacherBelongsToSchool(c *fiber.Ctx, scho
 	return nil
 }
 
-// Resolver akses: DKM/Admin atau Teacher pada school tsb, dengan school_id DARI TOKEN.
-func resolveSchoolForDKMOrTeacher(c *fiber.Ctx) (uuid.UUID, error) {
-	// Ambil school aktif dari token
-	schoolID, err := helperAuth.GetActiveSchoolID(c)
-	if err != nil {
-		return uuid.Nil, err
-	}
-	if schoolID == uuid.Nil {
-		return uuid.Nil, helperAuth.ErrSchoolContextMissing
-	}
-
-	// Pastikan user punya role DKM/Admin/Teacher di school ini
-	if err := helperAuth.EnsureDKMOrTeacherSchool(c, schoolID); err != nil {
-		return uuid.Nil, err
-	}
-
-	return schoolID, nil
-}
 
 /* ========================================================
    Helpers untuk AssessmentType snapshot (baru, tanpa JSON)
@@ -301,7 +283,7 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 	}
 
 	// 🔒 resolve & authorize (DKM/Admin atau Teacher) DARI TOKEN
-	mid, err := resolveSchoolForDKMOrTeacher(c)
+	mid, err := helperAuth.ResolveSchoolForDKMOrTeacher(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
@@ -667,7 +649,7 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 	}
 
 	// 🔒 resolve & authorize (DKM/Admin atau Teacher) DARI TOKEN
-	mid, err := resolveSchoolForDKMOrTeacher(c)
+	mid, err := helperAuth.ResolveSchoolForDKMOrTeacher(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
@@ -1094,7 +1076,7 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 	}
 
 	// 🔒 resolve & authorize (DKM/Admin atau Teacher) DARI TOKEN
-	mid, err := resolveSchoolForDKMOrTeacher(c)
+	mid, err := helperAuth.ResolveSchoolForDKMOrTeacher(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)

@@ -1,3 +1,4 @@
+// file: internals/features/school/submissions_assesments/quizzes/dto/student_quiz_attempt_dto.go
 package dto
 
 import (
@@ -25,6 +26,11 @@ type CreateStudentQuizAttemptRequest struct {
 
 	// Opsional (untuk admin/dkm/teacher); untuk self-attempt bisa diisi server
 	StudentQuizAttemptStudentID *uuid.UUID `json:"student_quiz_attempt_student_id" validate:"omitempty,uuid"`
+
+	// Opsional: kalau FE mau kirim status awal & started_at sendiri
+	StudentQuizAttemptStatus     *qmodel.StudentQuizAttemptStatus `json:"student_quiz_attempt_status" validate:"omitempty,oneof=in_progress submitted finished abandoned"`
+	StudentQuizAttemptStartedAt  *time.Time                       `json:"student_quiz_attempt_started_at" validate:"omitempty"`
+	StudentQuizAttemptFinishedAt *time.Time                       `json:"student_quiz_attempt_finished_at" validate:"omitempty"`
 }
 
 func (r *CreateStudentQuizAttemptRequest) ToModel() *qmodel.StudentQuizAttemptModel {
@@ -32,6 +38,7 @@ func (r *CreateStudentQuizAttemptRequest) ToModel() *qmodel.StudentQuizAttemptMo
 		StudentQuizAttemptQuizID: r.StudentQuizAttemptQuizID,
 		// History default: [] (sudah di tag GORM)
 		// Count default: 0
+		// Status default di DB: in_progress (kalau tidak di-set di sini)
 	}
 
 	if r.StudentQuizAttemptSchoolID != nil {
@@ -40,14 +47,23 @@ func (r *CreateStudentQuizAttemptRequest) ToModel() *qmodel.StudentQuizAttemptMo
 	if r.StudentQuizAttemptStudentID != nil {
 		m.StudentQuizAttemptStudentID = *r.StudentQuizAttemptStudentID
 	}
+	if r.StudentQuizAttemptStatus != nil {
+		m.StudentQuizAttemptStatus = *r.StudentQuizAttemptStatus
+	}
+	if r.StudentQuizAttemptStartedAt != nil {
+		m.StudentQuizAttemptStartedAt = r.StudentQuizAttemptStartedAt
+	}
+	if r.StudentQuizAttemptFinishedAt != nil {
+		m.StudentQuizAttemptFinishedAt = r.StudentQuizAttemptFinishedAt
+	}
 
 	return m
 }
 
 /* ==========================================================================================
    REQUEST — UPDATE/PATCH (PARTIAL)
-   Gunakan pointer supaya field yang tidak dikirim tidak diubah.
    Biasanya dipakai internal (service) untuk update summary:
+   - status, started/finished
    - history JSON
    - count
    - best_*
@@ -58,6 +74,11 @@ type UpdateStudentQuizAttemptRequest struct {
 	StudentQuizAttemptSchoolID  *uuid.UUID `json:"student_quiz_attempt_school_id" validate:"omitempty,uuid"`
 	StudentQuizAttemptQuizID    *uuid.UUID `json:"student_quiz_attempt_quiz_id" validate:"omitempty,uuid"`
 	StudentQuizAttemptStudentID *uuid.UUID `json:"student_quiz_attempt_student_id" validate:"omitempty,uuid"`
+
+	// Status & waktu global attempt
+	StudentQuizAttemptStatus     *qmodel.StudentQuizAttemptStatus `json:"student_quiz_attempt_status" validate:"omitempty,oneof=in_progress submitted finished abandoned"`
+	StudentQuizAttemptStartedAt  *time.Time                       `json:"student_quiz_attempt_started_at" validate:"omitempty"`
+	StudentQuizAttemptFinishedAt *time.Time                       `json:"student_quiz_attempt_finished_at" validate:"omitempty"`
 
 	// Full history (opsional, biasanya diisi backend)
 	StudentQuizAttemptHistory *json.RawMessage `json:"student_quiz_attempt_history" validate:"omitempty"`
@@ -79,8 +100,7 @@ type UpdateStudentQuizAttemptRequest struct {
 }
 
 // ApplyToModel — patch ke model yang sudah di-load.
-// Business logic (recompute best/last dari history) bisa ditaruh di service,
-// di luar DTO ini, supaya lebih bersih.
+// Business logic (recompute best/last dari history) bisa ditaruh di service.
 func (r *UpdateStudentQuizAttemptRequest) ApplyToModel(m *qmodel.StudentQuizAttemptModel) error {
 	if r.StudentQuizAttemptSchoolID != nil {
 		m.StudentQuizAttemptSchoolID = *r.StudentQuizAttemptSchoolID
@@ -92,11 +112,23 @@ func (r *UpdateStudentQuizAttemptRequest) ApplyToModel(m *qmodel.StudentQuizAtte
 		m.StudentQuizAttemptStudentID = *r.StudentQuizAttemptStudentID
 	}
 
+	// Status & waktu global
+	if r.StudentQuizAttemptStatus != nil {
+		m.StudentQuizAttemptStatus = *r.StudentQuizAttemptStatus
+	}
+	if r.StudentQuizAttemptStartedAt != nil {
+		m.StudentQuizAttemptStartedAt = r.StudentQuizAttemptStartedAt
+	}
+	if r.StudentQuizAttemptFinishedAt != nil {
+		m.StudentQuizAttemptFinishedAt = r.StudentQuizAttemptFinishedAt
+	}
+
+	// History
 	if r.StudentQuizAttemptHistory != nil {
-		// datatypes.JSON di model adalah []byte, json.RawMessage juga []byte → langsung cast
 		m.StudentQuizAttemptHistory = JSONFromRaw(*r.StudentQuizAttemptHistory)
 	}
 
+	// Count
 	if r.StudentQuizAttemptCount != nil {
 		m.StudentQuizAttemptCount = *r.StudentQuizAttemptCount
 	}
@@ -143,6 +175,11 @@ type StudentQuizAttemptResponse struct {
 	StudentQuizAttemptQuizID    uuid.UUID `json:"student_quiz_attempt_quiz_id"`
 	StudentQuizAttemptStudentID uuid.UUID `json:"student_quiz_attempt_student_id"`
 
+	// Status & waktu global attempt
+	StudentQuizAttemptStatus     qmodel.StudentQuizAttemptStatus `json:"student_quiz_attempt_status"`
+	StudentQuizAttemptStartedAt  *time.Time                      `json:"student_quiz_attempt_started_at,omitempty"`
+	StudentQuizAttemptFinishedAt *time.Time                      `json:"student_quiz_attempt_finished_at,omitempty"`
+
 	// History full (biar FE bisa tampilkan riwayat attempt + jawaban)
 	StudentQuizAttemptHistory json.RawMessage `json:"student_quiz_attempt_history"`
 
@@ -169,6 +206,10 @@ func FromModelStudentQuizAttempt(m *qmodel.StudentQuizAttemptModel) *StudentQuiz
 		StudentQuizAttemptSchoolID:  m.StudentQuizAttemptSchoolID,
 		StudentQuizAttemptQuizID:    m.StudentQuizAttemptQuizID,
 		StudentQuizAttemptStudentID: m.StudentQuizAttemptStudentID,
+
+		StudentQuizAttemptStatus:     m.StudentQuizAttemptStatus,
+		StudentQuizAttemptStartedAt:  m.StudentQuizAttemptStartedAt,
+		StudentQuizAttemptFinishedAt: m.StudentQuizAttemptFinishedAt,
 
 		StudentQuizAttemptHistory: json.RawMessage(m.StudentQuizAttemptHistory),
 

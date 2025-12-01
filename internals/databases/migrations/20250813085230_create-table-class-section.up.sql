@@ -15,6 +15,21 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- =========================================================
+-- ENUMS (idempotent)
+-- =========================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'class_delivery_mode_enum') THEN
+    CREATE TYPE class_delivery_mode_enum AS ENUM ('offline','online','hybrid');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'attendance_entry_mode_enum') THEN
+    CREATE TYPE attendance_entry_mode_enum AS ENUM ('teacher_only', 'student_only', 'both');
+  END IF;
+END$$;
+
+
+-- =========================================================
 -- TABLE: class_sections (JSONB snapshots utk people & room)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS class_sections (

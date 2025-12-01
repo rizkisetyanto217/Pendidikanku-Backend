@@ -37,7 +37,7 @@ func NewQuizQuestionsController(db *gorm.DB) *QuizQuestionsController {
 }
 
 /* =========================================================
-   Tenant helpers
+   Tenant helpers (list)
 ========================================================= */
 
 func (ctl *QuizQuestionsController) applyFilters(db *gorm.DB, schoolID uuid.UUID, quizID *uuid.UUID, qType string, q string) *gorm.DB {
@@ -75,42 +75,7 @@ func (ctl *QuizQuestionsController) applySort(db *gorm.DB, sort string) *gorm.DB
 }
 
 /* =========================================================
-   Small helper: resolve schoolID (token first)
-========================================================= */
-
-func resolveSchoolIDPreferToken(c *fiber.Ctx) (uuid.UUID, error) {
-	// 1) Coba dari token dulu (active_school_id / prefer teacher)
-	if sid, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && sid != uuid.Nil {
-		return sid, nil
-	}
-
-	// 2) Fallback ke resolver lama (id / slug)
-	mc, err := helperAuth.ResolveSchoolContext(c)
-	if err != nil {
-		if fe, ok := err.(*fiber.Error); ok {
-			return uuid.Nil, fiber.NewError(fe.Code, fe.Message)
-		}
-		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, err.Error())
-	}
-
-	switch {
-	case mc.ID != uuid.Nil:
-		return mc.ID, nil
-
-	case strings.TrimSpace(mc.Slug) != "":
-		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
-		if er != nil || id == uuid.Nil {
-			return uuid.Nil, fiber.NewError(fiber.StatusNotFound, "School (slug) tidak ditemukan")
-		}
-		return id, nil
-
-	default:
-		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, "School context hilang")
-	}
-}
-
-/* =========================================================
-   WRITE (DKM/Admin)
+   WRITE (DKM/Admin/Teacher)
 ========================================================= */
 
 // POST /quiz-questions
@@ -152,23 +117,19 @@ func (ctl *QuizQuestionsController) Create(c *fiber.Ctx) error {
 	}
 
 	// ========================================
-	// 2) Tenant & role: token dulu, baru slug/id
+	// 2) Tenant & role:
+	//    gunakan helperAuth.ResolveSchoolForDKMOrTeacher
 	// ========================================
 
-	schoolID, err := resolveSchoolIDPreferToken(c)
+	schoolID, err := helperAuth.ResolveSchoolForDKMOrTeacher(c)
 	if err != nil {
+		// Resolver ini boleh saja mengembalikan *fiber.Error atau error lain.
+		// Kalau dia sudah tulis response sendiri (mis. lewat helper.JsonError),
+		// cukup return err apa adanya.
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-	}
-
-	// 🔒 Wajib DKM/Admin di school tersebut
-	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
-		if fe, ok := err.(*fiber.Error); ok {
-			return helper.JsonError(c, fe.Code, fe.Message)
-		}
-		return helper.JsonError(c, fiber.StatusForbidden, err.Error())
+		return err
 	}
 
 	// ========================================
@@ -270,7 +231,6 @@ func (ctl *QuizQuestionsController) Create(c *fiber.Ctx) error {
 	}
 
 	return helper.JsonCreated(c, "Soal berhasil dibuat (multiple)", out)
-
 }
 
 // PATCH /quiz-questions/:id
@@ -282,21 +242,13 @@ func (ctl *QuizQuestionsController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// 🔒 Tentukan school_id: token dulu, fallback ke params (id/slug)
-	schoolID, err := resolveSchoolIDPreferToken(c)
+	// 🔒 Tentukan school_id lewat helperAuth (DKM/Admin/Teacher)
+	schoolID, err := helperAuth.ResolveSchoolForDKMOrTeacher(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-	}
-
-	// 🔒 Wajib DKM/Admin di school tersebut
-	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
-		if fe, ok := err.(*fiber.Error); ok {
-			return helper.JsonError(c, fe.Code, fe.Message)
-		}
-		return helper.JsonError(c, fiber.StatusForbidden, err.Error())
+		return err
 	}
 
 	var m qmodel.QuizQuestionModel
@@ -314,6 +266,25 @@ func (ctl *QuizQuestionsController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 
+	// Normalisasi change_kind dari user
+	userKind := strings.ToLower(strings.TrimSpace(req.ChangeKind))
+	if userKind != "" && userKind != "major" && userKind != "minor" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "change_kind harus salah satu dari: major, minor, atau kosong")
+	}
+
+	// Deteksi apakah ada field "sensitif penilaian" yang berubah.
+	// Kalau iya, dan user tidak set "major", kita paksa jadi major.
+	majorFieldChanged :=
+		(req.QuizQuestionCorrect.ShouldUpdate() && !req.QuizQuestionCorrect.IsNull()) ||
+			req.QuizQuestionAnswers.ShouldUpdate() ||
+			req.QuizQuestionType.ShouldUpdate() ||
+			req.QuizQuestionPoints.ShouldUpdate()
+
+	if majorFieldChanged && userKind != "major" {
+		req.ChangeKind = "major"
+	}
+
+	// Terapkan patch + (jika major) simpan history + increment version
 	if err := req.ApplyToModel(&m); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
@@ -360,21 +331,13 @@ func (ctl *QuizQuestionsController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// 🔒 Tentukan school_id: token dulu, fallback ke params (id/slug)
-	schoolID, err := resolveSchoolIDPreferToken(c)
+	// 🔒 Tentukan school_id lewat helperAuth (DKM/Admin/Teacher)
+	schoolID, err := helperAuth.ResolveSchoolForDKMOrTeacher(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-	}
-
-	// 🔒 Wajib DKM/Admin di school tersebut
-	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
-		if fe, ok := err.(*fiber.Error); ok {
-			return helper.JsonError(c, fe.Code, fe.Message)
-		}
-		return helper.JsonError(c, fiber.StatusForbidden, err.Error())
+		return err
 	}
 
 	// pastikan exist dan milik tenant

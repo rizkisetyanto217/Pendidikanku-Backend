@@ -25,10 +25,19 @@ const (
 type TenantProfile string
 
 const (
-	TenantTeacherSolo       TenantProfile = "teacher_solo"
-	TenantTeacherPlusSchool TenantProfile = "teacher_plus_school"
-	TenantSchoolBasic       TenantProfile = "school_basic"
-	TenantSchoolComplex     TenantProfile = "school_complex"
+	TenantProfileStudent     TenantProfile = "student"
+	TenantProfileTeacherSolo TenantProfile = "teacher_solo"
+	TenantProfileTeacherPlus TenantProfile = "teacher_plus"
+	TenantProfileSchoolBasic TenantProfile = "school_basic"
+	TenantProfileSchoolPlus  TenantProfile = "school_plus"
+)
+
+type AttendanceEntryMode string
+
+const (
+	AttendanceEntryTeacherOnly AttendanceEntryMode = "teacher_only"
+	AttendanceEntryStudentOnly AttendanceEntryMode = "student_only"
+	AttendanceEntryBoth        AttendanceEntryMode = "both"
 )
 
 /* ===================== REQUESTS ===================== */
@@ -67,6 +76,12 @@ type SchoolCreateReq struct {
 
 	// (Opsional) set kode undangan guru secara langsung (plaintext)
 	SchoolTeacherCodePlain string `json:"school_teacher_code_plain"`
+
+	// 🔹 Pengaturan baru
+	SchoolDefaultAttendanceEntryMode string          `json:"school_default_attendance_entry_mode"`
+	SchoolTimezone                   string          `json:"school_timezone"`
+	SchoolDefaultMinPassingScore     *int            `json:"school_default_min_passing_score"`
+	SchoolSettings                   json.RawMessage `json:"school_settings"`
 }
 
 type SchoolUpdateReq struct {
@@ -103,6 +118,12 @@ type SchoolUpdateReq struct {
 
 	// Rotate/set ulang kode undangan guru (plaintext)
 	SchoolTeacherCodePlain *string `json:"school_teacher_code_plain" form:"school_teacher_code_plain"`
+
+	// 🔹 Pengaturan baru (PATCH)
+	SchoolDefaultAttendanceEntryMode *string          `json:"school_default_attendance_entry_mode" form:"school_default_attendance_entry_mode"`
+	SchoolTimezone                   *string          `json:"school_timezone"                      form:"school_timezone"`
+	SchoolDefaultMinPassingScore     *int             `json:"school_default_min_passing_score"     form:"school_default_min_passing_score"`
+	SchoolSettings                   *json.RawMessage `json:"school_settings"                    form:"school_settings"`
 
 	// Clear → NULL/empty eksplisit pada kolom tertentu
 	Clear []string `json:"__clear,omitempty" form:"__clear"`
@@ -164,6 +185,12 @@ type SchoolResp struct {
 	SchoolBackgroundObjectKeyOld       string     `json:"school_background_object_key_old"`
 	SchoolBackgroundDeletePendingUntil *time.Time `json:"school_background_delete_pending_until,omitempty"`
 
+	// 🔹 Pengaturan baru
+	SchoolDefaultAttendanceEntryMode string          `json:"school_default_attendance_entry_mode"`
+	SchoolTimezone                   string          `json:"school_timezone"`
+	SchoolDefaultMinPassingScore     *int            `json:"school_default_min_passing_score,omitempty"`
+	SchoolSettings                   json.RawMessage `json:"school_settings"`
+
 	SchoolCreatedAt      time.Time  `json:"school_created_at"`
 	SchoolUpdatedAt      time.Time  `json:"school_updated_at"`
 	SchoolLastActivityAt *time.Time `json:"school_last_activity_at,omitempty"`
@@ -173,6 +200,7 @@ type SchoolResp struct {
 }
 
 /* ===================== CONVERTERS ===================== */
+
 func FromModel(m *model.SchoolModel) SchoolResp {
 	levels := levelsFromJSON(m.SchoolLevels)
 
@@ -228,6 +256,12 @@ func FromModel(m *model.SchoolModel) SchoolResp {
 		SchoolBackgroundObjectKeyOld:       valOrEmpty(m.SchoolBackgroundObjectKeyOld),
 		SchoolBackgroundDeletePendingUntil: m.SchoolBackgroundDeletePendingUntil,
 
+		// Pengaturan baru
+		SchoolDefaultAttendanceEntryMode: string(m.SchoolDefaultAttendanceEntryMode),
+		SchoolTimezone:                   valOrEmpty(m.SchoolTimezone),
+		SchoolDefaultMinPassingScore:     m.SchoolDefaultMinPassingScore,
+		SchoolSettings:                   json.RawMessage(m.SchoolSettings),
+
 		SchoolCreatedAt:      m.SchoolCreatedAt,
 		SchoolUpdatedAt:      m.SchoolUpdatedAt,
 		SchoolLastActivityAt: m.SchoolLastActivityAt,
@@ -235,11 +269,9 @@ func FromModel(m *model.SchoolModel) SchoolResp {
 
 	// ✅ mapping profile:
 	if m.SchoolProfile != nil {
-		// pakai converter yang sudah kamu buat di dto profile
 		profileResp := FromModelSchoolProfile(m.SchoolProfile)
 		resp.SchoolProfile = &profileResp
 	} else {
-		// belum ada row di school_profiles → tetap kirim object kosong
 		resp.SchoolProfile = &SchoolProfileResponse{
 			SchoolProfileID:       "",
 			SchoolProfileSchoolID: m.SchoolID.String(),
@@ -286,8 +318,27 @@ func ToModel(in *SchoolCreateReq, id uuid.UUID) *model.SchoolModel {
 		out.SchoolLevels = levelsToJSON(in.SchoolLevels)
 	}
 
+	// Default attendance entry mode
+	out.SchoolDefaultAttendanceEntryMode = model.AttendanceEntryMode(normAttendanceMode(in.SchoolDefaultAttendanceEntryMode))
+
+	// Timezone (samakan default dengan controller: Asia/Jakarta)
+	if strings.TrimSpace(in.SchoolTimezone) != "" {
+		out.SchoolTimezone = optStrPtr(in.SchoolTimezone)
+	} else {
+		out.SchoolTimezone = optStrPtr("Asia/Jakarta")
+	}
+
+	// Default KKM
+	if in.SchoolDefaultMinPassingScore != nil {
+		out.SchoolDefaultMinPassingScore = in.SchoolDefaultMinPassingScore
+	}
+
+	// Settings JSON
+	if len(in.SchoolSettings) > 0 {
+		out.SchoolSettings = datatypes.JSON(in.SchoolSettings)
+	}
+
 	// Teacher invite code (plaintext) → hash akan diisi di service (bukan di DTO)
-	// Di sini cukup tandai SetAt agar service bisa mengisi kalau diperlukan.
 	if strings.TrimSpace(in.SchoolTeacherCodePlain) != "" {
 		now := time.Now()
 		out.SchoolTeacherCodeSetAt = &now
@@ -383,7 +434,27 @@ func ApplyUpdate(m *model.SchoolModel, u *SchoolUpdateReq) {
 	if u.SchoolTeacherCodePlain != nil && strings.TrimSpace(*u.SchoolTeacherCodePlain) != "" {
 		now := time.Now()
 		m.SchoolTeacherCodeSetAt = &now
-		// m.SchoolTeacherCodeHash akan diisi oleh service setelah hashing
+	}
+
+	// 🔹 Pengaturan baru
+	if u.SchoolDefaultAttendanceEntryMode != nil {
+		m.SchoolDefaultAttendanceEntryMode = model.AttendanceEntryMode(normAttendanceMode(*u.SchoolDefaultAttendanceEntryMode))
+	}
+
+	if u.SchoolTimezone != nil {
+		m.SchoolTimezone = optStrPtr(strings.TrimSpace(*u.SchoolTimezone))
+	}
+
+	if u.SchoolDefaultMinPassingScore != nil {
+		m.SchoolDefaultMinPassingScore = u.SchoolDefaultMinPassingScore
+	}
+
+	if u.SchoolSettings != nil {
+		if len(*u.SchoolSettings) == 0 {
+			m.SchoolSettings = datatypes.JSON(`{}`)
+		} else {
+			m.SchoolSettings = datatypes.JSON(*u.SchoolSettings)
+		}
 	}
 
 	// Clear → NULL/empty eksplisit
@@ -402,7 +473,7 @@ func ApplyUpdate(m *model.SchoolModel, u *SchoolUpdateReq) {
 		case "school_contact_person_phone":
 			m.SchoolContactPersonPhone = nil
 		case "school_levels":
-			m.SchoolLevels = nil // datatypes.JSON(nil) ⇒ NULL
+			m.SchoolLevels = nil
 		case "school_icon_url":
 			m.SchoolIconURL = nil
 		case "school_icon_object_key":
@@ -418,6 +489,12 @@ func ApplyUpdate(m *model.SchoolModel, u *SchoolUpdateReq) {
 		case "school_teacher_code":
 			m.SchoolTeacherCodeHash = nil
 			m.SchoolTeacherCodeSetAt = nil
+		case "school_timezone":
+			m.SchoolTimezone = nil
+		case "school_default_min_passing_score":
+			m.SchoolDefaultMinPassingScore = nil
+		case "school_settings":
+			m.SchoolSettings = datatypes.JSON(`{}`)
 		}
 	}
 }
@@ -461,14 +538,30 @@ func normVerification(s string) string {
 
 func normTenantProfile(s string) string {
 	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "teacher_plus_school":
-		return "teacher_plus_school"
+	case "student":
+		return "student"
+	case "teacher_plus":
+		return "teacher_plus"
 	case "school_basic":
 		return "school_basic"
-	case "school_complex":
-		return "school_complex"
+	case "school_plus":
+		return "school_plus"
 	default:
 		return "teacher_solo"
+	}
+}
+
+func normAttendanceMode(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "teacher_only":
+		return "teacher_only"
+	case "student_only":
+		return "student_only"
+	case "both":
+		return "both"
+	default:
+		// fallback ke default global
+		return "both"
 	}
 }
 

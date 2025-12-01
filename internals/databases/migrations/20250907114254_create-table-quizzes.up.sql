@@ -83,8 +83,6 @@ CREATE INDEX IF NOT EXISTS idx_quizzes_school_created_desc
   ON quizzes (quiz_school_id, quiz_created_at DESC)
   WHERE quiz_deleted_at IS NULL;
 
-
-
 -- =========================================
 -- 2) QUIZ_QUESTIONS
 -- =========================================
@@ -104,29 +102,71 @@ CREATE TABLE IF NOT EXISTS quiz_questions (
   quiz_question_points NUMERIC(6,2) NOT NULL DEFAULT 1
     CHECK (quiz_question_points >= 0),
 
+  -- JSON berisi opsi jawaban (A, B, C, D, E, ...)
+  -- Disarankan bentuk object: { "A": "...", "B": "...", ... }
   quiz_question_answers JSONB,
-  quiz_question_correct CHAR(1)
-    CHECK (quiz_question_correct IN ('A','B','C','D')),
 
+  -- Huruf / key jawaban benar (harus salah satu key di quiz_question_answers)
+  quiz_question_correct TEXT,
+
+  -- Pembahasan / penjelasan
   quiz_question_explanation TEXT,
 
-  -- Constraint bentuk data langsung di tabel (tanpa ALTER)
-  -- ESSAY: tidak boleh ada kunci pilihan/benar
-  -- SINGLE: answers wajib ada dan berbentuk object/array
+  /* =============================
+     VERSIONING + HISTORY
+     ============================= */
+
+  -- Versi aktif saat ini (mulai dari 1, tiap edit +1 di service)
+  quiz_question_version INT NOT NULL DEFAULT 1,
+
+  -- Riwayat versi sebelumnya (array of snapshot)
+  -- Contoh isi:
+  -- [
+  --   {
+  --     "version": 1,
+  --     "saved_at": "2025-11-30T09:00:00Z",
+  --     "text": "...",
+  --     "answers": {...},
+  --     "correct": "C",
+  --     "explanation": "...",
+  --     "points": 1
+  --   }
+  -- ]
+  quiz_question_history JSONB NOT NULL DEFAULT '[]'::jsonb,
+
+  /* =============================
+     CONSTRAINT SHAPE & LOGIC
+     ============================= */
+
+  -- ESSAY: tidak boleh punya answers & correct
   CONSTRAINT ck_quiz_question_essay_shape
     CHECK (
       quiz_question_type <> 'essay'
       OR (quiz_question_answers IS NULL AND quiz_question_correct IS NULL)
     ),
+
+  -- SINGLE: answers wajib ada
   CONSTRAINT ck_quiz_question_single_answers_required
     CHECK (
       quiz_question_type <> 'single'
       OR quiz_question_answers IS NOT NULL
     ),
+
+  -- SINGLE: answers harus berupa object (biar key "A","B","C", dst jelas)
   CONSTRAINT ck_quiz_question_single_answers_shape
     CHECK (
       quiz_question_type <> 'single'
-      OR jsonb_typeof(quiz_question_answers) IN ('object','array')
+      OR jsonb_typeof(quiz_question_answers) = 'object'
+    ),
+
+  -- SINGLE: kunci jawaban wajib salah satu key di answers
+  CONSTRAINT ck_quiz_question_single_correct_in_answers
+    CHECK (
+      quiz_question_type <> 'single'
+      OR (
+        quiz_question_correct IS NOT NULL
+        AND quiz_question_answers ? quiz_question_correct
+      )
     ),
 
   -- UNIQUE untuk FK komposit (id, quiz_id) — tenant-safe join
