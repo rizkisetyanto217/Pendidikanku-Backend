@@ -2,6 +2,8 @@
 package model
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,6 +33,43 @@ const (
 	StudentQuizAttemptAbandoned  StudentQuizAttemptStatus = "abandoned"
 )
 
+/* =========================================================
+   HISTORY STRUCTS
+   ========================================================= */
+
+// Satu soal yang dijawab dalam satu attempt
+type StudentQuizAttemptQuestionItem struct {
+	QuizID              uuid.UUID        `json:"quiz_id"`
+	QuizQuestionID      uuid.UUID        `json:"quiz_question_id"`
+	QuizQuestionVersion int              `json:"quiz_question_version"`
+	QuizQuestionType    QuizQuestionType `json:"quiz_question_type"`
+
+	// Jawaban murid
+	AnswerSingle *string `json:"answer_single,omitempty"` // untuk single choice (A/B/C/...)
+	AnswerEssay  *string `json:"answer_essay,omitempty"`  // untuk essay (teks bebas)
+
+	// Penilaian
+	IsCorrect    *bool   `json:"is_correct,omitempty"` // boleh null (misal essay belum dinilai)
+	Points       float64 `json:"points"`               // bobot soal
+	PointsEarned float64 `json:"points_earned"`        // 0 / points / parsial
+}
+
+// Satu attempt lengkap (1 kali pengerjaan quiz)
+type StudentQuizAttemptHistoryItem struct {
+	AttemptNo         int       `json:"attempt_no"`
+	AttemptStartedAt  time.Time `json:"attempt_started_at"`
+	AttemptFinishedAt time.Time `json:"attempt_finished_at"`
+
+	AttemptRawScore float64 `json:"attempt_raw_score"` // total PointsEarned
+	AttemptPercent  float64 `json:"attempt_percent"`   // 0–100
+
+	Items []StudentQuizAttemptQuestionItem `json:"items"`
+}
+
+/* =========================================================
+   MODEL
+   ========================================================= */
+
 type StudentQuizAttemptModel struct {
 	// PK teknis
 	StudentQuizAttemptID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:student_quiz_attempt_id" json:"student_quiz_attempt_id"`
@@ -41,7 +80,6 @@ type StudentQuizAttemptModel struct {
 	StudentQuizAttemptStudentID uuid.UUID `gorm:"type:uuid;not null;column:student_quiz_attempt_student_id" json:"student_quiz_attempt_student_id"`
 
 	// Status attempt saat ini (dipakai di List + filter active_only)
-	// Sesuaikan "type:" dengan tipe enum di DB kamu
 	StudentQuizAttemptStatus StudentQuizAttemptStatus `gorm:"type:student_quiz_attempt_status_enum;not null;default:'in_progress';column:student_quiz_attempt_status" json:"student_quiz_attempt_status"`
 
 	// Waktu attempt terakhir dimulai & selesai (dipakai untuk sorting)
@@ -73,4 +111,72 @@ type StudentQuizAttemptModel struct {
 
 func (StudentQuizAttemptModel) TableName() string {
 	return "student_quiz_attempts"
+}
+
+/* =========================================================
+   HISTORY HELPER
+   ========================================================= */
+
+// AppendAttemptHistory dipanggil dari service submit,
+// bukan dari controller langsung.
+func (m *StudentQuizAttemptModel) AppendAttemptHistory(
+	startedAt, finishedAt time.Time,
+	items []StudentQuizAttemptQuestionItem,
+) error {
+	// 1) Parse history lama
+	var history []StudentQuizAttemptHistoryItem
+	if len(m.StudentQuizAttemptHistory) > 0 {
+		if err := json.Unmarshal(m.StudentQuizAttemptHistory, &history); err != nil {
+			return fmt.Errorf("invalid student_quiz_attempt_history json: %w", err)
+		}
+	}
+
+	// 2) Hitung skor total
+	var totalPoints, totalEarned float64
+	for _, it := range items {
+		totalPoints += it.Points
+		totalEarned += it.PointsEarned
+	}
+
+	percent := 0.0
+	if totalPoints > 0 {
+		percent = (totalEarned / totalPoints) * 100.0
+	}
+
+	// 3) Buat attempt baru
+	attempt := StudentQuizAttemptHistoryItem{
+		AttemptNo:         len(history) + 1,
+		AttemptStartedAt:  startedAt,
+		AttemptFinishedAt: finishedAt,
+		AttemptRawScore:   totalEarned,
+		AttemptPercent:    percent,
+		Items:             items,
+	}
+
+	history = append(history, attempt)
+
+	// 4) Serialize kembali ke JSONB
+	buf, err := json.Marshal(history)
+	if err != nil {
+		return fmt.Errorf("failed to marshal student_quiz_attempt_history: %w", err)
+	}
+
+	m.StudentQuizAttemptHistory = datatypes.JSON(buf)
+	m.StudentQuizAttemptCount = len(history)
+
+	// 5) Update summary LAST
+	m.StudentQuizAttemptLastRaw = &attempt.AttemptRawScore
+	m.StudentQuizAttemptLastPercent = &attempt.AttemptPercent
+	m.StudentQuizAttemptLastStartedAt = &attempt.AttemptStartedAt
+	m.StudentQuizAttemptLastFinishedAt = &attempt.AttemptFinishedAt
+
+	// 6) Update summary BEST (kalau lebih bagus)
+	if m.StudentQuizAttemptBestPercent == nil || attempt.AttemptPercent > *m.StudentQuizAttemptBestPercent {
+		m.StudentQuizAttemptBestRaw = &attempt.AttemptRawScore
+		m.StudentQuizAttemptBestPercent = &attempt.AttemptPercent
+		m.StudentQuizAttemptBestStartedAt = &attempt.AttemptStartedAt
+		m.StudentQuizAttemptBestFinishedAt = &attempt.AttemptFinishedAt
+	}
+
+	return nil
 }

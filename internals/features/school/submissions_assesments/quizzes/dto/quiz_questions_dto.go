@@ -188,10 +188,12 @@ type QuizLiteResponse struct {
 	QuizIsPublished bool      `json:"quiz_is_published"`
 }
 
-/* =========================================================
-   RESPONSE
-========================================================= */
+/*
+	=========================================================
+	  RESPONSE
 
+=========================================================
+*/
 type QuizQuestionResponse struct {
 	QuizQuestionID          uuid.UUID               `json:"quiz_question_id"`
 	QuizQuestionQuizID      uuid.UUID               `json:"quiz_question_quiz_id"`
@@ -206,6 +208,10 @@ type QuizQuestionResponse struct {
 	QuizQuestionCreatedAt string `json:"quiz_question_created_at"`
 	QuizQuestionUpdatedAt string `json:"quiz_question_updated_at"`
 
+	// ➕ Tambahan
+	QuizQuestionVersion int              `json:"quiz_question_version"`
+	QuizQuestionHistory *json.RawMessage `json:"quiz_question_history,omitempty"` // optional kalau mau ditampilkan juga
+
 	// Optional: parent quiz (jika with_quiz=true dan sudah di-Preload)
 	Quiz *QuizLiteResponse `json:"quiz,omitempty"`
 }
@@ -217,6 +223,12 @@ func FromModelQuizQuestion(m *qmodel.QuizQuestionModel) *QuizQuestionResponse {
 	if len(m.QuizQuestionAnswers) > 0 {
 		tmp := json.RawMessage(m.QuizQuestionAnswers)
 		ans = &tmp
+	}
+
+	var history *json.RawMessage
+	if len(m.QuizQuestionHistory) > 0 {
+		tmp := json.RawMessage(m.QuizQuestionHistory)
+		history = &tmp
 	}
 
 	// Build lite quiz jika di-preload
@@ -242,7 +254,12 @@ func FromModelQuizQuestion(m *qmodel.QuizQuestionModel) *QuizQuestionResponse {
 		QuizQuestionExplanation: m.QuizQuestionExplanation,
 		QuizQuestionCreatedAt:   m.QuizQuestionCreatedAt.UTC().Format(timeRFC3339),
 		QuizQuestionUpdatedAt:   m.QuizQuestionUpdatedAt.UTC().Format(timeRFC3339),
-		Quiz:                    quizLite,
+
+		// ➕ ini dia
+		QuizQuestionVersion: m.QuizQuestionVersion,
+		QuizQuestionHistory: history,
+
+		Quiz: quizLite,
 	}
 }
 

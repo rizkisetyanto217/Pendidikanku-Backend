@@ -12,8 +12,32 @@ import (
 )
 
 /* ==========================================================================================
-   REQUEST — CREATE (membuat summary row student × quiz)
-   Biasanya dipanggil saat student pertama kali mulai quiz.
+   Type alias untuk history (optional helper)
+   Biar kalau butuh decode history di layer lain, bisa pakai tipe ini.
+========================================================================================== */
+
+type StudentQuizAttemptQuestionItem = qmodel.StudentQuizAttemptQuestionItem
+type StudentQuizAttemptHistoryItem = qmodel.StudentQuizAttemptHistoryItem
+
+/* ==========================================================================================
+   ITEM untuk create (jawaban per soal) — dipakai di CreateStudentQuizAttemptRequest
+========================================================================================== */
+
+type CreateStudentQuizAttemptItem struct {
+	QuizQuestionID   uuid.UUID               `json:"quiz_question_id" validate:"required,uuid"`
+	QuizQuestionType qmodel.QuizQuestionType `json:"quiz_question_type" validate:"required,oneof=single essay"`
+
+	// SINGLE → isi answer_single
+	// ESSAY  → isi answer_essay
+	AnswerSingle *string `json:"answer_single,omitempty"`
+	AnswerEssay  *string `json:"answer_essay,omitempty"`
+}
+
+/* ==========================================================================================
+   REQUEST — CREATE
+   Bisa dua mode:
+   - Mode A: hanya "mulai attempt" (items dikosongkan)
+   - Mode B: create + submit sekaligus (items diisi → langsung dinilai)
    Server boleh meng-derive school_id / student_id dari context.
 ========================================================================================== */
 
@@ -27,16 +51,24 @@ type CreateStudentQuizAttemptRequest struct {
 	// Opsional (untuk admin/dkm/teacher); untuk self-attempt bisa diisi server
 	StudentQuizAttemptStudentID *uuid.UUID `json:"student_quiz_attempt_student_id" validate:"omitempty,uuid"`
 
-	// Opsional: kalau FE mau kirim status awal & started_at sendiri
-	StudentQuizAttemptStatus     *qmodel.StudentQuizAttemptStatus `json:"student_quiz_attempt_status" validate:"omitempty,oneof=in_progress submitted finished abandoned"`
-	StudentQuizAttemptStartedAt  *time.Time                       `json:"student_quiz_attempt_started_at" validate:"omitempty"`
-	StudentQuizAttemptFinishedAt *time.Time                       `json:"student_quiz_attempt_finished_at" validate:"omitempty"`
+	// Opsional: kalau mau override status awal
+	StudentQuizAttemptStatus *qmodel.StudentQuizAttemptStatus `json:"student_quiz_attempt_status" validate:"omitempty,oneof=in_progress submitted finished abandoned"`
+
+	// Waktu attempt (optional; kalau kosong → pakai waktu server di controller)
+	AttemptStartedAt  *time.Time `json:"attempt_started_at,omitempty" validate:"omitempty"`
+	AttemptFinishedAt *time.Time `json:"attempt_finished_at,omitempty" validate:"omitempty"`
+
+	// Kalau diisi → berarti langsung sekalian submit jawaban (1 request)
+	// Kalau dikosongkan → berarti hanya "mulai attempt" (tanpa jawaban dulu)
+	Items []CreateStudentQuizAttemptItem `json:"items" validate:"omitempty,dive"`
 }
 
+// ToModel — bikin model summary-nya (tanpa history).
+// History, count, best_*, last_* akan di-handle di controller/service.
 func (r *CreateStudentQuizAttemptRequest) ToModel() *qmodel.StudentQuizAttemptModel {
 	m := &qmodel.StudentQuizAttemptModel{
 		StudentQuizAttemptQuizID: r.StudentQuizAttemptQuizID,
-		// History default: [] (sudah di tag GORM)
+		// History default: [] (akan diisi di controller kalau kosong)
 		// Count default: 0
 		// Status default di DB: in_progress (kalau tidak di-set di sini)
 	}
@@ -50,19 +82,14 @@ func (r *CreateStudentQuizAttemptRequest) ToModel() *qmodel.StudentQuizAttemptMo
 	if r.StudentQuizAttemptStatus != nil {
 		m.StudentQuizAttemptStatus = *r.StudentQuizAttemptStatus
 	}
-	if r.StudentQuizAttemptStartedAt != nil {
-		m.StudentQuizAttemptStartedAt = r.StudentQuizAttemptStartedAt
-	}
-	if r.StudentQuizAttemptFinishedAt != nil {
-		m.StudentQuizAttemptFinishedAt = r.StudentQuizAttemptFinishedAt
-	}
 
+	// StartedAt & FinishedAt: dikelola di controller saat bikin history
 	return m
 }
 
 /* ==========================================================================================
    REQUEST — UPDATE/PATCH (PARTIAL)
-   Biasanya dipakai internal (service) untuk update summary:
+   Biasanya dipakai internal (service/admin) untuk update summary:
    - status, started/finished
    - history JSON
    - count
@@ -81,6 +108,29 @@ type UpdateStudentQuizAttemptRequest struct {
 	StudentQuizAttemptFinishedAt *time.Time                       `json:"student_quiz_attempt_finished_at" validate:"omitempty"`
 
 	// Full history (opsional, biasanya diisi backend)
+	// Struktur JSON-nya sekarang:
+	// [
+	//   {
+	//     "attempt_no": ...,
+	//     "attempt_started_at": "...",
+	//     "attempt_finished_at": "...",
+	//     "attempt_raw_score": ...,
+	//     "attempt_percent": ...,
+	//     "items": [
+	//       {
+	//         "quiz_id": "...",
+	//         "quiz_question_id": "...",
+	//         "quiz_question_version": 1,
+	//         "quiz_question_type": "single",
+	//         "answer_single": "C",
+	//         "answer_essay": null,
+	//         "is_correct": true,
+	//         "points": 1,
+	//         "points_earned": 1
+	//       }
+	//     ]
+	//   }
+	// ]
 	StudentQuizAttemptHistory *json.RawMessage `json:"student_quiz_attempt_history" validate:"omitempty"`
 
 	// Summary: total attempt
@@ -100,7 +150,7 @@ type UpdateStudentQuizAttemptRequest struct {
 }
 
 // ApplyToModel — patch ke model yang sudah di-load.
-// Business logic (recompute best/last dari history) bisa ditaruh di service.
+// Business logic (recompute best/last dari history) sebaiknya di service.
 func (r *UpdateStudentQuizAttemptRequest) ApplyToModel(m *qmodel.StudentQuizAttemptModel) error {
 	if r.StudentQuizAttemptSchoolID != nil {
 		m.StudentQuizAttemptSchoolID = *r.StudentQuizAttemptSchoolID
@@ -167,6 +217,7 @@ func (r *UpdateStudentQuizAttemptRequest) ApplyToModel(m *qmodel.StudentQuizAtte
 /* ==========================================================================================
    RESPONSE DTO
    Ini yang dikirim ke FE, sudah sesuai dengan model JSON summary.
+   Field history tetap json.RawMessage supaya fleksibel.
 ========================================================================================== */
 
 type StudentQuizAttemptResponse struct {
@@ -238,6 +289,10 @@ func FromModelsStudentQuizAttempts(items []qmodel.StudentQuizAttemptModel) []*St
 	}
 	return out
 }
+
+/* ==========================================================================================
+   Helper kecil
+========================================================================================== */
 
 func JSONFromRaw(raw json.RawMessage) datatypes.JSON {
 	return datatypes.JSON(raw)

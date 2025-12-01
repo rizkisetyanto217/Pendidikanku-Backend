@@ -3,7 +3,9 @@ package controller
 
 import (
 	"errors"
+	"log"
 	"strings"
+	"time"
 
 	validator "github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -13,6 +15,7 @@ import (
 
 	qdto "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/dto"
 	qmodel "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/model"
+	qservice "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/service"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
@@ -132,53 +135,177 @@ func (ctl *StudentQuizAttemptsController) resolveScopeForCreate(
 /* =========================================================
    Handlers
 ========================================================= */
-
 // POST /student-quiz-attempts
+// Bisa:
+// - hanya bikin attempt summary kosong (tanpa jawaban) → items = []
+// - atau create/reuse + submit attempt (pertama / berikutnya) → items diisi
 func (ctl *StudentQuizAttemptsController) Create(c *fiber.Ctx) error {
 	ctl.ensureValidator()
 
 	var req qdto.CreateStudentQuizAttemptRequest
 	if err := c.BodyParser(&req); err != nil {
+		log.Printf("[StudentQuizAttemptsController] BodyParser error: %v", err)
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
-	// Validasi sesuai DTO (quiz_id wajib, lainnya opsional)
+
+	log.Printf("[StudentQuizAttemptsController] Create called. quiz_id=%s started_at=%v finished_at=%v items=%d",
+		req.StudentQuizAttemptQuizID, req.AttemptStartedAt, req.AttemptFinishedAt, len(req.Items))
+
+	// Validasi DTO
 	if err := ctl.validator.Struct(&req); err != nil {
+		log.Printf("[StudentQuizAttemptsController] Validation error: %v", err)
 		return helper.JsonError(c, fiber.StatusBadRequest, "Validasi gagal")
 	}
 
+	// Resolve scope (school + student) dari quiz & token
 	mid, sid, _, err := ctl.resolveScopeForCreate(c, &req)
 	if err != nil {
+		log.Printf("[StudentQuizAttemptsController] resolveScopeForCreate error: %v", err)
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
+	log.Printf("[StudentQuizAttemptsController] Scope resolved. school_id=%s student_id=%s", mid, sid)
 
 	// Override anti-spoof
 	req.StudentQuizAttemptSchoolID = &mid
 	req.StudentQuizAttemptStudentID = &sid
 
-	m := req.ToModel()
+	// =========================================
+	// 1) Cek dulu: sudah ada summary row atau belum?
+	//    (1 row = 1 student × 1 quiz)
+	// =========================================
+	var existing qmodel.StudentQuizAttemptModel
+	err = ctl.DB.WithContext(c.Context()).
+		Where(`
+			student_quiz_attempt_school_id = ?
+			AND student_quiz_attempt_quiz_id = ?
+			AND student_quiz_attempt_student_id = ?
+		`, mid, req.StudentQuizAttemptQuizID, sid).
+		First(&existing).Error
 
-	// ⚠️ Penting: pastikan JSON & status tidak kosong
-	if len(m.StudentQuizAttemptHistory) == 0 {
-		m.StudentQuizAttemptHistory = datatypes.JSON([]byte("[]"))
-	}
-	if !validAttemptStatus(m.StudentQuizAttemptStatus) {
-		m.StudentQuizAttemptStatus = qmodel.StudentQuizAttemptInProgress
-	}
+	isNew := false
+	var m *qmodel.StudentQuizAttemptModel
 
-	if err := ctl.DB.Create(m).Error; err != nil {
-		if isUniqueViolation(err) {
-			return helper.JsonError(c, fiber.StatusConflict, "Duplikat / melanggar unique index")
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// Belum ada → bikin baru
+			log.Printf("[StudentQuizAttemptsController] No existing attempt summary. Creating new row...")
+			isNew = true
+			m = req.ToModel()
+
+			now := time.Now().UTC()
+			// Kalau FE kirim AttemptStartedAt → pakai itu, kalau tidak pakai now
+			if req.AttemptStartedAt != nil {
+				m.StudentQuizAttemptStartedAt = req.AttemptStartedAt
+			} else {
+				m.StudentQuizAttemptStartedAt = &now
+			}
+
+			// Pastikan history dan status aman
+			if len(m.StudentQuizAttemptHistory) == 0 {
+				m.StudentQuizAttemptHistory = datatypes.JSON([]byte("[]"))
+			}
+			if !validAttemptStatus(m.StudentQuizAttemptStatus) {
+				m.StudentQuizAttemptStatus = qmodel.StudentQuizAttemptInProgress
+			}
+
+			if err := ctl.DB.Create(m).Error; err != nil {
+				log.Printf("[StudentQuizAttemptsController] DB Create error: %v", err)
+				if isUniqueViolation(err) {
+					// Kalau kejadian race condition aneh, balikin conflict
+					return helper.JsonError(c, fiber.StatusConflict, "Duplikat / melanggar unique index")
+				}
+				if isCheckViolation(err) {
+					return helper.JsonError(c, fiber.StatusBadRequest, "Melanggar CHECK constraint")
+				}
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan attempt")
+			}
+
+			log.Printf("[StudentQuizAttemptsController] New summary created. attempt_id=%s", m.StudentQuizAttemptID)
+		} else {
+			// Error DB lain
+			log.Printf("[StudentQuizAttemptsController] DB error when checking existing attempt: %v", err)
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengecek attempt existing")
 		}
-		if isCheckViolation(err) {
-			return helper.JsonError(c, fiber.StatusBadRequest, "Melanggar CHECK constraint")
+	} else {
+		// Sudah ada summary row → pakai existing
+		m = &existing
+		log.Printf("[StudentQuizAttemptsController] Existing summary found. attempt_id=%s count=%d",
+			m.StudentQuizAttemptID, m.StudentQuizAttemptCount)
+
+		// Optional: kalau mau update started_at kalau belum pernah di-set
+		if m.StudentQuizAttemptStartedAt == nil && req.AttemptStartedAt != nil {
+			m.StudentQuizAttemptStartedAt = req.AttemptStartedAt
+			if err := ctl.DB.Save(m).Error; err != nil {
+				log.Printf("[StudentQuizAttemptsController] Failed to update started_at on existing attempt: %v", err)
+			}
 		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan attempt")
 	}
 
-	return helper.JsonCreated(c, "Berhasil memulai attempt", qdto.FromModelStudentQuizAttempt(m))
+	// =========================================
+	// 2) Kalau items kosong → hanya memastikan row ada (mulai attempt)
+	// =========================================
+	if len(req.Items) == 0 {
+		msg := "Berhasil memulai attempt"
+		if !isNew {
+			msg = "Attempt sudah ada, menggunakan attempt yang sama"
+		}
+		log.Printf("[StudentQuizAttemptsController] No items submitted. Returning summary only. isNew=%v attempt_id=%s",
+			isNew, m.StudentQuizAttemptID)
+		return helper.JsonCreated(c, msg, qdto.FromModelStudentQuizAttempt(m))
+	}
+
+	// =========================================
+	// 3) MODE: create / reuse + submit attempt
+	//    → kita konversi items → map answers,
+	//      lalu panggil service.SubmitAttempt (append history)
+	// =========================================
+
+	answers := make(map[uuid.UUID]string, len(req.Items))
+	for _, it := range req.Items {
+		var v string
+		if it.AnswerSingle != nil {
+			v = strings.TrimSpace(*it.AnswerSingle)
+		}
+		if it.AnswerEssay != nil && v == "" {
+			v = strings.TrimSpace(*it.AnswerEssay)
+		}
+		if v != "" {
+			answers[it.QuizQuestionID] = v
+		}
+	}
+
+	log.Printf("[StudentQuizAttemptsController] Submitting attempt. attempt_id=%s answers_count=%d finished_at=%v",
+		m.StudentQuizAttemptID, len(answers), req.AttemptFinishedAt)
+
+	svc := qservice.NewStudentQuizAttemptService(ctl.DB)
+	submitIn := &qservice.SubmitQuizAttemptInput{
+		AttemptID:  m.StudentQuizAttemptID,
+		FinishedAt: req.AttemptFinishedAt, // boleh nil → service pakai now
+		Answers:    answers,
+	}
+
+	finalAttempt, err := svc.SubmitAttempt(c.Context(), submitIn)
+	if err != nil {
+		log.Printf("[StudentQuizAttemptsController] SubmitAttempt error: %v", err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memproses submit attempt")
+	}
+
+	log.Printf("[StudentQuizAttemptsController] SubmitAttempt success. attempt_id=%s total_history=%d last_percent=%v",
+		finalAttempt.StudentQuizAttemptID,
+		finalAttempt.StudentQuizAttemptCount,
+		func() *float64 {
+			return finalAttempt.StudentQuizAttemptLastPercent
+		}(),
+	)
+
+	msg := "Berhasil membuat dan mensubmit attempt"
+	if !isNew {
+		msg = "Berhasil mensubmit attempt baru ke history"
+	}
+	return helper.JsonCreated(c, msg, qdto.FromModelStudentQuizAttempt(finalAttempt))
 }
 
 // PATCH /student-quiz-attempts/:id
@@ -401,7 +528,7 @@ func (ctl *StudentQuizAttemptsController) List(c *fiber.Ctx) error {
 		pagination = helper.BuildPaginationFromPage(total, pg.Page, pg.PerPage)
 	}
 
-	// ===== JSON (pakai helper baru) =====
+	// ===== JSON =====
 	return helper.JsonList(c, "OK", qdto.FromModelsStudentQuizAttempts(rows), pagination)
 }
 

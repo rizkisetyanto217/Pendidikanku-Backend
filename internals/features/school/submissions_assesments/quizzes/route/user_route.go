@@ -57,7 +57,7 @@ func mountQuizUserRoutes(base fiber.Router, db *gorm.DB) {
 	mountUserAttemptsGroup(attempts, uqAttemptCtrl)
 
 	// Alias kompatibel (rute lama)
-	attemptsAlias := base.Group("/user-quiz-attempts") // -> /api/u/user-quiz-attempts
+	attemptsAlias := base.Group("/student-quiz-attempts") // -> /api/u/user-quiz-attempts
 	mountUserAttemptsGroup(attemptsAlias, uqAttemptCtrl)
 
 }
