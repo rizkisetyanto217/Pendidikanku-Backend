@@ -259,7 +259,8 @@ func (r *PatchAssessmentRequest) Apply(m *assessModel.AssessmentModel) {
 		m.AssessmentCreatedByTeacherID = r.AssessmentCreatedByTeacherID
 	}
 
-	// Session IDs di-handle di controller (karena terkait submission_mode & snapshot)
+	// Session IDs + submission_mode biasanya di-handle di controller,
+	// karena terkait logic snapshot & mode 'date' vs 'session'.
 }
 
 /*
@@ -300,33 +301,19 @@ type AssessmentResponse struct {
 	AssessmentSubmissionsTotal       int `json:"assessment_submissions_total"`
 	AssessmentSubmissionsGradedTotal int `json:"assessment_submissions_graded_total"`
 
-	// flag hasil grading tipe assessment
+	// flag hasil grading tipe assessment (snapshot dari AssessmentType)
 	AssessmentTypeIsGradedSnapshot bool `json:"assessment_type_is_graded_snapshot"`
 
-	// Snapshot aturan dari AssessmentType (pada saat assessment dibuat)
-	AssessmentShuffleQuestionsSnapshot       bool   `json:"assessment_shuffle_questions_snapshot"`
-	AssessmentShuffleOptionsSnapshot         bool   `json:"assessment_shuffle_options_snapshot"`
-	AssessmentShowCorrectAfterSubmitSnapshot bool   `json:"assessment_show_correct_after_submit_snapshot"`
-	AssessmentStrictModeSnapshot             bool   `json:"assessment_strict_mode_snapshot"`
-	AssessmentTimeLimitMinSnapshot           *int   `json:"assessment_time_limit_min_snapshot,omitempty"`
-	AssessmentAttemptsAllowedSnapshot        int    `json:"assessment_attempts_allowed_snapshot"`
-	AssessmentRequireLoginSnapshot           bool   `json:"assessment_require_login_snapshot"`
-	AssessmentScoreAggregationModeSnapshot   string `json:"assessment_score_aggregation_mode_snapshot"`
-
-	AssessmentAllowLateSubmissionSnapshot         bool    `json:"assessment_allow_late_submission_snapshot"`
-	AssessmentLatePenaltyPercentSnapshot          float64 `json:"assessment_late_penalty_percent_snapshot"`
-	AssessmentPassingScorePercentSnapshot         float64 `json:"assessment_passing_score_percent_snapshot"`
-	AssessmentShowScoreAfterSubmitSnapshot        bool    `json:"assessment_show_score_after_submit_snapshot"`
-	AssessmentShowCorrectAfterClosedSnapshot      bool    `json:"assessment_show_correct_after_closed_snapshot"`
-	AssessmentAllowReviewBeforeSubmitSnapshot     bool    `json:"assessment_allow_review_before_submit_snapshot"`
-	AssessmentRequireCompleteAttemptSnapshot      bool    `json:"assessment_require_complete_attempt_snapshot"`
-	AssessmentShowDetailsAfterAllAttemptsSnapshot bool    `json:"assessment_show_details_after_all_attempts_snapshot"`
+	// Snapshot aturan dari AssessmentType (sesuai SQL terbaru: hanya late policy & passing score)
+	AssessmentAllowLateSubmissionSnapshot bool    `json:"assessment_allow_late_submission_snapshot"`
+	AssessmentLatePenaltyPercentSnapshot  float64 `json:"assessment_late_penalty_percent_snapshot"`
+	AssessmentPassingScorePercentSnapshot float64 `json:"assessment_passing_score_percent_snapshot"`
 
 	AssessmentCreatedByTeacherID *uuid.UUID `json:"assessment_created_by_teacher_id,omitempty"`
 
 	AssessmentSubmissionMode    string     `json:"assessment_submission_mode"`
 	AssessmentAnnounceSessionID *uuid.UUID `json:"assessment_announce_session_id,omitempty"`
-	AssessmentCollectSessionID  *uuid.UUID `json:"assessment_collect_session_id,omitempty"`
+	AssessmentCollectSessionID *uuid.UUID `json:"assessment_collect_session_id,omitempty"`
 
 	AssessmentCSSTSnapshot            map[string]any `json:"assessment_csst_snapshot,omitempty"`
 	AssessmentAnnounceSessionSnapshot map[string]any `json:"assessment_announce_session_snapshot,omitempty"`
@@ -386,24 +373,10 @@ func FromModelAssesment(m assessModel.AssessmentModel) AssessmentResponse {
 		// flag hasil grading type
 		AssessmentTypeIsGradedSnapshot: m.AssessmentTypeIsGradedSnapshot,
 
-		// snapshot rules dari AssessmentType
-		AssessmentShuffleQuestionsSnapshot:       m.AssessmentShuffleQuestionsSnapshot,
-		AssessmentShuffleOptionsSnapshot:         m.AssessmentShuffleOptionsSnapshot,
-		AssessmentShowCorrectAfterSubmitSnapshot: m.AssessmentShowCorrectAfterSubmitSnapshot,
-		AssessmentStrictModeSnapshot:             m.AssessmentStrictModeSnapshot,
-		AssessmentTimeLimitMinSnapshot:           m.AssessmentTimeLimitMinSnapshot,
-		AssessmentAttemptsAllowedSnapshot:        m.AssessmentAttemptsAllowedSnapshot,
-		AssessmentRequireLoginSnapshot:           m.AssessmentRequireLoginSnapshot,
-		AssessmentScoreAggregationModeSnapshot:   m.AssessmentScoreAggregationModeSnapshot,
-
-		AssessmentAllowLateSubmissionSnapshot:         m.AssessmentAllowLateSubmissionSnapshot,
-		AssessmentLatePenaltyPercentSnapshot:          m.AssessmentLatePenaltyPercentSnapshot,
-		AssessmentPassingScorePercentSnapshot:         m.AssessmentPassingScorePercentSnapshot,
-		AssessmentShowScoreAfterSubmitSnapshot:        m.AssessmentShowScoreAfterSubmitSnapshot,
-		AssessmentShowCorrectAfterClosedSnapshot:      m.AssessmentShowCorrectAfterClosedSnapshot,
-		AssessmentAllowReviewBeforeSubmitSnapshot:     m.AssessmentAllowReviewBeforeSubmitSnapshot,
-		AssessmentRequireCompleteAttemptSnapshot:      m.AssessmentRequireCompleteAttemptSnapshot,
-		AssessmentShowDetailsAfterAllAttemptsSnapshot: m.AssessmentShowDetailsAfterAllAttemptsSnapshot,
+		// snapshot aturan dari AssessmentType (late policy + passing score)
+		AssessmentAllowLateSubmissionSnapshot: m.AssessmentAllowLateSubmissionSnapshot,
+		AssessmentLatePenaltyPercentSnapshot:  m.AssessmentLatePenaltyPercentSnapshot,
+		AssessmentPassingScorePercentSnapshot: m.AssessmentPassingScorePercentSnapshot,
 
 		AssessmentCreatedByTeacherID: m.AssessmentCreatedByTeacherID,
 

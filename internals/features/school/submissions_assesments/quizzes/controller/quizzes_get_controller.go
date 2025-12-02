@@ -14,6 +14,9 @@ import (
 )
 
 // GET /quizzes
+// Catatan:
+//   - Semua config snapshot (shuffle, attempts, aggregation, dsb.)
+//     sudah ikut ter-serialize lewat dto.FromModel / FromModelWithQuestions.
 func (ctrl *QuizController) List(c *fiber.Ctx) error {
 	// Inject DB buat helper slug→id
 	c.Locals("DB", ctrl.DB)
@@ -71,7 +74,7 @@ func (ctrl *QuizController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
 	}
 
-	// 🔍 Tambahan: filter by quiz_assessment_id via ?assessment_id=...
+	// Tambahan safety: parse manual assessment_id (kalau dikirim string acak)
 	if s := strings.TrimSpace(c.Query("assessment_id")); s != "" {
 		aid, err := uuid.Parse(s)
 		if err != nil {

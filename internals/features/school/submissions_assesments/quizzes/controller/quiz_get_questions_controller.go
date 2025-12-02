@@ -117,7 +117,50 @@ func (ctl *QuizQuestionsController) List(c *fiber.Ctx) error {
 	// 9) DTO
 	out := qdto.FromModelsQuizQuestions(rows)
 
-	// 10) Pagination response
+	// 10) Pagination
 	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)
+
+	// =============================
+	// 11) Bentuk response
+	// =============================
+
+	// Kalau TIDAK minta with_quiz -> behaviour lama
+	if !q.WithQuiz {
+		return helper.JsonList(c, "ok", out, pg)
+	}
+
+	// Kalau with_quiz = true -> quiz jadi parent (1x saja di root)
+	if len(rows) == 0 {
+		// nggak ada data, balikin biasa aja (tanpa quiz)
+		return helper.JsonList(c, "ok", out, pg)
+	}
+
+	// Ambil quiz dari row pertama (diasumsikan semua dari quiz yang sama)
+	var quizResp *qdto.QuizResponse
+	if rows[0].Quiz != nil {
+		qr := qdto.FromModel(rows[0].Quiz) // pakai DTO QuizResponse yang lengkap
+		quizResp = &qr
+	}
+
+	// Bersihkan field Quiz di tiap question (biar nggak duplikat)
+	for i := range out {
+		out[i].Quiz = nil
+	}
+
+	// Kalau quiz sukses diambil, kirim sebagai parent di meta
+	if quizResp != nil {
+		return helper.JsonListEx(
+			c,
+			"ok",
+			out,
+			pg,
+			fiber.Map{
+				"quiz": quizResp,
+			},
+		)
+	}
+
+	// Fallback kalau entah kenapa Quiz nil
 	return helper.JsonList(c, "ok", out, pg)
+
 }

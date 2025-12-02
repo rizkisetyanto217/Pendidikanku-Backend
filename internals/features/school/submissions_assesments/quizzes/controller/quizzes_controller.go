@@ -80,26 +80,26 @@ func applyFiltersQuizzes(db *gorm.DB, q *dto.ListQuizzesQuery) *gorm.DB {
 
 func preloadQuestions(tx *gorm.DB, q *dto.ListQuizzesQuery) *gorm.DB {
 	return tx.Preload("Questions", func(db *gorm.DB) *gorm.DB {
-		db = db.Where("quiz_questions_deleted_at IS NULL")
+		// HAPUS filter deleted_at
 		if q.SchoolID != nil && *q.SchoolID != uuid.Nil {
-			db = db.Where("quiz_questions_school_id = ?", *q.SchoolID)
+			db = db.Where("quiz_question_school_id = ?", *q.SchoolID)
 		}
+
 		switch strings.ToLower(strings.TrimSpace(q.QuestionsOrder)) {
 		case "created_at":
-			db = db.Order("quiz_questions_created_at ASC")
+			db = db.Order("quiz_question_created_at ASC")
 		default:
-			db = db.Order("quiz_questions_created_at DESC")
+			db = db.Order("quiz_question_created_at DESC")
 		}
+
 		if q.QuestionsLimit > 0 {
 			db = db.Limit(q.QuestionsLimit)
 		}
+
 		return db
 	})
 }
 
-/* =======================
-   Auth helper (DKM/Admin ATAU Teacher)
-======================= */
 /* =======================
    Auth helper (DKM/Admin ATAU Teacher)
 ======================= */
@@ -108,12 +108,8 @@ func resolveSchoolForDKMOrTeacher(c *fiber.Ctx, db *gorm.DB) (uuid.UUID, error) 
 	// injek DB agar GetSchoolIDBySlug bisa jalan
 	c.Locals("DB", db)
 
-	// =====================================================
-	// 1) Coba ambil school dari TOKEN dulu
-	//    (aktifkan prefer teacher; kalau ada active_school di token, pakai itu)
-	// =====================================================
+	// 1) Coba ambil school dari TOKEN dulu (prefer teacher)
 	if sid, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err != nil {
-		// Kalau helper balikin fiber.Error, oper aja ke atas
 		if fe, ok := err.(*fiber.Error); ok {
 			return uuid.Nil, fe
 		}
@@ -123,16 +119,12 @@ func resolveSchoolForDKMOrTeacher(c *fiber.Ctx, db *gorm.DB) (uuid.UUID, error) 
 
 		// Pastikan user ini DKM/Admin/Teacher di school tsb
 		if err := helperAuth.EnsureDKMOrTeacherSchool(c, mid); err != nil {
-			// ensureRolesInSchool udah handle pesan errornya
 			return uuid.Nil, err
 		}
 		return mid, nil
 	}
 
-	// =====================================================
 	// 2) Fallback: pakai school context (id / slug)
-	//    (misal untuk kasus legacy / public path dengan :school_slug)
-	// =====================================================
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return uuid.Nil, err
@@ -151,9 +143,7 @@ func resolveSchoolForDKMOrTeacher(c *fiber.Ctx, db *gorm.DB) (uuid.UUID, error) 
 		return uuid.Nil, helperAuth.ErrSchoolContextMissing
 	}
 
-	// =====================================================
 	// 3) Pastikan user DKM/Admin/Teacher di school ini
-	// =====================================================
 	if err := helperAuth.EnsureDKMOrTeacherSchool(c, mid); err != nil {
 		return uuid.Nil, err
 	}
@@ -165,7 +155,7 @@ func resolveSchoolForDKMOrTeacher(c *fiber.Ctx, db *gorm.DB) (uuid.UUID, error) 
    Handlers
 ======================= */
 
-// POST / (WRITE — DKM/Teacher/Admin)
+// POST /quizzes (WRITE — DKM/Teacher/Admin)
 func (ctrl *QuizController) Create(c *fiber.Ctx) error {
 	var body dto.CreateQuizRequest
 	if err := c.BodyParser(&body); err != nil {
@@ -175,7 +165,7 @@ func (ctrl *QuizController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// 🔐 Force school scope (DKM/Teacher)
+	// Force school scope (DKM/Teacher)
 	mid, err := resolveSchoolForDKMOrTeacher(c, ctrl.DB)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
@@ -185,10 +175,10 @@ func (ctrl *QuizController) Create(c *fiber.Ctx) error {
 	}
 	body.QuizSchoolID = mid
 
-	// Build model dari DTO
+	// Build model dari DTO (sudah termasuk snapshot behaviour & scoring)
 	m := body.ToModel()
 
-	// 🏷️ Generate slug (pakai body jika ada; else dari title) → pastikan unik per tenant (alive only)
+	// Generate slug (pakai body jika ada; else dari title) → pastikan unik per tenant (alive only)
 	base := ""
 	if body.QuizSlug != nil && strings.TrimSpace(*body.QuizSlug) != "" {
 		base = helper.Slugify(*body.QuizSlug, 160)
@@ -219,7 +209,7 @@ func (ctrl *QuizController) Create(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "Quiz berhasil dibuat", dto.FromModel(m))
 }
 
-// PATCH /:id (WRITE — DKM/Teacher/Admin)
+// PATCH /quizzes/:id (WRITE — DKM/Teacher/Admin)
 func (ctrl *QuizController) Patch(c *fiber.Ctx) error {
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
@@ -253,7 +243,7 @@ func (ctrl *QuizController) Patch(c *fiber.Ctx) error {
 
 	updates := body.ToUpdates()
 
-	// If slug provided (and not null), enforce uniqueness per tenant (alive-only, exclude self)
+	// Jika slug di-update (dan bukan null), enforce uniqueness per tenant (alive-only, exclude self)
 	if body.QuizSlug.ShouldUpdate() && !body.QuizSlug.IsNull() {
 		raw := strings.TrimSpace(body.QuizSlug.Val())
 		if raw == "" {
@@ -298,7 +288,7 @@ func (ctrl *QuizController) Patch(c *fiber.Ctx) error {
 	return helper.JsonUpdated(c, "Quiz diperbarui", dto.FromModel(&m))
 }
 
-// DELETE /:id (WRITE — DKM/Teacher/Admin)
+// DELETE /quizzes/:id (WRITE — DKM/Teacher/Admin)
 func (ctrl *QuizController) Delete(c *fiber.Ctx) error {
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {

@@ -186,31 +186,18 @@ func (ctl *AssessmentController) assertTeacherBelongsToSchool(c *fiber.Ctx, scho
 	return nil
 }
 
-
 /* ========================================================
-   Helpers untuk AssessmentType snapshot (baru, tanpa JSON)
+   Helpers untuk AssessmentType snapshot (baru, scalar only)
 ======================================================== */
 
 func resetAssessmentTypeSnapshotFields(a *model.AssessmentModel) {
+	// Flag graded dari tipe
 	a.AssessmentTypeIsGradedSnapshot = false
 
-	a.AssessmentShuffleQuestionsSnapshot = false
-	a.AssessmentShuffleOptionsSnapshot = false
-	a.AssessmentShowCorrectAfterSubmitSnapshot = false
-	a.AssessmentStrictModeSnapshot = false
-	a.AssessmentTimeLimitMinSnapshot = nil
-	a.AssessmentAttemptsAllowedSnapshot = 0
-	a.AssessmentRequireLoginSnapshot = false
-	a.AssessmentScoreAggregationModeSnapshot = ""
-
+	// Late policy & passing score snapshot
 	a.AssessmentAllowLateSubmissionSnapshot = false
 	a.AssessmentLatePenaltyPercentSnapshot = 0
 	a.AssessmentPassingScorePercentSnapshot = 0
-	a.AssessmentShowScoreAfterSubmitSnapshot = false
-	a.AssessmentShowCorrectAfterClosedSnapshot = false
-	a.AssessmentAllowReviewBeforeSubmitSnapshot = false
-	a.AssessmentRequireCompleteAttemptSnapshot = false
-	a.AssessmentShowDetailsAfterAllAttemptsSnapshot = false
 }
 
 func (ctl *AssessmentController) hydrateAssessmentTypeSnapshot(
@@ -234,26 +221,16 @@ func (ctl *AssessmentController) hydrateAssessmentTypeSnapshot(
 		return err
 	}
 
+	// Set FK type id
 	a.AssessmentTypeID = &typeID
+
+	// Snapshot: flag graded
 	a.AssessmentTypeIsGradedSnapshot = at.AssessmentTypeIsGraded
 
-	a.AssessmentShuffleQuestionsSnapshot = at.AssessmentTypeShuffleQuestions
-	a.AssessmentShuffleOptionsSnapshot = at.AssessmentTypeShuffleOptions
-	a.AssessmentShowCorrectAfterSubmitSnapshot = at.AssessmentTypeShowCorrectAfterSubmit
-	a.AssessmentStrictModeSnapshot = at.AssessmentTypeStrictMode
-	a.AssessmentTimeLimitMinSnapshot = at.AssessmentTypeTimeLimitMin
-	a.AssessmentAttemptsAllowedSnapshot = at.AssessmentTypeAttemptsAllowed
-	a.AssessmentRequireLoginSnapshot = at.AssessmentTypeRequireLogin
-	a.AssessmentScoreAggregationModeSnapshot = at.AssessmentTypeScoreAggregationMode
-
+	// Snapshot: late policy & passing score
 	a.AssessmentAllowLateSubmissionSnapshot = at.AssessmentTypeAllowLateSubmission
 	a.AssessmentLatePenaltyPercentSnapshot = at.AssessmentTypeLatePenaltyPercent
 	a.AssessmentPassingScorePercentSnapshot = at.AssessmentTypePassingScorePercent
-	a.AssessmentShowScoreAfterSubmitSnapshot = at.AssessmentTypeShowScoreAfterSubmit
-	a.AssessmentShowCorrectAfterClosedSnapshot = at.AssessmentTypeShowCorrectAfterClosed
-	a.AssessmentAllowReviewBeforeSubmitSnapshot = at.AssessmentTypeAllowReviewBeforeSubmit
-	a.AssessmentRequireCompleteAttemptSnapshot = at.AssessmentTypeRequireCompleteAttempt
-	a.AssessmentShowDetailsAfterAllAttemptsSnapshot = at.AssessmentTypeShowDetailsAfterAllAttempts
 
 	return nil
 }
@@ -482,7 +459,7 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	// ==== Sync assessment type snapshot (tanpa JSON) ====
+	// ==== Sync assessment type snapshot (scalar) ====
 	if row.AssessmentTypeID != nil && *row.AssessmentTypeID != uuid.Nil {
 		if err := ctl.hydrateAssessmentTypeSnapshot(c, mid, &row, *row.AssessmentTypeID); err != nil {
 			tx.Rollback()
@@ -1062,7 +1039,7 @@ func (ctl *AssessmentController) applyAssessmentTypePatch(
 		return nil
 	}
 
-	// Else: load type & set snapshot scalar
+	// Else: load type & set snapshot scalar (graded + late policy)
 	return ctl.hydrateAssessmentTypeSnapshot(c, schoolID, existing, *req.AssessmentTypeID)
 }
 

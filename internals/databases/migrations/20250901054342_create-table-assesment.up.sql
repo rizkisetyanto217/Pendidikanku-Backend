@@ -132,7 +132,7 @@ CREATE INDEX IF NOT EXISTS brin_assessment_types_created_at
 
 
 -- =========================================================
--- 1) ENUM: assessment_kind_enum
+-- ENUM: assessment_kind_enum
 -- =========================================================
 DO $$
 BEGIN
@@ -147,7 +147,7 @@ BEGIN
 END$$;
 
 -- =========================================================
--- 2) TABLE: assessments (sinkron dengan AssessmentModel)
+-- TABLE: assessments (FINAL)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS assessments (
   assessment_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -183,7 +183,7 @@ CREATE TABLE IF NOT EXISTS assessments (
   assessment_quiz_total SMALLINT NOT NULL DEFAULT 0,
 
   -- agregat submissions (diupdate dari service)
-  assessment_submissions_total       INT NOT NULL DEFAULT 0,
+  assessment_submissions_total        INT NOT NULL DEFAULT 0,
   assessment_submissions_graded_total INT NOT NULL DEFAULT 0,
 
   assessment_is_published     BOOLEAN NOT NULL DEFAULT TRUE,
@@ -192,35 +192,20 @@ CREATE TABLE IF NOT EXISTS assessments (
   -- Flag apakah assessment type ini menghasilkan nilai (graded) — snapshot
   assessment_type_is_graded_snapshot BOOLEAN NOT NULL DEFAULT FALSE,
 
-  -- =========================
+  -- ======================================================
   -- Snapshot aturan dari AssessmentType (per assessment)
-  -- =========================
-
-  -- Quiz behaviour
-  assessment_shuffle_questions_snapshot       BOOLEAN NOT NULL DEFAULT FALSE,
-  assessment_shuffle_options_snapshot         BOOLEAN NOT NULL DEFAULT FALSE,
-  assessment_show_correct_after_submit_snapshot BOOLEAN NOT NULL DEFAULT TRUE,
-  assessment_strict_mode_snapshot             BOOLEAN NOT NULL DEFAULT FALSE,
-  assessment_time_limit_min_snapshot          INT,
-  assessment_attempts_allowed_snapshot        INT NOT NULL DEFAULT 1,
-  assessment_require_login_snapshot           BOOLEAN NOT NULL DEFAULT TRUE,
-  assessment_score_aggregation_mode_snapshot  VARCHAR(20) NOT NULL DEFAULT 'latest',
-
-  -- Late policy & visibility
-  assessment_allow_late_submission_snapshot         BOOLEAN NOT NULL DEFAULT FALSE,
-  assessment_late_penalty_percent_snapshot          NUMERIC(5,2) NOT NULL DEFAULT 0,
-  assessment_passing_score_percent_snapshot         NUMERIC(5,2) NOT NULL DEFAULT 0,
-  assessment_show_score_after_submit_snapshot       BOOLEAN NOT NULL DEFAULT TRUE,
-  assessment_show_correct_after_closed_snapshot     BOOLEAN NOT NULL DEFAULT FALSE,
-  assessment_allow_review_before_submit_snapshot    BOOLEAN NOT NULL DEFAULT TRUE,
-  assessment_require_complete_attempt_snapshot      BOOLEAN NOT NULL DEFAULT TRUE,
-  assessment_show_details_after_all_attempts_snapshot BOOLEAN NOT NULL DEFAULT FALSE,
+  -- HANYA grading & late policy
+  -- (quiz behaviour + attempts + aggregation ada di tabel quizzes)
+  -- ======================================================
+  assessment_allow_late_submission_snapshot BOOLEAN NOT NULL DEFAULT FALSE,
+  assessment_late_penalty_percent_snapshot  NUMERIC(5,2) NOT NULL DEFAULT 0,
+  assessment_passing_score_percent_snapshot NUMERIC(5,2) NOT NULL DEFAULT 0,
 
   -- Audit pembuat (opsional)
   assessment_created_by_teacher_id UUID,
 
   -- Snapshots relasi (CSST & sesi kehadiran)
-  assessment_csst_snapshot            JSONB NOT NULL DEFAULT '{}'::jsonb,
+  assessment_csst_snapshot             JSONB NOT NULL DEFAULT '{}'::jsonb,
   assessment_announce_session_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
   assessment_collect_session_snapshot  JSONB NOT NULL DEFAULT '{}'::jsonb,
 
@@ -237,7 +222,7 @@ CREATE TABLE IF NOT EXISTS assessments (
 );
 
 -- =========================================================
--- 3) FK KE CSST (single-col saja)
+-- FK KE CSST (single-col saja)
 -- =========================================================
 DO $$
 BEGIN
@@ -251,7 +236,7 @@ BEGIN
 END$$;
 
 -- =========================================================
--- 4) FK KE assessment_types (single-col saja)
+-- FK KE assessment_types (single-col saja)
 -- =========================================================
 DO $$
 BEGIN
@@ -270,7 +255,7 @@ CREATE INDEX IF NOT EXISTS idx_assessments_type
   WHERE assessment_deleted_at IS NULL;
 
 -- =========================================================
--- 5) FK OPSIONAL KE class_attendance_sessions
+-- FK OPSIONAL KE class_attendance_sessions
 -- =========================================================
 DO $$
 BEGIN
@@ -296,7 +281,7 @@ BEGIN
 END$$;
 
 -- =========================================================
--- 6) INDEXES assessments
+-- INDEXES assessments
 -- =========================================================
 CREATE UNIQUE INDEX IF NOT EXISTS uq_assessments_id_tenant
   ON assessments (assessment_id, assessment_school_id);
@@ -350,6 +335,8 @@ CREATE INDEX IF NOT EXISTS idx_assessments_submissions_total_alive
 CREATE INDEX IF NOT EXISTS idx_assessments_submissions_graded_total_alive
   ON assessments (assessment_school_id, assessment_submissions_graded_total)
   WHERE assessment_deleted_at IS NULL;
+
+
 
 -- =========================================================
 -- 7) ASSESSMENT_URLS (selaras dgn announcement_urls)

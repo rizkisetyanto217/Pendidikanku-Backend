@@ -490,6 +490,7 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		qry = qry.Where("assessment_is_published = ?", *isPublished)
 	}
 	if isGraded != nil {
+		// pakai snapshot scalar terbaru
 		qry = qry.Where("assessment_type_is_graded_snapshot = ?", *isGraded)
 	}
 	if qStr != "" {
@@ -522,8 +523,8 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		dto.AssessmentResponse
 		URLsCount       *int              `json:"urls_count,omitempty"`
 		Quizzes         []quizWithAttempt `json:"quizzes,omitempty"`
-		Submissions     *timelineProgress `json:"submissions,omitempty"`      // ⬅️ ganti dari student_progress
-		TeacherProgress *timelineProgress `json:"teacher_progress,omitempty"` // utk teacher_timeline
+		Submissions     *timelineProgress `json:"submissions,omitempty"`      // student timeline
+		TeacherProgress *timelineProgress `json:"teacher_progress,omitempty"` // teacher timeline
 
 		Participant *AssessmentParticipantLite `json:"participant,omitempty"`
 	}
@@ -702,7 +703,6 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 			}
 
 			if isStudentTimeline {
-				// ⬅️ ganti dari out[i].StudentProgress = p
 				out[i].Submissions = p
 			}
 			if isTeacherTimeline {

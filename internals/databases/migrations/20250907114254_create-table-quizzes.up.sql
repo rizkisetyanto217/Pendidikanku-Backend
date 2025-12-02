@@ -8,7 +8,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- =========================================
--- 1) QUIZZES
+-- 1) QUIZZES (FINAL)
 -- =========================================
 CREATE TABLE IF NOT EXISTS quizzes (
   quiz_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -19,13 +19,35 @@ CREATE TABLE IF NOT EXISTS quizzes (
     REFERENCES assessments(assessment_id)
     ON UPDATE CASCADE ON DELETE SET NULL,
 
-  -- >>> SLUG (opsional; unik per tenant saat alive)
+  -- SLUG (opsional; unik per tenant saat alive)
   quiz_slug VARCHAR(160),
 
-  quiz_title         VARCHAR(180) NOT NULL,
-  quiz_description   TEXT,
-  quiz_is_published  BOOLEAN NOT NULL DEFAULT FALSE,
+  quiz_title          VARCHAR(180) NOT NULL,
+  quiz_description    TEXT,
+  quiz_is_published   BOOLEAN NOT NULL DEFAULT FALSE,
   quiz_time_limit_sec INT,
+
+  -- ==============================
+  -- Snapshot quiz behaviour & scoring
+  -- (dipindah dari AssessmentType/assessments)
+  -- ==============================
+
+  -- tampilan & UX pengerjaan
+  quiz_shuffle_questions_snapshot               BOOLEAN      NOT NULL DEFAULT FALSE,
+  quiz_shuffle_options_snapshot                 BOOLEAN      NOT NULL DEFAULT FALSE,
+  quiz_show_correct_after_submit_snapshot       BOOLEAN      NOT NULL DEFAULT TRUE,
+  quiz_strict_mode_snapshot                     BOOLEAN      NOT NULL DEFAULT FALSE,
+  quiz_time_limit_min_snapshot                  INT,
+  quiz_require_login_snapshot                   BOOLEAN      NOT NULL DEFAULT TRUE,
+  quiz_show_score_after_submit_snapshot         BOOLEAN      NOT NULL DEFAULT TRUE,
+  quiz_show_correct_after_closed_snapshot       BOOLEAN      NOT NULL DEFAULT FALSE,
+  quiz_allow_review_before_submit_snapshot      BOOLEAN      NOT NULL DEFAULT TRUE,
+  quiz_require_complete_attempt_snapshot        BOOLEAN      NOT NULL DEFAULT TRUE,
+  quiz_show_details_after_all_attempts_snapshot BOOLEAN      NOT NULL DEFAULT FALSE,
+
+  -- attempts & agregasi nilai (final score dari attempts quiz)
+  quiz_attempts_allowed_snapshot                INT          NOT NULL DEFAULT 1,
+  quiz_score_aggregation_mode_snapshot          VARCHAR(20)  NOT NULL DEFAULT 'latest',
 
   quiz_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   quiz_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -82,6 +104,8 @@ CREATE INDEX IF NOT EXISTS idx_quizzes_school_assessment
 CREATE INDEX IF NOT EXISTS idx_quizzes_school_created_desc
   ON quizzes (quiz_school_id, quiz_created_at DESC)
   WHERE quiz_deleted_at IS NULL;
+
+
 
 -- =========================================
 -- 2) QUIZ_QUESTIONS

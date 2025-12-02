@@ -1,9 +1,11 @@
+// file: internals/features/school/submissions_assesments/quizzes/dto/quiz_question_dto.go
 package dto
 
 import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
@@ -18,7 +20,7 @@ import (
 // SINGLE: isi answers (object) + correct (key, misal "A").
 // ESSAY : biarkan answers & correct kosong.
 type CreateQuizQuestionRequest struct {
-	QuizQuestionQuizID      uuid.UUID               `json:"quiz_question_quiz_id" validate:"required"`
+	QuizQuestionQuizID      uuid.UUID               `json:"quiz_question_quiz_id" validate:"required,uuid4"`
 	QuizQuestionSchoolID    uuid.UUID               `json:"quiz_question_school_id"` // controller boleh force override dari tenant
 	QuizQuestionType        qmodel.QuizQuestionType `json:"quiz_question_type" validate:"required,oneof=single essay"`
 	QuizQuestionText        string                  `json:"quiz_question_text" validate:"required"`
@@ -42,7 +44,9 @@ func (r *CreateQuizQuestionRequest) ToModel() (*qmodel.QuizQuestionModel, error)
 	var correct *string
 	if r.QuizQuestionCorrect != nil {
 		c := strings.TrimSpace(*r.QuizQuestionCorrect)
-		correct = &c
+		if c != "" {
+			correct = &c
+		}
 	}
 
 	m := &qmodel.QuizQuestionModel{
@@ -140,7 +144,11 @@ func (p *PatchQuizQuestionRequest) ApplyToModel(m *qmodel.QuizQuestionModel) err
 			m.QuizQuestionCorrect = nil
 		} else {
 			c := strings.TrimSpace(p.QuizQuestionCorrect.Val())
-			m.QuizQuestionCorrect = &c
+			if c == "" {
+				m.QuizQuestionCorrect = nil
+			} else {
+				m.QuizQuestionCorrect = &c
+			}
 		}
 	}
 
@@ -177,23 +185,50 @@ type ListQuizQuestionsQuery struct {
 	WithQuiz bool `query:"with_quiz"` // kalau true → preload quiz parent & embed di response
 }
 
-/* =========================================================
-   Lite Quiz info (embed di question jika with_quiz=true)
-========================================================= */
+/*
+	=========================================================
+	  Lite Quiz info (embed di question jika with_quiz=true)
 
+=========================================================
+*/
 type QuizLiteResponse struct {
-	QuizID          uuid.UUID `json:"quiz_id"`
-	QuizSlug        *string   `json:"quiz_slug,omitempty"`
-	QuizTitle       string    `json:"quiz_title"`
-	QuizIsPublished bool      `json:"quiz_is_published"`
+	QuizID           uuid.UUID  `json:"quiz_id"`
+	QuizSchoolID     uuid.UUID  `json:"quiz_school_id"`
+	QuizAssessmentID *uuid.UUID `json:"quiz_assessment_id,omitempty"`
+
+	QuizSlug *string `json:"quiz_slug,omitempty"`
+
+	QuizTitle        string  `json:"quiz_title"`
+	QuizDescription  *string `json:"quiz_description,omitempty"`
+	QuizIsPublished  bool    `json:"quiz_is_published"`
+	QuizTimeLimitSec *int    `json:"quiz_time_limit_sec,omitempty"`
+
+	// behaviour & scoring snapshot
+	QuizShuffleQuestionsSnapshot            bool   `json:"quiz_shuffle_questions_snapshot"`
+	QuizShuffleOptionsSnapshot              bool   `json:"quiz_shuffle_options_snapshot"`
+	QuizShowCorrectAfterSubmitSnapshot      bool   `json:"quiz_show_correct_after_submit_snapshot"`
+	QuizStrictModeSnapshot                  bool   `json:"quiz_strict_mode_snapshot"`
+	QuizTimeLimitMinSnapshot                *int   `json:"quiz_time_limit_min_snapshot,omitempty"`
+	QuizRequireLoginSnapshot                bool   `json:"quiz_require_login_snapshot"`
+	QuizShowScoreAfterSubmitSnapshot        bool   `json:"quiz_show_score_after_submit_snapshot"`
+	QuizShowCorrectAfterClosedSnapshot      bool   `json:"quiz_show_correct_after_closed_snapshot"`
+	QuizAllowReviewBeforeSubmitSnapshot     bool   `json:"quiz_allow_review_before_submit_snapshot"`
+	QuizRequireCompleteAttemptSnapshot      bool   `json:"quiz_require_complete_attempt_snapshot"`
+	QuizShowDetailsAfterAllAttemptsSnapshot bool   `json:"quiz_show_details_after_all_attempts_snapshot"`
+	QuizAttemptsAllowedSnapshot             int    `json:"quiz_attempts_allowed_snapshot"`
+	QuizScoreAggregationModeSnapshot        string `json:"quiz_score_aggregation_mode_snapshot"`
+
+	QuizCreatedAt time.Time  `json:"quiz_created_at"`
+	QuizUpdatedAt time.Time  `json:"quiz_updated_at"`
+	QuizDeletedAt *time.Time `json:"quiz_deleted_at,omitempty"`
 }
 
 /*
 	=========================================================
 	  RESPONSE
-
-=========================================================
+	=========================================================
 */
+
 type QuizQuestionResponse struct {
 	QuizQuestionID          uuid.UUID               `json:"quiz_question_id"`
 	QuizQuestionQuizID      uuid.UUID               `json:"quiz_question_quiz_id"`
@@ -232,13 +267,43 @@ func FromModelQuizQuestion(m *qmodel.QuizQuestionModel) *QuizQuestionResponse {
 	}
 
 	// Build lite quiz jika di-preload
+	// Build lite quiz jika di-preload (tapi sekarang "lite"-nya lumayan lengkap 😄)
 	var quizLite *QuizLiteResponse
 	if m.Quiz != nil {
+		var deletedAt *time.Time
+		if m.Quiz.QuizDeletedAt.Valid {
+			t := m.Quiz.QuizDeletedAt.Time
+			deletedAt = &t
+		}
+
 		quizLite = &QuizLiteResponse{
-			QuizID:          m.Quiz.QuizID,
-			QuizSlug:        m.Quiz.QuizSlug,
-			QuizTitle:       m.Quiz.QuizTitle,
-			QuizIsPublished: m.Quiz.QuizIsPublished,
+			QuizID:           m.Quiz.QuizID,
+			QuizSchoolID:     m.Quiz.QuizSchoolID,
+			QuizAssessmentID: m.Quiz.QuizAssessmentID,
+
+			QuizSlug:         m.Quiz.QuizSlug,
+			QuizTitle:        m.Quiz.QuizTitle,
+			QuizDescription:  m.Quiz.QuizDescription,
+			QuizIsPublished:  m.Quiz.QuizIsPublished,
+			QuizTimeLimitSec: m.Quiz.QuizTimeLimitSec,
+
+			QuizShuffleQuestionsSnapshot:            m.Quiz.QuizShuffleQuestionsSnapshot,
+			QuizShuffleOptionsSnapshot:              m.Quiz.QuizShuffleOptionsSnapshot,
+			QuizShowCorrectAfterSubmitSnapshot:      m.Quiz.QuizShowCorrectAfterSubmitSnapshot,
+			QuizStrictModeSnapshot:                  m.Quiz.QuizStrictModeSnapshot,
+			QuizTimeLimitMinSnapshot:                m.Quiz.QuizTimeLimitMinSnapshot,
+			QuizRequireLoginSnapshot:                m.Quiz.QuizRequireLoginSnapshot,
+			QuizShowScoreAfterSubmitSnapshot:        m.Quiz.QuizShowScoreAfterSubmitSnapshot,
+			QuizShowCorrectAfterClosedSnapshot:      m.Quiz.QuizShowCorrectAfterClosedSnapshot,
+			QuizAllowReviewBeforeSubmitSnapshot:     m.Quiz.QuizAllowReviewBeforeSubmitSnapshot,
+			QuizRequireCompleteAttemptSnapshot:      m.Quiz.QuizRequireCompleteAttemptSnapshot,
+			QuizShowDetailsAfterAllAttemptsSnapshot: m.Quiz.QuizShowDetailsAfterAllAttemptsSnapshot,
+			QuizAttemptsAllowedSnapshot:             m.Quiz.QuizAttemptsAllowedSnapshot,
+			QuizScoreAggregationModeSnapshot:        m.Quiz.QuizScoreAggregationModeSnapshot,
+
+			QuizCreatedAt: m.Quiz.QuizCreatedAt,
+			QuizUpdatedAt: m.Quiz.QuizUpdatedAt,
+			QuizDeletedAt: deletedAt,
 		}
 	}
 
@@ -255,7 +320,6 @@ func FromModelQuizQuestion(m *qmodel.QuizQuestionModel) *QuizQuestionResponse {
 		QuizQuestionCreatedAt:   m.QuizQuestionCreatedAt.UTC().Format(timeRFC3339),
 		QuizQuestionUpdatedAt:   m.QuizQuestionUpdatedAt.UTC().Format(timeRFC3339),
 
-		// ➕ ini dia
 		QuizQuestionVersion: m.QuizQuestionVersion,
 		QuizQuestionHistory: history,
 
@@ -270,7 +334,3 @@ func FromModelsQuizQuestions(arr []qmodel.QuizQuestionModel) []*QuizQuestionResp
 	}
 	return out
 }
-
-/* =========================================================
-   Utils
-========================================================= */

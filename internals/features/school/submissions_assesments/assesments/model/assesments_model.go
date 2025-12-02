@@ -45,7 +45,7 @@ type AssessmentModel struct {
 	// Relasi ke CSST (single FK)
 	AssessmentClassSectionSubjectTeacherID *uuid.UUID `gorm:"type:uuid;column:assessment_class_section_subject_teacher_id" json:"assessment_class_section_subject_teacher_id,omitempty"`
 
-	// Tipe penilaian
+	// Tipe penilaian (kategori akademik)
 	AssessmentTypeID *uuid.UUID `gorm:"type:uuid;column:assessment_type_id" json:"assessment_type_id,omitempty"`
 
 	// Identitas
@@ -53,7 +53,7 @@ type AssessmentModel struct {
 	AssessmentTitle       string  `gorm:"type:varchar(180);not null;column:assessment_title" json:"assessment_title"`
 	AssessmentDescription *string `gorm:"type:text;column:assessment_description" json:"assessment_description,omitempty"`
 
-	// Jadwal (mode 'date')
+	// Jadwal by date
 	AssessmentStartAt     *time.Time `gorm:"type:timestamptz;column:assessment_start_at" json:"assessment_start_at,omitempty"`
 	AssessmentDueAt       *time.Time `gorm:"type:timestamptz;column:assessment_due_at" json:"assessment_due_at,omitempty"`
 	AssessmentPublishedAt *time.Time `gorm:"type:timestamptz;column:assessment_published_at" json:"assessment_published_at,omitempty"`
@@ -61,16 +61,16 @@ type AssessmentModel struct {
 
 	// Pengaturan dasar assessment
 	AssessmentKind                 AssessmentKind `gorm:"type:assessment_kind_enum;not null;default:'quiz';column:assessment_kind" json:"assessment_kind"`
-	AssessmentDurationMinutes      *int           `gorm:"column:assessment_duration_minutes" json:"assessment_duration_minutes,omitempty"`
-	AssessmentTotalAttemptsAllowed int            `gorm:"not null;default:1;column:assessment_total_attempts_allowed" json:"assessment_total_attempts_allowed"`
+	AssessmentDurationMinutes      *int           `gorm:"type:int;column:assessment_duration_minutes" json:"assessment_duration_minutes,omitempty"`
+	AssessmentTotalAttemptsAllowed int            `gorm:"type:int;not null;default:1;column:assessment_total_attempts_allowed" json:"assessment_total_attempts_allowed"`
 	AssessmentMaxScore             float64        `gorm:"type:numeric(5,2);not null;default:100;column:assessment_max_score" json:"assessment_max_score"`
 
-	// total quiz/komponen quiz di assessment ini
+	// total quiz/komponen quiz di assessment ini (global, sama untuk semua siswa)
 	AssessmentQuizTotal int `gorm:"type:smallint;not null;default:0;column:assessment_quiz_total" json:"assessment_quiz_total"`
 
 	// agregat submissions (diupdate dari service)
-	AssessmentSubmissionsTotal       int `gorm:"not null;default:0;column:assessment_submissions_total" json:"assessment_submissions_total"`
-	AssessmentSubmissionsGradedTotal int `gorm:"not null;default:0;column:assessment_submissions_graded_total" json:"assessment_submissions_graded_total"`
+	AssessmentSubmissionsTotal       int `gorm:"type:int;not null;default:0;column:assessment_submissions_total" json:"assessment_submissions_total"`
+	AssessmentSubmissionsGradedTotal int `gorm:"type:int;not null;default:0;column:assessment_submissions_graded_total" json:"assessment_submissions_graded_total"`
 
 	AssessmentIsPublished     bool `gorm:"not null;default:true;column:assessment_is_published" json:"assessment_is_published"`
 	AssessmentAllowSubmission bool `gorm:"not null;default:true;column:assessment_allow_submission" json:"assessment_allow_submission"`
@@ -80,27 +80,11 @@ type AssessmentModel struct {
 
 	// =========================
 	// Snapshot aturan dari AssessmentType (per assessment)
+	// HANYA grading & late policy (sesuai SQL)
 	// =========================
-
-	// Quiz behaviour
-	AssessmentShuffleQuestionsSnapshot       bool   `gorm:"not null;default:false;column:assessment_shuffle_questions_snapshot" json:"assessment_shuffle_questions_snapshot"`
-	AssessmentShuffleOptionsSnapshot         bool   `gorm:"not null;default:false;column:assessment_shuffle_options_snapshot" json:"assessment_shuffle_options_snapshot"`
-	AssessmentShowCorrectAfterSubmitSnapshot bool   `gorm:"not null;default:true;column:assessment_show_correct_after_submit_snapshot" json:"assessment_show_correct_after_submit_snapshot"`
-	AssessmentStrictModeSnapshot             bool   `gorm:"not null;default:false;column:assessment_strict_mode_snapshot" json:"assessment_strict_mode_snapshot"`
-	AssessmentTimeLimitMinSnapshot           *int   `gorm:"column:assessment_time_limit_min_snapshot" json:"assessment_time_limit_min_snapshot,omitempty"`
-	AssessmentAttemptsAllowedSnapshot        int    `gorm:"not null;default:1;column:assessment_attempts_allowed_snapshot" json:"assessment_attempts_allowed_snapshot"`
-	AssessmentRequireLoginSnapshot           bool   `gorm:"not null;default:true;column:assessment_require_login_snapshot" json:"assessment_require_login_snapshot"`
-	AssessmentScoreAggregationModeSnapshot   string `gorm:"type:varchar(20);not null;default:'latest';column:assessment_score_aggregation_mode_snapshot" json:"assessment_score_aggregation_mode_snapshot"`
-
-	// Late policy & visibility
-	AssessmentAllowLateSubmissionSnapshot         bool    `gorm:"not null;default:false;column:assessment_allow_late_submission_snapshot" json:"assessment_allow_late_submission_snapshot"`
-	AssessmentLatePenaltyPercentSnapshot          float64 `gorm:"type:numeric(5,2);not null;default:0;column:assessment_late_penalty_percent_snapshot" json:"assessment_late_penalty_percent_snapshot"`
-	AssessmentPassingScorePercentSnapshot         float64 `gorm:"type:numeric(5,2);not null;default:0;column:assessment_passing_score_percent_snapshot" json:"assessment_passing_score_percent_snapshot"`
-	AssessmentShowScoreAfterSubmitSnapshot        bool    `gorm:"not null;default:true;column:assessment_show_score_after_submit_snapshot" json:"assessment_show_score_after_submit_snapshot"`
-	AssessmentShowCorrectAfterClosedSnapshot      bool    `gorm:"not null;default:false;column:assessment_show_correct_after_closed_snapshot" json:"assessment_show_correct_after_closed_snapshot"`
-	AssessmentAllowReviewBeforeSubmitSnapshot     bool    `gorm:"not null;default:true;column:assessment_allow_review_before_submit_snapshot" json:"assessment_allow_review_before_submit_snapshot"`
-	AssessmentRequireCompleteAttemptSnapshot      bool    `gorm:"not null;default:true;column:assessment_require_complete_attempt_snapshot" json:"assessment_require_complete_attempt_snapshot"`
-	AssessmentShowDetailsAfterAllAttemptsSnapshot bool    `gorm:"not null;default:false;column:assessment_show_details_after_all_attempts_snapshot" json:"assessment_show_details_after_all_attempts_snapshot"`
+	AssessmentAllowLateSubmissionSnapshot bool    `gorm:"not null;default:false;column:assessment_allow_late_submission_snapshot" json:"assessment_allow_late_submission_snapshot"`
+	AssessmentLatePenaltyPercentSnapshot  float64 `gorm:"type:numeric(5,2);not null;default:0;column:assessment_late_penalty_percent_snapshot" json:"assessment_late_penalty_percent_snapshot"`
+	AssessmentPassingScorePercentSnapshot float64 `gorm:"type:numeric(5,2);not null;default:0;column:assessment_passing_score_percent_snapshot" json:"assessment_passing_score_percent_snapshot"`
 
 	// Audit pembuat (opsional)
 	AssessmentCreatedByTeacherID *uuid.UUID `gorm:"type:uuid;column:assessment_created_by_teacher_id" json:"assessment_created_by_teacher_id,omitempty"`
