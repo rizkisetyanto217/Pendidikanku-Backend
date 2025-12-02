@@ -132,9 +132,6 @@ func (ctl *StudentQuizAttemptsController) resolveScopeForCreate(
 	return qMid, *req.StudentQuizAttemptStudentID, false, nil
 }
 
-/* =========================================================
-   Handlers
-========================================================= */
 // POST /student-quiz-attempts
 // Bisa:
 // - hanya bikin attempt summary kosong (tanpa jawaban) → items = []
@@ -150,6 +147,16 @@ func (ctl *StudentQuizAttemptsController) Create(c *fiber.Ctx) error {
 
 	log.Printf("[StudentQuizAttemptsController] Create called. quiz_id=%s started_at=%v finished_at=%v items=%d",
 		req.StudentQuizAttemptQuizID, req.AttemptStartedAt, req.AttemptFinishedAt, len(req.Items))
+
+	// DEBUG: cek apa BodyParser ngisi AnswerSingle / AnswerEssay
+	for i, it := range req.Items {
+		log.Printf("[StudentQuizAttemptsController][DEBUG] item[%d] qid=%s answer_single=%v answer_essay=%v",
+			i,
+			it.QuizQuestionID,
+			it.AnswerSingle,
+			it.AnswerEssay,
+		)
+	}
 
 	// Validasi DTO
 	if err := ctl.validator.Struct(&req); err != nil {
@@ -168,7 +175,7 @@ func (ctl *StudentQuizAttemptsController) Create(c *fiber.Ctx) error {
 	}
 	log.Printf("[StudentQuizAttemptsController] Scope resolved. school_id=%s student_id=%s", mid, sid)
 
-	// Override anti-spoof
+	// Override anti-spoof dari token
 	req.StudentQuizAttemptSchoolID = &mid
 	req.StudentQuizAttemptStudentID = &sid
 
@@ -214,7 +221,6 @@ func (ctl *StudentQuizAttemptsController) Create(c *fiber.Ctx) error {
 			if err := ctl.DB.Create(m).Error; err != nil {
 				log.Printf("[StudentQuizAttemptsController] DB Create error: %v", err)
 				if isUniqueViolation(err) {
-					// Kalau kejadian race condition aneh, balikin conflict
 					return helper.JsonError(c, fiber.StatusConflict, "Duplikat / melanggar unique index")
 				}
 				if isCheckViolation(err) {
@@ -259,22 +265,32 @@ func (ctl *StudentQuizAttemptsController) Create(c *fiber.Ctx) error {
 
 	// =========================================
 	// 3) MODE: create / reuse + submit attempt
-	//    → kita konversi items → map answers,
+	//    → konversi items → map answers,
 	//      lalu panggil service.SubmitAttempt (append history)
 	// =========================================
 
 	answers := make(map[uuid.UUID]string, len(req.Items))
+
 	for _, it := range req.Items {
 		var v string
+
+		// SINGLE
 		if it.AnswerSingle != nil {
 			v = strings.TrimSpace(*it.AnswerSingle)
 		}
+
+		// ESSAY (fallback kalau single kosong)
 		if it.AnswerEssay != nil && v == "" {
 			v = strings.TrimSpace(*it.AnswerEssay)
 		}
+
 		if v != "" {
 			answers[it.QuizQuestionID] = v
 		}
+	}
+
+	if len(answers) == 0 {
+		log.Printf("[StudentQuizAttemptsController][WARN] answers map kosong padahal items=%d. Cek apakah FE mengirim field 'answer_single' / 'answer_essay' sesuai JSON tag.", len(req.Items))
 	}
 
 	log.Printf("[StudentQuizAttemptsController] Submitting attempt. attempt_id=%s answers_count=%d finished_at=%v",
@@ -296,8 +312,11 @@ func (ctl *StudentQuizAttemptsController) Create(c *fiber.Ctx) error {
 	log.Printf("[StudentQuizAttemptsController] SubmitAttempt success. attempt_id=%s total_history=%d last_percent=%v",
 		finalAttempt.StudentQuizAttemptID,
 		finalAttempt.StudentQuizAttemptCount,
-		func() *float64 {
-			return finalAttempt.StudentQuizAttemptLastPercent
+		func() interface{} {
+			if finalAttempt.StudentQuizAttemptLastPercent == nil {
+				return "nil"
+			}
+			return *finalAttempt.StudentQuizAttemptLastPercent
 		}(),
 	)
 

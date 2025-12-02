@@ -40,10 +40,12 @@ type CreateAssessmentTypeRequest struct {
 
 	// ===== Default late policy & scoring =====
 
-	AssessmentTypeAllowLateSubmission  *bool    `json:"assessment_type_allow_late_submission" validate:"omitempty"`
-	AssessmentTypeLatePenaltyPercent   *float64 `json:"assessment_type_late_penalty_percent" validate:"omitempty,gte=0,lte=100"`
-	AssessmentTypePassingScorePercent  *float64 `json:"assessment_type_passing_score_percent" validate:"omitempty,gte=0,lte=100"`
-	AssessmentTypeScoreAggregationMode *string  `json:"assessment_type_score_aggregation_mode" validate:"omitempty,oneof=latest highest average"`
+	AssessmentTypeAllowLateSubmission *bool    `json:"assessment_type_allow_late_submission" validate:"omitempty"`
+	AssessmentTypeLatePenaltyPercent  *float64 `json:"assessment_type_late_penalty_percent" validate:"omitempty,gte=0,lte=100"`
+	AssessmentTypePassingScorePercent *float64 `json:"assessment_type_passing_score_percent" validate:"omitempty,gte=0,lte=100"`
+
+	// 🔁 sekarang sudah enum: first / latest / highest / average
+	AssessmentTypeScoreAggregationMode *string `json:"assessment_type_score_aggregation_mode" validate:"omitempty,oneof=first latest highest average"`
 
 	AssessmentTypeShowScoreAfterSubmit        *bool `json:"assessment_type_show_score_after_submit" validate:"omitempty"`
 	AssessmentTypeShowCorrectAfterClosed      *bool `json:"assessment_type_show_correct_after_closed" validate:"omitempty"`
@@ -68,10 +70,12 @@ type PatchAssessmentTypeRequest struct {
 	AssessmentTypeAttemptsAllowed        *int  `json:"assessment_type_attempts_allowed" validate:"omitempty,min=1"`
 	AssessmentTypeRequireLogin           *bool `json:"assessment_type_require_login" validate:"omitempty"`
 
-	AssessmentTypeAllowLateSubmission  *bool    `json:"assessment_type_allow_late_submission" validate:"omitempty"`
-	AssessmentTypeLatePenaltyPercent   *float64 `json:"assessment_type_late_penalty_percent" validate:"omitempty,gte=0,lte=100"`
-	AssessmentTypePassingScorePercent  *float64 `json:"assessment_type_passing_score_percent" validate:"omitempty,gte=0,lte=100"`
-	AssessmentTypeScoreAggregationMode *string  `json:"assessment_type_score_aggregation_mode" validate:"omitempty,oneof=latest highest average"`
+	AssessmentTypeAllowLateSubmission *bool    `json:"assessment_type_allow_late_submission" validate:"omitempty"`
+	AssessmentTypeLatePenaltyPercent  *float64 `json:"assessment_type_late_penalty_percent" validate:"omitempty,gte=0,lte=100"`
+	AssessmentTypePassingScorePercent *float64 `json:"assessment_type_passing_score_percent" validate:"omitempty,gte=0,lte=100"`
+
+	// 🔁 sync dengan enum: first / latest / highest / average
+	AssessmentTypeScoreAggregationMode *string `json:"assessment_type_score_aggregation_mode" validate:"omitempty,oneof=first latest highest average"`
 
 	AssessmentTypeShowScoreAfterSubmit        *bool `json:"assessment_type_show_score_after_submit" validate:"omitempty"`
 	AssessmentTypeShowCorrectAfterClosed      *bool `json:"assessment_type_show_correct_after_closed" validate:"omitempty"`
@@ -212,9 +216,10 @@ func (r CreateAssessmentTypeRequest) ToModel() model.AssessmentTypeModel {
 		passingScore = *r.AssessmentTypePassingScorePercent
 	}
 
-	scoreAgg := "latest"
+	// Pakai default dari konstanta model
+	scoreAgg := model.AssessmentScoreAggLatest
 	if r.AssessmentTypeScoreAggregationMode != nil && strings.TrimSpace(*r.AssessmentTypeScoreAggregationMode) != "" {
-		scoreAgg = strings.TrimSpace(*r.AssessmentTypeScoreAggregationMode)
+		scoreAgg = strings.ToLower(strings.TrimSpace(*r.AssessmentTypeScoreAggregationMode))
 	}
 
 	showScoreAfterSubmit := true
@@ -319,7 +324,7 @@ func (p PatchAssessmentTypeRequest) Apply(m *model.AssessmentTypeModel) {
 		m.AssessmentTypePassingScorePercent = *p.AssessmentTypePassingScorePercent
 	}
 	if p.AssessmentTypeScoreAggregationMode != nil {
-		mode := strings.TrimSpace(*p.AssessmentTypeScoreAggregationMode)
+		mode := strings.ToLower(strings.TrimSpace(*p.AssessmentTypeScoreAggregationMode))
 		if mode != "" {
 			m.AssessmentTypeScoreAggregationMode = mode
 		}

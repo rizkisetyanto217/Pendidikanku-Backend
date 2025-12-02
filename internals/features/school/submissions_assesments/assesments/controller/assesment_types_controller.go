@@ -12,12 +12,11 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	dto "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/dto"
 	assessmentModel "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/model"
+	assessSvc "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/service"
+	dto "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/dto"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
-
-	assessSvc "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/service"
 )
 
 /* ========================= Controller ========================= */
@@ -274,7 +273,7 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 		updates["assessment_type_passing_score_percent"] = *req.AssessmentTypePassingScorePercent
 	}
 	if req.AssessmentTypeScoreAggregationMode != nil {
-		mode := strings.TrimSpace(*req.AssessmentTypeScoreAggregationMode)
+		mode := strings.ToLower(strings.TrimSpace(*req.AssessmentTypeScoreAggregationMode))
 		if mode != "" {
 			updates["assessment_type_score_aggregation_mode"] = mode
 		}

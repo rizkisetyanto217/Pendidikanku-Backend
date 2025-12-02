@@ -139,7 +139,6 @@ func (ctrl *QuizController) List(c *fiber.Ctx) error {
 		if err := ctrl.DB.WithContext(c.Context()).
 			Table("quiz_questions").
 			Select("quiz_questions_quiz_id AS quiz_id, COUNT(*) AS n").
-			Where("quiz_questions_deleted_at IS NULL").
 			Where("quiz_questions_quiz_id IN ?", ids).
 			Group("quiz_questions_quiz_id").
 			Scan(&tmp).Error; err != nil {

@@ -1,8 +1,10 @@
-// file: internals/features/school/assessments/submissions/service/submission_service.go
+// file: internals/features/school/submissions_assesments/submissions/service/submission_service.go
 package service
 
 import (
 	"context"
+	"log"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,27 +30,54 @@ func (s *SubmissionService) UpsertSubmissionFromQuizAttempt(
 	attempt *qmodel.StudentQuizAttemptModel,
 ) error {
 	if attempt == nil {
+		log.Printf("[SubmissionService] attempt is nil, skipping")
 		return nil
 	}
 
-	// 1) Ambil assessment_id dari quiz
-	var assessmentID uuid.UUID
+	log.Printf(
+		"[SubmissionService] UpsertSubmissionFromQuizAttempt called. school_id=%s quiz_id=%s student_id=%s last_percent=%v",
+		attempt.StudentQuizAttemptSchoolID,
+		attempt.StudentQuizAttemptQuizID,
+		attempt.StudentQuizAttemptStudentID,
+		attempt.StudentQuizAttemptLastPercent,
+	)
+
+	// 1) Ambil assessment_id dari quiz (scan ke string dulu baru parse UUID)
+	var assessmentIDStr string
 	if err := s.DB.WithContext(ctx).Raw(`
-		SELECT quiz_assessment_id
+		SELECT quiz_assessment_id::text
 		FROM quizzes
 		WHERE quiz_id = ? AND quiz_school_id = ? AND quiz_deleted_at IS NULL
 	`, attempt.StudentQuizAttemptQuizID, attempt.StudentQuizAttemptSchoolID).
-		Scan(&assessmentID).Error; err != nil {
+		Scan(&assessmentIDStr).Error; err != nil {
+
+		log.Printf("[SubmissionService] ERROR get assessment_id from quiz: %v", err)
 		return err
 	}
-	if assessmentID == uuid.Nil {
-		// quiz tidak terhubung ke assessment → tidak perlu bikin submission
+
+	if strings.TrimSpace(assessmentIDStr) == "" {
+		log.Printf(
+			"[SubmissionService] quiz_id=%s tidak terhubung ke assessment (hasil NULL/empty). Skip submission.",
+			attempt.StudentQuizAttemptQuizID,
+		)
 		return nil
 	}
 
+	assessmentID, err := uuid.Parse(strings.TrimSpace(assessmentIDStr))
+	if err != nil {
+		log.Printf("[SubmissionService] ERROR parse assessment_id (%s): %v", assessmentIDStr, err)
+		return err
+	}
+
+	log.Printf(
+		"[SubmissionService] Mapped quiz_id=%s -> assessment_id=%s",
+		attempt.StudentQuizAttemptQuizID,
+		assessmentID,
+	)
+
 	// 2) Cari existing submission (1 row per student×assessment×school)
 	var sub smodel.SubmissionModel
-	err := s.DB.WithContext(ctx).
+	err = s.DB.WithContext(ctx).
 		Where(`
 			submission_school_id = ?
 			AND submission_assessment_id = ?
@@ -65,6 +94,8 @@ func (s *SubmissionService) UpsertSubmissionFromQuizAttempt(
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			// 3a) Belum ada → buat baru
+			log.Printf("[SubmissionService] No existing submission. Creating new row...")
+
 			status := smodel.SubmissionStatusSubmitted
 			isLate := (*bool)(nil)
 
@@ -77,7 +108,7 @@ func (s *SubmissionService) UpsertSubmissionFromQuizAttempt(
 				SubmissionIsLate:       isLate,
 			}
 
-			// Kalau mau, pakai last_percent sebagai skor
+			// Pakai last_percent sebagai skor kalau ada
 			if attempt.StudentQuizAttemptLastPercent != nil {
 				sub.SubmissionScore = attempt.StudentQuizAttemptLastPercent
 			}
@@ -85,16 +116,31 @@ func (s *SubmissionService) UpsertSubmissionFromQuizAttempt(
 			// Satu quiz dianggap finished
 			sub.SubmissionQuizFinished = 1
 
-			return s.DB.WithContext(ctx).Create(&sub).Error
+			if err := s.DB.WithContext(ctx).Create(&sub).Error; err != nil {
+				log.Printf("[SubmissionService] ERROR create submission: %v", err)
+				return err
+			}
+
+			log.Printf(
+				"[SubmissionService] Submission created. submission_id=%s score=%v",
+				sub.SubmissionID,
+				sub.SubmissionScore,
+			)
+			return nil
 		}
+
+		log.Printf("[SubmissionService] ERROR find existing submission: %v", err)
 		return err
 	}
 
 	// 3b) Sudah ada submission → update
-	// Jika nanti ada multi-quiz, di sini kamu bisa:
-	// - baca SubmissionScores JSON
-	// - merge dengan score quiz ini
-	// - hitung ulang SubmissionScore total
+	log.Printf(
+		"[SubmissionService] Existing submission found. submission_id=%s old_score=%v old_status=%s",
+		sub.SubmissionID,
+		sub.SubmissionScore,
+		sub.SubmissionStatus,
+	)
+
 	status := smodel.SubmissionStatusSubmitted
 	sub.SubmissionStatus = status
 	sub.SubmissionSubmittedAt = &now
@@ -106,5 +152,17 @@ func (s *SubmissionService) UpsertSubmissionFromQuizAttempt(
 	// Sementara: anggap 1 quiz, jadi selalu 1
 	sub.SubmissionQuizFinished = 1
 
-	return s.DB.WithContext(ctx).Save(&sub).Error
+	if err := s.DB.WithContext(ctx).Save(&sub).Error; err != nil {
+		log.Printf("[SubmissionService] ERROR update submission: %v", err)
+		return err
+	}
+
+	log.Printf(
+		"[SubmissionService] Submission updated. submission_id=%s new_score=%v new_status=%s",
+		sub.SubmissionID,
+		sub.SubmissionScore,
+		sub.SubmissionStatus,
+	)
+
+	return nil
 }

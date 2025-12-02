@@ -24,9 +24,7 @@ type StudentQuizAttemptHistoryItem = qmodel.StudentQuizAttemptHistoryItem
 ========================================================================================== */
 
 type CreateStudentQuizAttemptItem struct {
-	QuizQuestionID   uuid.UUID               `json:"quiz_question_id" validate:"required,uuid"`
-	QuizQuestionType qmodel.QuizQuestionType `json:"quiz_question_type" validate:"required,oneof=single essay"`
-
+	QuizQuestionID uuid.UUID `json:"quiz_question_id" validate:"required,uuid"`
 	// SINGLE → isi answer_single
 	// ESSAY  → isi answer_essay
 	AnswerSingle *string `json:"answer_single,omitempty"`

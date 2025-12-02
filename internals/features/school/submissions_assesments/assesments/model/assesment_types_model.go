@@ -8,6 +8,17 @@ import (
 	"gorm.io/gorm"
 )
 
+/* ================================
+   Const: Score Aggregation Modes
+================================ */
+
+const (
+	AssessmentScoreAggFirst   = "first"   // pakai nilai attempt pertama
+	AssessmentScoreAggLatest  = "latest"  // pakai nilai attempt terakhir
+	AssessmentScoreAggHighest = "highest" // pakai attempt dengan nilai tertinggi
+	AssessmentScoreAggAverage = "average" // rata-rata semua attempt
+)
+
 type AssessmentTypeModel struct {
 	AssessmentTypeID       uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:assessment_type_id" json:"assessment_type_id"`
 	AssessmentTypeSchoolID uuid.UUID `gorm:"type:uuid;not null;column:assessment_type_school_id" json:"assessment_type_school_id"`
@@ -29,13 +40,7 @@ type AssessmentTypeModel struct {
 	// Tampilkan jawaban benar / review setelah submit
 	AssessmentTypeShowCorrectAfterSubmit bool `gorm:"not null;default:true;column:assessment_type_show_correct_after_submit" json:"assessment_type_show_correct_after_submit"`
 
-	// ❌ DULU ada one_question_per_page & prevent_back_navigation di sini
-	// ✅ Sekarang diganti jadi strict mode
-	// Mode ketat (strict) — nanti di FE/BE bisa di-artikan:
-	// - satu soal per halaman
-	// - tidak boleh back
-	// - tidak tampilkan kunci sebelum close
-	// dsb (aturan detail diatur di layer lain)
+	// Strict mode
 	AssessmentTypeStrictMode bool `gorm:"not null;default:false;column:assessment_type_strict_mode" json:"assessment_type_strict_mode"`
 
 	// Batas waktu (menit); NULL = tanpa batas
@@ -59,7 +64,8 @@ type AssessmentTypeModel struct {
 	AssessmentTypeLatePenaltyPercent  float64 `gorm:"type:numeric(5,2);not null;default:0;column:assessment_type_late_penalty_percent" json:"assessment_type_late_penalty_percent"`
 	AssessmentTypePassingScorePercent float64 `gorm:"type:numeric(5,2);not null;default:0;column:assessment_type_passing_score_percent" json:"assessment_type_passing_score_percent"`
 
-	AssessmentTypeScoreAggregationMode string `gorm:"type:varchar(20);not null;default:'latest';column:assessment_type_score_aggregation_mode" json:"assessment_type_score_aggregation_mode"`
+	// first / latest / highest / average (enum di DB: assessment_score_aggregation_mode_enum)
+	AssessmentTypeScoreAggregationMode string `gorm:"type:assessment_score_aggregation_mode_enum;not null;default:'latest';column:assessment_type_score_aggregation_mode" json:"assessment_type_score_aggregation_mode"`
 
 	AssessmentTypeShowScoreAfterSubmit        bool `gorm:"not null;default:true;column:assessment_type_show_score_after_submit" json:"assessment_type_show_score_after_submit"`
 	AssessmentTypeShowCorrectAfterClosed      bool `gorm:"not null;default:false;column:assessment_type_show_correct_after_closed" json:"assessment_type_show_correct_after_closed"`

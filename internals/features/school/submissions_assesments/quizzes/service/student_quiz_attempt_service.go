@@ -1,8 +1,11 @@
+// file: internals/features/school/submissions_assesments/quizzes/service/student_quiz_attempt_service.go
 package service
 
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -10,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	qmodel "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/model"
+	subsvc "madinahsalam_backend/internals/features/school/submissions_assesments/submissions/service"
 )
 
 /* =========================================================
@@ -26,7 +30,6 @@ func NewStudentQuizAttemptService(db *gorm.DB) *StudentQuizAttemptService {
 
 /* =========================================================
    INPUT SUBMIT ATTEMPT
-   (dipanggil dari controller submit/create)
 ========================================================= */
 
 // SubmitQuizAttemptInput merepresentasikan payload yang sudah
@@ -56,6 +59,7 @@ type SubmitQuizAttemptInput struct {
 // - hitung skor + build history item (dengan quiz_id, question_id, version)
 // - AppendAttemptHistory (nambah elemen ke JSON history + update count/best/last)
 // - update status + finished_at (status = finished utk attempt terakhir)
+// - sinkron ke tabel submissions (1 assessment × 1 student)
 func (s *StudentQuizAttemptService) SubmitAttempt(
 	ctx context.Context,
 	in *SubmitQuizAttemptInput,
@@ -67,30 +71,34 @@ func (s *StudentQuizAttemptService) SubmitAttempt(
 		return nil, errors.New("attempt_id kosong")
 	}
 
+	log.Printf(
+		"[StudentQuizAttemptService] SubmitAttempt called. attempt_id=%s finished_at=%v answers_count=%d",
+		in.AttemptID,
+		in.FinishedAt,
+		len(in.Answers),
+	)
+
 	// 1) Load summary attempt
 	var attempt qmodel.StudentQuizAttemptModel
 	if err := s.DB.WithContext(ctx).
 		First(&attempt, "student_quiz_attempt_id = ?", in.AttemptID).Error; err != nil {
 
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			log.Printf("[StudentQuizAttemptService] ERROR: attempt tidak ditemukan. attempt_id=%s", in.AttemptID)
 			return nil, errors.New("attempt tidak ditemukan")
 		}
+		log.Printf("[StudentQuizAttemptService] ERROR load attempt: %v", err)
 		return nil, err
 	}
 
-	// ⚠️ PENTING:
-	// Jangan blokir kalau status sudah "finished".
-	// Karena summary row ini mewakili 1 student×quiz,
-	// dan history di dalam JSON boleh berisi banyak attempt.
-	// Jadi setiap SubmitAttempt = nambah 1 history item baru.
-	//
-	// Kalau kamu mau batasi jumlah attempt, logiknya taruh di sini
-	// (misal: kalau attempt.StudentQuizAttemptCount >= maxAttempt → error)
-	// tapi BUKAN berdasarkan status finished.
-	// ----------------------------------------------------------------
-	// if attempt.StudentQuizAttemptStatus == qmodel.StudentQuizAttemptFinished {
-	// 	   return nil, errors.New("attempt sudah finished")
-	// }
+	log.Printf(
+		"[StudentQuizAttemptService] Loaded attempt. quiz_id=%s school_id=%s student_id=%s status=%s count=%d",
+		attempt.StudentQuizAttemptQuizID,
+		attempt.StudentQuizAttemptSchoolID,
+		attempt.StudentQuizAttemptStudentID,
+		attempt.StudentQuizAttemptStatus,
+		attempt.StudentQuizAttemptCount,
+	)
 
 	// 2) Load semua soal di quiz ini (tenant-safe)
 	var questions []qmodel.QuizQuestionModel
@@ -98,13 +106,24 @@ func (s *StudentQuizAttemptService) SubmitAttempt(
 		Where("quiz_question_quiz_id = ? AND quiz_question_school_id = ?", attempt.StudentQuizAttemptQuizID, attempt.StudentQuizAttemptSchoolID).
 		Where("quiz_question_deleted_at IS NULL").
 		Find(&questions).Error; err != nil {
+
+		log.Printf("[StudentQuizAttemptService] ERROR load questions: %v", err)
 		return nil, err
 	}
+
+	log.Printf(
+		"[StudentQuizAttemptService] Loaded %d questions for quiz_id=%s",
+		len(questions),
+		attempt.StudentQuizAttemptQuizID,
+	)
 
 	// 3) Build items (1 per question)
 	items := make([]qmodel.StudentQuizAttemptQuestionItem, 0, len(questions))
 
 	for _, q := range questions {
+		rawAns, ok := in.Answers[q.QuizQuestionID]
+		ans := strings.TrimSpace(rawAns)
+
 		item := qmodel.StudentQuizAttemptQuestionItem{
 			QuizID:              q.QuizQuestionQuizID,
 			QuizQuestionID:      q.QuizQuestionID,
@@ -114,16 +133,12 @@ func (s *StudentQuizAttemptService) SubmitAttempt(
 			PointsEarned:        0, // default 0
 		}
 
-		rawAns, ok := in.Answers[q.QuizQuestionID]
-		ans := strings.TrimSpace(rawAns)
-
 		switch q.QuizQuestionType {
 		case qmodel.QuizQuestionTypeSingle:
 			if ok && ans != "" {
 				item.AnswerSingle = &ans
 			}
 
-			// Koreksi otomatis single choice
 			if q.QuizQuestionCorrect != nil && ans != "" {
 				correctKey := strings.TrimSpace(*q.QuizQuestionCorrect)
 				isCorrect := strings.EqualFold(ans, correctKey)
@@ -142,15 +157,22 @@ func (s *StudentQuizAttemptService) SubmitAttempt(
 		}
 
 		items = append(items, item)
+
+		// 🔍 Log per soal (ringkas)
+		log.Printf(
+			"[StudentQuizAttemptService] Q item built. question_id=%s type=%s answered=%v points=%.2f earned=%.2f",
+			q.QuizQuestionID,
+			q.QuizQuestionType,
+			ans != "",
+			q.QuizQuestionPoints,
+			item.PointsEarned,
+		)
 	}
 
 	// 4) Tentukan startedAt & finishedAt untuk attempt kali ini
 	now := time.Now().UTC()
 
 	startedAt := now
-	// Kalau summary sudah punya started_at (mis: waktu pertama kali mulai quiz),
-	// kita boleh pakai ini sebagai referensi; tapi untuk per-attempt,
-	// waktunya disimpan di history item.
 	if attempt.StudentQuizAttemptStartedAt != nil {
 		startedAt = *attempt.StudentQuizAttemptStartedAt
 	}
@@ -160,10 +182,42 @@ func (s *StudentQuizAttemptService) SubmitAttempt(
 		finishedAt = in.FinishedAt.UTC()
 	}
 
+	log.Printf(
+		"[StudentQuizAttemptService] Attempt times. started_at=%v finished_at=%v",
+		startedAt, finishedAt,
+	)
+
 	// 5) Append ke history (auto hitung skor total + percent + best/last)
 	if err := attempt.AppendAttemptHistory(startedAt, finishedAt, items); err != nil {
+		log.Printf("[StudentQuizAttemptService] ERROR AppendAttemptHistory: %v", err)
 		return nil, err
 	}
+
+	// Ambil nilai readable buat log
+	var lastPercentStr, bestPercentStr string
+	if attempt.StudentQuizAttemptLastPercent != nil {
+		lastPercentStr = fmt.Sprintf("%.3f", *attempt.StudentQuizAttemptLastPercent)
+	} else {
+		lastPercentStr = "nil"
+	}
+	if attempt.StudentQuizAttemptBestPercent != nil {
+		bestPercentStr = fmt.Sprintf("%.3f", *attempt.StudentQuizAttemptBestPercent)
+	} else {
+		bestPercentStr = "nil"
+	}
+
+	log.Printf(
+		"[StudentQuizAttemptService] History appended. total_history=%d last_raw=%v last_percent=%s best_percent=%s",
+		attempt.StudentQuizAttemptCount,
+		func() interface{} {
+			if attempt.StudentQuizAttemptLastRaw == nil {
+				return "nil"
+			}
+			return *attempt.StudentQuizAttemptLastRaw
+		}(),
+		lastPercentStr,
+		bestPercentStr,
+	)
 
 	// 6) Update status & timestamps global (status = selesai)
 	attempt.StudentQuizAttemptStatus = qmodel.StudentQuizAttemptFinished
@@ -171,7 +225,22 @@ func (s *StudentQuizAttemptService) SubmitAttempt(
 
 	// 7) Persist
 	if err := s.DB.WithContext(ctx).Save(&attempt).Error; err != nil {
+		log.Printf("[StudentQuizAttemptService] ERROR Save attempt: %v", err)
 		return nil, err
+	}
+
+	log.Printf(
+		"[StudentQuizAttemptService] Attempt saved. attempt_id=%s status=%s count=%d",
+		attempt.StudentQuizAttemptID,
+		attempt.StudentQuizAttemptStatus,
+		attempt.StudentQuizAttemptCount,
+	)
+
+	// 8) 🔗 SINKRON KE SUBMISSIONS (1 assessment × 1 student)
+	subService := subsvc.NewSubmissionService(s.DB)
+	if err := subService.UpsertSubmissionFromQuizAttempt(ctx, &attempt); err != nil {
+		log.Printf("[StudentQuizAttemptService] UpsertSubmissionFromQuizAttempt error: %v", err)
+		// kalau mau keras, bisa return err; sekarang cuma log biar quiz tetap "berhasil"
 	}
 
 	return &attempt, nil

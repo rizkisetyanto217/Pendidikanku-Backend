@@ -8,6 +8,23 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- ======================================================================
+-- ENUM: assessment_score_aggregation_mode_enum
+-- ======================================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_type WHERE typname = 'assessment_score_aggregation_mode_enum'
+  ) THEN
+    CREATE TYPE assessment_score_aggregation_mode_enum AS ENUM (
+      'first',    -- pakai nilai attempt pertama
+      'latest',   -- pakai nilai attempt terakhir
+      'highest',  -- pakai attempt dengan nilai tertinggi
+      'average'   -- rata-rata semua attempt
+    );
+  END IF;
+END$$;
+
+-- ======================================================================
 -- 1) TABLE: assessment_types
 --    - Master setting / preset
 --    - Default policy untuk kuis/ujian/tugas
@@ -83,14 +100,15 @@ CREATE TABLE IF NOT EXISTS assessment_types (
     ),
 
   -- Cara agregasi nilai kalau ada banyak attempt
-  -- (latest / highest / average)
-  assessment_type_score_aggregation_mode VARCHAR(20) NOT NULL DEFAULT 'latest',
+  -- (first / latest / highest / average)
+  assessment_type_score_aggregation_mode assessment_score_aggregation_mode_enum
+    NOT NULL DEFAULT 'latest',
 
   -- Behavior skor & review
-  assessment_type_show_score_after_submit        BOOLEAN NOT NULL DEFAULT TRUE,
-  assessment_type_show_correct_after_closed      BOOLEAN NOT NULL DEFAULT FALSE,
-  assessment_type_allow_review_before_submit     BOOLEAN NOT NULL DEFAULT TRUE,
-  assessment_type_require_complete_attempt       BOOLEAN NOT NULL DEFAULT TRUE,
+  assessment_type_show_score_after_submit         BOOLEAN NOT NULL DEFAULT TRUE,
+  assessment_type_show_correct_after_closed       BOOLEAN NOT NULL DEFAULT FALSE,
+  assessment_type_allow_review_before_submit      BOOLEAN NOT NULL DEFAULT TRUE,
+  assessment_type_require_complete_attempt        BOOLEAN NOT NULL DEFAULT TRUE,
   assessment_type_show_details_after_all_attempts BOOLEAN NOT NULL DEFAULT FALSE,
 
   assessment_type_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
