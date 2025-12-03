@@ -20,8 +20,8 @@ import (
 	sessModel "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/model"
 	schedModel "madinahsalam_backend/internals/features/school/classes/class_schedules/model"
 
-	// Paket snapshot lama sebagai fallback
-	snapshotCSST "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/snapshot"
+	// Paket cache lama sebagai fallback
+	cacheCSST "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/service"
 )
 
 /* =========================
@@ -83,7 +83,7 @@ type csstRich struct {
 	TeacherName        *string    `gorm:"column:teacher_name"`
 	TeacherTitlePrefix *string    `gorm:"column:teacher_title_prefix"`
 	TeacherTitleSuffix *string    `gorm:"column:teacher_title_suffix"`
-	TeacherSnapshot    *string    `gorm:"column:teacher_snapshot"` // raw JSON
+	TeacherCache       *string    `gorm:"column:teacher_cache"` // raw JSON
 
 	// Room
 	RoomID   *uuid.UUID `gorm:"column:room_id"`
@@ -106,49 +106,49 @@ SELECT
     csst.class_section_subject_teacher_id::text
   )                                                        AS slug,
   COALESCE(
-    csst.class_section_subject_teacher_class_section_name_snapshot,
-    csst.class_section_subject_teacher_subject_name_snapshot,
+    csst.class_section_subject_teacher_class_section_name_cache,
+    csst.class_section_subject_teacher_subject_name_cache,
     sec.class_section_name
   )                                                        AS name,
 
   -- Subject
-  csst.class_section_subject_teacher_subject_id_snapshot   AS subject_id,
+  csst.class_section_subject_teacher_subject_id_cache   AS subject_id,
   COALESCE(subj.subject_code,
-           csst.class_section_subject_teacher_subject_code_snapshot)
+           csst.class_section_subject_teacher_subject_code_cache)
     AS subject_code,
   COALESCE(subj.subject_name,
-           csst.class_section_subject_teacher_subject_name_snapshot)
+           csst.class_section_subject_teacher_subject_name_cache)
     AS subject_name,
-  csst.class_section_subject_teacher_subject_slug_snapshot AS subject_slug,
+  csst.class_section_subject_teacher_subject_slug_cache AS subject_slug,
 
   -- Section
   csst.class_section_subject_teacher_class_section_id      AS section_id,
   COALESCE(sec.class_section_name,
-           csst.class_section_subject_teacher_class_section_name_snapshot)
+           csst.class_section_subject_teacher_class_section_name_cache)
     AS section_name,
 
   -- Teacher
   csst.class_section_subject_teacher_school_teacher_id     AS teacher_id,
   tea.school_teacher_code                                  AS teacher_code,
   COALESCE(
-    csst.class_section_subject_teacher_school_teacher_name_snapshot,
-    tea.school_teacher_user_teacher_name_snapshot
+    csst.class_section_subject_teacher_school_teacher_name_cache,
+    tea.school_teacher_user_teacher_full_name_cache
   )                                                        AS teacher_name,
-  tea.school_teacher_user_teacher_title_prefix_snapshot    AS teacher_title_prefix,
-  tea.school_teacher_user_teacher_title_suffix_snapshot    AS teacher_title_suffix,
-  csst.class_section_subject_teacher_school_teacher_snapshot::text
-    AS teacher_snapshot,
+  tea.school_teacher_user_teacher_title_prefix_cache    AS teacher_title_prefix,
+  tea.school_teacher_user_teacher_title_suffix_cache    AS teacher_title_suffix,
+  csst.class_section_subject_teacher_school_teacher_cache::text
+    AS teacher_cache,
 
   -- Room
   csst.class_section_subject_teacher_class_room_id         AS room_id,
   room.class_room_code                                     AS room_code,
   COALESCE(room.class_room_name,
-           csst.class_section_subject_teacher_class_room_name_snapshot)
+           csst.class_section_subject_teacher_class_room_name_cache)
     AS room_name
 
 FROM class_section_subject_teachers csst
 LEFT JOIN subjects subj
-  ON subj.subject_id = csst.class_section_subject_teacher_subject_id_snapshot
+  ON subj.subject_id = csst.class_section_subject_teacher_subject_id_cache
 LEFT JOIN class_sections sec
   ON sec.class_section_id = csst.class_section_subject_teacher_class_section_id
 LEFT JOIN school_teachers tea
@@ -177,23 +177,23 @@ WHERE csst.class_section_subject_teacher_id = ?
 		row.Slug = row.ID.String()
 	}
 
-	// Lengkapi dari snapshot JSON bila ada
-	hydrateFromSnapshots(&row)
+	// Lengkapi dari cache JSON bila ada
+	hydrateFromCaches(&row)
 
 	return &row, nil
 }
 
-// Lengkapi field dari JSON snapshot bila join/kolom snapshot string kosong
-func hydrateFromSnapshots(row *csstRich) {
+// Lengkapi field dari JSON cache bila join/kolom cache string kosong
+func hydrateFromCaches(row *csstRich) {
 	if row == nil {
 		return
 	}
 
 	// Teacher JSON: {"id":"...","name":"...","title_prefix":"Ustadz","title_suffix":"Lc",...}
 	if (row.TeacherName == nil || strings.TrimSpace(ptrStr(row.TeacherName)) == "") &&
-		row.TeacherSnapshot != nil && *row.TeacherSnapshot != "" && *row.TeacherSnapshot != "null" {
+		row.TeacherCache != nil && *row.TeacherCache != "" && *row.TeacherCache != "null" {
 		var m map[string]any
-		if json.Unmarshal([]byte(*row.TeacherSnapshot), &m) == nil {
+		if json.Unmarshal([]byte(*row.TeacherCache), &m) == nil {
 			if v, ok := m["name"].(string); ok && strings.TrimSpace(v) != "" {
 				row.TeacherName = ptr(strings.TrimSpace(v))
 			}
@@ -227,7 +227,7 @@ func ptrStr(p *string) string {
 }
 
 /* =========================
-   Snapshot builder
+   Cache builder
 ========================= */
 
 func putStr(m datatypes.JSONMap, key string, v *string) {
@@ -245,14 +245,14 @@ func putUUID(m datatypes.JSONMap, key string, v *uuid.UUID) {
 	}
 }
 
-func (g *Generator) buildCSSTSnapshotJSON(
+func (g *Generator) buildCSSTCacheJSON(
 	ctx context.Context,
 	expectSchoolID uuid.UUID,
 	csstID uuid.UUID,
 ) (datatypes.JSONMap, *uuid.UUID, *string, error) {
 	// a) RICH loader (schema fix, tanpa information_schema)
 	if rich, err := g.getCSSTRich(ctx, expectSchoolID, csstID); err == nil && rich != nil {
-		// --- base snapshot ---
+		// --- base cache ---
 		out := datatypes.JSONMap{
 			"csst_id":     rich.ID.String(),
 			"school_id":   rich.SchoolID.String(),
@@ -332,14 +332,14 @@ func (g *Generator) buildCSSTSnapshotJSON(
 		return out, rich.TeacherID, baseName, nil
 	}
 
-	// b) Fallback paket snapshot lama (biarin sama persis; nggak usah diubah)
+	// b) Fallback paket cache lama (biarin sama persis; nggak usah diubah)
 	if s, tid, name, err := func() (datatypes.JSONMap, *uuid.UUID, *string, error) {
 		tx := g.DB.WithContext(ctx)
-		cs, er := snapshotCSST.ValidateAndSnapshotCSST(tx, expectSchoolID, csstID)
+		cs, er := cacheCSST.ValidateAndCacheCSST(tx, expectSchoolID, csstID)
 		if er != nil {
 			return nil, nil, nil, er
 		}
-		j := snapshotCSST.ToJSON(cs)
+		j := cacheCSST.ToJSON(cs)
 		var m map[string]any
 		if er := json.Unmarshal(j, &m); er != nil {
 			return nil, nil, nil, er
@@ -358,7 +358,7 @@ func (g *Generator) buildCSSTSnapshotJSON(
 }
 
 /* =========================
-   Rule snapshot
+   Rule cache
 ========================= */
 
 type ruleRow struct {
@@ -376,8 +376,8 @@ type ruleRow struct {
 	CSSTID          *uuid.UUID    `gorm:"column:class_schedule_rule_csst_id"`
 }
 
-// Builder snapshot rule → format selaras controller Create
-func buildRuleSnapshot(r ruleRow) datatypes.JSONMap {
+// Builder cache rule → format selaras controller Create
+func buildRuleCache(r ruleRow) datatypes.JSONMap {
 	out := datatypes.JSONMap{
 		"rule_id":            r.ID.String(),
 		"schedule_id":        r.ScheduleID.String(),
@@ -660,14 +660,14 @@ func (g *Generator) GenerateSessionsForScheduleWithOpts(
 				defTypeSnap["icon"] = strings.TrimSpace(*st.Icon)
 			}
 
-			// ---- attendance config ikut masuk snapshot type ----
+			// ---- attendance config ikut masuk cache type ----
 			defTypeSnap["allow_student_self_attendance"] = st.AllowStudentSelfAttendance
 			defTypeSnap["allow_teacher_mark_attendance"] = st.AllowTeacherMarkAttendance
 			defTypeSnap["require_teacher_attendance"] = st.RequireTeacherAttendance
 			if len(st.RequireAttendanceReason) > 0 {
 				defTypeSnap["require_attendance_reason"] = []string(st.RequireAttendanceReason)
 			} else {
-				// default snapshot: jika kolom kosong, anggap require reason utk state "unmarked"
+				// default cache: jika kolom kosong, anggap require reason utk state "unmarked"
 				defTypeSnap["require_attendance_reason"] = []string{"unmarked"}
 			}
 
@@ -707,14 +707,14 @@ func (g *Generator) GenerateSessionsForScheduleWithOpts(
 				defTypeSnap["icon"] = strings.TrimSpace(*st.Icon)
 			}
 
-			// attendance config juga disimpan di snapshot
+			// attendance config juga disimpan di cache
 			defTypeSnap["allow_student_self_attendance"] = st.AllowStudentSelfAttendance
 			defTypeSnap["allow_teacher_mark_attendance"] = st.AllowTeacherMarkAttendance
 			defTypeSnap["require_teacher_attendance"] = st.RequireTeacherAttendance
 			if len(st.RequireAttendanceReason) > 0 {
 				defTypeSnap["require_attendance_reason"] = []string(st.RequireAttendanceReason)
 			} else {
-				// default snapshot: jika kosong, pakai "unmarked"
+				// default cache: jika kosong, pakai "unmarked"
 				defTypeSnap["require_attendance_reason"] = []string{"unmarked"}
 			}
 
@@ -774,14 +774,14 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time`
 		return 0, err
 	}
 
-	// 2.5) Preload default CSST snapshot (opsional)
+	// 2.5) Preload default CSST cache (opsional)
 	var (
 		defCSSTSnap       datatypes.JSONMap
 		teacherIDFromCSST *uuid.UUID
 		defCSSTName       *string
 	)
 	if opts.DefaultCSSTID != nil {
-		if s, tid, name, er := g.buildCSSTSnapshotJSON(ctx, sch.ClassScheduleSchoolID, *opts.DefaultCSSTID); er == nil {
+		if s, tid, name, er := g.buildCSSTCacheJSON(ctx, sch.ClassScheduleSchoolID, *opts.DefaultCSSTID); er == nil {
 			defCSSTSnap = s
 			teacherIDFromCSST = tid
 			defCSSTName = name
@@ -856,7 +856,7 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time`
 	// 3) Expand occurrences
 	rows := make([]sessModel.ClassAttendanceSessionModel, 0, 1024)
 
-	attachSnapshots := func(row *sessModel.ClassAttendanceSessionModel, ruleCSST *uuid.UUID) {
+	attachCaches := func(row *sessModel.ClassAttendanceSessionModel, ruleCSST *uuid.UUID) {
 		// --- CSST (per-rule > default) ---
 		var effCSST *uuid.UUID
 		var effCSSTSnap datatypes.JSONMap
@@ -869,7 +869,7 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time`
 				effCSSTSnap = s
 				effTeacherFromCSST = csstTeacherIDCache[*ruleCSST]
 				baseName = csstNameCache[*ruleCSST]
-			} else if s, tid, name, er := g.buildCSSTSnapshotJSON(ctx, sch.ClassScheduleSchoolID, *ruleCSST); er == nil {
+			} else if s, tid, name, er := g.buildCSSTCacheJSON(ctx, sch.ClassScheduleSchoolID, *ruleCSST); er == nil {
 				csstSnapCache[*ruleCSST] = s
 				csstTeacherIDCache[*ruleCSST] = tid
 				csstNameCache[*ruleCSST] = name
@@ -898,7 +898,7 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time`
 			}
 		}
 
-		// Simpan CSST + snapshot CSST (wajib ada minimal map)
+		// Simpan CSST + cache CSST (wajib ada minimal map)
 		if effCSST != nil {
 			row.ClassAttendanceSessionCSSTID = effCSST
 			if effCSSTSnap == nil {
@@ -910,14 +910,14 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time`
 			row.ClassAttendanceSessionCSSTSnapshot = effCSSTSnap
 		}
 
-		// TeacherID (tanpa snapshot)
+		// TeacherID (tanpa cache)
 		if opts.DefaultTeacherID != nil {
 			row.ClassAttendanceSessionTeacherID = opts.DefaultTeacherID
 		} else if effTeacherFromCSST != nil {
 			row.ClassAttendanceSessionTeacherID = effTeacherFromCSST
 		}
 
-		// RoomID (tanpa snapshot) — resolve dari CSST / Section bila DefaultRoom kosong
+		// RoomID (tanpa cache) — resolve dari CSST / Section bila DefaultRoom kosong
 		if opts.DefaultRoomID != nil {
 			row.ClassAttendanceSessionClassRoomID = opts.DefaultRoomID
 		} else if ruleCSST != nil {
@@ -998,7 +998,7 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time`
 			ClassAttendanceSessionIsCanceled:       false,
 			ClassAttendanceSessionGeneralInfo:      "",
 		}
-		attachSnapshots(&row, nil)
+		attachCaches(&row, nil)
 		rows = append(rows, row)
 	} else {
 		// Dengan rules
@@ -1026,7 +1026,7 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time`
 					ClassAttendanceSessionSchoolID:         sch.ClassScheduleSchoolID,
 					ClassAttendanceSessionScheduleID:       ptrUUID(sch.ClassScheduleID),
 					ClassAttendanceSessionRuleID:           &rid,
-					ClassAttendanceSessionRuleSnapshot:     buildRuleSnapshot(r),
+					ClassAttendanceSessionRuleSnapshot:     buildRuleCache(r),
 					ClassAttendanceSessionDate:             dateUTC,
 					ClassAttendanceSessionStartsAt:         &startAtUTC,
 					ClassAttendanceSessionEndsAt:           &endAtUTC,
@@ -1037,7 +1037,7 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time`
 					ClassAttendanceSessionIsCanceled:       false,
 					ClassAttendanceSessionGeneralInfo:      "",
 				}
-				attachSnapshots(&row, r.CSSTID)
+				attachCaches(&row, r.CSSTID)
 				rows = append(rows, row)
 			}
 		}
@@ -1170,7 +1170,7 @@ LIMIT 1`
 }
 
 // Buat Room default untuk Section (bila belum ada sama sekali).
-// Snapshot ruang tidak lagi digunakan → selalu return snapshot = nil.
+// Cache ruang tidak lagi digunakan → selalu return cache = nil.
 func (g *Generator) ensureSectionRoom(
 	ctx context.Context,
 	schoolID uuid.UUID,

@@ -1030,22 +1030,28 @@ func ParseSchoolIDFromPath(c *fiber.Ctx) (uuid.UUID, error) {
 	return id, nil
 }
 
-/* ============================================
-   DB-role helpers (unchanged logic)
-   ============================================ */
+/*
+============================================
 
+	DB-role helpers (unchanged logic)
+	============================================
+*/
 func EnsureGlobalRole(tx *gorm.DB, userID uuid.UUID, roleName string, assignedBy *uuid.UUID) error {
-	if !quickHasTable(tx, "roles") || !quickHasTable(tx, "user_roles") {
+	roleName = strings.ToLower(strings.TrimSpace(roleName))
+	if roleName == "" {
 		return nil
 	}
+
 	if quickHasFunction(tx, "fn_grant_role") {
 		var idStr string
 		if assignedBy != nil {
-			return tx.Raw(`SELECT fn_grant_role(?::uuid, ?::text, NULL::uuid, ?::uuid)::text`,
-				userID, strings.ToLower(roleName), *assignedBy).Scan(&idStr).Error
+			return tx.Raw(`
+                SELECT fn_grant_role(?::uuid, ?::text, NULL::uuid, ?::uuid)::text
+            `, userID, roleName, *assignedBy).Scan(&idStr).Error
 		}
-		return tx.Raw(`SELECT fn_grant_role(?::uuid, ?::text, NULL::uuid, NULL::uuid)::text`,
-			userID, strings.ToLower(roleName)).Scan(&idStr).Error
+		return tx.Raw(`
+            SELECT fn_grant_role(?::uuid, ?::text, NULL::uuid, NULL::uuid)::text
+        `, userID, roleName).Scan(&idStr).Error
 	}
 
 	var roleID string
@@ -1078,36 +1084,46 @@ func EnsureGlobalRole(tx *gorm.DB, userID uuid.UUID, roleName string, assignedBy
 }
 
 func GrantScopedRoleDKM(tx *gorm.DB, userID, schoolID uuid.UUID) error {
-	if !quickHasTable(tx, "roles") || !quickHasTable(tx, "user_roles") {
-		return nil
-	}
+	// 1) Coba pakai fn_grant_role dulu
 	if quickHasFunction(tx, "fn_grant_role") {
 		var idStr string
-		return tx.Raw(`SELECT fn_grant_role(?::uuid, 'dkm'::text, ?::uuid, ?::uuid)::text`,
-			userID, schoolID, userID).Scan(&idStr).Error
+		if err := tx.Raw(`
+            SELECT fn_grant_role(?::uuid, 'dkm'::text, ?::uuid, ?::uuid)::text
+        `, userID, schoolID, userID).Scan(&idStr).Error; err != nil {
+			return err
+		}
+		return nil
 	}
 
+	// 2) Fallback manual (kalau function belum dimigrasi di environment lama)
 	var roleID string
-	if err := tx.Raw(`SELECT role_id::text FROM roles WHERE LOWER(role_name)='dkm' LIMIT 1`).Scan(&roleID).Error; err != nil {
+	if err := tx.Raw(`
+        SELECT role_id::text FROM roles WHERE LOWER(role_name)='dkm' LIMIT 1
+    `).Scan(&roleID).Error; err != nil {
 		return err
 	}
 	if roleID == "" {
-		if err := tx.Raw(`INSERT INTO roles(role_name) VALUES ('dkm') RETURNING role_id::text`).Scan(&roleID).Error; err != nil {
+		if err := tx.Raw(`
+            INSERT INTO roles(role_name) VALUES ('dkm') RETURNING role_id::text
+        `).Scan(&roleID).Error; err != nil {
 			return err
 		}
 	}
 	var exists bool
-	if err := tx.Raw(`SELECT EXISTS(
-		SELECT 1 FROM user_roles
-		WHERE user_id=?::uuid AND role_id=?::uuid AND school_id=?::uuid AND deleted_at IS NULL
-	)`, userID, roleID, schoolID).Scan(&exists).Error; err != nil {
+	if err := tx.Raw(`
+        SELECT EXISTS(
+            SELECT 1 FROM user_roles
+            WHERE user_id=?::uuid AND role_id=?::uuid AND school_id=?::uuid AND deleted_at IS NULL
+        )
+    `, userID, roleID, schoolID).Scan(&exists).Error; err != nil {
 		return err
 	}
 	if exists {
 		return nil
 	}
 
-	return tx.Exec(`INSERT INTO user_roles(user_id, role_id, school_id, assigned_at, assigned_by)
-		VALUES (?::uuid, ?::uuid, ?::uuid, now(), ?::uuid)`,
-		userID, roleID, schoolID, userID).Error
+	return tx.Exec(`
+        INSERT INTO user_roles(user_id, role_id, school_id, assigned_at, assigned_by)
+        VALUES (?::uuid, ?::uuid, ?::uuid, now(), ?::uuid)
+    `, userID, roleID, schoolID, userID).Error
 }

@@ -41,7 +41,6 @@ const (
 )
 
 /* ===================== REQUESTS ===================== */
-
 type SchoolCreateReq struct {
 	SchoolYayasanID     *uuid.UUID `json:"school_yayasan_id,omitempty"`
 	SchoolCurrentPlanID *uuid.UUID `json:"school_current_plan_id,omitempty"`
@@ -81,6 +80,7 @@ type SchoolCreateReq struct {
 	SchoolDefaultAttendanceEntryMode string          `json:"school_default_attendance_entry_mode"`
 	SchoolTimezone                   string          `json:"school_timezone"`
 	SchoolDefaultMinPassingScore     *int            `json:"school_default_min_passing_score"`
+	SchoolDefaultClassQouta          *int            `json:"school_default_class_qouta"`
 	SchoolSettings                   json.RawMessage `json:"school_settings"`
 }
 
@@ -124,6 +124,7 @@ type SchoolUpdateReq struct {
 	SchoolTimezone                   *string          `json:"school_timezone"                      form:"school_timezone"`
 	SchoolDefaultMinPassingScore     *int             `json:"school_default_min_passing_score"     form:"school_default_min_passing_score"`
 	SchoolSettings                   *json.RawMessage `json:"school_settings"                    form:"school_settings"`
+	SchoolDefaultClassQouta          *int             `json:"school_default_class_qouta"           form:"school_default_class_qouta"`
 
 	// Clear → NULL/empty eksplisit pada kolom tertentu
 	Clear []string `json:"__clear,omitempty" form:"__clear"`
@@ -189,6 +190,7 @@ type SchoolResp struct {
 	SchoolDefaultAttendanceEntryMode string          `json:"school_default_attendance_entry_mode"`
 	SchoolTimezone                   string          `json:"school_timezone"`
 	SchoolDefaultMinPassingScore     *int            `json:"school_default_min_passing_score,omitempty"`
+	SchoolDefaultClassQouta          *int            `json:"school_default_class_qouta,omitempty"`
 	SchoolSettings                   json.RawMessage `json:"school_settings"`
 
 	SchoolCreatedAt      time.Time  `json:"school_created_at"`
@@ -260,7 +262,9 @@ func FromModel(m *model.SchoolModel) SchoolResp {
 		SchoolDefaultAttendanceEntryMode: string(m.SchoolDefaultAttendanceEntryMode),
 		SchoolTimezone:                   valOrEmpty(m.SchoolTimezone),
 		SchoolDefaultMinPassingScore:     m.SchoolDefaultMinPassingScore,
-		SchoolSettings:                   json.RawMessage(m.SchoolSettings),
+		SchoolDefaultClassQouta:          m.SchoolDefaultClassQouta,
+
+		SchoolSettings: json.RawMessage(m.SchoolSettings),
 
 		SchoolCreatedAt:      m.SchoolCreatedAt,
 		SchoolUpdatedAt:      m.SchoolUpdatedAt,
@@ -331,6 +335,11 @@ func ToModel(in *SchoolCreateReq, id uuid.UUID) *model.SchoolModel {
 	// Default KKM
 	if in.SchoolDefaultMinPassingScore != nil {
 		out.SchoolDefaultMinPassingScore = in.SchoolDefaultMinPassingScore
+	}
+
+	// 🆕 Default class quota
+	if in.SchoolDefaultClassQouta != nil {
+		out.SchoolDefaultClassQouta = in.SchoolDefaultClassQouta
 	}
 
 	// Settings JSON
@@ -447,6 +456,10 @@ func ApplyUpdate(m *model.SchoolModel, u *SchoolUpdateReq) {
 
 	if u.SchoolDefaultMinPassingScore != nil {
 		m.SchoolDefaultMinPassingScore = u.SchoolDefaultMinPassingScore
+	}
+
+	if u.SchoolDefaultClassQouta != nil {
+		m.SchoolDefaultClassQouta = u.SchoolDefaultClassQouta
 	}
 
 	if u.SchoolSettings != nil {

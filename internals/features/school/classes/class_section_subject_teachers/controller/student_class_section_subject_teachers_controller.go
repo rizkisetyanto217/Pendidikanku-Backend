@@ -57,13 +57,13 @@ func toStudentCSSTItem(m *model.StudentClassSectionSubjectTeacher) dto.StudentCS
 		StudentClassSectionSubjectTeacherGradePoint:    m.StudentClassSectionSubjectTeacherGradePoint,
 		StudentClassSectionSubjectTeacherIsPassed:      m.StudentClassSectionSubjectTeacherIsPassed,
 
-		StudentClassSectionSubjectTeacherUserProfileNameSnapshot:              m.StudentClassSectionSubjectTeacherUserProfileNameSnapshot,
-		StudentClassSectionSubjectTeacherUserProfileAvatarURLSnapshot:         m.StudentClassSectionSubjectTeacherUserProfileAvatarURLSnapshot,
-		StudentClassSectionSubjectTeacherUserProfileWhatsappURLSnapshot:       m.StudentClassSectionSubjectTeacherUserProfileWhatsappURLSnapshot,
-		StudentClassSectionSubjectTeacherUserProfileParentNameSnapshot:        m.StudentClassSectionSubjectTeacherUserProfileParentNameSnapshot,
-		StudentClassSectionSubjectTeacherUserProfileParentWhatsappURLSnapshot: m.StudentClassSectionSubjectTeacherUserProfileParentWhatsappURLSnapshot,
-		StudentClassSectionSubjectTeacherUserProfileGenderSnapshot:            m.StudentClassSectionSubjectTeacherUserProfileGenderSnapshot,
-		StudentClassSectionSubjectTeacherStudentCodeSnapshot:                  m.StudentClassSectionSubjectTeacherStudentCodeSnapshot,
+		StudentClassSectionSubjectTeacherUserProfileNameCache:              m.StudentClassSectionSubjectTeacherUserProfileNameCache,
+		StudentClassSectionSubjectTeacherUserProfileAvatarURLCache:         m.StudentClassSectionSubjectTeacherUserProfileAvatarURLCache,
+		StudentClassSectionSubjectTeacherUserProfileWhatsappURLCache:       m.StudentClassSectionSubjectTeacherUserProfileWhatsappURLCache,
+		StudentClassSectionSubjectTeacherUserProfileParentNameCache:        m.StudentClassSectionSubjectTeacherUserProfileParentNameCache,
+		StudentClassSectionSubjectTeacherUserProfileParentWhatsappURLCache: m.StudentClassSectionSubjectTeacherUserProfileParentWhatsappURLCache,
+		StudentClassSectionSubjectTeacherUserProfileGenderCache:            m.StudentClassSectionSubjectTeacherUserProfileGenderCache,
+		StudentClassSectionSubjectTeacherStudentCodeCache:                  m.StudentClassSectionSubjectTeacherStudentCodeCache,
 
 		StudentClassSectionSubjectTeacherEditsHistory: m.StudentClassSectionSubjectTeacherEditsHistory,
 

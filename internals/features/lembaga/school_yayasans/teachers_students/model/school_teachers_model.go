@@ -109,12 +109,12 @@ type SchoolTeacherModel struct {
 	SchoolTeacherNotes    *string `gorm:"type:text;column:school_teacher_notes" json:"school_teacher_notes,omitempty"`
 
 	// Snapshot dari user_teachers
-	SchoolTeacherUserTeacherNameSnapshot        *string `gorm:"type:varchar(80);column:school_teacher_user_teacher_name_snapshot" json:"school_teacher_user_teacher_name_snapshot,omitempty"`
-	SchoolTeacherUserTeacherAvatarURLSnapshot   *string `gorm:"type:varchar(255);column:school_teacher_user_teacher_avatar_url_snapshot" json:"school_teacher_user_teacher_avatar_url_snapshot,omitempty"`
-	SchoolTeacherUserTeacherWhatsappURLSnapshot *string `gorm:"type:varchar(50);column:school_teacher_user_teacher_whatsapp_url_snapshot" json:"school_teacher_user_teacher_whatsapp_url_snapshot,omitempty"`
-	SchoolTeacherUserTeacherTitlePrefixSnapshot *string `gorm:"type:varchar(20);column:school_teacher_user_teacher_title_prefix_snapshot" json:"school_teacher_user_teacher_title_prefix_snapshot,omitempty"`
-	SchoolTeacherUserTeacherTitleSuffixSnapshot *string `gorm:"type:varchar(30);column:school_teacher_user_teacher_title_suffix_snapshot" json:"school_teacher_user_teacher_title_suffix_snapshot,omitempty"`
-	SchoolTeacherUserTeacherGenderSnapshot      *string `gorm:"type:varchar(20);column:school_teacher_user_teacher_gender_snapshot" json:"school_teacher_user_teacher_gender_snapshot,omitempty"`
+	SchoolTeacherUserTeacherFullNameCache    *string `gorm:"type:varchar(80);column:school_teacher_user_teacher_full_name_cache" json:"school_teacher_user_teacher_full_name_cache,omitempty"`
+	SchoolTeacherUserTeacherAvatarURLCache   *string `gorm:"type:varchar(255);column:school_teacher_user_teacher_avatar_url_cache" json:"school_teacher_user_teacher_avatar_url_cache,omitempty"`
+	SchoolTeacherUserTeacherWhatsappURLCache *string `gorm:"type:varchar(50);column:school_teacher_user_teacher_whatsapp_url_cache" json:"school_teacher_user_teacher_whatsapp_url_cache,omitempty"`
+	SchoolTeacherUserTeacherTitlePrefixCache *string `gorm:"type:varchar(20);column:school_teacher_user_teacher_title_prefix_cache" json:"school_teacher_user_teacher_title_prefix_cache,omitempty"`
+	SchoolTeacherUserTeacherTitleSuffixCache *string `gorm:"type:varchar(30);column:school_teacher_user_teacher_title_suffix_cache" json:"school_teacher_user_teacher_title_suffix_cache,omitempty"`
+	SchoolTeacherUserTeacherGenderCache   *string `gorm:"type:varchar(20);column:school_teacher_user_teacher_gender_cache" json:"school_teacher_user_teacher_gender_cache,omitempty"`
 
 	// JSONB: sections & csst (NOT NULL DEFAULT '[]'::jsonb)
 	SchoolTeacherSections datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'::jsonb;column:school_teacher_sections" json:"school_teacher_sections"`

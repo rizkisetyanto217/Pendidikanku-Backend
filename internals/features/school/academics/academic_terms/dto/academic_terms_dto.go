@@ -51,11 +51,10 @@ type AcademicTermFilterDTO struct {
 	Active   *bool   `query:"active"    validate:"omitempty"`
 	Angkatan *int    `query:"angkatan"  validate:"omitempty,gt=0"`
 
-	Page     int `query:"page"      validate:"omitempty,min=1"`
-	PageSize int `query:"page_size" validate:"omitempty,min=1,max=200"`
-	// tambahin opsi sort_by kalau nanti mau sorting by stats, sementara tetap whitelist lama
-	SortBy  *string `query:"sort_by"   validate:"omitempty,oneof=created_at updated_at start_date end_date name year angkatan code slug"`
-	SortDir *string `query:"sort_dir"  validate:"omitempty,oneof=asc desc"`
+	Page     int     `query:"page"      validate:"omitempty,min=1"`
+	PageSize int     `query:"page_size" validate:"omitempty,min=1,max=200"`
+	SortBy   *string `query:"sort_by"   validate:"omitempty,oneof=created_at updated_at start_date end_date name year angkatan code slug"`
+	SortDir  *string `query:"sort_dir"  validate:"omitempty,oneof=asc desc"`
 }
 
 /* ===================== RESPONSE DTO ===================== */
@@ -75,23 +74,23 @@ type AcademicTermResponseDTO struct {
 	AcademicTermSlug        *string `json:"academic_term_slug,omitempty"`
 	AcademicTermDescription *string `json:"academic_term_description,omitempty"`
 
-	// Aggregated stats (ALL)
-	AcademicTermTotalClasses          int `json:"academic_term_total_classes"`
-	AcademicTermTotalClassSections    int `json:"academic_term_total_class_sections"`
-	AcademicTermTotalStudents         int `json:"academic_term_total_students"`
-	AcademicTermTotalStudentsMale     int `json:"academic_term_total_students_male"`
-	AcademicTermTotalStudentsFemale   int `json:"academic_term_total_students_female"`
-	AcademicTermTotalTeachers         int `json:"academic_term_total_teachers"`
-	AcademicTermTotalClassEnrollments int `json:"academic_term_total_class_enrollments"`
+	// Aggregated stats (ALL → *_count)
+	AcademicTermClassCount           int `json:"academic_term_class_count"`
+	AcademicTermClassSectionCount    int `json:"academic_term_class_section_count"`
+	AcademicTermStudentCount         int `json:"academic_term_student_count"`
+	AcademicTermStudentMaleCount     int `json:"academic_term_student_male_count"`
+	AcademicTermStudentFemaleCount   int `json:"academic_term_student_female_count"`
+	AcademicTermTeacherCount         int `json:"academic_term_teacher_count"`
+	AcademicTermClassEnrollmentCount int `json:"academic_term_class_enrollment_count"`
 
-	// Aggregated stats (ACTIVE ONLY)
-	AcademicTermTotalClassesActive          int `json:"academic_term_total_classes_active"`
-	AcademicTermTotalClassSectionsActive    int `json:"academic_term_total_class_sections_active"`
-	AcademicTermTotalStudentsActive         int `json:"academic_term_total_students_active"`
-	AcademicTermTotalStudentsMaleActive     int `json:"academic_term_total_students_male_active"`
-	AcademicTermTotalStudentsFemaleActive   int `json:"academic_term_total_students_female_active"`
-	AcademicTermTotalTeachersActive         int `json:"academic_term_total_teachers_active"`
-	AcademicTermTotalClassEnrollmentsActive int `json:"academic_term_total_class_enrollments_active"`
+	// Aggregated stats (ACTIVE ONLY → *_active_count)
+	AcademicTermClassActiveCount           int `json:"academic_term_class_active_count"`
+	AcademicTermClassSectionActiveCount    int `json:"academic_term_class_section_active_count"`
+	AcademicTermStudentActiveCount         int `json:"academic_term_student_active_count"`
+	AcademicTermStudentMaleActiveCount     int `json:"academic_term_student_male_active_count"`
+	AcademicTermStudentFemaleActiveCount   int `json:"academic_term_student_female_active_count"`
+	AcademicTermTeacherActiveCount         int `json:"academic_term_teacher_active_count"`
+	AcademicTermClassEnrollmentActiveCount int `json:"academic_term_class_enrollment_active_count"`
 
 	AcademicTermStats datatypes.JSON `json:"academic_term_stats,omitempty"`
 
@@ -257,23 +256,23 @@ func FromModel(ent model.AcademicTermModel) AcademicTermResponseDTO {
 		AcademicTermSlug:        ent.AcademicTermSlug,
 		AcademicTermDescription: ent.AcademicTermDescription,
 
-		// ALL stats
-		AcademicTermTotalClasses:          ent.AcademicTermTotalClasses,
-		AcademicTermTotalClassSections:    ent.AcademicTermTotalClassSections,
-		AcademicTermTotalStudents:         ent.AcademicTermTotalStudents,
-		AcademicTermTotalStudentsMale:     ent.AcademicTermTotalStudentsMale,
-		AcademicTermTotalStudentsFemale:   ent.AcademicTermTotalStudentsFemale,
-		AcademicTermTotalTeachers:         ent.AcademicTermTotalTeachers,
-		AcademicTermTotalClassEnrollments: ent.AcademicTermTotalClassEnrollments,
+		// ALL stats → *_count
+		AcademicTermClassCount:           ent.AcademicTermClassCount,
+		AcademicTermClassSectionCount:    ent.AcademicTermClassSectionCount,
+		AcademicTermStudentCount:         ent.AcademicTermStudentCount,
+		AcademicTermStudentMaleCount:     ent.AcademicTermStudentMaleCount,
+		AcademicTermStudentFemaleCount:   ent.AcademicTermStudentFemaleCount,
+		AcademicTermTeacherCount:         ent.AcademicTermTeacherCount,
+		AcademicTermClassEnrollmentCount: ent.AcademicTermClassEnrollmentCount,
 
-		// ACTIVE stats
-		AcademicTermTotalClassesActive:          ent.AcademicTermTotalClassesActive,
-		AcademicTermTotalClassSectionsActive:    ent.AcademicTermTotalClassSectionsActive,
-		AcademicTermTotalStudentsActive:         ent.AcademicTermTotalStudentsActive,
-		AcademicTermTotalStudentsMaleActive:     ent.AcademicTermTotalStudentsMaleActive,
-		AcademicTermTotalStudentsFemaleActive:   ent.AcademicTermTotalStudentsFemaleActive,
-		AcademicTermTotalTeachersActive:         ent.AcademicTermTotalTeachersActive,
-		AcademicTermTotalClassEnrollmentsActive: ent.AcademicTermTotalClassEnrollmentsActive,
+		// ACTIVE stats → *_active_count
+		AcademicTermClassActiveCount:           ent.AcademicTermClassActiveCount,
+		AcademicTermClassSectionActiveCount:    ent.AcademicTermClassSectionActiveCount,
+		AcademicTermStudentActiveCount:         ent.AcademicTermStudentActiveCount,
+		AcademicTermStudentMaleActiveCount:     ent.AcademicTermStudentMaleActiveCount,
+		AcademicTermStudentFemaleActiveCount:   ent.AcademicTermStudentFemaleActiveCount,
+		AcademicTermTeacherActiveCount:         ent.AcademicTermTeacherActiveCount,
+		AcademicTermClassEnrollmentActiveCount: ent.AcademicTermClassEnrollmentActiveCount,
 
 		AcademicTermStats: ent.AcademicTermStats,
 

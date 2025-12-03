@@ -13,9 +13,9 @@ import (
 // Panggil: route.ClassBooksAdminRoutes(app.Group("/api/a"), db)
 // Endpoint hasil:
 //
-//	/api/a/:school_id/books
-//	/api/a/:school_id/class-subject-books
-//	/api/a/:school_id/book-urls
+//	/api/a/books
+//	/api/a/class-subject-books
+//	/api/a/book-urls
 func ClassBooksAdminRoutes(r fiber.Router, db *gorm.DB) {
 	booksCtl := &cbController.BooksController{DB: db}
 	csbCtl := &cbController.ClassSubjectBookController{DB: db}
@@ -31,8 +31,8 @@ func ClassBooksAdminRoutes(r fiber.Router, db *gorm.DB) {
 		constants.AdminAndAbove,
 	)
 
-	// ► Param pakai dash: :school_id
-	g := r.Group("/:school_id", adminGuard)
+	// Tidak pakai :school_id di path, guard tetap admin/owner
+	g := r.Group("", adminGuard)
 
 	// Books
 	books := g.Group("/books")

@@ -168,7 +168,7 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 
 	type ProfileLite struct {
 		ID                uuid.UUID `json:"id"`
-		FullNameSnapshot  *string   `json:"full_name_snapshot,omitempty"`
+		FullNameCache     *string   `json:"full_name_cache,omitempty"`
 		AvatarURL         *string   `json:"avatar_url,omitempty"`
 		WhatsappURL       *string   `json:"whatsapp_url,omitempty"`
 		ParentName        *string   `json:"parent_name,omitempty"`
@@ -198,7 +198,7 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 	if len(profileIDs) > 0 {
 		var profRows []struct {
 			ID                uuid.UUID `gorm:"column:user_profile_id"`
-			FullNameSnapshot  *string   `gorm:"column:user_profile_full_name_snapshot"`
+			FullNameCache     *string   `gorm:"column:user_profile_full_name_cache"`
 			AvatarURL         *string   `gorm:"column:user_profile_avatar_url"`
 			WhatsappURL       *string   `gorm:"column:user_profile_whatsapp_url"`
 			ParentName        *string   `gorm:"column:user_profile_parent_name"`
@@ -210,7 +210,7 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 			Table("user_profiles").
 			Select(`
 				user_profile_id,
-				user_profile_full_name_snapshot,
+				user_profile_full_name_cache,
 				user_profile_avatar_url,
 				user_profile_whatsapp_url,
 				user_profile_parent_name,
@@ -226,7 +226,7 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 		for _, pr := range profRows {
 			profileMap[pr.ID] = ProfileLite{
 				ID:                pr.ID,
-				FullNameSnapshot:  pr.FullNameSnapshot,
+				FullNameCache:     pr.FullNameCache,
 				AvatarURL:         pr.AvatarURL,
 				WhatsappURL:       pr.WhatsappURL,
 				ParentName:        pr.ParentName,

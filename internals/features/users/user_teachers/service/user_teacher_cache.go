@@ -1,5 +1,5 @@
 // file: internals/services/snapsvc/snapsvc.go
-package snapsvc
+package service
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 )
 
 // Dipakai di banyak tempat (Section, CSST, dsb)
-type TeacherSnapshot struct {
+type TeacherCache struct {
 	ID          uuid.UUID `json:"id"`
 	Name        string    `json:"name"`
 	WhatsappURL *string   `json:"whatsapp_url,omitempty"`
@@ -40,12 +40,12 @@ func ToJSONB(v any) (datatypes.JSON, error) {
 // Validasi school_teacher & buat snapshot user_teacher-nya
 // - kembalikan gorm.ErrRecordNotFound jika tidak ditemukan
 // - kembalikan ErrSchoolMismatch jika tenant beda
-func BuildTeacherSnapshot(
+func BuildTeacherCache(
 	ctx context.Context,
 	tx *gorm.DB,
 	schoolID uuid.UUID,
 	schoolTeacherID uuid.UUID,
-) (*TeacherSnapshot, error) {
+) (*TeacherCache, error) {
 	var row struct {
 		SchoolID      uuid.UUID
 		UserTeacherID uuid.UUID
@@ -95,7 +95,7 @@ func BuildTeacherSnapshot(
 	}
 
 	name := strings.TrimSpace(row.FullName)
-	return &TeacherSnapshot{
+	return &TeacherCache{
 		ID:          row.UserTeacherID, // simpan user_teacher_id sebagai id snapshot
 		Name:        name,
 		WhatsappURL: nz(row.WhatsappURL),

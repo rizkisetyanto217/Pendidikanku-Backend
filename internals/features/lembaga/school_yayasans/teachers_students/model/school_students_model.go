@@ -73,12 +73,12 @@ type SchoolStudentModel struct {
 	SchoolStudentNote *string `gorm:"column:school_student_note;type:text" json:"school_student_note,omitempty"`
 
 	// ===== SNAPSHOTS dari user_profiles =====
-	SchoolStudentUserProfileNameSnapshot              *string `gorm:"column:school_student_user_profile_name_snapshot;type:varchar(80)" json:"school_student_user_profile_name_snapshot,omitempty"`
-	SchoolStudentUserProfileAvatarURLSnapshot         *string `gorm:"column:school_student_user_profile_avatar_url_snapshot;type:varchar(255)" json:"school_student_user_profile_avatar_url_snapshot,omitempty"`
-	SchoolStudentUserProfileWhatsappURLSnapshot       *string `gorm:"column:school_student_user_profile_whatsapp_url_snapshot;type:varchar(50)" json:"school_student_user_profile_whatsapp_url_snapshot,omitempty"`
-	SchoolStudentUserProfileParentNameSnapshot        *string `gorm:"column:school_student_user_profile_parent_name_snapshot;type:varchar(80)" json:"school_student_user_profile_parent_name_snapshot,omitempty"`
-	SchoolStudentUserProfileParentWhatsappURLSnapshot *string `gorm:"column:school_student_user_profile_parent_whatsapp_url_snapshot;type:varchar(50)" json:"school_student_user_profile_parent_whatsapp_url_snapshot,omitempty"`
-	SchoolStudentUserProfileGenderSnapshot            *string `gorm:"column:school_student_user_profile_gender_snapshot;type:varchar(20)" json:"school_student_user_profile_gender_snapshot,omitempty"`
+	SchoolStudentUserProfileNameCache             *string `gorm:"column:school_student_user_profile_name_cache;type:varchar(80)" json:"school_student_user_profile_name_cache,omitempty"`
+	SchoolStudentUserProfileAvatarURLCache        *string `gorm:"column:school_student_user_profile_avatar_url_cache;type:varchar(255)" json:"school_student_user_profile_avatar_url_cache,omitempty"`
+	SchoolStudentUserProfileWhatsappURLCache      *string `gorm:"column:school_student_user_profile_whatsapp_url_cache;type:varchar(50)" json:"school_student_user_profile_whatsapp_url_cache,omitempty"`
+	SchoolStudentUserProfileParentNameCache       *string `gorm:"column:school_student_user_profile_parent_name_cache;type:varchar(80)" json:"school_student_user_profile_parent_name_cache,omitempty"`
+	SchoolStudentUserProfileParentWhatsappURLCache*string `gorm:"column:school_student_user_profile_parent_whatsapp_url_cache;type:varchar(50)" json:"school_student_user_profile_parent_whatsapp_url_cache,omitempty"`
+	SchoolStudentUserProfileGenderCache           *string `gorm:"column:school_student_user_profile_gender_cache;type:varchar(20)" json:"school_student_user_profile_gender_cache,omitempty"`
 
 	// ===== JSONB CLASS SECTIONS (NOT NULL DEFAULT '[]') =====
 	// Berisi array SchoolStudentSectionItem

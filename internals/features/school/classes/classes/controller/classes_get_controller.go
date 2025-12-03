@@ -644,16 +644,16 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 					cs.class_subject_class_parent_id AS parent_id,
 					cs.class_subject_id,
 					cs.class_subject_subject_id AS subject_id,
-					COALESCE(cs.class_subject_subject_name_snapshot, '') AS subject_name,
-					cs.class_subject_subject_code_snapshot AS subject_code,
-					cs.class_subject_subject_slug_snapshot AS subject_slug,
+					COALESCE(cs.class_subject_subject_name_cache, '') AS subject_name,
+					cs.class_subject_subject_code_cache AS subject_code,
+					cs.class_subject_subject_slug_cache AS subject_slug,
 					cs.class_subject_is_core AS is_core,
 					cs.class_subject_order_index AS order_index,
 					cs.class_subject_min_passing_score AS min_passing_score,
 					cs.class_subject_weight_on_report AS weight_on_report,
 					cs.class_subject_created_at AS class_subject_created_at
 				`).
-				Order("cs.class_subject_order_index NULLS LAST, LOWER(cs.class_subject_subject_name_snapshot) ASC").
+				Order("cs.class_subject_order_index NULLS LAST, LOWER(cs.class_subject_subject_name_cache) ASC").
 				Scan(&sjRows).Error; err != nil {
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil subject kelas")
 			}
@@ -694,12 +694,12 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 						csb.class_subject_book_class_subject_id AS class_subject_id,
 						csb.class_subject_book_id,
 						csb.class_subject_book_book_id AS book_id,
-						csb.class_subject_book_book_title_snapshot AS book_title,
-						csb.class_subject_book_book_author_snapshot AS book_author,
-						csb.class_subject_book_book_slug_snapshot AS book_slug,
-						csb.class_subject_book_book_publisher_snapshot AS book_publisher,
-						csb.class_subject_book_book_publication_year_snapshot AS book_publication_year,
-						csb.class_subject_book_book_image_url_snapshot AS book_image_url,
+						csb.class_subject_book_book_title_cache AS book_title,
+						csb.class_subject_book_book_author_cache AS book_author,
+						csb.class_subject_book_book_slug_cache AS book_slug,
+						csb.class_subject_book_book_publisher_cache AS book_publisher,
+						csb.class_subject_book_book_publication_year_cache AS book_publication_year,
+						csb.class_subject_book_book_image_url_cache AS book_image_url,
 						csb.class_subject_book_is_active AS is_active,
 						csb.class_subject_book_desc AS desc,
 						csb.class_subject_book_created_at
@@ -707,7 +707,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 					Where("csb.class_subject_book_deleted_at IS NULL").
 					Where("csb.class_subject_book_school_id IN ?", schoolIDs).
 					Where("csb.class_subject_book_class_subject_id IN ?", subjectIDs).
-					Order("LOWER(csb.class_subject_book_book_title_snapshot) ASC, csb.class_subject_book_created_at DESC").
+					Order("LOWER(csb.class_subject_book_book_title_cache) ASC, csb.class_subject_book_created_at DESC").
 					Scan(&bRows).Error; err != nil {
 					return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil buku subject kelas")
 				}
@@ -763,10 +763,10 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		TotalStudents       int       `json:"class_section_total_students" gorm:"column:class_section_total_students"`
 		IsActive            bool      `json:"class_section_is_active" gorm:"column:class_section_is_active"`
 
-		// kolom snapshot
-		TeacherNameSnap      *string `json:"class_section_teacher_name_snap,omitempty" gorm:"column:class_section_school_teacher_name_snapshot"`
-		AssistantTeacherName *string `json:"class_section_assistant_teacher_name_snap,omitempty" gorm:"column:class_section_assistant_school_teacher_name_snapshot"`
-		RoomNameSnap         *string `json:"class_section_room_name_snap,omitempty" gorm:"column:class_section_class_room_name_snapshot"`
+		// kolom cache
+		TeacherNameSnap      *string `json:"class_section_teacher_name_cache,omitempty" gorm:"column:class_section_school_teacher_name_cache"`
+		AssistantTeacherName *string `json:"class_section_assistant_teacher_name_cache,omitempty" gorm:"column:class_section_assistant_school_teacher_name_cache"`
+		RoomNameSnap         *string `json:"class_section_room_name_cache,omitempty" gorm:"column:class_section_class_room_name_cache"`
 
 		// term id section
 		TermID *uuid.UUID `json:"class_section_term_id,omitempty" gorm:"column:class_section_academic_term_id"`
@@ -795,9 +795,9 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 				class_section_capacity,
 				class_section_total_students,
 				class_section_is_active,
-				class_section_school_teacher_name_snapshot,
-				class_section_assistant_school_teacher_name_snapshot,
-				class_section_class_room_name_snapshot,
+				class_section_school_teacher_name_cache,
+				class_section_assistant_school_teacher_name_cache,
+				class_section_class_room_name_cache,
 				class_section_academic_term_id,
 				class_section_subject_teachers_count,
 				class_section_subject_teachers_active_count

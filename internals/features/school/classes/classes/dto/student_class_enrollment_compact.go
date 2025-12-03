@@ -17,10 +17,10 @@ type StudentClassEnrollmentCompactResponse struct {
 	StudentClassEnrollmentStatus      m.ClassEnrollmentStatus `json:"student_class_enrollments_status"`
 	StudentClassEnrollmentTotalDueIDR int64                   `json:"student_class_enrollments_total_due_idr"`
 
-	// convenience (mirror snapshot)
+	// convenience (mirror cache)
 	StudentClassEnrollmentSchoolStudentID uuid.UUID `json:"student_class_enrollments_school_student_id"`
 
-	// ====== SNAPSHOT MURID (dari user_profile / school_students) ======
+	// ====== MURID (cache dari user_profile / school_students) ======
 	StudentClassEnrollmentStudentName        string  `json:"student_class_enrollments_student_name"`
 	StudentClassEnrollmentStudentAvatarURL   *string `json:"student_class_enrollments_student_avatar_url,omitempty"`
 	StudentClassEnrollmentStudentWhatsappURL *string `json:"student_class_enrollments_student_whatsapp_url,omitempty"`
@@ -33,16 +33,16 @@ type StudentClassEnrollmentCompactResponse struct {
 
 	StudentClassEnrollmentStudentSlug *string `json:"student_class_enrollments_student_slug,omitempty"`
 
-	// ====== CLASS SNAPSHOT ======
+	// ====== CLASS (cache) ======
 	StudentClassEnrollmentClassID   uuid.UUID `json:"student_class_enrollments_class_id"`
 	StudentClassEnrollmentClassName string    `json:"student_class_enrollments_class_name"`
 
-	// ====== CLASS SECTION (opsional) ======
+	// ====== CLASS SECTION (opsional, cache) ======
 	StudentClassEnrollmentClassSectionID           *uuid.UUID `json:"student_class_enrollments_class_section_id,omitempty"`
 	StudentClassEnrollmentClassSectionNameSnapshot *string    `json:"student_class_enrollments_class_section_name_snapshot,omitempty"`
 	StudentClassEnrollmentClassSectionSlugSnapshot *string    `json:"student_class_enrollments_class_section_slug_snapshot,omitempty"`
 
-	// ===== Term (denormalized, optional) =====
+	// ===== Term (denormalized, optional; cache) =====
 	StudentClassEnrollmentTermID                   *uuid.UUID `json:"student_class_enrollments_term_id,omitempty"`
 	StudentClassEnrollmentTermNameSnapshot         *string    `json:"student_class_enrollments_term_name_snapshot,omitempty"`
 	StudentClassEnrollmentTermAcademicYearSnapshot *string    `json:"student_class_enrollments_term_academic_year_snapshot,omitempty"`
@@ -80,33 +80,33 @@ func FromModelsCompact(src []m.StudentClassEnrollmentModel) []StudentClassEnroll
 			StudentClassEnrollmentStatus:      r.StudentClassEnrollmentsStatus,
 			StudentClassEnrollmentTotalDueIDR: r.StudentClassEnrollmentsTotalDueIDR,
 
-			// IDs & snapshots yang tersedia di model
+			// IDs
 			StudentClassEnrollmentSchoolStudentID: r.StudentClassEnrollmentsSchoolStudentID,
 
-			// ===== snapshot murid =====
-			StudentClassEnrollmentStudentName:        r.StudentClassEnrollmentsUserProfileNameSnapshot,
-			StudentClassEnrollmentStudentAvatarURL:   r.StudentClassEnrollmentsUserProfileAvatarURLSnapshot,
-			StudentClassEnrollmentStudentWhatsappURL: r.StudentClassEnrollmentsUserProfileWhatsappURLSnapshot,
-			StudentClassEnrollmentParentName:         r.StudentClassEnrollmentsUserProfileParentNameSnapshot,
-			StudentClassEnrollmentParentWhatsappURL:  r.StudentClassEnrollmentsUserProfileParentWhatsappURLSnapshot,
-			StudentClassEnrollmentStudentGender:      r.StudentClassEnrollmentsUserProfileGenderSnapshot,
-			StudentClassEnrollmentStudentCode:        r.StudentClassEnrollmentsStudentCodeSnapshot,
-			StudentClassEnrollmentStudentSlug:        r.StudentClassEnrollmentsStudentSlugSnapshot,
+			// ===== murid (cache) =====
+			StudentClassEnrollmentStudentName:        r.StudentClassEnrollmentsUserProfileNameCache,
+			StudentClassEnrollmentStudentAvatarURL:   r.StudentClassEnrollmentsUserProfileAvatarURLCache,
+			StudentClassEnrollmentStudentWhatsappURL: r.StudentClassEnrollmentsUserProfileWhatsappURLCache,
+			StudentClassEnrollmentParentName:         r.StudentClassEnrollmentsUserProfileParentNameCache,
+			StudentClassEnrollmentParentWhatsappURL:  r.StudentClassEnrollmentsUserProfileParentWhatsappURLCache,
+			StudentClassEnrollmentStudentGender:      r.StudentClassEnrollmentsUserProfileGenderCache,
+			StudentClassEnrollmentStudentCode:        r.StudentClassEnrollmentsStudentCodeCache,
+			StudentClassEnrollmentStudentSlug:        r.StudentClassEnrollmentsStudentSlugCache,
 
-			// class
+			// class (cache)
 			StudentClassEnrollmentClassID:   r.StudentClassEnrollmentsClassID,
-			StudentClassEnrollmentClassName: r.StudentClassEnrollmentsClassNameSnapshot,
+			StudentClassEnrollmentClassName: r.StudentClassEnrollmentsClassNameCache,
 
-			// class section (opsional)
+			// class section (opsional, cache)
 			StudentClassEnrollmentClassSectionID:           r.StudentClassEnrollmentsClassSectionID,
-			StudentClassEnrollmentClassSectionNameSnapshot: r.StudentClassEnrollmentsClassSectionNameSnapshot,
-			StudentClassEnrollmentClassSectionSlugSnapshot: r.StudentClassEnrollmentsClassSectionSlugSnapshot,
+			StudentClassEnrollmentClassSectionNameSnapshot: r.StudentClassEnrollmentsClassSectionNameCache,
+			StudentClassEnrollmentClassSectionSlugSnapshot: r.StudentClassEnrollmentsClassSectionSlugCache,
 
-			// term (pointer fields dari model)
+			// term (cache)
 			StudentClassEnrollmentTermID:                   r.StudentClassEnrollmentsTermID,
-			StudentClassEnrollmentTermNameSnapshot:         r.StudentClassEnrollmentsTermNameSnapshot,
-			StudentClassEnrollmentTermAcademicYearSnapshot: r.StudentClassEnrollmentsTermAcademicYearSnapshot,
-			StudentClassEnrollmentTermAngkatanSnapshot:     r.StudentClassEnrollmentsTermAngkatanSnapshot,
+			StudentClassEnrollmentTermNameSnapshot:         r.StudentClassEnrollmentsTermNameCache,
+			StudentClassEnrollmentTermAcademicYearSnapshot: r.StudentClassEnrollmentsTermAcademicYearCache,
+			StudentClassEnrollmentTermAngkatanSnapshot:     r.StudentClassEnrollmentsTermAngkatanCache,
 
 			AppliedAt: r.StudentClassEnrollmentsAppliedAt,
 		}
@@ -146,33 +146,33 @@ func (r StudentClassEnrollmentCompactResponse) ToModelCompact() m.StudentClassEn
 		StudentClassEnrollmentsStatus:      r.StudentClassEnrollmentStatus,
 		StudentClassEnrollmentsTotalDueIDR: r.StudentClassEnrollmentTotalDueIDR,
 
-		// IDs & snapshots
+		// IDs
 		StudentClassEnrollmentsSchoolStudentID: r.StudentClassEnrollmentSchoolStudentID,
 
-		// snapshot murid
-		StudentClassEnrollmentsUserProfileNameSnapshot:              r.StudentClassEnrollmentStudentName,
-		StudentClassEnrollmentsUserProfileAvatarURLSnapshot:         r.StudentClassEnrollmentStudentAvatarURL,
-		StudentClassEnrollmentsUserProfileWhatsappURLSnapshot:       r.StudentClassEnrollmentStudentWhatsappURL,
-		StudentClassEnrollmentsUserProfileParentNameSnapshot:        r.StudentClassEnrollmentParentName,
-		StudentClassEnrollmentsUserProfileParentWhatsappURLSnapshot: r.StudentClassEnrollmentParentWhatsappURL,
-		StudentClassEnrollmentsUserProfileGenderSnapshot:            r.StudentClassEnrollmentStudentGender,
-		StudentClassEnrollmentsStudentCodeSnapshot:                  r.StudentClassEnrollmentStudentCode,
-		StudentClassEnrollmentsStudentSlugSnapshot:                  r.StudentClassEnrollmentStudentSlug,
+		// murid (cache)
+		StudentClassEnrollmentsUserProfileNameCache:              r.StudentClassEnrollmentStudentName,
+		StudentClassEnrollmentsUserProfileAvatarURLCache:         r.StudentClassEnrollmentStudentAvatarURL,
+		StudentClassEnrollmentsUserProfileWhatsappURLCache:       r.StudentClassEnrollmentStudentWhatsappURL,
+		StudentClassEnrollmentsUserProfileParentNameCache:        r.StudentClassEnrollmentParentName,
+		StudentClassEnrollmentsUserProfileParentWhatsappURLCache: r.StudentClassEnrollmentParentWhatsappURL,
+		StudentClassEnrollmentsUserProfileGenderCache:            r.StudentClassEnrollmentStudentGender,
+		StudentClassEnrollmentsStudentCodeCache:                  r.StudentClassEnrollmentStudentCode,
+		StudentClassEnrollmentsStudentSlugCache:                  r.StudentClassEnrollmentStudentSlug,
 
-		// class
-		StudentClassEnrollmentsClassID:           r.StudentClassEnrollmentClassID,
-		StudentClassEnrollmentsClassNameSnapshot: r.StudentClassEnrollmentClassName,
+		// class (cache)
+		StudentClassEnrollmentsClassID:        r.StudentClassEnrollmentClassID,
+		StudentClassEnrollmentsClassNameCache: r.StudentClassEnrollmentClassName,
 
-		// class section
-		StudentClassEnrollmentsClassSectionID:           r.StudentClassEnrollmentClassSectionID,
-		StudentClassEnrollmentsClassSectionNameSnapshot: r.StudentClassEnrollmentClassSectionNameSnapshot,
-		StudentClassEnrollmentsClassSectionSlugSnapshot: r.StudentClassEnrollmentClassSectionSlugSnapshot,
+		// class section (cache)
+		StudentClassEnrollmentsClassSectionID:        r.StudentClassEnrollmentClassSectionID,
+		StudentClassEnrollmentsClassSectionNameCache: r.StudentClassEnrollmentClassSectionNameSnapshot,
+		StudentClassEnrollmentsClassSectionSlugCache: r.StudentClassEnrollmentClassSectionSlugSnapshot,
 
-		// term
-		StudentClassEnrollmentsTermID:                   r.StudentClassEnrollmentTermID,
-		StudentClassEnrollmentsTermNameSnapshot:         r.StudentClassEnrollmentTermNameSnapshot,
-		StudentClassEnrollmentsTermAcademicYearSnapshot: r.StudentClassEnrollmentTermAcademicYearSnapshot,
-		StudentClassEnrollmentsTermAngkatanSnapshot:     r.StudentClassEnrollmentTermAngkatanSnapshot,
+		// term (cache)
+		StudentClassEnrollmentsTermID:                r.StudentClassEnrollmentTermID,
+		StudentClassEnrollmentsTermNameCache:         r.StudentClassEnrollmentTermNameSnapshot,
+		StudentClassEnrollmentsTermAcademicYearCache: r.StudentClassEnrollmentTermAcademicYearSnapshot,
+		StudentClassEnrollmentsTermAngkatanCache:     r.StudentClassEnrollmentTermAngkatanSnapshot,
 
 		// payment snapshot (optional)
 		StudentClassEnrollmentsPaymentSnapshot: datatypes.JSON(makePaymentSnapshot(r.PaymentStatus, r.PaymentCheckoutURL)),

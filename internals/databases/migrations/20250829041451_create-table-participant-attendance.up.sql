@@ -28,12 +28,12 @@ BEGIN
 
   -- status kehadiran umum
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'attendance_state_enum') THEN
-    CREATE TYPE attendance_state_enum AS ENUM ('present','absent','late','excused','sick','leave', 'unmarked');
+    CREATE TYPE attendance_state_enum AS ENUM ('present','absent','late','excused','sick','leave','unmarked');
   END IF;
 
   -- =========================================================
--- ENUM baru: attendance_window_mode_enum
--- =========================================================
+  -- ENUM baru: attendance_window_mode_enum
+  -- =========================================================
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'attendance_window_mode_enum') THEN
     CREATE TYPE attendance_window_mode_enum AS ENUM (
       'anytime',         -- bebas kapan saja
@@ -45,7 +45,9 @@ BEGIN
   END IF;
 END$$;
 
-
+-- =========================================
+-- A) CLASS_ATTENDANCE_SESSION_PARTICIPANT_TYPES
+-- =========================================
 CREATE TABLE IF NOT EXISTS class_attendance_session_participant_types (
   class_attendance_session_participant_type_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
@@ -64,13 +66,18 @@ CREATE TABLE IF NOT EXISTS class_attendance_session_participant_types (
   class_attendance_session_participant_type_allow_student_self_attendance  BOOLEAN NOT NULL DEFAULT TRUE,
   class_attendance_session_participant_type_allow_teacher_mark_attendance  BOOLEAN NOT NULL DEFAULT TRUE,
   class_attendance_session_participant_type_require_teacher_attendance     BOOLEAN NOT NULL DEFAULT TRUE,
+
   -- daftar state yang WAJIB punya alasan (reason) kalau dipilih
   class_attendance_session_participant_type_require_attendance_reason
     attendance_state_enum[] NOT NULL DEFAULT ARRAY['unmarked']::attendance_state_enum[],
-  class_attendance_session_participant_type_meta                           JSONB,
-  class_attendance_session_type_attendance_window_mode          attendance_window_mode_enum NOT NULL DEFAULT 'same_day',
-  class_attendance_session_type_attendance_open_offset_minutes  INT,
-  class_attendance_session_type_attendance_close_offset_minutes INT
+
+  class_attendance_session_participant_type_meta JSONB,
+
+  -- window mode & offset (khusus attendance)
+  class_attendance_session_participant_type_attendance_window_mode          attendance_window_mode_enum NOT NULL DEFAULT 'same_day',
+  class_attendance_session_participant_type_attendance_open_offset_minutes  INT,
+  class_attendance_session_participant_type_attendance_close_offset_minutes INT,
+
   -- status
   class_attendance_session_participant_type_is_active BOOLEAN NOT NULL DEFAULT TRUE,
 
@@ -116,10 +123,6 @@ CREATE INDEX IF NOT EXISTS brin_caspt_created_at
   ON class_attendance_session_participant_types USING BRIN (
     class_attendance_session_participant_type_created_at
   );
-
-
-
-BEGIN;
 
 -- =========================================
 -- B) CLASS_ATTENDANCE_SESSION_PARTICIPANTS
@@ -219,9 +222,7 @@ CREATE TABLE IF NOT EXISTS class_attendance_session_participants (
   class_attendance_session_participant_deleted_at TIMESTAMPTZ
 );
 
--- =========================================
 -- INDEXES CLASS_ATTENDANCE_SESSION_PARTICIPANTS
--- =========================================
 
 -- unik aktif per (school, session, student)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_casp_student_alive
@@ -290,9 +291,6 @@ CREATE INDEX IF NOT EXISTS gin_casp_desc_trgm
   )
   WHERE class_attendance_session_participant_deleted_at IS NULL;
 
-COMMIT;
-
-
 -- =========================================
 -- C) CLASS_ATTENDANCE_SESSION_PARTICIPANT_URLS (lampiran/url per participant)
 -- =========================================
@@ -316,10 +314,10 @@ CREATE TABLE IF NOT EXISTS class_attendance_session_participant_urls (
   class_attendance_session_participant_url_kind VARCHAR(24) NOT NULL,
 
   -- Lokasi file/link (skema dua-slot + retensi)
-  class_attendance_session_participant_url                  TEXT,
-  class_attendance_session_participant_url_object_key       TEXT,
-  class_attendance_session_participant_url_old              TEXT,
-  class_attendance_session_participant_url_object_key_old   TEXT,
+  class_attendance_session_participant_url                      TEXT,
+  class_attendance_session_participant_url_object_key           TEXT,
+  class_attendance_session_participant_url_old                  TEXT,
+  class_attendance_session_participant_url_object_key_old       TEXT,
   class_attendance_session_participant_url_delete_pending_until TIMESTAMPTZ,
 
   -- Metadata tampilan

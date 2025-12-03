@@ -1,5 +1,5 @@
 // file: internals/services/snapsvc/snapsvc.go
-package snapsvc
+package service
 
 import (
 	"context"
@@ -12,8 +12,8 @@ import (
 
 var ErrSchoolMismatch = errors.New("school mismatch")
 
-// Struktur snapshot untuk Subject (sinkron dengan field snapshot di ClassSubject)
-type SubjectSnapshot struct {
+// Struktur cache untuk Subject (sinkron dengan field cache di ClassSubject)
+type SubjectCache struct {
 	ID   uuid.UUID `json:"id"`
 	Name string    `json:"name"`
 	Code string    `json:"code"`
@@ -21,12 +21,12 @@ type SubjectSnapshot struct {
 	URL  *string   `json:"url,omitempty"` // dipetakan dari subjects.subject_image_url (atau ganti sesuai kolom sumber kamu)
 }
 
-func BuildSubjectSnapshot(
+func BuildSubjectCache(
 	ctx context.Context,
 	tx *gorm.DB,
 	schoolID uuid.UUID,
 	subjectID uuid.UUID,
-) (*SubjectSnapshot, error) {
+) (*SubjectCache, error) {
 	var row struct {
 		SchoolID uuid.UUID
 		ID       uuid.UUID
@@ -72,7 +72,7 @@ func BuildSubjectSnapshot(
 		return &v
 	}
 
-	return &SubjectSnapshot{
+	return &SubjectCache{
 		ID:   row.ID,
 		Name: strings.TrimSpace(row.Name),
 		Code: strings.TrimSpace(row.Code),

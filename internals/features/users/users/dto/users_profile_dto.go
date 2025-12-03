@@ -20,7 +20,7 @@ type UsersProfileDTO struct {
 	UserProfileUserID uuid.UUID `json:"user_profile_user_id"`
 
 	// Snapshot dari users
-	UserProfileFullNameSnapshot *string `json:"user_profile_full_name_snapshot,omitempty"`
+	UserProfileFullNameCache *string `json:"user_profile_full_name_cache,omitempty"`
 
 	// Identitas dasar
 	UserProfileSlug         *string    `json:"user_profile_slug,omitempty"`
@@ -97,7 +97,7 @@ func ToUsersProfileDTO(m profilemodel.UserProfileModel) UsersProfileDTO {
 	return UsersProfileDTO{
 		UserProfileID:                       m.UserProfileID,
 		UserProfileUserID:                   m.UserProfileUserID,
-		UserProfileFullNameSnapshot:         m.UserProfileFullNameSnapshot,
+		UserProfileFullNameCache:            m.UserProfileFullNameCache,
 		UserProfileSlug:                     m.UserProfileSlug,
 		UserProfileDonationName:             m.UserProfileDonationName,
 		UserProfileDateOfBirth:              m.UserProfileDateOfBirth,

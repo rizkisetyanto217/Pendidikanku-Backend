@@ -18,11 +18,28 @@ import (
 =========================================================
 
 	LIST (tenant-safe; READ: DKM=semua, member=only_my)
-	=========================================================
+
+=========================================================
 */
 func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 	// Biar helper lain bisa ambil DB dari Locals kalau perlu
 	c.Locals("DB", ctl.DB)
+
+	// =====================================================
+	// 0) Parse include (opsional)
+	//    contoh: ?include=meta atau ?include=stats
+	// =====================================================
+	rawInclude := strings.TrimSpace(c.Query("include", ""))
+	includeMeta := false
+	if rawInclude != "" {
+		for _, part := range strings.Split(rawInclude, ",") {
+			p := strings.ToLower(strings.TrimSpace(part))
+			switch p {
+			case "meta", "stats":
+				includeMeta = true
+			}
+		}
+	}
 
 	// =====================================================
 	// 1) Tentukan schoolID:
@@ -217,5 +234,29 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 
 	// ✅ pagination jsonresponse (pakai helper standar)
 	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)
-	return helper.JsonList(c, "ok", resps, pg)
+
+	// ====== Tanpa include → tetap JsonList (behavior lama) ======
+	if !includeMeta {
+		return helper.JsonList(c, "ok", resps, pg)
+	}
+
+	// ====== Dengan include (meta/stats) → JsonListWithInclude ======
+
+	// Contoh meta sederhana: total & total_active di seluruh sekolah
+	var totalActive int64
+	if err := ctl.DB.WithContext(c.Context()).
+		Model(&cpmodel.ClassParentModel{}).
+		Where("class_parent_school_id = ? AND class_parent_deleted_at IS NULL AND class_parent_is_active = TRUE", schoolID).
+		Count(&totalActive).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
+	}
+
+	include := fiber.Map{
+		"meta": fiber.Map{
+			"total":        total,
+			"total_active": totalActive,
+		},
+	}
+
+	return helper.JsonListWithInclude(c, "ok", resps, include, pg)
 }

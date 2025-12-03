@@ -17,9 +17,9 @@ type AcademicTermModel struct {
 	AcademicTermSchoolID uuid.UUID `gorm:"type:uuid;not null;column:academic_term_school_id" json:"academic_term_school_id"`
 
 	// ============ Identitas ============
-	// Contoh academic_year: "2026/2027"
+	// Example academic_year: "2026/2027"
 	AcademicTermAcademicYear string `gorm:"type:text;not null;column:academic_term_academic_year" json:"academic_term_academic_year"`
-	// Contoh name: "Ganjil" | "Genap" | "Pendek"
+	// Example name: "Ganjil" | "Genap" | "Pendek"
 	AcademicTermName string `gorm:"type:text;not null;column:academic_term_name" json:"academic_term_name"`
 
 	AcademicTermStartDate time.Time `gorm:"type:timestamptz;not null;column:academic_term_start_date" json:"academic_term_start_date"`
@@ -29,28 +29,28 @@ type AcademicTermModel struct {
 	AcademicTermCode *string `gorm:"type:varchar(24);column:academic_term_code" json:"academic_term_code,omitempty"`
 	AcademicTermSlug *string `gorm:"type:varchar(50);column:academic_term_slug" json:"academic_term_slug,omitempty"`
 
-	// ============ Stats (ALL) ============
-	AcademicTermTotalClasses          int `gorm:"type:integer;not null;default:0;column:academic_term_total_classes" json:"academic_term_total_classes"`
-	AcademicTermTotalClassSections    int `gorm:"type:integer;not null;default:0;column:academic_term_total_class_sections" json:"academic_term_total_class_sections"`
-	AcademicTermTotalStudents         int `gorm:"type:integer;not null;default:0;column:academic_term_total_students" json:"academic_term_total_students"`
-	AcademicTermTotalStudentsMale     int `gorm:"type:integer;not null;default:0;column:academic_term_total_students_male" json:"academic_term_total_students_male"`
-	AcademicTermTotalStudentsFemale   int `gorm:"type:integer;not null;default:0;column:academic_term_total_students_female" json:"academic_term_total_students_female"`
-	AcademicTermTotalTeachers         int `gorm:"type:integer;not null;default:0;column:academic_term_total_teachers" json:"academic_term_total_teachers"`
-	AcademicTermTotalClassEnrollments int `gorm:"type:integer;not null;default:0;column:academic_term_total_class_enrollments" json:"academic_term_total_class_enrollments"`
+	// ============ Stats (ALL → *_count) ============
+	AcademicTermClassCount           int `gorm:"type:integer;not null;default:0;column:academic_term_class_count" json:"academic_term_class_count"`
+	AcademicTermClassSectionCount    int `gorm:"type:integer;not null;default:0;column:academic_term_class_section_count" json:"academic_term_class_section_count"`
+	AcademicTermStudentCount         int `gorm:"type:integer;not null;default:0;column:academic_term_student_count" json:"academic_term_student_count"`
+	AcademicTermStudentMaleCount     int `gorm:"type:integer;not null;default:0;column:academic_term_student_male_count" json:"academic_term_student_male_count"`
+	AcademicTermStudentFemaleCount   int `gorm:"type:integer;not null;default:0;column:academic_term_student_female_count" json:"academic_term_student_female_count"`
+	AcademicTermTeacherCount         int `gorm:"type:integer;not null;default:0;column:academic_term_teacher_count" json:"academic_term_teacher_count"`
+	AcademicTermClassEnrollmentCount int `gorm:"type:integer;not null;default:0;column:academic_term_class_enrollment_count" json:"academic_term_class_enrollment_count"`
 
-	// ============ Stats (ACTIVE ONLY) ============
-	AcademicTermTotalClassesActive          int `gorm:"type:integer;not null;default:0;column:academic_term_total_classes_active" json:"academic_term_total_classes_active"`
-	AcademicTermTotalClassSectionsActive    int `gorm:"type:integer;not null;default:0;column:academic_term_total_class_sections_active" json:"academic_term_total_class_sections_active"`
-	AcademicTermTotalStudentsActive         int `gorm:"type:integer;not null;default:0;column:academic_term_total_students_active" json:"academic_term_total_students_active"`
-	AcademicTermTotalStudentsMaleActive     int `gorm:"type:integer;not null;default:0;column:academic_term_total_students_male_active" json:"academic_term_total_students_male_active"`
-	AcademicTermTotalStudentsFemaleActive   int `gorm:"type:integer;not null;default:0;column:academic_term_total_students_female_active" json:"academic_term_total_students_female_active"`
-	AcademicTermTotalTeachersActive         int `gorm:"type:integer;not null;default:0;column:academic_term_total_teachers_active" json:"academic_term_total_teachers_active"`
-	AcademicTermTotalClassEnrollmentsActive int `gorm:"type:integer;not null;default:0;column:academic_term_total_class_enrollments_active" json:"academic_term_total_class_enrollments_active"`
+	// ============ Stats (ACTIVE ONLY → *_active_count) ============
+	AcademicTermClassActiveCount           int `gorm:"type:integer;not null;default:0;column:academic_term_class_active_count" json:"academic_term_class_active_count"`
+	AcademicTermClassSectionActiveCount    int `gorm:"type:integer;not null;default:0;column:academic_term_class_section_active_count" json:"academic_term_class_section_active_count"`
+	AcademicTermStudentActiveCount         int `gorm:"type:integer;not null;default:0;column:academic_term_student_active_count" json:"academic_term_student_active_count"`
+	AcademicTermStudentMaleActiveCount     int `gorm:"type:integer;not null;default:0;column:academic_term_student_male_active_count" json:"academic_term_student_male_active_count"`
+	AcademicTermStudentFemaleActiveCount   int `gorm:"type:integer;not null;default:0;column:academic_term_student_female_active_count" json:"academic_term_student_female_active_count"`
+	AcademicTermTeacherActiveCount         int `gorm:"type:integer;not null;default:0;column:academic_term_teacher_active_count" json:"academic_term_teacher_active_count"`
+	AcademicTermClassEnrollmentActiveCount int `gorm:"type:integer;not null;default:0;column:academic_term_class_enrollment_active_count" json:"academic_term_class_enrollment_active_count"`
 
-	// JSONB stats tambahan (opsional, fleksibel)
+	// JSONB extra stats (optional / flexible)
 	AcademicTermStats datatypes.JSON `gorm:"type:jsonb;column:academic_term_stats" json:"academic_term_stats,omitempty"`
 
-	// angkatan (opsional). Disimpan sebagai tahun masuk/angkatan (mis. 2024).
+	// Cohort / intake year (optional), e.g. 2024
 	AcademicTermAngkatan    *int    `gorm:"column:academic_term_angkatan" json:"academic_term_angkatan,omitempty"`
 	AcademicTermDescription *string `gorm:"type:text;column:academic_term_description" json:"academic_term_description,omitempty"`
 
@@ -65,14 +65,14 @@ type AcademicTermModel struct {
 
 func (AcademicTermModel) TableName() string { return "academic_terms" }
 
-// ============ Hooks: validasi & normalisasi ringan ============
+// ============ Hooks: validation & light normalization ============
 func (m *AcademicTermModel) BeforeSave(tx *gorm.DB) error {
 	// Mirror CHECK: end >= start
 	if m.AcademicTermEndDate.Before(m.AcademicTermStartDate) {
 		return errors.New("academic_term_end_date must be >= academic_term_start_date")
 	}
 
-	// Trim/normalize string ringan
+	// Trim/normalize basic strings
 	m.AcademicTermAcademicYear = strings.TrimSpace(m.AcademicTermAcademicYear)
 	m.AcademicTermName = strings.TrimSpace(m.AcademicTermName)
 
@@ -84,18 +84,21 @@ func (m *AcademicTermModel) BeforeSave(tx *gorm.DB) error {
 			m.AcademicTermCode = &c
 		}
 	}
+
 	if m.AcademicTermSlug != nil {
 		s := strings.TrimSpace(*m.AcademicTermSlug)
 		if s == "" {
 			m.AcademicTermSlug = nil
 		} else {
-			// biarkan casing ditentukan service layer; index unik pakai LOWER di SQL (kalau nanti ditambah)
+			// casing and slug style are controlled at service layer;
+			// DB uniqueness can rely on LOWER(...) index if needed.
 			if len(s) > 50 {
 				s = s[:50]
 			}
 			m.AcademicTermSlug = &s
 		}
 	}
+
 	if m.AcademicTermDescription != nil {
 		d := strings.TrimSpace(*m.AcademicTermDescription)
 		if d == "" {

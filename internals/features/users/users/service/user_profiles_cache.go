@@ -1,4 +1,4 @@
-package snapsvc
+package service
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
    USER PROFILE SNAPSHOT  (city → location)
 ========================================================= */
 
-type UserProfileSnapshot struct {
+type UserProfileCache struct {
 	ID                uuid.UUID `json:"id"` // user_profile_user_id
 	Name              string    `json:"name"`
 	AvatarURL         *string   `json:"avatar_url,omitempty"`
@@ -25,16 +25,16 @@ type UserProfileSnapshot struct {
 	Gender            *string   `json:"gender,omitempty"`   // ← NEW: user_profile_gender
 }
 
-// BuildUserProfileSnapshotByUserID membuat snapshot berdasar user_profile_user_id
-func BuildUserProfileSnapshotByUserID(
+// BuildUserProfileCacheByUserID membuat snapshot berdasar user_profile_user_id
+func BuildUserProfileCacheByUserID(
 	ctx context.Context,
 	tx *gorm.DB,
 	userID uuid.UUID,
-) (*UserProfileSnapshot, error) {
+) (*UserProfileCache, error) {
 	var row struct {
 		ProfileID         uuid.UUID
 		UserID            uuid.UUID
-		FullNameSnapshot  *string
+		FullNameCache     *string
 		DonationName      *string
 		Slug              *string
 		AvatarURL         *string
@@ -49,7 +49,7 @@ func BuildUserProfileSnapshotByUserID(
 		SELECT
 			user_profile_id                  AS profile_id,
 			user_profile_user_id             AS user_id,
-			user_profile_full_name_snapshot  AS full_name_snapshot,
+			user_profile_full_name_cache  AS full_name_cache,
 			user_profile_donation_name       AS donation_name,
 			user_profile_slug                AS slug,
 			user_profile_avatar_url          AS avatar_url,
@@ -81,7 +81,7 @@ func BuildUserProfileSnapshotByUserID(
 	}
 
 	name := ""
-	if s := nz(row.FullNameSnapshot); s != nil {
+	if s := nz(row.FullNameCache); s != nil {
 		name = *s
 	} else if s := nz(row.DonationName); s != nil {
 		name = *s
@@ -89,7 +89,7 @@ func BuildUserProfileSnapshotByUserID(
 		name = *s
 	}
 
-	return &UserProfileSnapshot{
+	return &UserProfileCache{
 		ID:                row.UserID,
 		Name:              name,
 		AvatarURL:         nz(row.AvatarURL),
@@ -103,16 +103,16 @@ func BuildUserProfileSnapshotByUserID(
 	}, nil
 }
 
-// BuildUserProfileSnapshotByProfileID membuat snapshot berdasar user_profile_id
-func BuildUserProfileSnapshotByProfileID(
+// BuildUserProfileCacheByProfileID membuat snapshot berdasar user_profile_id
+func BuildUserProfileCacheByProfileID(
 	ctx context.Context,
 	tx *gorm.DB,
 	profileID uuid.UUID,
-) (*UserProfileSnapshot, error) {
+) (*UserProfileCache, error) {
 	var row struct {
 		ProfileID         uuid.UUID
 		UserID            uuid.UUID
-		FullNameSnapshot  *string
+		FullNameCache     *string
 		DonationName      *string
 		Slug              *string
 		AvatarURL         *string
@@ -127,7 +127,7 @@ func BuildUserProfileSnapshotByProfileID(
 		SELECT
 			user_profile_id                  AS profile_id,
 			user_profile_user_id             AS user_id,
-			user_profile_full_name_snapshot  AS full_name_snapshot,
+			user_profile_full_name_cache  AS full_name_cache,
 			user_profile_donation_name       AS donation_name,
 			user_profile_slug                AS slug,
 			user_profile_avatar_url          AS avatar_url,
@@ -159,7 +159,7 @@ func BuildUserProfileSnapshotByProfileID(
 	}
 
 	name := ""
-	if s := nz(row.FullNameSnapshot); s != nil {
+	if s := nz(row.FullNameCache); s != nil {
 		name = *s
 	} else if s := nz(row.DonationName); s != nil {
 		name = *s
@@ -167,7 +167,7 @@ func BuildUserProfileSnapshotByProfileID(
 		name = *s
 	}
 
-	return &UserProfileSnapshot{
+	return &UserProfileCache{
 		ID:                row.UserID,
 		Name:              name,
 		AvatarURL:         nz(row.AvatarURL),

@@ -21,37 +21,37 @@ type ClassParentModel struct {
 	ClassParentDescription *string `json:"class_parent_description,omitempty" gorm:"column:class_parent_description;type:text"`
 
 	// Atribut & status
-	ClassParentLevel    *int16 `json:"class_parent_level,omitempty"   gorm:"column:class_parent_level"` // 0..100 (cek di DB: ck_class_parents_level_range)
-	ClassParentIsActive bool   `json:"class_parent_is_active"         gorm:"column:class_parent_is_active;not null;default:true"`
+	ClassParentLevel    *int16 `json:"class_parent_level,omitempty" gorm:"column:class_parent_level"`
+	ClassParentIsActive bool   `json:"class_parent_is_active"       gorm:"column:class_parent_is_active;not null;default:true"`
 
 	// ============================
-	// STATS (ALL)
+	// STATS (ALL) → COUNT
 	// ============================
-	ClassParentTotalClasses        int32 `json:"class_parent_total_classes"         gorm:"column:class_parent_total_classes;type:int;not null;default:0"`
-	ClassParentTotalClassSections  int32 `json:"class_parent_total_class_sections"  gorm:"column:class_parent_total_class_sections;type:int;not null;default:0"`
-	ClassParentTotalStudents       int32 `json:"class_parent_total_students"        gorm:"column:class_parent_total_students;type:int;not null;default:0"`
-	ClassParentTotalMaleStudents   int32 `json:"class_parent_total_male_students"   gorm:"column:class_parent_total_male_students;type:int;not null;default:0"`
-	ClassParentTotalFemaleStudents int32 `json:"class_parent_total_female_students" gorm:"column:class_parent_total_female_students;type:int;not null;default:0"`
-	ClassParentTotalTeachers       int32 `json:"class_parent_total_teachers"        gorm:"column:class_parent_total_teachers;type:int;not null;default:0"`
+	ClassParentClassCount         int32 `json:"class_parent_class_count"               gorm:"column:class_parent_class_count;type:int;not null;default:0"`
+	ClassParentClassSectionCount  int32 `json:"class_parent_class_section_count"       gorm:"column:class_parent_class_section_count;type:int;not null;default:0"`
+	ClassParentStudentCount       int32 `json:"class_parent_student_count"             gorm:"column:class_parent_student_count;type:int;not null;default:0"`
+	ClassParentStudentMaleCount   int32 `json:"class_parent_student_male_count"        gorm:"column:class_parent_student_male_count;type:int;not null;default:0"`
+	ClassParentStudentFemaleCount int32 `json:"class_parent_student_female_count"      gorm:"column:class_parent_student_female_count;type:int;not null;default:0"`
+	ClassParentTeacherCount       int32 `json:"class_parent_teacher_count"             gorm:"column:class_parent_teacher_count;type:int;not null;default:0"`
 
 	// ============================
-	// STATS (ACTIVE ONLY)
+	// STATS (ACTIVE ONLY) → COUNT
 	// ============================
-	ClassParentTotalClassesActive        int32 `json:"class_parent_total_classes_active"         gorm:"column:class_parent_total_classes_active;type:int;not null;default:0"`
-	ClassParentTotalClassSectionsActive  int32 `json:"class_parent_total_class_sections_active"  gorm:"column:class_parent_total_class_sections_active;type:int;not null;default:0"`
-	ClassParentTotalStudentsActive       int32 `json:"class_parent_total_students_active"        gorm:"column:class_parent_total_students_active;type:int;not null;default:0"`
-	ClassParentTotalMaleStudentsActive   int32 `json:"class_parent_total_male_students_active"   gorm:"column:class_parent_total_male_students_active;type:int;not null;default:0"`
-	ClassParentTotalFemaleStudentsActive int32 `json:"class_parent_total_female_students_active" gorm:"column:class_parent_total_female_students_active;type:int;not null;default:0"`
-	ClassParentTotalTeachersActive       int32 `json:"class_parent_total_teachers_active"        gorm:"column:class_parent_total_teachers_active;type:int;not null;default:0"`
+	ClassParentClassActiveCount         int32 `json:"class_parent_class_active_count"          gorm:"column:class_parent_class_active_count;type:int;not null;default:0"`
+	ClassParentClassSectionActiveCount  int32 `json:"class_parent_class_section_active_count"  gorm:"column:class_parent_class_section_active_count;type:int;not null;default:0"`
+	ClassParentStudentActiveCount       int32 `json:"class_parent_student_active_count"        gorm:"column:class_parent_student_active_count;type:int;not null;default:0"`
+	ClassParentStudentMaleActiveCount   int32 `json:"class_parent_student_male_active_count"   gorm:"column:class_parent_student_male_active_count;type:int;not null;default:0"`
+	ClassParentStudentFemaleActiveCount int32 `json:"class_parent_student_female_active_count" gorm:"column:class_parent_student_female_active_count;type:int;not null;default:0"`
+	ClassParentTeacherActiveCount       int32 `json:"class_parent_teacher_active_count"        gorm:"column:class_parent_teacher_active_count;type:int;not null;default:0"`
 
 	// Prasyarat/usia (fleksibel JSONB)
 	ClassParentRequirements datatypes.JSONMap `json:"class_parent_requirements" gorm:"column:class_parent_requirements;type:jsonb;not null;default:'{}'"`
 
 	// Single image (2-slot + retensi)
-	ClassParentImageURL                *string    `json:"class_parent_image_url,omitempty"                 gorm:"column:class_parent_image_url;type:text"`
-	ClassParentImageObjectKey          *string    `json:"class_parent_image_object_key,omitempty"          gorm:"column:class_parent_image_object_key;type:text"`
-	ClassParentImageURLOld             *string    `json:"class_parent_image_url_old,omitempty"             gorm:"column:class_parent_image_url_old;type:text"`
-	ClassParentImageObjectKeyOld       *string    `json:"class_parent_image_object_key_old,omitempty"      gorm:"column:class_parent_image_object_key_old;type:text"`
+	ClassParentImageURL                *string    `json:"class_parent_image_url,omitempty"                  gorm:"column:class_parent_image_url;type:text"`
+	ClassParentImageObjectKey          *string    `json:"class_parent_image_object_key,omitempty"           gorm:"column:class_parent_image_object_key;type:text"`
+	ClassParentImageURLOld             *string    `json:"class_parent_image_url_old,omitempty"              gorm:"column:class_parent_image_url_old;type:text"`
+	ClassParentImageObjectKeyOld       *string    `json:"class_parent_image_object_key_old,omitempty"       gorm:"column:class_parent_image_object_key_old;type:text"`
 	ClassParentImageDeletePendingUntil *time.Time `json:"class_parent_image_delete_pending_until,omitempty" gorm:"column:class_parent_image_delete_pending_until;type:timestamptz"`
 
 	// Audit

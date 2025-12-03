@@ -222,38 +222,9 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 		rows[i].BookIsDeleted = rows[i].BookDeletedAt != nil && !rows[i].BookDeletedAt.IsZero()
 	}
 
-	// ===== Build pagination meta (format seragam) =====
-	perPage := p.Limit()
-	if perPage <= 0 {
-		perPage = 20 // default aman
-	}
-	offset := p.Offset()
-	page := 1
-	if perPage > 0 {
-		page = (offset / perPage) + 1
-	}
-	totalPages := 1
-	if perPage > 0 {
-		totalPages = int((total + int64(perPage) - 1) / int64(perPage)) // ceil
-		if totalPages == 0 {
-			totalPages = 1
-		}
-	}
-	hasNext := page < totalPages
-	hasPrev := page > 1
+	// ===== Pagination meta (pakai helper standar) =====
+	pg := helper.BuildPaginationFromOffset(total, p.Offset(), p.Limit())
 
-	pagination := fiber.Map{
-		"page":        page,
-		"per_page":    perPage,
-		"total":       total,
-		"total_pages": totalPages,
-		"has_next":    hasNext,
-		"has_prev":    hasPrev,
-	}
-
-	// ===== Response =====
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"data":       rows,
-		"pagination": pagination,
-	})
+	// ===== Response (seragam) =====
+	return helper.JsonList(c, "ok", rows, pg)
 }

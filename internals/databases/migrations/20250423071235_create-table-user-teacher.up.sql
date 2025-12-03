@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS user_teachers (
   user_teacher_user_id          UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 
   -- Profil ringkas
-  user_teacher_name_snapshot    VARCHAR(80) NOT NULL,
+  user_teacher_user_full_name_cache    VARCHAR(80) NOT NULL,
   user_teacher_field            VARCHAR(80),
   user_teacher_short_bio        VARCHAR(300),
   user_teacher_long_bio         TEXT,
@@ -107,11 +107,11 @@ END$$;
 -- =========================================
 -- ILIKE cepat untuk name
 CREATE INDEX IF NOT EXISTS idx_ut_name_trgm
-  ON user_teachers USING gin (user_teacher_name_snapshot gin_trgm_ops)
+  ON user_teachers USING gin (user_teacher_user_full_name_cache gin_trgm_ops)
   WHERE user_teacher_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_ut_name_lower
-  ON user_teachers (lower(user_teacher_name_snapshot))
+  ON user_teachers (lower(user_teacher_user_full_name_cache))
   WHERE user_teacher_deleted_at IS NULL;
 
 -- Status & waktu

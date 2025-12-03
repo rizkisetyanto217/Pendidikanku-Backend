@@ -1,22 +1,19 @@
 -- +migrate Up
 /* =======================================================================
    MIGRATION: CSST (class_section_subject_teachers)
-              + SCSST (student_class_section_subject_teachers)
+              + PREREQ tenant-safe uniques
+              + quota_total/quota_taken
+              + min_passing_score cache from class_subjects
    ======================================================================= */
 
 BEGIN;
 
--- =========================================================
--- EXTENSIONS (safe to repeat)
--- =========================================================
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS btree_gin;
 CREATE EXTENSION IF NOT EXISTS btree_gist;
 
--- =========================================================
--- ENUMS (idempotent)
--- =========================================================
+-- ENUM: class_delivery_mode_enum
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'class_delivery_mode_enum') THEN
@@ -24,15 +21,14 @@ BEGIN
   END IF;
 END$$;
 
--- =========================================================
--- PREREQUISITES: UNIQUE CONSTRAINTS for FK targets (tenant-safe)
---   * If constraint sudah ada -> skip
---   * Jika belum ada tapi sudah ada index unik dengan nama sama -> attach UNIQUE USING INDEX
---   * Jika belum ada index -> buat UNIQUE constraint baru
--- =========================================================
+-- ======================================================================
+-- PREREQ tenant-safe uniques (class_sections, class_subjects, school_teachers,
+--                             class_rooms, school_students, academic_terms)
+-- ======================================================================
+
 DO $$
 BEGIN
-  -- class_sections (class_section_id, class_section_school_id)
+  -- class_sections
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
     WHERE conname = 'uq_class_sections_id_tenant'
@@ -56,7 +52,7 @@ BEGIN
     END IF;
   END IF;
 
-  -- class_subjects (class_subject_id, class_subject_school_id)
+  -- class_subjects
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
     WHERE conname = 'uq_class_subjects_id_tenant'
@@ -80,7 +76,7 @@ BEGIN
     END IF;
   END IF;
 
-  -- school_teachers (school_teacher_id, school_teacher_school_id)
+  -- school_teachers
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
     WHERE conname = 'uq_school_teachers_id_tenant'
@@ -104,7 +100,7 @@ BEGIN
     END IF;
   END IF;
 
-  -- class_rooms (class_room_id, class_room_school_id)
+  -- class_rooms
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
     WHERE conname = 'uq_class_rooms_id_tenant'
@@ -128,7 +124,7 @@ BEGIN
     END IF;
   END IF;
 
-  -- school_students (school_student_id, school_student_school_id)
+  -- school_students
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
     WHERE conname = 'uq_school_students_id_tenant'
@@ -153,9 +149,37 @@ BEGIN
   END IF;
 END$$;
 
--- =========================================================
--- TABLE: class_section_subject_teachers (CSST) - sinkron dgn model Go
--- =========================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'uq_academic_terms_id_tenant'
+      AND conrelid = 'academic_terms'::regclass
+  ) THEN
+    IF EXISTS (
+      SELECT 1
+      FROM pg_class c
+      JOIN pg_index i ON i.indexrelid = c.oid
+      WHERE c.relname = 'uq_academic_terms_id_tenant'
+        AND i.indrelid = 'academic_terms'::regclass
+        AND i.indisunique
+    ) THEN
+      EXECUTE 'ALTER TABLE academic_terms
+               ADD CONSTRAINT uq_academic_terms_id_tenant
+               UNIQUE USING INDEX uq_academic_terms_id_tenant';
+    ELSE
+      ALTER TABLE academic_terms
+        ADD CONSTRAINT uq_academic_terms_id_tenant
+        UNIQUE (academic_term_id, academic_term_school_id);
+    END IF;
+  END IF;
+END$$;
+
+-- ======================================================================
+-- TABLE: class_section_subject_teachers (CSST)
+-- (untuk fresh install, kalau tabel belum ada)
+-- ======================================================================
 CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teacher_id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   class_section_subject_teacher_school_id        UUID NOT NULL
@@ -166,68 +190,81 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teacher_description      TEXT,
   class_section_subject_teacher_group_url        TEXT,
 
-  -- Agregat & kapasitas (sesuai model)
+  -- Agregat & quota
   class_section_subject_teacher_total_attendance          INT NOT NULL DEFAULT 0,
   class_section_subject_teacher_total_meetings_target     INT,
-  class_section_subject_teacher_capacity                  INT,
-  class_section_subject_teacher_enrolled_count            INT NOT NULL DEFAULT 0,
+
+  -- quota_total / quota_taken
+  class_section_subject_teacher_quota_total               INT,
+  class_section_subject_teacher_quota_taken               INT NOT NULL DEFAULT 0,
+
   class_section_subject_teacher_total_assessments         INT NOT NULL DEFAULT 0,
   class_section_subject_teacher_total_assessments_graded  INT NOT NULL DEFAULT 0,
   class_section_subject_teacher_total_assessments_ungraded INT NOT NULL DEFAULT 0,
   class_section_subject_teacher_total_students_passed     INT NOT NULL DEFAULT 0,
 
-  -- Delivery mode
   class_section_subject_teacher_delivery_mode    class_delivery_mode_enum NOT NULL DEFAULT 'offline',
 
-  class_section_subject_teacher_school_attendance_entry_mode_snapshot
+  class_section_subject_teacher_school_attendance_entry_mode_cache
     attendance_entry_mode_enum,
 
   /* =======================
-     SECTION snapshot (tanpa JSONB)
+     SECTION cache (tanpa JSONB)
      ======================= */
   class_section_subject_teacher_class_section_id            UUID NOT NULL,
-  class_section_subject_teacher_class_section_slug_snapshot VARCHAR(160),
-  class_section_subject_teacher_class_section_name_snapshot VARCHAR(160),
-  class_section_subject_teacher_class_section_code_snapshot VARCHAR(50),
-  class_section_subject_teacher_class_section_url_snapshot  TEXT,
+  class_section_subject_teacher_class_section_slug_cache    VARCHAR(160),
+  class_section_subject_teacher_class_section_name_cache    VARCHAR(160),
+  class_section_subject_teacher_class_section_code_cache    VARCHAR(50),
+  class_section_subject_teacher_class_section_url_cache     TEXT,
 
   /* =======================
-     ROOM snapshot (JSONB + generated)
+     ROOM cache (JSONB + generated)
      ======================= */
   class_section_subject_teacher_class_room_id                UUID,
-  class_section_subject_teacher_class_room_slug_snapshot     VARCHAR(160),
-  class_section_subject_teacher_class_room_snapshot          JSONB,
-  class_section_subject_teacher_class_room_name_snapshot     TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_class_room_snapshot->>'name')) STORED,
-  class_section_subject_teacher_class_room_slug_snapshot_gen TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_class_room_snapshot->>'slug')) STORED,
-  class_section_subject_teacher_class_room_location_snapshot TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_class_room_snapshot->>'location')) STORED,
+  class_section_subject_teacher_class_room_slug_cache        VARCHAR(160),
+  class_section_subject_teacher_class_room_cache             JSONB,
+  class_section_subject_teacher_class_room_name_cache        TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_class_room_cache->>'name')) STORED,
+  class_section_subject_teacher_class_room_slug_cache_gen    TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_class_room_cache->>'slug')) STORED,
+  class_section_subject_teacher_class_room_location_cache    TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_class_room_cache->>'location')) STORED,
 
   /* =======================
-     PEOPLE snapshot (teacher & assistant)
+     PEOPLE cache (teacher & assistant)
      ======================= */
   class_section_subject_teacher_school_teacher_id                 UUID,
-  class_section_subject_teacher_school_teacher_slug_snapshot      VARCHAR(160),
-  class_section_subject_teacher_school_teacher_snapshot           JSONB,
+  class_section_subject_teacher_school_teacher_slug_cache         VARCHAR(160),
+  class_section_subject_teacher_school_teacher_cache              JSONB,
 
   class_section_subject_teacher_assistant_school_teacher_id       UUID,
-  class_section_subject_teacher_assistant_school_teacher_slug_snapshot VARCHAR(160),
-  class_section_subject_teacher_assistant_school_teacher_snapshot JSONB,
+  class_section_subject_teacher_assistant_school_teacher_slug_cache VARCHAR(160),
+  class_section_subject_teacher_assistant_school_teacher_cache    JSONB,
 
-  class_section_subject_teacher_school_teacher_name_snapshot           TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_school_teacher_snapshot->>'name')) STORED,
-  class_section_subject_teacher_assistant_school_teacher_name_snapshot TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_assistant_school_teacher_snapshot->>'name')) STORED,
-
+  class_section_subject_teacher_school_teacher_name_cache           TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_school_teacher_cache->>'name')) STORED,
+  class_section_subject_teacher_assistant_school_teacher_name_cache TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_assistant_school_teacher_cache->>'name')) STORED,
 
   /* =======================
-     SUBJECT snapshot (via CLASS_SUBJECT)
+     SUBJECT cache (via CLASS_SUBJECT)
      ======================= */
   class_section_subject_teacher_total_books          INT NOT NULL DEFAULT 0,
   class_section_subject_teacher_class_subject_id     UUID NOT NULL,
-  class_section_subject_teacher_subject_id_snapshot  UUID,
-  class_section_subject_teacher_subject_name_snapshot VARCHAR(160),
-  class_section_subject_teacher_subject_code_snapshot VARCHAR(80),
-  class_section_subject_teacher_subject_slug_snapshot VARCHAR(160),
+  class_section_subject_teacher_subject_id_cache     UUID,
+  class_section_subject_teacher_subject_name_cache   VARCHAR(160),
+  class_section_subject_teacher_subject_code_cache   VARCHAR(80),
+  class_section_subject_teacher_subject_slug_cache   VARCHAR(160),
 
-  -- KKM snapshot per CSST (opsional)
-  class_section_subject_teacher_min_passing_score    INT,
+  /* =======================
+     ACADEMIC_TERM cache
+     ======================= */
+  class_section_subject_teacher_academic_term_id UUID,
+  class_section_subject_teacher_academic_term_name_cache      VARCHAR(160),
+  class_section_subject_teacher_academic_term_slug_cache      VARCHAR(160),
+  class_section_subject_teacher_academic_year_cache           VARCHAR(160),
+  class_section_subject_teacher_academic_term_angkatan_cache  INT,
+
+  /* =======================
+     KKM cache per CSST
+     ======================= */
+  class_section_subject_teacher_min_passing_score_class_subject_cache INT,
+  class_section_subject_teacher_min_passing_score                     INT,
 
   -- Status & audit
   class_section_subject_teacher_is_active   BOOLEAN     NOT NULL DEFAULT TRUE,
@@ -235,11 +272,11 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teacher_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_section_subject_teacher_deleted_at  TIMESTAMPTZ,
 
-  /* =============== CHECKS =============== */
+  -- CHECKS
   CONSTRAINT ck_csst_capacity_nonneg
-    CHECK (class_section_subject_teacher_capacity IS NULL OR class_section_subject_teacher_capacity >= 0),
+    CHECK (class_section_subject_teacher_quota_total IS NULL OR class_section_subject_teacher_quota_total >= 0),
   CONSTRAINT ck_csst_enrolled_nonneg
-    CHECK (class_section_subject_teacher_enrolled_count >= 0),
+    CHECK (class_section_subject_teacher_quota_taken >= 0),
   CONSTRAINT ck_csst_counts_nonneg
     CHECK (
       class_section_subject_teacher_total_attendance          >= 0 AND
@@ -249,14 +286,14 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
       class_section_subject_teacher_total_students_passed     >= 0 AND
       class_section_subject_teacher_total_books               >= 0
     ),
-  CONSTRAINT ck_csst_room_snapshot_is_object
-    CHECK (class_section_subject_teacher_class_room_snapshot IS NULL OR jsonb_typeof(class_section_subject_teacher_class_room_snapshot) = 'object'),
-  CONSTRAINT ck_csst_teacher_snapshot_is_object
-    CHECK (class_section_subject_teacher_school_teacher_snapshot IS NULL OR jsonb_typeof(class_section_subject_teacher_school_teacher_snapshot) = 'object'),
-  CONSTRAINT ck_csst_asst_teacher_snapshot_is_object
-    CHECK (class_section_subject_teacher_assistant_school_teacher_snapshot IS NULL OR jsonb_typeof(class_section_subject_teacher_assistant_school_teacher_snapshot) = 'object'),
+  CONSTRAINT ck_csst_room_cache_is_object
+    CHECK (class_section_subject_teacher_class_room_cache IS NULL OR jsonb_typeof(class_section_subject_teacher_class_room_cache) = 'object'),
+  CONSTRAINT ck_csst_teacher_cache_is_object
+    CHECK (class_section_subject_teacher_school_teacher_cache IS NULL OR jsonb_typeof(class_section_subject_teacher_school_teacher_cache) = 'object'),
+  CONSTRAINT ck_csst_asst_teacher_cache_is_object
+    CHECK (class_section_subject_teacher_assistant_school_teacher_cache IS NULL OR jsonb_typeof(class_section_subject_teacher_assistant_school_teacher_cache) = 'object'),
 
-  /* =============== TENANT-SAFE FKs =============== */
+  -- TENANT-SAFE FKs
   CONSTRAINT fk_csst_section_tenant FOREIGN KEY (
     class_section_subject_teacher_class_section_id,
     class_section_subject_teacher_school_id
@@ -288,9 +325,9 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
     ON UPDATE CASCADE ON DELETE SET NULL
 );
 
--- =========================================================
--- UNIQUE & INDEXES (CSST) - update ke class_subject
--- =========================================================
+-- ======================================================================
+-- INDEXES
+-- ======================================================================
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_id_tenant
   ON class_section_subject_teachers (class_section_subject_teacher_id, class_section_subject_teacher_school_id);
 
@@ -350,31 +387,80 @@ CREATE INDEX IF NOT EXISTS brin_csst_created_at
   ON class_section_subject_teachers USING BRIN (class_section_subject_teacher_created_at);
 
 CREATE INDEX IF NOT EXISTS idx_csst_capacity_alive
-  ON class_section_subject_teachers (class_section_subject_teacher_capacity)
+  ON class_section_subject_teachers (class_section_subject_teacher_quota_total)
   WHERE class_section_subject_teacher_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_csst_enrolled_count_alive
-  ON class_section_subject_teachers (class_section_subject_teacher_enrolled_count)
+  ON class_section_subject_teachers (class_section_subject_teacher_quota_taken)
   WHERE class_section_subject_teacher_deleted_at IS NULL;
 
--- SUBJECT snapshot search
-CREATE INDEX IF NOT EXISTS gin_csst_subject_name_snapshot_trgm_alive
+-- SUBJECT cache search
+CREATE INDEX IF NOT EXISTS gin_csst_subject_name_cache_trgm_alive
   ON class_section_subject_teachers
-  USING GIN (LOWER(class_section_subject_teacher_subject_name_snapshot) gin_trgm_ops)
+  USING GIN (LOWER(class_section_subject_teacher_subject_name_cache) gin_trgm_ops)
   WHERE class_section_subject_teacher_deleted_at IS NULL
-    AND class_section_subject_teacher_subject_name_snapshot IS NOT NULL;
+    AND class_section_subject_teacher_subject_name_cache IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS idx_csst_subject_code_snapshot_alive
-  ON class_section_subject_teachers (LOWER(class_section_subject_teacher_subject_code_snapshot))
+CREATE INDEX IF NOT EXISTS idx_csst_subject_code_cache_alive
+  ON class_section_subject_teachers (LOWER(class_section_subject_teacher_subject_code_cache))
   WHERE class_section_subject_teacher_deleted_at IS NULL
-    AND class_section_subject_teacher_subject_code_snapshot IS NOT NULL;
+    AND class_section_subject_teacher_subject_code_cache IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS gin_csst_subject_slug_snapshot_trgm_alive
+CREATE INDEX IF NOT EXISTS gin_csst_subject_slug_cache_trgm_alive
   ON class_section_subject_teachers
-  USING GIN (LOWER(class_section_subject_teacher_subject_slug_snapshot) gin_trgm_ops)
+  USING GIN (LOWER(class_section_subject_teacher_subject_slug_cache) gin_trgm_ops)
   WHERE class_section_subject_teacher_deleted_at IS NULL
-    AND class_section_subject_teacher_subject_slug_snapshot IS NOT NULL;
+    AND class_section_subject_teacher_subject_slug_cache IS NOT NULL;
 
+-- ======================================================================
+-- ALTER UNTUK SKEMA LAMA (capacity/enrolled_count → quota_total/quota_taken)
+-- + tambahkan kolom KKM cache kalau belum ada
+-- ======================================================================
+
+DO $$
+BEGIN
+  -- rename capacity → quota_total (kalau masih ada)
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'class_section_subject_teachers'
+      AND column_name = 'class_section_subject_teacher_capacity'
+  ) THEN
+    EXECUTE 'ALTER TABLE class_section_subject_teachers
+             RENAME COLUMN class_section_subject_teacher_capacity
+             TO class_section_subject_teacher_quota_total';
+  END IF;
+
+  -- rename enrolled_count → quota_taken (kalau masih ada)
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'class_section_subject_teachers'
+      AND column_name = 'class_section_subject_teacher_enrolled_count'
+  ) THEN
+    EXECUTE 'ALTER TABLE class_section_subject_teachers
+             RENAME COLUMN class_section_subject_teacher_enrolled_count
+             TO class_section_subject_teacher_quota_taken';
+  END IF;
+END$$;
+
+
+-- ======================================================================
+-- COMMENT biar jelas asal datanya
+-- ======================================================================
+
+COMMENT ON COLUMN class_section_subject_teachers.class_section_subject_teacher_min_passing_score_class_subject_cache IS
+  'KKM bawaan dari class_subjects.class_subject_min_passing_score (pure cache, jangan di-edit manual)';
+
+COMMENT ON COLUMN class_section_subject_teachers.class_section_subject_teacher_min_passing_score IS
+  'KKM efektif per CSST; default-nya copy dari *_class_subject_cache, boleh di-override per kelas/section';
+
+COMMENT ON COLUMN class_subjects.class_subject_min_passing_score IS
+  'KKM dasar per kombinasi (class_parent + subject); dicache ke CSST sebagai *_min_passing_score_class_subject_cache';
+
+COMMIT;
+
+
+-- +migrate Up
+BEGIN;
 
 -- =========================================================
 -- TABLE: student_class_section_subject_teachers (SCSST)
@@ -413,14 +499,14 @@ CREATE TABLE IF NOT EXISTS student_class_section_subject_teachers (
   student_class_section_subject_teacher_grade_point      NUMERIC(3,2),
   student_class_section_subject_teacher_is_passed        BOOLEAN,
 
-  -- Snapshot user profile & siswa
-  student_class_section_subject_teacher_user_profile_name_snapshot                 VARCHAR(80),
-  student_class_section_subject_teacher_user_profile_avatar_url_snapshot           VARCHAR(255),
-  student_class_section_subject_teacher_user_profile_whatsapp_url_snapshot         VARCHAR(50),
-  student_class_section_subject_teacher_user_profile_parent_name_snapshot          VARCHAR(80),
-  student_class_section_subject_teacher_user_profile_parent_whatsapp_url_snapshot  VARCHAR(50),
-  student_class_section_subject_teacher_user_profile_gender_snapshot               VARCHAR(20),  -- NEW
-  student_class_section_subject_teacher_student_code_snapshot                      VARCHAR(50),  -- NEW
+  -- Cache user profile & siswa
+  student_class_section_subject_teacher_name_cache           VARCHAR(80),
+  student_class_section_subject_teacher_avatar_url_cache     VARCHAR(255),
+  student_class_section_subject_teacher_wa_url_cache         VARCHAR(50),
+  student_class_section_subject_teacher_parent_name_cache    VARCHAR(80),
+  student_class_section_subject_teacher_parent_wa_url_cache  VARCHAR(50),
+  student_class_section_subject_teacher_gender_cache         VARCHAR(20),
+  student_class_section_subject_teacher_student_code_cache   VARCHAR(50),
 
   -- Riwayat intervensi/remedial
   student_class_section_subject_teacher_edits_history JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -518,5 +604,4 @@ CREATE INDEX IF NOT EXISTS gin_scsst_edits_history
   ON student_class_section_subject_teachers
   USING GIN (student_class_section_subject_teacher_edits_history jsonb_path_ops);
 
-  
 COMMIT;

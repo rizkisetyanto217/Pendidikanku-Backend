@@ -5,6 +5,7 @@ import (
 	qmodel "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
+
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -16,12 +17,28 @@ import (
 ========================================================= */
 
 // GET /quiz-questions
+//
 // Contoh:
 //
-//	/quiz-questions?quiz_id=...&with_quiz=true
-//	/quiz-questions?id=...&with_quiz=true
+//	/quiz-questions?quiz_id=...&include=quiz
+//	/quiz-questions?id=...&include=quiz
 func (ctl *QuizQuestionsController) List(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
+
+	// =====================================================
+	// 0) Parse include flags (?include=quiz)
+	// =====================================================
+	rawInclude := strings.TrimSpace(c.Query("include", ""))
+	includeQuiz := false
+	if rawInclude != "" {
+		for _, part := range strings.Split(rawInclude, ",") {
+			p := strings.ToLower(strings.TrimSpace(part))
+			switch p {
+			case "quiz", "parent", "meta":
+				includeQuiz = true
+			}
+		}
+	}
 
 	// =====================================================
 	// 1) Tentukan schoolID:
@@ -66,7 +83,7 @@ func (ctl *QuizQuestionsController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusForbidden, err.Error())
 	}
 
-	// 2) Parse query
+	// 2) Parse query (DTO)
 	var q qdto.ListQuizQuestionsQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
@@ -76,6 +93,11 @@ func (ctl *QuizQuestionsController) List(c *fiber.Ctx) error {
 	}
 	// Force tenant
 	q.SchoolID = &schoolID
+
+	// ✅ Effective flag: include quiz di-resolve dari:
+	// - ?include=quiz (baru, utama)
+	// - q.WithQuiz (lama, kalau DTO masih punya)
+	effectiveIncludeQuiz := includeQuiz || q.WithQuiz
 
 	// 3) Paging
 	p := helper.ResolvePaging(c, 20, 200)
@@ -104,7 +126,7 @@ func (ctl *QuizQuestionsController) List(c *fiber.Ctx) error {
 	}
 
 	// 7) Optional preload parent quiz
-	if q.WithQuiz {
+	if effectiveIncludeQuiz {
 		dbq = dbq.Preload("Quiz")
 	}
 
@@ -124,43 +146,41 @@ func (ctl *QuizQuestionsController) List(c *fiber.Ctx) error {
 	// 11) Bentuk response
 	// =============================
 
-	// Kalau TIDAK minta with_quiz -> behaviour lama
-	if !q.WithQuiz {
+	// ❌ Tidak minta include quiz → behaviour standar
+	if !effectiveIncludeQuiz {
 		return helper.JsonList(c, "ok", out, pg)
 	}
 
-	// Kalau with_quiz = true -> quiz jadi parent (1x saja di root)
+	// Kalau nggak ada data, balikin seperti biasa (nggak maksa include)
 	if len(rows) == 0 {
-		// nggak ada data, balikin biasa aja (tanpa quiz)
 		return helper.JsonList(c, "ok", out, pg)
 	}
 
 	// Ambil quiz dari row pertama (diasumsikan semua dari quiz yang sama)
 	var quizResp *qdto.QuizResponse
 	if rows[0].Quiz != nil {
-		qr := qdto.FromModel(rows[0].Quiz) // pakai DTO QuizResponse yang lengkap
+		qr := qdto.FromModel(rows[0].Quiz) // DTO QuizResponse
 		quizResp = &qr
 	}
 
-	// Bersihkan field Quiz di tiap question (biar nggak duplikat)
+	// Bersihkan field Quiz di tiap question (biar nggak duplikat di data)
 	for i := range out {
 		out[i].Quiz = nil
 	}
 
-	// Kalau quiz sukses diambil, kirim sebagai parent di meta
+	// Kalau quiz sukses diambil, kirim sebagai parent di "include"
 	if quizResp != nil {
-		return helper.JsonListEx(
+		return helper.JsonListWithInclude(
 			c,
 			"ok",
 			out,
-			pg,
 			fiber.Map{
 				"quiz": quizResp,
 			},
+			pg,
 		)
 	}
 
 	// Fallback kalau entah kenapa Quiz nil
 	return helper.JsonList(c, "ok", out, pg)
-
 }

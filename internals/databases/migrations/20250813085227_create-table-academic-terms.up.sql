@@ -23,26 +23,27 @@ CREATE TABLE IF NOT EXISTS academic_terms (
   academic_term_slug VARCHAR(50),     -- URL-friendly per tenant
 
   -- ========================
-  -- Stats (ALL)
+  -- Stats (ALL) → COUNT
   -- ========================
-  academic_term_total_classes               INTEGER NOT NULL DEFAULT 0,
-  academic_term_total_class_sections        INTEGER NOT NULL DEFAULT 0,
-  academic_term_total_students              INTEGER NOT NULL DEFAULT 0,
-  academic_term_total_students_male         INTEGER NOT NULL DEFAULT 0,
-  academic_term_total_students_female       INTEGER NOT NULL DEFAULT 0,
-  academic_term_total_teachers              INTEGER NOT NULL DEFAULT 0,
-  academic_term_total_class_enrollments     INTEGER NOT NULL DEFAULT 0,
+  academic_term_class_count                   INTEGER NOT NULL DEFAULT 0,
+  academic_term_class_section_count           INTEGER NOT NULL DEFAULT 0,
+  academic_term_student_count                 INTEGER NOT NULL DEFAULT 0,
+  academic_term_student_male_count            INTEGER NOT NULL DEFAULT 0,
+  academic_term_student_female_count          INTEGER NOT NULL DEFAULT 0,
+  academic_term_teacher_count                 INTEGER NOT NULL DEFAULT 0,
+  academic_term_class_enrollment_count        INTEGER NOT NULL DEFAULT 0,
 
   -- ========================
-  -- Stats (ACTIVE ONLY)
+  -- Stats (ACTIVE ONLY) → COUNT
   -- ========================
-  academic_term_total_classes_active               INTEGER NOT NULL DEFAULT 0,
-  academic_term_total_class_sections_active        INTEGER NOT NULL DEFAULT 0,
-  academic_term_total_students_active              INTEGER NOT NULL DEFAULT 0,
-  academic_term_total_students_male_active         INTEGER NOT NULL DEFAULT 0,
-  academic_term_total_students_female_active       INTEGER NOT NULL DEFAULT 0,
-  academic_term_total_teachers_active              INTEGER NOT NULL DEFAULT 0,
-  academic_term_total_class_enrollments_active     INTEGER NOT NULL DEFAULT 0,
+  academic_term_class_active_count            INTEGER NOT NULL DEFAULT 0,
+  academic_term_class_section_active_count    INTEGER NOT NULL DEFAULT 0,
+  academic_term_student_active_count          INTEGER NOT NULL DEFAULT 0,
+  academic_term_student_male_active_count     INTEGER NOT NULL DEFAULT 0,
+  academic_term_student_female_active_count   INTEGER NOT NULL DEFAULT 0,
+  academic_term_teacher_active_count          INTEGER NOT NULL DEFAULT 0,
+  academic_term_class_enrollment_active_count INTEGER NOT NULL DEFAULT 0,
+
 
   academic_term_stats JSONB,
 

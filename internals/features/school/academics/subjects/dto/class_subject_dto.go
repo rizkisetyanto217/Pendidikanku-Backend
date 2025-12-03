@@ -120,7 +120,7 @@ type ListClassSubjectQuery struct {
 }
 
 /* =========================================================
-   2) RESPONSE DTO (basic + snapshots)
+   2) RESPONSE DTO (basic + caches)
 ========================================================= */
 
 type ClassSubjectResponse struct {
@@ -148,18 +148,18 @@ type ClassSubjectResponse struct {
 	WeightFinal          *int `json:"class_subject_weight_final,omitempty"`
 	MinAttendancePercent *int `json:"class_subject_min_attendance_percent,omitempty"`
 
-	// ============ Snapshots: subjects ============
-	SubjectNameSnapshot *string `json:"class_subject_subject_name_snapshot,omitempty"`
-	SubjectCodeSnapshot *string `json:"class_subject_subject_code_snapshot,omitempty"`
-	SubjectSlugSnapshot *string `json:"class_subject_subject_slug_snapshot,omitempty"`
-	SubjectURLSnapshot  *string `json:"class_subject_subject_url_snapshot,omitempty"`
+	// ============ Caches: subjects ============
+	SubjectNameCache *string `json:"class_subject_subject_name_cache,omitempty"`
+	SubjectCodeCache *string `json:"class_subject_subject_code_cache,omitempty"`
+	SubjectSlugCache *string `json:"class_subject_subject_slug_cache,omitempty"`
+	SubjectURLCache  *string `json:"class_subject_subject_url_cache,omitempty"`
 
-	// ============ Snapshots: class_parent ============
-	ClassParentCodeSnapshot  *string `json:"class_subject_class_parent_code_snapshot,omitempty"`
-	ClassParentSlugSnapshot  *string `json:"class_subject_class_parent_slug_snapshot,omitempty"`
-	ClassParentLevelSnapshot *int16  `json:"class_subject_class_parent_level_snapshot,omitempty"`
-	ClassParentURLSnapshot   *string `json:"class_subject_class_parent_url_snapshot,omitempty"`
-	ClassParentNameSnapshot  *string `json:"class_subject_class_parent_name_snapshot,omitempty"`
+	// ============ Caches: class_parent ============
+	ClassParentCodeCache  *string `json:"class_subject_class_parent_code_cache,omitempty"`
+	ClassParentSlugCache  *string `json:"class_subject_class_parent_slug_cache,omitempty"`
+	ClassParentLevelCache *int16  `json:"class_subject_class_parent_level_cache,omitempty"`
+	ClassParentURLCache   *string `json:"class_subject_class_parent_url_cache,omitempty"`
+	ClassParentNameCache  *string `json:"class_subject_class_parent_name_cache,omitempty"`
 
 	// status & timestamps
 	IsActive  bool       `json:"class_subject_is_active"`
@@ -250,18 +250,18 @@ func FromClassSubjectModel(m csModel.ClassSubjectModel) ClassSubjectResponse {
 		WeightFinal:          int16ToIntPtr(m.ClassSubjectWeightFinal),
 		MinAttendancePercent: int16ToIntPtr(m.ClassSubjectMinAttendancePercent),
 
-		// snapshots: subjects
-		SubjectNameSnapshot: m.ClassSubjectSubjectNameSnapshot,
-		SubjectCodeSnapshot: m.ClassSubjectSubjectCodeSnapshot,
-		SubjectSlugSnapshot: m.ClassSubjectSubjectSlugSnapshot,
-		SubjectURLSnapshot:  m.ClassSubjectSubjectURLSnapshot,
+		// caches: subjects
+		SubjectNameCache: m.ClassSubjectSubjectNameCache,
+		SubjectCodeCache: m.ClassSubjectSubjectCodeCache,
+		SubjectSlugCache: m.ClassSubjectSubjectSlugCache,
+		SubjectURLCache:  m.ClassSubjectSubjectURLCache,
 
-		// snapshots: class_parent
-		ClassParentCodeSnapshot:  m.ClassSubjectClassParentCodeSnapshot,
-		ClassParentSlugSnapshot:  m.ClassSubjectClassParentSlugSnapshot,
-		ClassParentLevelSnapshot: m.ClassSubjectClassParentLevelSnapshot,
-		ClassParentURLSnapshot:   m.ClassSubjectClassParentURLSnapshot,
-		ClassParentNameSnapshot:  m.ClassSubjectClassParentNameSnapshot,
+		// caches: class_parent
+		ClassParentCodeCache:  m.ClassSubjectClassParentCodeCache,
+		ClassParentSlugCache:  m.ClassSubjectClassParentSlugCache,
+		ClassParentLevelCache: m.ClassSubjectClassParentLevelCache,
+		ClassParentURLCache:   m.ClassSubjectClassParentURLCache,
+		ClassParentNameCache:  m.ClassSubjectClassParentNameCache,
 
 		IsActive:  m.ClassSubjectIsActive,
 		CreatedAt: m.ClassSubjectCreatedAt,

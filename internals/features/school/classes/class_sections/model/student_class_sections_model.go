@@ -34,9 +34,9 @@ type StudentClassSection struct {
 	StudentClassSectionSchoolStudentID uuid.UUID `gorm:"type:uuid;not null;column:student_class_section_school_student_id" json:"student_class_section_school_student_id"`
 	StudentClassSectionSchoolID        uuid.UUID `gorm:"type:uuid;not null;column:student_class_section_school_id" json:"student_class_section_school_id"`
 
-	// Section & snapshot slug
+	// Section & cache slug
 	StudentClassSectionSectionID           uuid.UUID `gorm:"type:uuid;not null;column:student_class_section_section_id" json:"student_class_section_section_id"`
-	StudentClassSectionSectionSlugSnapshot string    `gorm:"type:varchar(160);not null;column:student_class_section_section_slug_snapshot" json:"student_class_section_section_slug_snapshot"`
+	StudentClassSectionSectionSlugCache string    `gorm:"type:varchar(160);not null;column:student_class_section_section_slug_cache" json:"student_class_section_section_slug_cache"`
 
 	// Lifecycle enrolment
 	StudentClassSectionStatus StudentClassSectionStatus  `gorm:"type:text;not null;default:'active';column:student_class_section_status" json:"student_class_section_status"`
@@ -53,14 +53,14 @@ type StudentClassSection struct {
 	StudentClassSectionGradedByTeacherID *uuid.UUID `gorm:"type:uuid;column:student_class_section_graded_by_teacher_id" json:"student_class_section_graded_by_teacher_id,omitempty"`
 	StudentClassSectionGradedAt          *time.Time `gorm:"type:timestamptz;column:student_class_section_graded_at" json:"student_class_section_graded_at,omitempty"`
 
-	// Snapshot users_profile (per siswa saat enrol ke section)
-	StudentClassSectionUserProfileNameSnapshot              *string `gorm:"type:varchar(80);column:student_class_section_user_profile_name_snapshot" json:"student_class_section_user_profile_name_snapshot,omitempty"`
-	StudentClassSectionUserProfileAvatarURLSnapshot         *string `gorm:"type:varchar(255);column:student_class_section_user_profile_avatar_url_snapshot" json:"student_class_section_user_profile_avatar_url_snapshot,omitempty"`
-	StudentClassSectionUserProfileWhatsappURLSnapshot       *string `gorm:"type:varchar(50);column:student_class_section_user_profile_whatsapp_url_snapshot" json:"student_class_section_user_profile_whatsapp_url_snapshot,omitempty"`
-	StudentClassSectionUserProfileParentNameSnapshot        *string `gorm:"type:varchar(80);column:student_class_section_user_profile_parent_name_snapshot" json:"student_class_section_user_profile_parent_name_snapshot,omitempty"`
-	StudentClassSectionUserProfileParentWhatsappURLSnapshot *string `gorm:"type:varchar(50);column:student_class_section_user_profile_parent_whatsapp_url_snapshot" json:"student_class_section_user_profile_parent_whatsapp_url_snapshot,omitempty"`
-	StudentClassSectionUserProfileGenderSnapshot            *string `gorm:"type:varchar(20);column:student_class_section_user_profile_gender_snapshot" json:"student_class_section_user_profile_gender_snapshot,omitempty"` // NEW: gender snapshot
-	StudentClassSectionStudentCodeSnapshot                  *string `gorm:"type:varchar(50);column:student_class_section_student_code_snapshot" json:"student_class_section_student_code_snapshot,omitempty"`               // NEW: student code snapshot
+	// Cache users_profile (per siswa saat enrol ke section)
+	StudentClassSectionUserProfileNameCache              *string `gorm:"type:varchar(80);column:student_class_section_user_profile_name_cache" json:"student_class_section_user_profile_name_cache,omitempty"`
+	StudentClassSectionUserProfileAvatarURLCache         *string `gorm:"type:varchar(255);column:student_class_section_user_profile_avatar_url_cache" json:"student_class_section_user_profile_avatar_url_cache,omitempty"`
+	StudentClassSectionUserProfileWhatsappURLCache       *string `gorm:"type:varchar(50);column:student_class_section_user_profile_whatsapp_url_cache" json:"student_class_section_user_profile_whatsapp_url_cache,omitempty"`
+	StudentClassSectionUserProfileParentNameCache        *string `gorm:"type:varchar(80);column:student_class_section_user_profile_parent_name_cache" json:"student_class_section_user_profile_parent_name_cache,omitempty"`
+	StudentClassSectionUserProfileParentWhatsappURLCache *string `gorm:"type:varchar(50);column:student_class_section_user_profile_parent_whatsapp_url_cache" json:"student_class_section_user_profile_parent_whatsapp_url_cache,omitempty"`
+	StudentClassSectionUserProfileGenderCache            *string `gorm:"type:varchar(20);column:student_class_section_user_profile_gender_cache" json:"student_class_section_user_profile_gender_cache,omitempty"` // NEW: gender cache
+	StudentClassSectionStudentCodeCache                  *string `gorm:"type:varchar(50);column:student_class_section_student_code_cache" json:"student_class_section_student_code_cache,omitempty"`               // NEW: student code cache
 
 	// Jejak waktu enrolment
 	StudentClassSectionAssignedAt   time.Time  `gorm:"type:date;not null;default:current_date;column:student_class_section_assigned_at" json:"student_class_section_assigned_at"`

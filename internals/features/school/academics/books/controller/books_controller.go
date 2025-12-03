@@ -130,19 +130,30 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 	p.Normalize()
 	log.Printf("[BOOKS][CREATE] Parsed: title=%q author=%q slug=%v", p.BookTitle, derefStr(p.BookAuthor), p.BookSlug)
 
-	// 2) School context + guard (khusus teacher / owner)
-	mc, err := helperAuth.ResolveSchoolContext(c)
+	// 2) School context dari TOKEN + guard (khusus teacher / owner)
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
-		// pastikan error dari helper juga dibungkus dalam JSON standard
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
-	schoolID := mc.ID
 	if schoolID == uuid.Nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "school_id tidak valid")
 	}
+
+	// Owner global → lolos; selain itu wajib teacher di school ini
+	if !helperAuth.IsOwner(c) {
+		if err := helperAuth.EnsureTeacherSchool(c, schoolID); err != nil {
+			if fe, ok := err.(*fiber.Error); ok {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusForbidden, err.Error())
+		}
+	}
+
+	p.BookSchoolID = schoolID
+	log.Printf("[BOOKS][CREATE] school_id=%s", schoolID)
 
 	// Owner global → lolos; selain itu wajib teacher di school ini
 	if !helperAuth.IsOwner(c) {
@@ -254,7 +265,7 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 
 }
 
-// PATCH /api/a/:school_id/books/:id
+// PATCH /api/a/books/:id
 func (h *BooksController) Patch(c *fiber.Ctx) error {
 	// inject DB utk helper
 	if c.Locals("DB") == nil {
@@ -262,14 +273,13 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 	}
 
 	// --- Tenant guard (teacher / owner) ---
-	mc, err := helperAuth.ResolveSchoolContext(c)
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
-	schoolID := mc.ID
 	if schoolID == uuid.Nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "school_id tidak valid")
 	}
@@ -318,6 +328,7 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 	var p dto.BookUpdateRequest
 	ct := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
 	isMultipart := strings.HasPrefix(ct, "multipart/form-data")
+
 	if isMultipart {
 		// form-data
 		p.BookTitle = strPtrIfNotEmpty(c.FormValue("book_title"))
@@ -378,28 +389,107 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 	// --- Apply perubahan ke model buku ---
 	p.ApplyToModel(&m)
 
-	// --- Upload cover (opsional, multipart) ---
+	// --- Upload cover (opsional, multipart) ala Subject.Patch ---
 	if isMultipart {
-		if fh := pickImageFile(c, "image", "file", "cover"); fh != nil {
-			keyPrefix := fmt.Sprintf("schools/%s/library/books", schoolID.String())
-			if svc, er := helperOSS.NewOSSServiceFromEnv(""); er == nil {
+		// pakai key yang sama seperti create
+		fh := pickImageFile(c, "image", "file", "cover")
+		if fh != nil {
+			svc, er := helperOSS.NewOSSServiceFromEnv("")
+			if er == nil {
 				ctx, cancel := context.WithTimeout(c.Context(), 45*time.Second)
 				defer cancel()
-				if url, upErr := svc.UploadAsWebP(ctx, fh, keyPrefix); upErr == nil {
-					m.BookImageURL = &url
-					if k, e := helperOSS.ExtractKeyFromPublicURL(url); e == nil {
-						m.BookImageObjectKey = &k
-					} else if k2, e2 := helperOSS.KeyFromPublicURL(url); e2 == nil {
-						m.BookImageObjectKey = &k2
+
+				keyPrefix := fmt.Sprintf("schools/%s/library/books", m.BookSchoolID.String())
+				if uploadedURL, upErr := svc.UploadAsWebP(ctx, fh, keyPrefix); upErr == nil {
+
+					// object key baru
+					newObjKey := ""
+					if k, e := helperOSS.ExtractKeyFromPublicURL(uploadedURL); e == nil {
+						newObjKey = k
+					} else if k2, e2 := helperOSS.KeyFromPublicURL(uploadedURL); e2 == nil {
+						newObjKey = k2
+					}
+
+					// --- ambil url & key lama dari DB (best effort) ---
+					var oldURL, oldObjKey string
+					{
+						type row struct {
+							URL string `gorm:"column:book_image_url"`
+							Key string `gorm:"column:book_image_object_key"`
+						}
+						var r row
+						_ = tx.Table("books").
+							Select("book_image_url, book_image_object_key").
+							Where("book_id = ?", m.BookID).
+							Take(&r).Error
+						oldURL = strings.TrimSpace(r.URL)
+						oldObjKey = strings.TrimSpace(r.Key)
+					}
+
+					// --- pindahkan lama ke spam (kalau ada) ---
+					movedURL := ""
+					if oldURL != "" {
+						if mv, mvErr := helperOSS.MoveToSpamByPublicURLENV(oldURL, 0); mvErr == nil {
+							movedURL = mv
+							// sinkronkan key lama ke lokasi baru
+							if k, e := helperOSS.ExtractKeyFromPublicURL(movedURL); e == nil {
+								oldObjKey = k
+							} else if k2, e2 := helperOSS.KeyFromPublicURL(movedURL); e2 == nil {
+								oldObjKey = k2
+							}
+						}
+					}
+
+					deletePendingUntil := time.Now().Add(30 * 24 * time.Hour)
+
+					// --- update kolom image di DB ---
+					_ = tx.Model(&bookModel.BookModel{}).
+						Where("book_id = ?", m.BookID).
+						Updates(map[string]any{
+							"book_image_url":        uploadedURL,
+							"book_image_object_key": newObjKey,
+							"book_image_url_old": func() any {
+								if movedURL == "" {
+									return gorm.Expr("NULL")
+								}
+								return movedURL
+							}(),
+							"book_image_object_key_old": func() any {
+								if oldObjKey == "" {
+									return gorm.Expr("NULL")
+								}
+								return oldObjKey
+							}(),
+							"book_image_delete_pending_until": deletePendingUntil,
+						}).Error
+
+					// --- sinkron struct untuk response ---
+					m.BookImageURL = &uploadedURL
+					if newObjKey != "" {
+						m.BookImageObjectKey = &newObjKey
 					} else {
 						m.BookImageObjectKey = nil
 					}
+					if movedURL != "" {
+						m.BookImageURLOld = &movedURL
+					} else {
+						m.BookImageURLOld = nil
+					}
+					if oldObjKey != "" {
+						m.BookImageObjectKeyOld = &oldObjKey
+					} else {
+						m.BookImageObjectKeyOld = nil
+					}
+					m.BookImageDeletePendingUntil = &deletePendingUntil
 				}
 			}
 		}
 	}
 
-	// --- Simpan buku ---
+	// 🔹 Update timestamp manual
+	m.BookUpdatedAt = time.Now()
+
+	// --- Simpan buku (field non-image yang lain) ---
 	if err := tx.Save(&m).Error; err != nil {
 		_ = tx.Rollback().Error
 		msg := strings.ToLower(err.Error())
@@ -409,23 +499,22 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan perubahan buku")
 	}
 
-	// --- Sinkron snapshot ke class_subject_books ---
+	// --- Sinkron cache ke class_subject_books ---
 	upd := map[string]any{
-		"class_subject_book_book_title_snapshot":     m.BookTitle,
-		"class_subject_book_book_author_snapshot":    nilIfEmptyPtr(m.BookAuthor),
-		"class_subject_book_book_slug_snapshot":      nilIfEmptyPtr(m.BookSlug),
-		"class_subject_book_book_image_url_snapshot": nilIfEmptyPtr(m.BookImageURL),
+		"class_subject_book_book_title_cache":        m.BookTitle,
+		"class_subject_book_book_author_cache":       nilIfEmptyPtr(m.BookAuthor),
+		"class_subject_book_book_slug_cache":      nilIfEmptyPtr(m.BookSlug),
+		"class_subject_book_book_image_url_cache": nilIfEmptyPtr(m.BookImageURL),
 	}
-	// Jika ada kolom publisher & year di model BookModel, ikutkan:
 	if m.BookPublisher != nil {
-		upd["class_subject_book_book_publisher_snapshot"] = *m.BookPublisher
+		upd["class_subject_book_book_publisher_cache"] = *m.BookPublisher
 	} else {
-		upd["class_subject_book_book_publisher_snapshot"] = gorm.Expr("NULL")
+		upd["class_subject_book_book_publisher_cache"] = gorm.Expr("NULL")
 	}
 	if m.BookPublicationYear != nil {
-		upd["class_subject_book_book_publication_year_snapshot"] = *m.BookPublicationYear
+		upd["class_subject_book_book_publication_year_cache"] = *m.BookPublicationYear
 	} else {
-		upd["class_subject_book_book_publication_year_snapshot"] = gorm.Expr("NULL")
+		upd["class_subject_book_book_publication_year_cache"] = gorm.Expr("NULL")
 	}
 
 	if err := tx.Model(&bookModel.ClassSubjectBookModel{}).
@@ -436,7 +525,7 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 		`, schoolID, m.BookID).
 		Updates(upd).Error; err != nil {
 		_ = tx.Rollback().Error
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal sinkron snapshot pemakaian buku")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal sinkron cache pemakaian buku")
 	}
 
 	// --- Commit ---
@@ -447,16 +536,7 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 	// --- Response ---
 	resp := dto.ToBookResponse(&m)
 	return helper.JsonUpdated(c, "Buku berhasil diperbarui", resp)
-
 }
-
-/*
-=========================================================
-
-	DELETE (soft) - /api/a/:school_id/book-urls/:id
-
-=========================================================
-*/
 
 /*
 =========================================================
@@ -471,14 +551,13 @@ func (h *BooksController) Delete(c *fiber.Ctx) error {
 	}
 
 	// --- Tenant guard (teacher / owner) ---
-	mc, err := helperAuth.ResolveSchoolContext(c)
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
-	schoolID := mc.ID
 	if schoolID == uuid.Nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "school_id tidak valid")
 	}

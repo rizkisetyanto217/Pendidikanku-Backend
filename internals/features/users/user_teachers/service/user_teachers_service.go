@@ -43,9 +43,9 @@ func genderToStringPtr(g *userModel.Gender) *string {
 
 // helper: urutan prioritas nama untuk snapshot pengajar
 func deriveTeacherName(u *userModel.UserModel, prof *userModel.UserProfileModel) string {
-	// 1) full_name_snapshot dari profile
-	if prof != nil && prof.UserProfileFullNameSnapshot != nil {
-		if n := strings.TrimSpace(*prof.UserProfileFullNameSnapshot); n != "" {
+	// 1) full_name_cache dari profile
+	if prof != nil && prof.UserProfileFullNameCache != nil {
+		if n := strings.TrimSpace(*prof.UserProfileFullNameCache); n != "" {
 			return n
 		}
 	}
@@ -111,9 +111,9 @@ func EnsureUserTeacherFromUser(
 	now := time.Now()
 
 	newUT := userTeacherModel.UserTeacherModel{
-		UserTeacherID:           uuid.New(),
-		UserTeacherUserID:       user.ID,
-		UserTeacherNameSnapshot: nameSnap,
+		UserTeacherID:            uuid.New(),
+		UserTeacherUserID:        user.ID,
+		UserTeacherFullNameCache: nameSnap,
 
 		// ringkas/bio dari profile
 		UserTeacherShortBio: copyPtrTrunc(prof.UserProfileBio, 300),

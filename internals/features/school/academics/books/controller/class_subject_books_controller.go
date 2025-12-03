@@ -8,7 +8,7 @@ import (
 
 	csbDTO "madinahsalam_backend/internals/features/school/academics/books/dto"
 	csbModel "madinahsalam_backend/internals/features/school/academics/books/model"
-	bookSnap "madinahsalam_backend/internals/features/school/academics/books/snapshot"
+	bookSnap "madinahsalam_backend/internals/features/school/academics/books/service"
 	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 
 	helper "madinahsalam_backend/internals/helpers"
@@ -32,27 +32,10 @@ Body: CreateClassSubjectBookRequest
 =========================================================
 */
 func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
-	// 🔐 Tenant scope: DKM/Admin only (owner global tetep boleh)
-	mc, err := helperAuth.ResolveSchoolContext(c)
+	// 🔐 Tenant scope: ambil school_id dari TOKEN
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
 		return err
-	}
-
-	var schoolID uuid.UUID
-	switch {
-	case mc.ID != uuid.Nil:
-		schoolID = mc.ID
-	case strings.TrimSpace(mc.Slug) != "":
-		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
-		if er != nil {
-			if errors.Is(er, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
-			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
-		}
-		schoolID = id
-	default:
-		return helperAuth.ErrSchoolContextMissing
 	}
 
 	// Kalau bukan owner → wajib DKM/Admin di school ini
@@ -75,22 +58,22 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 
 	var created csbModel.ClassSubjectBookModel
 	if err := h.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
-		// ✅ Validasi kepemilikan tenant (EXISTS)
-		if err := ensureClassSubjectTenantExists(tx, req.ClassSubjectBookClassSubjectID, schoolID); err != nil {
+		// ✅ Validasi kepemilikan tenant SUBJECT & BOOK
+		if err := ensureSubjectTenantExists(tx, req.ClassSubjectBookSubjectID, schoolID); err != nil {
 			return err
 		}
 		if err := ensureBookTenantExists(tx, req.ClassSubjectBookBookID, schoolID); err != nil {
 			return err
 		}
 
-		// 📸 Ambil snapshot BOOK
-		snapB, err := bookSnap.FetchBookSnapshot(tx, req.ClassSubjectBookBookID)
+		// 📸 Ambil cache BOOK
+		snapB, err := bookSnap.FetchBookCache(tx, req.ClassSubjectBookBookID)
 		if err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, "Buku tidak ditemukan")
 		}
 
-		// 📸 Ambil snapshot SUBJECT (via class_subjects → subjects)
-		snapS, err := fetchSubjectSnapshotByClassSubjectID(tx, req.ClassSubjectBookClassSubjectID)
+		// 📸 Ambil cache SUBJECT langsung via subject_id
+		snapS, err := fetchSubjectCacheBySubjectID(tx, req.ClassSubjectBookSubjectID, schoolID)
 		if err != nil {
 			return err // sudah mengembalikan fiber.Error yang pas
 		}
@@ -106,7 +89,7 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 		if m.ClassSubjectBookSlug != nil && strings.TrimSpace(*m.ClassSubjectBookSlug) != "" {
 			baseSlug = helper.Slugify(*m.ClassSubjectBookSlug, 160)
 		} else {
-			// prioritas pakai title buku snapshot
+			// prioritas pakai title buku cache
 			if t := strings.TrimSpace(snapB.Title); t != "" {
 				baseSlug = helper.Slugify(t, 160)
 			}
@@ -136,26 +119,26 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 		}
 		m.ClassSubjectBookSlug = &uniqueSlug
 
-		// 🧊 Isi snapshot BOOK (nil-safe)
+		// 🧊 Isi cache BOOK (nil-safe)
 		if snapB.Title != "" {
-			m.ClassSubjectBookBookTitleSnapshot = &snapB.Title
+			m.ClassSubjectBookBookTitleCache = &snapB.Title
 		}
-		m.ClassSubjectBookBookAuthorSnapshot = snapB.Author
-		m.ClassSubjectBookBookSlugSnapshot = snapB.Slug
-		m.ClassSubjectBookBookPublisherSnapshot = snapB.Publisher
-		m.ClassSubjectBookBookPublicationYearSnapshot = snapB.PublicationYear
-		m.ClassSubjectBookBookImageURLSnapshot = snapB.ImageURL
+		m.ClassSubjectBookBookAuthorCache = snapB.Author
+		m.ClassSubjectBookBookSlugCache = snapB.Slug
+		m.ClassSubjectBookBookPublisherCache = snapB.Publisher
+		m.ClassSubjectBookBookPublicationYearCache = snapB.PublicationYear
+		m.ClassSubjectBookBookImageURLCache = snapB.ImageURL
 
-		// 🧊 Isi snapshot SUBJECT (pakai field baru)
-		m.ClassSubjectBookSubjectID = &snapS.SubjectID
+		// 🧊 Isi cache SUBJECT
+		m.ClassSubjectBookSubjectID = snapS.SubjectID
 		if snapS.Code != nil {
-			m.ClassSubjectBookSubjectCodeSnapshot = snapS.Code
+			m.ClassSubjectBookSubjectCodeCache = snapS.Code
 		}
 		if snapS.Name != nil {
-			m.ClassSubjectBookSubjectNameSnapshot = snapS.Name
+			m.ClassSubjectBookSubjectNameCache = snapS.Name
 		}
 		if snapS.Slug != nil {
-			m.ClassSubjectBookSubjectSlugSnapshot = snapS.Slug
+			m.ClassSubjectBookSubjectSlugCache = snapS.Slug
 		}
 
 		// 💾 Create
@@ -165,13 +148,15 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 			case strings.Contains(msg, "uq_csb_unique") ||
 				strings.Contains(msg, "duplicate") ||
 				(strings.Contains(msg, "unique") &&
-					strings.Contains(msg, "school") && strings.Contains(msg, "class_subject") && strings.Contains(msg, "book")):
-				return fiber.NewError(fiber.StatusConflict, "Buku sudah terdaftar pada class_subject tersebut")
+					strings.Contains(msg, "school") &&
+					(strings.Contains(msg, "subject") || strings.Contains(msg, "class_subject")) &&
+					strings.Contains(msg, "book")):
+				return fiber.NewError(fiber.StatusConflict, "Buku sudah terdaftar pada subject tersebut")
 			case strings.Contains(msg, "uq_csb_slug_per_tenant_alive") ||
 				(strings.Contains(msg, "class_subject_book_slug") && strings.Contains(msg, "unique")):
 				return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan pada tenant ini")
 			case strings.Contains(msg, "foreign"):
-				return fiber.NewError(fiber.StatusBadRequest, "FK gagal: pastikan class_subject & book valid dan satu tenant")
+				return fiber.NewError(fiber.StatusBadRequest, "FK gagal: pastikan subject & book valid dan satu tenant")
 			default:
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat relasi buku")
 			}
@@ -188,20 +173,20 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 
 /* ================= Helpers: EXISTS-based tenant checks ================= */
 
-func ensureClassSubjectTenantExists(db *gorm.DB, classSubjectID, schoolID uuid.UUID) error {
+func ensureSubjectTenantExists(db *gorm.DB, subjectID, schoolID uuid.UUID, args ...any) error {
 	var ok bool
 	if err := db.Raw(`
 		SELECT EXISTS (
 			SELECT 1
-			FROM class_subjects
-			WHERE class_subject_id = ?
-			  AND class_subject_school_id = ?
-			  AND class_subject_deleted_at IS NULL
-		)`, classSubjectID, schoolID).Scan(&ok).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi class_subject")
+			FROM subjects
+			WHERE subject_id = ?
+			  AND subject_school_id = ?
+			  AND subject_deleted_at IS NULL
+		)`, subjectID, schoolID).Scan(&ok).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi subject")
 	}
 	if !ok {
-		return fiber.NewError(fiber.StatusForbidden, "Class subject tidak ditemukan / beda tenant")
+		return fiber.NewError(fiber.StatusForbidden, "Subject tidak ditemukan / beda tenant")
 	}
 	return nil
 }
@@ -224,35 +209,32 @@ func ensureBookTenantExists(db *gorm.DB, bookID, schoolID uuid.UUID) error {
 	return nil
 }
 
-/* ================= Snapshot fetcher (SUBJECT via class_subject_id) ================= */
+/* ================= Cache fetcher (SUBJECT via subject_id) ================= */
 
-type subjectSnapshot struct {
+type subjectCache struct {
 	SubjectID uuid.UUID
 	Code      *string
 	Name      *string
 	Slug      *string
 }
 
-func fetchSubjectSnapshotByClassSubjectID(tx *gorm.DB, classSubjectID uuid.UUID) (*subjectSnapshot, error) {
-	var ss subjectSnapshot
-	// Asumsi: class_subjects.class_subject_subject_id → subjects.subject_id
-	// dan subjects soft-delete aware.
+func fetchSubjectCacheBySubjectID(tx *gorm.DB, subjectID, schoolID uuid.UUID) (*subjectCache, error) {
+	var ss subjectCache
 	if err := tx.Raw(`
 		SELECT 
 			s.subject_id       AS subject_id,
 			s.subject_code     AS code,
 			s.subject_name     AS name,
 			s.subject_slug     AS slug
-		FROM class_subjects cs
-		JOIN subjects s ON s.subject_id = cs.class_subject_subject_id
-		WHERE cs.class_subject_id = ?
-		  AND cs.class_subject_deleted_at IS NULL
+		FROM subjects s
+		WHERE s.subject_id = ?
+		  AND s.subject_school_id = ?
 		  AND s.subject_deleted_at IS NULL
-	`, classSubjectID).Scan(&ss).Error; err != nil {
-		return nil, fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil snapshot subject")
+	`, subjectID, schoolID).Scan(&ss).Error; err != nil {
+		return nil, fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil cache subject")
 	}
 	if ss.SubjectID == uuid.Nil {
-		return nil, fiber.NewError(fiber.StatusBadRequest, "Subject untuk class_subject tidak ditemukan")
+		return nil, fiber.NewError(fiber.StatusBadRequest, "Subject tidak ditemukan")
 	}
 	return &ss, nil
 }
@@ -264,29 +246,13 @@ PUT /admin/class-subject-books/:id
 =========================================================
 */
 func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
-	// 🔐 Tenant scope: DKM/Admin only (owner juga boleh)
-	mc, err := helperAuth.ResolveSchoolContext(c)
+	// 🔐 Tenant scope: ambil school_id dari TOKEN
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
 		return err
 	}
 
-	var schoolID uuid.UUID
-	switch {
-	case mc.ID != uuid.Nil:
-		schoolID = mc.ID
-	case strings.TrimSpace(mc.Slug) != "":
-		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
-		if er != nil {
-			if errors.Is(er, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
-			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
-		}
-		schoolID = id
-	default:
-		return helperAuth.ErrSchoolContextMissing
-	}
-
+	// Guard role: owner bypass, lainnya wajib DKM/Admin
 	if !helperAuth.IsOwner(c) {
 		if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 			return err
@@ -332,40 +298,40 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusBadRequest, err.Error())
 		}
 
-		// Jika class_subject_id diubah → validasi tenant + refresh SUBJECT snapshot
-		if req.ClassSubjectBookClassSubjectID != nil {
-			if err := ensureClassSubjectTenantExists(tx, *req.ClassSubjectBookClassSubjectID, schoolID); err != nil {
+		// Jika subject_id diubah → validasi tenant + refresh SUBJECT cache
+		if req.ClassSubjectBookSubjectID != nil {
+			if err := ensureSubjectTenantExists(tx, *req.ClassSubjectBookSubjectID, schoolID); err != nil {
 				return err
 			}
-			snapS, err := fetchSubjectSnapshotByClassSubjectID(tx, *req.ClassSubjectBookClassSubjectID)
+			snapS, err := fetchSubjectCacheBySubjectID(tx, *req.ClassSubjectBookSubjectID, schoolID)
 			if err != nil {
 				return err
 			}
-			m.ClassSubjectBookSubjectID = &snapS.SubjectID
-			m.ClassSubjectBookSubjectCodeSnapshot = snapS.Code
-			m.ClassSubjectBookSubjectNameSnapshot = snapS.Name
-			m.ClassSubjectBookSubjectSlugSnapshot = snapS.Slug
+			m.ClassSubjectBookSubjectID = snapS.SubjectID
+			m.ClassSubjectBookSubjectCodeCache = snapS.Code
+			m.ClassSubjectBookSubjectNameCache = snapS.Name
+			m.ClassSubjectBookSubjectSlugCache = snapS.Slug
 		}
 
-		// Jika book_id diubah → validasi tenant + refresh BOOK snapshot
+		// Jika book_id diubah → validasi tenant + refresh BOOK cache
 		if req.ClassSubjectBookBookID != nil {
 			if err := ensureBookTenantExists(tx, *req.ClassSubjectBookBookID, schoolID); err != nil {
 				return err
 			}
-			snapB, err := bookSnap.FetchBookSnapshot(tx, *req.ClassSubjectBookBookID)
+			snapB, err := bookSnap.FetchBookCache(tx, *req.ClassSubjectBookBookID)
 			if err != nil {
 				return fiber.NewError(fiber.StatusBadRequest, "Buku tidak ditemukan")
 			}
 			if snapB.Title != "" {
-				m.ClassSubjectBookBookTitleSnapshot = &snapB.Title
+				m.ClassSubjectBookBookTitleCache = &snapB.Title
 			} else {
-				m.ClassSubjectBookBookTitleSnapshot = nil
+				m.ClassSubjectBookBookTitleCache = nil
 			}
-			m.ClassSubjectBookBookAuthorSnapshot = snapB.Author
-			m.ClassSubjectBookBookSlugSnapshot = snapB.Slug
-			m.ClassSubjectBookBookPublisherSnapshot = snapB.Publisher
-			m.ClassSubjectBookBookPublicationYearSnapshot = snapB.PublicationYear
-			m.ClassSubjectBookBookImageURLSnapshot = snapB.ImageURL
+			m.ClassSubjectBookBookAuthorCache = snapB.Author
+			m.ClassSubjectBookBookSlugCache = snapB.Slug
+			m.ClassSubjectBookBookPublisherCache = snapB.Publisher
+			m.ClassSubjectBookBookPublicationYearCache = snapB.PublicationYear
+			m.ClassSubjectBookBookImageURLCache = snapB.ImageURL
 		}
 
 		// SLUG handling (ensure unique jika diubah / jika kosong sebelumnya)
@@ -397,9 +363,9 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 		} else if m.ClassSubjectBookSlug == nil {
 			// auto-generate saat masih kosong
 			var base string
-			// pakai title snapshot terbaru bila ada
-			if m.ClassSubjectBookBookTitleSnapshot != nil && strings.TrimSpace(*m.ClassSubjectBookBookTitleSnapshot) != "" {
-				base = helper.Slugify(*m.ClassSubjectBookBookTitleSnapshot, 160)
+			// pakai title cache terbaru bila ada
+			if m.ClassSubjectBookBookTitleCache != nil && strings.TrimSpace(*m.ClassSubjectBookBookTitleCache) != "" {
+				base = helper.Slugify(*m.ClassSubjectBookBookTitleCache, 160)
 			}
 			if base == "" || base == "item" {
 				base = helper.Slugify(
@@ -436,13 +402,15 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 			case strings.Contains(msg, "uq_csb_unique") ||
 				strings.Contains(msg, "duplicate") ||
 				(strings.Contains(msg, "unique") &&
-					strings.Contains(msg, "school") && strings.Contains(msg, "class_subject") && strings.Contains(msg, "book")):
-				return fiber.NewError(fiber.StatusConflict, "Buku sudah terdaftar pada class_subject tersebut")
+					strings.Contains(msg, "school") &&
+					(strings.Contains(msg, "subject") || strings.Contains(msg, "class_subject")) &&
+					strings.Contains(msg, "book")):
+				return fiber.NewError(fiber.StatusConflict, "Buku sudah terdaftar pada subject tersebut")
 			case strings.Contains(msg, "uq_csb_slug_per_tenant_alive") ||
 				(strings.Contains(msg, "class_subject_book_slug") && strings.Contains(msg, "unique")):
 				return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan pada tenant ini")
 			case strings.Contains(msg, "foreign"):
-				return fiber.NewError(fiber.StatusBadRequest, "FK gagal: pastikan class_subject & book valid dan satu tenant")
+				return fiber.NewError(fiber.StatusBadRequest, "FK gagal: pastikan subject & book valid dan satu tenant")
 			default:
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui data")
 			}
@@ -464,35 +432,20 @@ DELETE /admin/class-subject-books/:id?force=true
 =========================================================
 */
 func (h *ClassSubjectBookController) Delete(c *fiber.Ctx) error {
-	// 🔐 Tenant scope: DKM/Admin (owner boleh)
-	mc, err := helperAuth.ResolveSchoolContext(c)
+	// 🔐 Tenant scope: ambil school_id dari TOKEN
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
 		return err
 	}
 
-	var schoolID uuid.UUID
-	switch {
-	case mc.ID != uuid.Nil:
-		schoolID = mc.ID
-	case strings.TrimSpace(mc.Slug) != "":
-		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
-		if er != nil {
-			if errors.Is(er, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
-			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
-		}
-		schoolID = id
-	default:
-		return helperAuth.ErrSchoolContextMissing
-	}
-
+	// Guard role: owner bypass, lainnya wajib DKM/Admin
 	if !helperAuth.IsOwner(c) {
 		if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 			return err
 		}
 	}
 
+	// dipakai buat izin hard delete: harus admin/tenant yg sama
 	adminSchoolID, _ := helperAuth.GetSchoolIDFromToken(c)
 	isAdmin := adminSchoolID != uuid.Nil && adminSchoolID == schoolID
 	force := strings.EqualFold(c.Query("force"), "true")

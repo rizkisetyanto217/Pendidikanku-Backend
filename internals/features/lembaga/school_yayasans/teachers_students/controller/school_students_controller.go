@@ -14,7 +14,7 @@ import (
 	dto "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/dto"
 	model "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
 
-	snapshotUserProfile "madinahsalam_backend/internals/features/users/users/snapshot"
+	snapshotUserProfile "madinahsalam_backend/internals/features/users/users/service"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
@@ -110,11 +110,11 @@ func (h *SchoolStudentController) Create(c *fiber.Ctx) error {
 	// **Enforce tenant**: jangan percaya body, paksa pakai schoolID dari token
 	m.SchoolStudentSchoolID = schoolID
 
-	// ===== Snapshot user_profile (by profile_id) =====
+	// ===== Cache user_profile (by profile_id) =====
 	if m.SchoolStudentUserProfileID == uuid.Nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "user_profile_id is required")
 	}
-	snap, err := snapshotUserProfile.BuildUserProfileSnapshotByProfileID(
+	snap, err := snapshotUserProfile.BuildUserProfileCacheByProfileID(
 		c.Context(),
 		h.DB,
 		m.SchoolStudentUserProfileID,
@@ -131,17 +131,17 @@ func (h *SchoolStudentController) Create(c *fiber.Ctx) error {
 	// Isi kolom snapshot di model (server-owned)
 	if snap != nil {
 		if strings.TrimSpace(snap.Name) != "" {
-			m.SchoolStudentUserProfileNameSnapshot = &snap.Name
+			m.SchoolStudentUserProfileNameCache = &snap.Name
 		}
-		m.SchoolStudentUserProfileAvatarURLSnapshot = snap.AvatarURL
-		m.SchoolStudentUserProfileWhatsappURLSnapshot = snap.WhatsappURL
-		m.SchoolStudentUserProfileParentNameSnapshot = snap.ParentName
-		m.SchoolStudentUserProfileParentWhatsappURLSnapshot = snap.ParentWhatsappURL
+		m.SchoolStudentUserProfileAvatarURLCache = snap.AvatarURL
+		m.SchoolStudentUserProfileWhatsappURLCache = snap.WhatsappURL
+		m.SchoolStudentUserProfileParentNameCache = snap.ParentName
+		m.SchoolStudentUserProfileParentWhatsappURLCache = snap.ParentWhatsappURL
 
 		// gender snapshot (NEW)
 		if snap.Gender != nil {
 			if g := strings.TrimSpace(*snap.Gender); g != "" {
-				m.SchoolStudentUserProfileGenderSnapshot = &g
+				m.SchoolStudentUserProfileGenderCache = &g
 			}
 		}
 	}

@@ -17,6 +17,9 @@ import (
 )
 
 /* ============================ LIST ============================ */
+// file: internals/features/school/class_rooms/controller/class_room_controller.go
+
+/* ============================ LIST ============================ */
 func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	// Kalau helper lain butuh DB dari Locals
 	c.Locals("DB", ctl.DB)
@@ -45,20 +48,35 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	isVirtualPtr := parseBoolPtr(c.Query("is_virtual"))
 	hasCodeOnly := parseBoolTrue(c.Query("has_code_only"))
 
-	// include flags (toleran)
+	// =====================================================
+	// 3) INCLUDE flags: ?include=class_sections,csst
+	//    - legacy: ?with_sections=true masih didukung
+	// =====================================================
 	includeStr := strings.ToLower(strings.TrimSpace(c.Query("include")))
-	withSections := strings.EqualFold(strings.TrimSpace(c.Query("with_sections")), "1") ||
-		strings.EqualFold(strings.TrimSpace(c.Query("with_sections")), "true")
-	if !withSections && includeStr != "" {
+	includeClassSections := false
+	includeCSST := false
+
+	// legacy flag
+	if parseBoolTrue(c.Query("with_sections")) {
+		includeClassSections = true
+	}
+
+	if includeStr != "" {
 		for _, tok := range strings.Split(includeStr, ",") {
-			switch strings.TrimSpace(tok) {
-			case "sections", "section", "all":
-				withSections = true
+			t := strings.TrimSpace(tok)
+			switch t {
+			case "class_sections", "sections", "section":
+				includeClassSections = true
+			case "csst", "class_section_subject_teachers", "class_section_subject_teacher":
+				includeCSST = true
+			case "all":
+				includeClassSections = true
+				includeCSST = true
 			}
 		}
 	}
 
-	// sort & paging
+	// ===== sort & paging =====
 	p := helper.ParseFiber(c, "created_at", "desc", helper.AdminOpts)
 	allowedSort := map[string]string{
 		"name":       "class_room_name",
@@ -146,7 +164,16 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// payload
+	// Kalau tidak ada data sama sekali → langsung balikin kosong (tanpa include)
+	if len(rooms) == 0 {
+		pg := helper.BuildPaginationFromOffset(total, p.Offset(), p.Limit())
+		return helper.JsonList(c, "ok", []any{}, pg)
+	}
+
+	// =========================================================
+	// Payload utama (data) + include
+	// =========================================================
+
 	type sectionLite struct {
 		ID            uuid.UUID  `json:"id"`
 		ClassID       *uuid.UUID `json:"class_id,omitempty"`
@@ -163,23 +190,47 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 		CreatedAt     time.Time  `json:"created_at"`
 		UpdatedAt     time.Time  `json:"updated_at"`
 	}
-	type roomWithExpand struct {
+
+	type csstLite struct {
+		ID              uuid.UUID  `json:"id"`
+		ClassSectionID  *uuid.UUID `json:"class_section_id,omitempty"`
+		SchoolTeacherID *uuid.UUID `json:"school_teacher_id,omitempty"`
+		ClassRoomID     *uuid.UUID `json:"class_room_id,omitempty"`
+		Role            *string    `json:"role,omitempty"`
+		IsActive        bool       `json:"is_active"`
+		CreatedAt       time.Time  `json:"created_at"`
+		UpdatedAt       time.Time  `json:"updated_at"`
+	}
+
+	// room utama + optional count
+	type roomWithCounts struct {
 		dto.ClassRoomResponse
-		Sections      []sectionLite `json:"class_sections,omitempty"`
-		SectionsCount *int          `json:"class_sections_count,omitempty"`
+		ClassSectionsCount *int `json:"class_sections_count,omitempty"`
+		// bisa ditambah nanti: CSSTCount *int `json:"csst_count,omitempty"`
 	}
 
-	out := make([]roomWithExpand, 0, len(rooms))
+	out := make([]roomWithCounts, 0, len(rooms))
 	for _, m := range rooms {
-		out = append(out, roomWithExpand{ClassRoomResponse: dto.ToClassRoomResponse(m)})
+		out = append(out, roomWithCounts{
+			ClassRoomResponse: dto.ToClassRoomResponse(m),
+		})
 	}
 
-	// include sections (batch) — pakai nama kolom BARU: class_section_*
-	if withSections && len(rooms) > 0 {
-		roomIDs := make([]uuid.UUID, 0, len(rooms))
+	// Precompute roomIDs
+	roomIDs := make([]uuid.UUID, 0, len(rooms))
+	for i := range rooms {
+		roomIDs = append(roomIDs, rooms[i].ClassRoomID)
+	}
+
+	// include map: akan dikirim di "include": { ... }
+	includeMap := fiber.Map{}
+
+	// =========================================================
+	// INCLUDE: class_sections (flat array) → include.class_sections
+	// =========================================================
+	if includeClassSections && len(roomIDs) > 0 {
 		indexByID := make(map[uuid.UUID]int, len(rooms))
 		for i := range rooms {
-			roomIDs = append(roomIDs, rooms[i].ClassRoomID)
 			indexByID[rooms[i].ClassRoomID] = i
 		}
 
@@ -210,6 +261,7 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 		}
 
 		if len(secs) > 0 {
+			// hitung count per room di payload utama
 			byRoom := make(map[uuid.UUID][]sectionLite, len(roomIDs))
 			for i := range secs {
 				if secs[i].ClassRoomID == nil || *secs[i].ClassRoomID == uuid.Nil {
@@ -219,16 +271,58 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 			}
 			for rid, arr := range byRoom {
 				if idx, ok := indexByID[rid]; ok {
-					out[idx].Sections = arr
 					n := len(arr)
-					out[idx].SectionsCount = &n
+					out[idx].ClassSectionsCount = &n
 				}
 			}
+
+			includeMap["class_sections"] = secs
+		} else {
+			includeMap["class_sections"] = []sectionLite{}
+		}
+	}
+
+	// =========================================================
+	// INCLUDE: CSST (class_section_subject_teachers) → include.csst
+	// =========================================================
+	if includeCSST && len(roomIDs) > 0 {
+		var cssts []csstLite
+		if err := ctl.DB.WithContext(reqCtx(c)).
+			Table("class_section_subject_teachers").
+			Select(`
+				class_section_subject_teacher_id                  AS id,
+				class_section_subject_teacher_class_section_id    AS class_section_id,
+				class_section_subject_teacher_school_teacher_id   AS school_teacher_id,
+				class_section_subject_teacher_class_room_id       AS class_room_id,
+				class_section_subject_teacher_role                AS role,
+				class_section_subject_teacher_is_active           AS is_active,
+				class_section_subject_teacher_created_at          AS created_at,
+				class_section_subject_teacher_updated_at          AS updated_at
+			`).
+			Where("class_section_subject_teacher_school_id = ? AND class_section_subject_teacher_deleted_at IS NULL", schoolID).
+			Where("class_section_subject_teacher_class_room_id IN ?", roomIDs).
+			Order("class_section_subject_teacher_created_at DESC").
+			Scan(&cssts).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data CSST")
+		}
+
+		if len(cssts) > 0 {
+			includeMap["csst"] = cssts
+		} else {
+			includeMap["csst"] = []csstLite{}
 		}
 	}
 
 	// 🔹 Pagination final
 	pg := helper.BuildPaginationFromOffset(total, p.Offset(), p.Limit())
+
+	// 🔹 Response final:
+	// - kalau ada sesuatu di includeMap → JsonListWithInclude (pakai key "include")
+	// - kalau tidak, JsonList biasa
+	if len(includeMap) > 0 {
+		return helper.JsonListWithInclude(c, "ok", out, includeMap, pg)
+	}
+
 	return helper.JsonList(c, "ok", out, pg)
 }
 

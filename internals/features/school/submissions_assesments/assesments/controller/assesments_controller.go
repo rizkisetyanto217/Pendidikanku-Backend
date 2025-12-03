@@ -14,7 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
-	"madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/snapshot"
+	"madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/service"
 	dto "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/dto"
 	model "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/model"
 
@@ -293,7 +293,7 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 	if req.Assessment.AssessmentClassSectionSubjectTeacherID != nil &&
 		*req.Assessment.AssessmentClassSectionSubjectTeacherID != uuid.Nil {
 
-		cs, er := snapshot.ValidateAndSnapshotCSST(
+		cs, er := service.ValidateAndCacheCSST(
 			ctl.DB.WithContext(c.Context()),
 			mid,
 			*req.Assessment.AssessmentClassSectionSubjectTeacherID,
@@ -316,7 +316,7 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		}
 
 		// Simpan snapshot FULL (sama persis dengan yg dipakai attendance session)
-		if jb := snapshot.ToJSON(cs); len(jb) > 0 {
+		if jb := service.ToJSON(cs); len(jb) > 0 {
 			var m map[string]any
 			_ = json.Unmarshal(jb, &m)
 			csstSnap = datatypes.JSONMap(m)
@@ -665,7 +665,7 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 			existing.AssessmentClassSectionSubjectTeacherID = nil
 			existing.AssessmentCSSTSnapshot = datatypes.JSONMap{}
 		} else {
-			cs, er := snapshot.ValidateAndSnapshotCSST(
+			cs, er := service.ValidateAndCacheCSST(
 				ctl.DB.WithContext(c.Context()),
 				mid,
 				*req.AssessmentClassSectionSubjectTeacherID,
@@ -679,8 +679,8 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 
 			existing.AssessmentClassSectionSubjectTeacherID = req.AssessmentClassSectionSubjectTeacherID
 
-			// Simpan snapshot FULL (sama seperti Create)
-			if jb := snapshot.ToJSON(cs); len(jb) > 0 {
+			// Simpan service FULL (sama seperti Create)
+			if jb := service.ToJSON(cs); len(jb) > 0 {
 				var m map[string]any
 				_ = json.Unmarshal(jb, &m)
 				existing.AssessmentCSSTSnapshot = datatypes.JSONMap(m)

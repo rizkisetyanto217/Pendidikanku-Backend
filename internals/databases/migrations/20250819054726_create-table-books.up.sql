@@ -70,7 +70,6 @@ CREATE INDEX IF NOT EXISTS gin_books_author_trgm_alive
   WHERE book_deleted_at IS NULL;
 
 
-
 /* =========================================================
    TABLE: class_subject_books  (relasi ClassSubject ↔ Book per tenant)
    ========================================================= */
@@ -99,21 +98,21 @@ CREATE TABLE IF NOT EXISTS class_subject_books (
   class_subject_book_desc         TEXT,
 
   /* ============================
-     SNAPSHOTS dari books
+     CACHE dari books
      (dibekukan saat insert/ubah book_id via trigger)
      ============================ */
-  class_subject_book_book_title_snapshot             TEXT,
-  class_subject_book_book_author_snapshot            TEXT,
-  class_subject_book_book_slug_snapshot              VARCHAR(160),
-  class_subject_book_book_publisher_snapshot         TEXT,
-  class_subject_book_book_publication_year_snapshot  SMALLINT,
-  class_subject_book_book_image_url_snapshot         TEXT,
+  class_subject_book_book_title_cache            TEXT,
+  class_subject_book_book_author_cache           TEXT,
+  class_subject_book_book_slug_cache             VARCHAR(160),
+  class_subject_book_book_publisher_cache        TEXT,
+  class_subject_book_book_publication_year_cache SMALLINT,
+  class_subject_book_book_image_url_cache        TEXT,
 
-  -- snapshot SUBJECT (dari class_subject/subject)
-  class_subject_book_subject_id   UUID,
-  class_subject_book_subject_code_snapshot VARCHAR(40),
-  class_subject_book_subject_name_snapshot VARCHAR(120),
-  class_subject_book_subject_slug_snapshot VARCHAR(160),
+  -- cache SUBJECT (dari class_subject/subject)
+  class_subject_book_subject_id            UUID,
+  class_subject_book_subject_code_cache    VARCHAR(40),
+  class_subject_book_subject_name_cache    VARCHAR(120),
+  class_subject_book_subject_slug_cache    VARCHAR(160),
 
   -- timestamps (explicit)
   class_subject_book_created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -195,32 +194,32 @@ CREATE INDEX IF NOT EXISTS ix_csb_tenant_subject_active_created_alive
 CREATE INDEX IF NOT EXISTS brin_csb_created_at
   ON class_subject_books USING BRIN (class_subject_book_created_at);
 
--- Index pencarian pada snapshot judul/slug buku (alive only)
-CREATE INDEX IF NOT EXISTS gin_csb_book_title_snap_trgm_alive
-  ON class_subject_books USING GIN (LOWER(class_subject_book_book_title_snapshot) gin_trgm_ops)
+-- Index pencarian pada cache judul/slug buku (alive only)
+CREATE INDEX IF NOT EXISTS gin_csb_book_title_cache_trgm_alive
+  ON class_subject_books USING GIN (LOWER(class_subject_book_book_title_cache) gin_trgm_ops)
   WHERE class_subject_book_deleted_at IS NULL
-    AND class_subject_book_book_title_snapshot IS NOT NULL;
+    AND class_subject_book_book_title_cache IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS idx_csb_book_slug_snap_alive
-  ON class_subject_books (LOWER(class_subject_book_book_slug_snapshot))
+CREATE INDEX IF NOT EXISTS idx_csb_book_slug_cache_alive
+  ON class_subject_books (LOWER(class_subject_book_book_slug_cache))
   WHERE class_subject_book_deleted_at IS NULL
-    AND class_subject_book_book_slug_snapshot IS NOT NULL;
+    AND class_subject_book_book_slug_cache IS NOT NULL;
 
--- INDEX — bantu pencarian cepat di snapshot SUBJECT
-CREATE INDEX IF NOT EXISTS gin_csb_subject_name_snap_trgm_alive
-  ON class_subject_books USING GIN (LOWER(class_subject_book_subject_name_snapshot) gin_trgm_ops)
+-- INDEX — bantu pencarian cepat di cache SUBJECT
+CREATE INDEX IF NOT EXISTS gin_csb_subject_name_cache_trgm_alive
+  ON class_subject_books USING GIN (LOWER(class_subject_book_subject_name_cache) gin_trgm_ops)
   WHERE class_subject_book_deleted_at IS NULL
-    AND class_subject_book_subject_name_snapshot IS NOT NULL;
+    AND class_subject_book_subject_name_cache IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS idx_csb_subject_slug_snap_alive
-  ON class_subject_books (LOWER(class_subject_book_subject_slug_snapshot))
+CREATE INDEX IF NOT EXISTS idx_csb_subject_slug_cache_alive
+  ON class_subject_books (LOWER(class_subject_book_subject_slug_cache))
   WHERE class_subject_book_deleted_at IS NULL
-    AND class_subject_book_subject_slug_snapshot IS NOT NULL;
+    AND class_subject_book_subject_slug_cache IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS idx_csb_subject_code_snap_alive
-  ON class_subject_books (LOWER(class_subject_book_subject_code_snapshot))
+CREATE INDEX IF NOT EXISTS idx_csb_subject_code_cache_alive
+  ON class_subject_books (LOWER(class_subject_book_subject_code_cache))
   WHERE class_subject_book_deleted_at IS NULL
-    AND class_subject_book_subject_code_snapshot IS NOT NULL;
+    AND class_subject_book_subject_code_cache IS NOT NULL;
 
 
 

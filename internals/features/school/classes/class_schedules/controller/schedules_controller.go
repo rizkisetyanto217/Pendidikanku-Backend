@@ -123,7 +123,7 @@ func ParseBoolLoose(s string) (bool, bool) {
 }
 
 /* ==================================================================== */
-/* Helper: ambil core CSST (tenant-safe) untuk snapshot & fallback      */
+/* Helper: ambil core CSST (tenant-safe) untuk cache & fallback      */
 /* ==================================================================== */
 
 // --- ganti helper csstCore & getCSSTCore ---
@@ -134,7 +134,7 @@ type csstCore struct {
 	Slug      *string
 	SectionID *uuid.UUID
 
-	// Di model baru kita sudah punya subject snapshot,
+	// Di model baru kita sudah punya subject cache,
 	// jadi cukup ambil dari situ (tanpa join ke class_subject_books)
 	SubjectID *uuid.UUID
 
@@ -153,7 +153,7 @@ func getCSSTCore(tx *gorm.DB, schoolID, csstID uuid.UUID) (csstCore, error) {
 			csst.class_section_subject_teacher_class_section_id         AS section_id,
 
 			-- pakai subject_id dari SNAPSHOT (tanpa join ke class_subjects/books)
-			csst.class_section_subject_teacher_subject_id_snapshot      AS subject_id,
+			csst.class_section_subject_teacher_subject_id_cache      AS subject_id,
 
 			csst.class_section_subject_teacher_school_teacher_id        AS teacher_id,
 			csst.class_section_subject_teacher_class_room_id            AS room_id
@@ -245,7 +245,7 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 			return er
 		}
 
-		// (b) rules (opsional) — enrich CSST slug+snapshot
+		// (b) rules (opsional) — enrich CSST slug+cache
 		if len(req.Rules) > 0 {
 			ruleModels, er := req.RulesToModels(actSchoolID, header.ClassScheduleID)
 			if er != nil {
@@ -264,8 +264,8 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 					}
 					return e
 				}
-				ruleModels[i].ClassScheduleRuleCSSTSlugSnapshot = core.Slug
-				ruleModels[i].ClassScheduleRuleCSSTSnapshot = datatypes.JSONMap{
+				ruleModels[i].ClassScheduleRuleCSSTSlugCache = core.Slug
+				ruleModels[i].ClassScheduleRuleCSSTCache = datatypes.JSONMap{
 					"school_id":  core.SchoolID.String(),
 					"csst_id":    core.ID.String(),
 					"slug":       core.Slug,
@@ -280,7 +280,7 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 			}
 		}
 
-		// (c) sessions (opsional) — enrich snapshot CSST + fallback teacher/room
+		// (c) sessions (opsional) — enrich cache CSST + fallback teacher/room
 		if len(req.Sessions) > 0 {
 			ms, er := req.SessionsToModels(
 				actSchoolID,
@@ -308,7 +308,7 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 					return e
 				}
 
-				// Snapshot CSST (minimal namun cukup)
+				// Cache CSST (minimal namun cukup)
 				ms[i].ClassAttendanceSessionCSSTSnapshot = datatypes.JSONMap{
 					"school_id":  core.SchoolID.String(),
 					"csst_id":    core.ID.String(),
@@ -394,7 +394,7 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 				DefaultCSSTID:           defCSST,
 				DefaultRoomID:           defRoom,
 				DefaultTeacherID:        defTeacher,
-				DefaultSessionTypeID:    defSessionTypeID, // ⬅️ ini yang bikin type & snapshot keisi
+				DefaultSessionTypeID:    defSessionTypeID, // ⬅️ ini yang bikin type & cache keisi
 				DefaultAttendanceStatus: "open",
 				BatchSize:               500,
 			},

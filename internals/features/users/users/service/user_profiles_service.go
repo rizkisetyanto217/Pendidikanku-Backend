@@ -50,23 +50,23 @@ func EnsureProfileRow(
 
 		// update hanya kalau beda
 		cur := ""
-		if prof.UserProfileFullNameSnapshot != nil {
-			cur = strings.TrimSpace(*prof.UserProfileFullNameSnapshot)
+		if prof.UserProfileFullNameCache != nil {
+			cur = strings.TrimSpace(*prof.UserProfileFullNameCache)
 		}
 		if cur == name {
 			return nil
 		}
 
 		now := time.Now()
-		prof.UserProfileFullNameSnapshot = &name
+		prof.UserProfileFullNameCache = &name
 		prof.UserProfileUpdatedAt = now
 
 		return tx.WithContext(ctxQ).
 			Model(&userModel.UserProfileModel{}).
 			Where("user_profile_id = ?", prof.UserProfileID).
 			Updates(map[string]any{
-				"user_profile_full_name_snapshot": prof.UserProfileFullNameSnapshot,
-				"user_profile_updated_at":         prof.UserProfileUpdatedAt,
+				"user_profile_full_name_cache": prof.UserProfileFullNameCache,
+				"user_profile_updated_at":      prof.UserProfileUpdatedAt,
 			}).Error
 	}
 
@@ -90,8 +90,8 @@ func EnsureProfileRow(
 
 	newProf := userModel.UserProfileModel{
 		// ID biarkan pakai default gen_random_uuid() dari DB,
-		UserProfileUserID:           userID,
-		UserProfileFullNameSnapshot: nameSnap,
+		UserProfileUserID:        userID,
+		UserProfileFullNameCache: nameSnap,
 
 		UserProfileIsPublicProfile: true,
 		UserProfileIsVerified:      false,

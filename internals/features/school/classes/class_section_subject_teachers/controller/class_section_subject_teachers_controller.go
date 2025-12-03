@@ -25,8 +25,8 @@ import (
 	dto "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/dto"
 	modelCSST "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 
-	teacherSnapshot "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/snapshot"
-	roomSnapshot "madinahsalam_backend/internals/features/school/academics/rooms/snapshot"
+	teacherCache "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/service"
+	roomCache "madinahsalam_backend/internals/features/school/academics/rooms/service"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
@@ -38,14 +38,6 @@ func ptrStr(p *string) string {
 		return ""
 	}
 	return *p
-}
-
-func strPtrTrim(v string) *string {
-	s := strings.TrimSpace(v)
-	if s == "" {
-		return nil
-	}
-	return &s
 }
 
 func trimStr(s string) *string {
@@ -100,7 +92,7 @@ func getBaseForSlug(ctx context.Context, tx *gorm.DB, schoolID, sectionID, class
 	_ = tx.WithContext(ctx).
 		Table("class_subjects cs").
 		Select(`
-			COALESCE(cs.class_subject_subject_name_snapshot, s.subject_name) AS subject_name
+			COALESCE(cs.class_subject_subject_name_cache, s.subject_name) AS subject_name
 		`).
 		Joins(`LEFT JOIN subjects s 
 			     ON s.subject_id = cs.class_subject_subject_id 
@@ -203,9 +195,9 @@ func validateClassSubjectForSection(ctx context.Context, tx *gorm.DB, schoolID, 
 }
 
 /*
-Helper: ambil snapshot subject (id, name, code, slug, kkm) dari class_subject
+Helper: ambil cache subject (id, name, code, slug, kkm) dari class_subject
 */
-func fillSubjectSnapshotForCSST(
+func fillSubjectCacheForCSST(
 	ctx context.Context,
 	tx *gorm.DB,
 	schoolID uuid.UUID,
@@ -225,9 +217,9 @@ func fillSubjectSnapshotForCSST(
 		Table("class_subjects cs").
 		Select(`
 			s.subject_id AS subject_id,
-			COALESCE(cs.class_subject_subject_name_snapshot, s.subject_name) AS name,
-			COALESCE(cs.class_subject_subject_code_snapshot, s.subject_code) AS code,
-			COALESCE(cs.class_subject_subject_slug_snapshot, s.subject_slug) AS slug,
+			COALESCE(cs.class_subject_subject_name_cache, s.subject_name) AS name,
+			COALESCE(cs.class_subject_subject_code_cache, s.subject_code) AS code,
+			COALESCE(cs.class_subject_subject_slug_cache, s.subject_slug) AS slug,
 			cs.class_subject_min_passing_score AS min_passing_score
 		`).
 		Joins(`LEFT JOIN subjects s 
@@ -243,19 +235,19 @@ func fillSubjectSnapshotForCSST(
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fiber.NewError(fiber.StatusBadRequest, "class_subject / subject tidak ditemukan")
 		}
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal ambil snapshot subject")
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal ambil cache subject")
 	}
 
-	// isi snapshot ke row
-	row.ClassSectionSubjectTeacherSubjectIDSnapshot = &sr.SubjectID
+	// isi cache ke row
+	row.ClassSectionSubjectTeacherSubjectIDCache = &sr.SubjectID
 	if p := trimAny(sr.Name); p != nil {
-		row.ClassSectionSubjectTeacherSubjectNameSnapshot = p
+		row.ClassSectionSubjectTeacherSubjectNameCache = p
 	}
 	if p := trimAny(sr.Code); p != nil {
-		row.ClassSectionSubjectTeacherSubjectCodeSnapshot = p
+		row.ClassSectionSubjectTeacherSubjectCodeCache = p
 	}
 	if p := trimAny(sr.Slug); p != nil {
-		row.ClassSectionSubjectTeacherSubjectSlugSnapshot = p
+		row.ClassSectionSubjectTeacherSubjectSlugCache = p
 	}
 
 	// KKM default dari class_subject jika CSST belum override
@@ -264,6 +256,37 @@ func fillSubjectSnapshotForCSST(
 	}
 
 	return nil
+}
+
+/*
+Helper: isi academic_term cache CSST dari class_section
+*/
+func fillAcademicTermCacheFromSection(
+	sec *modelClassSection.ClassSectionModel,
+	row *modelCSST.ClassSectionSubjectTeacherModel,
+) {
+	// asumsi field di model ClassSectionModel:
+	//   ClassSectionAcademicTermID               *uuid.UUID
+	//   ClassSectionAcademicTermNameCache     *string
+	//   ClassSectionAcademicTermSlugCache     *string
+	//   ClassSectionAcademicTermAcademicYearCache *string
+	//   ClassSectionAcademicTermAngkatanCache *int
+
+	if sec.ClassSectionAcademicTermID != nil {
+		row.ClassSectionSubjectTeacherAcademicTermID = sec.ClassSectionAcademicTermID
+	}
+	if sec.ClassSectionAcademicTermNameCache != nil {
+		row.ClassSectionSubjectTeacherAcademicTermNameCache = trimPtr(sec.ClassSectionAcademicTermNameCache)
+	}
+	if sec.ClassSectionAcademicTermSlugCache != nil {
+		row.ClassSectionSubjectTeacherAcademicTermSlugCache = trimPtr(sec.ClassSectionAcademicTermSlugCache)
+	}
+	if sec.ClassSectionAcademicTermAcademicYearCache != nil {
+		row.ClassSectionSubjectTeacherAcademicYearCache = trimPtr(sec.ClassSectionAcademicTermAcademicYearCache)
+	}
+	if sec.ClassSectionAcademicTermAngkatanCache != nil {
+		row.ClassSectionSubjectTeacherAcademicTermAngkatanCache = sec.ClassSectionAcademicTermAngkatanCache
+	}
 }
 
 /* ======================== CONTROLLER ======================== */
@@ -340,13 +363,13 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek guru")
 		}
 
-		// 3a) ROOM resolve (request > default section room/snapshot)
+		// 3a) ROOM resolve (request > default section room/cache)
 		var finalClassRoomID *uuid.UUID
-		var finalRoomSnap *roomSnapshot.RoomSnapshot
+		var finalRoomSnap *roomCache.RoomCache
 		var finalRoomJSON *datatypes.JSON
 
 		if req.ClassSectionSubjectTeacherClassRoomID != nil {
-			rs, err := roomSnapshot.ValidateAndSnapshotRoom(tx, schoolID, *req.ClassSectionSubjectTeacherClassRoomID)
+			rs, err := roomCache.ValidateAndCacheRoom(tx, schoolID, *req.ClassSectionSubjectTeacherClassRoomID)
 			if err != nil {
 				var fe *fiber.Error
 				if errors.As(err, &fe) {
@@ -359,20 +382,20 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			finalClassRoomID = req.ClassSectionSubjectTeacherClassRoomID
 		} else {
 			if sec.ClassSectionClassRoomID != nil {
-				rs, err := roomSnapshot.ValidateAndSnapshotRoom(tx, schoolID, *sec.ClassSectionClassRoomID)
+				rs, err := roomCache.ValidateAndCacheRoom(tx, schoolID, *sec.ClassSectionClassRoomID)
 				if err != nil {
 					var fe *fiber.Error
 					if errors.As(err, &fe) {
 						return helper.JsonError(c, fe.Code, fe.Message)
 					}
-					return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil snapshot ruangan (section)")
+					return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil cache ruangan (section)")
 				}
 				tmp := *rs
 				finalRoomSnap = &tmp
 				idCopy := *sec.ClassSectionClassRoomID
 				finalClassRoomID = &idCopy
-			} else if len(sec.ClassSectionClassRoomSnapshot) > 0 {
-				jb := datatypes.JSON(sec.ClassSectionClassRoomSnapshot)
+			} else if len(sec.ClassSectionClassRoomCache) > 0 {
+				jb := datatypes.JSON(sec.ClassSectionClassRoomCache)
 				finalRoomJSON = &jb
 			}
 		}
@@ -391,15 +414,15 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			}
 
 			var eff modelCSST.AttendanceEntryMode
-			if req.ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot != nil &&
-				*req.ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot != "" {
+			if req.ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache != nil &&
+				*req.ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache != "" {
 				// custom dari request
-				eff = *req.ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot
+				eff = *req.ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache
 			} else {
 				// fallback default sekolah
 				eff = modelCSST.AttendanceEntryMode(string(school.SchoolDefaultAttendanceEntryMode))
 			}
-			row.ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot = &eff
+			row.ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache = &eff
 		}
 
 		// Room (ID + JSON)
@@ -407,10 +430,10 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			row.ClassSectionSubjectTeacherClassRoomID = finalClassRoomID
 		}
 		if finalRoomSnap != nil {
-			jb := roomSnapshot.ToJSON(finalRoomSnap)
-			row.ClassSectionSubjectTeacherClassRoomSnapshot = &jb
+			jb := roomCache.ToJSON(finalRoomSnap)
+			row.ClassSectionSubjectTeacherClassRoomCache = &jb
 		} else if finalRoomJSON != nil {
-			row.ClassSectionSubjectTeacherClassRoomSnapshot = finalRoomJSON
+			row.ClassSectionSubjectTeacherClassRoomCache = finalRoomJSON
 		}
 
 		// Default delivery mode jika kosong
@@ -423,74 +446,77 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		}
 
 		// 4a) SNAPSHOT GURU (JSON kaya) + flattened
-		var mainTeacherSnap *teacherSnapshot.TeacherSnapshot
-		if ts, err := teacherSnapshot.ValidateAndSnapshotTeacher(tx, schoolID, req.ClassSectionSubjectTeacherSchoolTeacherID); err != nil {
+		var mainTeacherSnap *teacherCache.TeacherCache
+		if ts, err := teacherCache.ValidateAndCacheTeacher(tx, schoolID, req.ClassSectionSubjectTeacherSchoolTeacherID); err != nil {
 			var fe *fiber.Error
 			if errors.As(err, &fe) {
 				return helper.JsonError(c, fe.Code, fe.Message)
 			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat snapshot guru")
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat cache guru")
 		} else if ts != nil {
 			mainTeacherSnap = ts
-			jb := teacherSnapshot.ToJSON(ts)
-			row.ClassSectionSubjectTeacherSchoolTeacherSnapshot = &jb
+			jb := teacherCache.ToJSON(ts)
+			row.ClassSectionSubjectTeacherSchoolTeacherCache = &jb
 		}
 
-		// Name dari snapshot guru
+		// Name dari cache guru
 		if mainTeacherSnap != nil {
 			if p := trimAny(mainTeacherSnap.Name); p != nil {
-				row.ClassSectionSubjectTeacherSchoolTeacherNameSnapshot = p
+				row.ClassSectionSubjectTeacherSchoolTeacherNameCache = p
 			}
 		}
 
-		// Slug dari tabel guru + fallback name dari kolom snapshot tabel (bila belum ada)
+		// Slug dari tabel guru + fallback name dari kolom cache tabel (bila belum ada)
 		{
 			var t struct {
 				Slug     *string `gorm:"column:school_teacher_slug"`
-				NameSnap *string `gorm:"column:school_teacher_user_teacher_name_snapshot"`
+				NameSnap *string `gorm:"column:school_teacher_user_teacher_full_name_cache"`
 			}
 			_ = tx.
 				Table("school_teachers").
-				Select("school_teacher_slug, school_teacher_user_teacher_name_snapshot").
+				Select("school_teacher_slug, school_teacher_user_teacher_full_name_cache").
 				Where("school_teacher_id = ? AND school_teacher_school_id = ? AND school_teacher_deleted_at IS NULL",
 					req.ClassSectionSubjectTeacherSchoolTeacherID, schoolID).
 				Take(&t).Error
 
 			if t.Slug != nil && strings.TrimSpace(*t.Slug) != "" {
-				row.ClassSectionSubjectTeacherSchoolTeacherSlugSnapshot = t.Slug
+				row.ClassSectionSubjectTeacherSchoolTeacherSlugCache = t.Slug
 			}
-			if row.ClassSectionSubjectTeacherSchoolTeacherNameSnapshot == nil {
+			if row.ClassSectionSubjectTeacherSchoolTeacherNameCache == nil {
 				if p := trimPtr(t.NameSnap); p != nil {
-					row.ClassSectionSubjectTeacherSchoolTeacherNameSnapshot = p
+					row.ClassSectionSubjectTeacherSchoolTeacherNameCache = p
 				}
 			}
 		}
 
 		// 4b) SNAPSHOT ASISTEN (opsional) + flattened
 		if req.ClassSectionSubjectTeacherAssistantSchoolTeacherID != nil {
-			if ats, err := teacherSnapshot.ValidateAndSnapshotTeacher(tx, schoolID, *req.ClassSectionSubjectTeacherAssistantSchoolTeacherID); err != nil {
+			if ats, err := teacherCache.ValidateAndCacheTeacher(tx, schoolID, *req.ClassSectionSubjectTeacherAssistantSchoolTeacherID); err != nil {
 				var fe *fiber.Error
 				if errors.As(err, &fe) {
 					return helper.JsonError(c, fe.Code, fe.Message)
 				}
-				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat snapshot asisten guru")
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat cache asisten guru")
 			} else if ats != nil {
-				jb := teacherSnapshot.ToJSON(ats)
-				row.ClassSectionSubjectTeacherAssistantSchoolTeacherSnapshot = &jb
+				jb := teacherCache.ToJSON(ats)
+				row.ClassSectionSubjectTeacherAssistantSchoolTeacherCache = &jb
 				if p := trimAny(ats.Name); p != nil {
-					row.ClassSectionSubjectTeacherAssistantSchoolTeacherNameSnapshot = p
+					row.ClassSectionSubjectTeacherAssistantSchoolTeacherNameCache = p
 				}
 			}
 		}
 
 		// 4c) SNAPSHOT SUBJECT (via CLASS_SUBJECT)
-		if err := fillSubjectSnapshotForCSST(c.Context(), tx, schoolID, row.ClassSectionSubjectTeacherClassSubjectID, &row); err != nil {
+		if err := fillSubjectCacheForCSST(c.Context(), tx, schoolID, row.ClassSectionSubjectTeacherClassSubjectID, &row); err != nil {
 			var fe *fiber.Error
 			if errors.As(err, &fe) {
 				return helper.JsonError(c, fe.Code, fe.Message)
 			}
 			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 		}
+
+		// 4d) 🆕 SNAPSHOT ACADEMIC_TERM (ambil dari section)
+		fillAcademicTermCacheFromSection(&sec, &row)
 
 		// 5) SLUG unik
 		if row.ClassSectionSubjectTeacherSlug != nil {
@@ -515,34 +541,34 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		row.ClassSectionSubjectTeacherSlug = &uniqueSlug
 
 		/* =====================================================
-		   >>> Flattened snapshots (agar kolom *_snapshot terisi)
+		   >>> Flattened caches (agar kolom *_cache terisi)
 		   ===================================================== */
 
 		// SECTION (slug/name/code/url)
 		if p := trimAny(sec.ClassSectionSlug); p != nil {
-			row.ClassSectionSubjectTeacherClassSectionSlugSnapshot = p
+			row.ClassSectionSubjectTeacherClassSectionSlugCache = p
 		}
 		if p := trimAny(sec.ClassSectionName); p != nil {
-			row.ClassSectionSubjectTeacherClassSectionNameSnapshot = p
+			row.ClassSectionSubjectTeacherClassSectionNameCache = p
 		}
 		if p := trimAny(sec.ClassSectionCode); p != nil {
-			row.ClassSectionSubjectTeacherClassSectionCodeSnapshot = p
+			row.ClassSectionSubjectTeacherClassSectionCodeCache = p
 		}
 		if p := trimAny(sec.ClassSectionGroupURL); p != nil {
-			row.ClassSectionSubjectTeacherClassSectionURLSnapshot = p
+			row.ClassSectionSubjectTeacherClassSectionURLCache = p
 		}
 
 		// ROOM flattened (slug/name/location)
 		if finalRoomSnap != nil {
 			if p := trimAny(finalRoomSnap.Slug); p != nil {
-				row.ClassSectionSubjectTeacherClassRoomSlugSnapshot = p
-				row.ClassSectionSubjectTeacherClassRoomSlugSnapshotGen = p
+				row.ClassSectionSubjectTeacherClassRoomSlugCache = p
+				row.ClassSectionSubjectTeacherClassRoomSlugCacheGen = p
 			}
 			if p := trimAny(finalRoomSnap.Name); p != nil {
-				row.ClassSectionSubjectTeacherClassRoomNameSnapshot = p
+				row.ClassSectionSubjectTeacherClassRoomNameCache = p
 			}
 			if p := trimAny(finalRoomSnap.Location); p != nil {
-				row.ClassSectionSubjectTeacherClassRoomLocationSnapshot = p
+				row.ClassSectionSubjectTeacherClassRoomLocationCache = p
 			}
 		}
 
@@ -643,7 +669,7 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 			}
 		}
 
-		// Flags perubahan untuk slug/snapshot
+		// Flags perubahan untuk slug/cache
 		sectionChanged := req.ClassSectionSubjectTeacherClassSectionID != nil &&
 			*req.ClassSectionSubjectTeacherClassSectionID != row.ClassSectionSubjectTeacherClassSectionID
 		classSubjectChanged := req.ClassSectionSubjectTeacherClassSubjectID != nil &&
@@ -654,9 +680,9 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 		// Apply perubahan dasar ke row
 		req.Apply(&row)
 
-		// Jika CLASS_SUBJECT berubah → refresh subject snapshot (+ KKM default kalau belum di-override)
+		// Jika CLASS_SUBJECT berubah → refresh subject cache (+ KKM default kalau belum di-override)
 		if classSubjectChanged {
-			if err := fillSubjectSnapshotForCSST(c.Context(), tx, schoolID, row.ClassSectionSubjectTeacherClassSubjectID, &row); err != nil {
+			if err := fillSubjectCacheForCSST(c.Context(), tx, schoolID, row.ClassSectionSubjectTeacherClassSubjectID, &row); err != nil {
 				var fe *fiber.Error
 				if errors.As(err, &fe) {
 					return helper.JsonError(c, fe.Code, fe.Message)
@@ -665,8 +691,40 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 			}
 		}
 
-		// TODO (opsional): kalau teacherChanged, kamu bisa juga re-build snapshot guru di sini,
-		// mirip blok di Create() (ValidateAndSnapshotTeacher + ToJSON + name/slug).
+		// 🆕 Jika SECTION berubah → refresh SECTION cache + ACADEMIC_TERM cache dari section baru
+		if sectionChanged {
+			var sec modelClassSection.ClassSectionModel
+			if err := tx.
+				Where("class_section_id = ? AND class_section_school_id = ? AND class_section_deleted_at IS NULL",
+					row.ClassSectionSubjectTeacherClassSectionID, schoolID).
+				First(&sec).Error; err != nil {
+
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return helper.JsonError(c, fiber.StatusBadRequest, "Section baru tidak ditemukan / beda tenant")
+				}
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek section baru")
+			}
+
+			// SECTION cache
+			if p := trimAny(sec.ClassSectionSlug); p != nil {
+				row.ClassSectionSubjectTeacherClassSectionSlugCache = p
+			}
+			if p := trimAny(sec.ClassSectionName); p != nil {
+				row.ClassSectionSubjectTeacherClassSectionNameCache = p
+			}
+			if p := trimAny(sec.ClassSectionCode); p != nil {
+				row.ClassSectionSubjectTeacherClassSectionCodeCache = p
+			}
+			if p := trimAny(sec.ClassSectionGroupURL); p != nil {
+				row.ClassSectionSubjectTeacherClassSectionURLCache = p
+			}
+
+			// 🆕 ACADEMIC_TERM cache dari section baru
+			fillAcademicTermCacheFromSection(&sec, &row)
+		}
+
+		// TODO (opsional): kalau teacherChanged, kamu bisa juga re-build cache guru di sini,
+		// mirip blok di Create() (ValidateAndCacheTeacher + ToJSON + name/slug).
 
 		// SLUG handling (mirror create)
 		if req.ClassSectionSubjectTeacherSlug != nil {
@@ -803,7 +861,7 @@ func (ctl *ClassSectionSubjectTeacherController) Delete(c *fiber.Ctx) error {
 			AND class_attendance_session_deleted_at IS NULL
 			AND (
 				class_attendance_session_csst_id = ?
-				OR class_attendance_session_csst_id_snapshot = ?
+				OR class_attendance_session_csst_id_cache = ?
 			)
 		`, schoolID, row.ClassSectionSubjectTeacherID, row.ClassSectionSubjectTeacherID).
 		Count(&cntSess).Error; err != nil {

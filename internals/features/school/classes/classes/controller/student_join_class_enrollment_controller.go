@@ -14,7 +14,7 @@ import (
 
 	studentModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
 	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
-	snapsvc "madinahsalam_backend/internals/features/users/users/snapshot"
+	snapsvc "madinahsalam_backend/internals/features/users/users/service"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -133,12 +133,12 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 		return helper.JsonError(c, fiber.StatusInternalServerError, "failed to load class section")
 	}
 
-	log.Printf("[JoinSectionCSST] loaded section: id=%s class_id=%v enroll_mode=%s total_students=%d capacity=%v",
+	log.Printf("[JoinSectionCSST] loaded section: id=%s class_id=%v enroll_mode=%s quota_taken=%d quota_total=%v",
 		sec.ClassSectionID,
 		sec.ClassSectionClassID,
 		sec.ClassSectionSubjectTeachersEnrollmentMode,
-		sec.ClassSectionTotalStudents,
-		sec.ClassSectionCapacity)
+		sec.ClassSectionQuotaTaken,
+		sec.ClassSectionQuotaTotal)
 
 	// Pastikan section ini memang untuk class yang sama (jika terisi)
 	if sec.ClassSectionClassID != nil && *sec.ClassSectionClassID != enr.StudentClassEnrollmentsClassID {
@@ -156,18 +156,19 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 		return helper.JsonError(c, fiber.StatusBadRequest, "Class section ini tidak mengizinkan self-enroll")
 	}
 
-	// Kapasitas section penuh?
-	if sec.ClassSectionCapacity != nil && *sec.ClassSectionCapacity > 0 &&
-		sec.ClassSectionTotalStudents >= *sec.ClassSectionCapacity {
+	// Kapasitas section penuh? (pakai quota baru)
+	if sec.ClassSectionQuotaTotal != nil && *sec.ClassSectionQuotaTotal > 0 &&
+		sec.ClassSectionQuotaTaken >= *sec.ClassSectionQuotaTotal {
+
 		tx.Rollback()
-		log.Printf("[JoinSectionCSST] reject: section full, total_students=%d capacity=%d",
-			sec.ClassSectionTotalStudents, *sec.ClassSectionCapacity)
+		log.Printf("[JoinSectionCSST] reject: section full, quota_taken=%d quota_total=%d",
+			sec.ClassSectionQuotaTaken, *sec.ClassSectionQuotaTotal)
 		return helper.JsonError(c, fiber.StatusBadRequest, "Class section sudah penuh")
 	}
 
-	// ==== 3a) Build snapshot user_profile + student_code murid (sekali saja, dipakai di section & CSST) ====
+	// ==== 3a) Build cache user_profile + student_code murid (sekali saja, dipakai di section & CSST) ====
 	var (
-		userProfileSnap *snapsvc.UserProfileSnapshot
+		userProfileSnap *snapsvc.UserProfileCache
 		studentCode     *string
 	)
 
@@ -180,44 +181,44 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 			First(&stu).Error; err != nil {
 
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				log.Printf("[JoinSectionCSST] school_student not found for snapshot: student_id=%s school_id=%s",
+				log.Printf("[JoinSectionCSST] school_student not found for cache: student_id=%s school_id=%s",
 					studentID, schoolID)
 			} else {
-				log.Printf("[JoinSectionCSST] failed load school_student for snapshot: err=%v", err)
+				log.Printf("[JoinSectionCSST] failed load school_student for cache: err=%v", err)
 			}
 		} else {
-			// simpan student_code snapshot (kalau ada)
+			// simpan student_code cache (kalau ada)
 			if stu.SchoolStudentCode != nil {
 				studentCode = stu.SchoolStudentCode
 			}
 
 			if stu.SchoolStudentUserProfileID != uuid.Nil {
-				snap, errSnap := snapsvc.BuildUserProfileSnapshotByProfileID(
+				snap, errSnap := snapsvc.BuildUserProfileCacheByProfileID(
 					c.Context(),
 					tx,
 					stu.SchoolStudentUserProfileID,
 				)
 				if errSnap != nil && !errors.Is(errSnap, gorm.ErrRecordNotFound) {
-					log.Printf("[JoinSectionCSST] failed build user_profile snapshot: profile_id=%s err=%v",
+					log.Printf("[JoinSectionCSST] failed build user_profile cache: profile_id=%s err=%v",
 						stu.SchoolStudentUserProfileID, errSnap)
 				} else if errSnap == nil {
 					userProfileSnap = snap
-					log.Printf("[JoinSectionCSST] loaded user_profile snapshot for student: user_id=%s name=%s",
+					log.Printf("[JoinSectionCSST] loaded user_profile cache for student: user_id=%s name=%s",
 						snap.ID, snap.Name)
 				} else {
-					log.Printf("[JoinSectionCSST] no user_profile snapshot found for profile_id=%s",
+					log.Printf("[JoinSectionCSST] no user_profile cache found for profile_id=%s",
 						stu.SchoolStudentUserProfileID)
 				}
 			} else {
-				log.Printf("[JoinSectionCSST] school_student has no user_profile_id for snapshot: student_id=%s", studentID)
+				log.Printf("[JoinSectionCSST] school_student has no user_profile_id for cache: student_id=%s", studentID)
 			}
 		}
 	}
 
-	// 3b) Update enrollment: set class_section + snapshots
+	// 3b) Update enrollment: set class_section + caches
 	enr.StudentClassEnrollmentsClassSectionID = &sec.ClassSectionID
-	enr.StudentClassEnrollmentsClassSectionNameSnapshot = &sec.ClassSectionName
-	enr.StudentClassEnrollmentsClassSectionSlugSnapshot = &sec.ClassSectionSlug
+	enr.StudentClassEnrollmentsClassSectionNameCache = &sec.ClassSectionName
+	enr.StudentClassEnrollmentsClassSectionSlugCache = &sec.ClassSectionSlug
 
 	if err := tx.Save(&enr).Error; err != nil {
 		tx.Rollback()
@@ -247,29 +248,29 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 			schoolID, studentID, sec.ClassSectionID)
 
 		scs := sectionModel.StudentClassSection{
-			StudentClassSectionSchoolStudentID:     studentID,
-			StudentClassSectionSchoolID:            schoolID,
-			StudentClassSectionSectionID:           sec.ClassSectionID,
-			StudentClassSectionSectionSlugSnapshot: sec.ClassSectionSlug,
+			StudentClassSectionSchoolStudentID:  studentID,
+			StudentClassSectionSchoolID:         schoolID,
+			StudentClassSectionSectionID:        sec.ClassSectionID,
+			StudentClassSectionSectionSlugCache: sec.ClassSectionSlug,
 			// status & assigned_at pakai default DB (active + current_date)
 		}
 
-		// Isi snapshot user_profile ke student_class_sections (kalau ada)
+		// Isi cache user_profile ke student_class_sections (kalau ada)
 		if userProfileSnap != nil {
 			name := userProfileSnap.Name
-			scs.StudentClassSectionUserProfileNameSnapshot = &name
-			scs.StudentClassSectionUserProfileAvatarURLSnapshot = userProfileSnap.AvatarURL
-			scs.StudentClassSectionUserProfileWhatsappURLSnapshot = userProfileSnap.WhatsappURL
-			scs.StudentClassSectionUserProfileParentNameSnapshot = userProfileSnap.ParentName
-			scs.StudentClassSectionUserProfileParentWhatsappURLSnapshot = userProfileSnap.ParentWhatsappURL
-			scs.StudentClassSectionUserProfileGenderSnapshot = userProfileSnap.Gender
-			log.Printf("[JoinSectionCSST] filled student_class_section user_profile snapshot: name=%s", name)
+			scs.StudentClassSectionUserProfileNameCache = &name
+			scs.StudentClassSectionUserProfileAvatarURLCache = userProfileSnap.AvatarURL
+			scs.StudentClassSectionUserProfileWhatsappURLCache = userProfileSnap.WhatsappURL
+			scs.StudentClassSectionUserProfileParentNameCache = userProfileSnap.ParentName
+			scs.StudentClassSectionUserProfileParentWhatsappURLCache = userProfileSnap.ParentWhatsappURL
+			scs.StudentClassSectionUserProfileGenderCache = userProfileSnap.Gender
+			log.Printf("[JoinSectionCSST] filled student_class_section user_profile cache: name=%s", name)
 		}
 
-		// Isi student_code snapshot kalau ada
+		// Isi student_code cache kalau ada
 		if studentCode != nil {
-			scs.StudentClassSectionStudentCodeSnapshot = studentCode
-			log.Printf("[JoinSectionCSST] filled student_class_section student_code_snapshot: code=%s", *studentCode)
+			scs.StudentClassSectionStudentCodeCache = studentCode
+			log.Printf("[JoinSectionCSST] filled student_class_section student_code_cache: code=%s", *studentCode)
 		}
 
 		if err := tx.Create(&scs).Error; err != nil {
@@ -349,23 +350,23 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 			// is_active + created_at pakai default DB
 		}
 
-		// Isi snapshot user_profile ke student_class_section_subject_teachers (kalau ada)
+		// Isi cache user_profile ke student_class_section_subject_teachers (kalau ada)
 		if userProfileSnap != nil {
 			name := userProfileSnap.Name
-			newLink.StudentClassSectionSubjectTeacherUserProfileNameSnapshot = &name
-			newLink.StudentClassSectionSubjectTeacherUserProfileAvatarURLSnapshot = userProfileSnap.AvatarURL
-			newLink.StudentClassSectionSubjectTeacherUserProfileWhatsappURLSnapshot = userProfileSnap.WhatsappURL
-			newLink.StudentClassSectionSubjectTeacherUserProfileParentNameSnapshot = userProfileSnap.ParentName
-			newLink.StudentClassSectionSubjectTeacherUserProfileParentWhatsappURLSnapshot = userProfileSnap.ParentWhatsappURL
-			newLink.StudentClassSectionSubjectTeacherUserProfileGenderSnapshot = userProfileSnap.Gender
+			newLink.StudentClassSectionSubjectTeacherUserProfileNameCache = &name
+			newLink.StudentClassSectionSubjectTeacherUserProfileAvatarURLCache = userProfileSnap.AvatarURL
+			newLink.StudentClassSectionSubjectTeacherUserProfileWhatsappURLCache = userProfileSnap.WhatsappURL
+			newLink.StudentClassSectionSubjectTeacherUserProfileParentNameCache = userProfileSnap.ParentName
+			newLink.StudentClassSectionSubjectTeacherUserProfileParentWhatsappURLCache = userProfileSnap.ParentWhatsappURL
+			newLink.StudentClassSectionSubjectTeacherUserProfileGenderCache = userProfileSnap.Gender
 
-			log.Printf("[JoinSectionCSST] filled CSST mapping user_profile snapshot: name=%s", name)
+			log.Printf("[JoinSectionCSST] filled CSST mapping user_profile cache: name=%s", name)
 		}
 
-		// Isi student_code snapshot kalau ada
+		// Isi student_code cache kalau ada
 		if studentCode != nil {
-			newLink.StudentClassSectionSubjectTeacherStudentCodeSnapshot = studentCode
-			log.Printf("[JoinSectionCSST] filled CSST mapping student_code_snapshot: code=%s", *studentCode)
+			newLink.StudentClassSectionSubjectTeacherStudentCodeCache = studentCode
+			log.Printf("[JoinSectionCSST] filled CSST mapping student_code_cache: code=%s", *studentCode)
 		}
 
 		if err := tx.Create(&newLink).Error; err != nil {
@@ -390,17 +391,17 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 		log.Printf("[JoinSectionCSST] CSST mapping + counter updated for csst_id=%s", csst.ClassSectionSubjectTeacherID)
 	}
 
-	// 5) Increment counter class_section_total_students
+	// 5) Increment counter quota_taken untuk class_section
 	if err := tx.Model(&sec).
-		Update("class_section_total_students", gorm.Expr("class_section_total_students + 1")).Error; err != nil {
+		Update("class_section_quota_taken", gorm.Expr("class_section_quota_taken + 1")).Error; err != nil {
 
 		tx.Rollback()
-		log.Printf("[JoinSectionCSST] failed to increment class_section_total_students for section_id=%s: err=%v",
+		log.Printf("[JoinSectionCSST] failed to increment class_section_quota_taken for section_id=%s: err=%v",
 			sec.ClassSectionID, err)
 		return helper.JsonError(c, fiber.StatusInternalServerError, "failed to update class section counter")
 	}
 
-	log.Printf("[JoinSectionCSST] class_section_total_students incremented for section_id=%s", sec.ClassSectionID)
+	log.Printf("[JoinSectionCSST] class_section_quota_taken incremented for section_id=%s", sec.ClassSectionID)
 
 	if err := tx.Commit().Error; err != nil {
 		log.Printf("[JoinSectionCSST] failed to commit transaction: err=%v", err)

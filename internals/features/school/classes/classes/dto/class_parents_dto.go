@@ -96,7 +96,7 @@ func (p PatchFieldClassParent[T]) Get() (*T, bool) { return p.Value, p.Present }
 
 //
 // =========================================================
-// CREATE REQUEST
+// – CREATE REQUEST
 // =========================================================
 //
 
@@ -112,7 +112,7 @@ type ClassParentCreateRequest struct {
 	ClassParentRequirements JSONMapFlexible `json:"class_parent_requirements" form:"class_parent_requirements"`
 
 	// Gambar opsional
-	ClassParentImageURL       *string `json:"class_parent_image_url"       form:"class_parent_image_url"`
+	ClassParentImageURL       *string `json:"class_parent_image_url"        form:"class_parent_image_url"`
 	ClassParentImageObjectKey *string `json:"class_parent_image_object_key" form:"class_parent_image_object_key"`
 }
 
@@ -189,21 +189,21 @@ type ClassParentResponse struct {
 	ClassParentLevel       *int16    `json:"class_parent_level"`
 	ClassParentIsActive    bool      `json:"class_parent_is_active"`
 
-	// Snapshot lengkap (ALL)
-	ClassParentTotalClasses        int32 `json:"class_parent_total_classes"`
-	ClassParentTotalClassSections  int32 `json:"class_parent_total_class_sections"`
-	ClassParentTotalStudents       int32 `json:"class_parent_total_students"`
-	ClassParentTotalMaleStudents   int32 `json:"class_parent_total_male_students"`
-	ClassParentTotalFemaleStudents int32 `json:"class_parent_total_female_students"`
-	ClassParentTotalTeachers       int32 `json:"class_parent_total_teachers"`
+	// STATS (ALL) → mirror model + SQL
+	ClassParentClassCount         int32 `json:"class_parent_class_count"`
+	ClassParentClassSectionCount  int32 `json:"class_parent_class_section_count"`
+	ClassParentStudentCount       int32 `json:"class_parent_student_count"`
+	ClassParentStudentMaleCount   int32 `json:"class_parent_student_male_count"`
+	ClassParentStudentFemaleCount int32 `json:"class_parent_student_female_count"`
+	ClassParentTeacherCount       int32 `json:"class_parent_teacher_count"`
 
-	// Snapshot ACTIVE ONLY
-	ClassParentTotalClassesActive        int32 `json:"class_parent_total_classes_active"`
-	ClassParentTotalClassSectionsActive  int32 `json:"class_parent_total_class_sections_active"`
-	ClassParentTotalStudentsActive       int32 `json:"class_parent_total_students_active"`
-	ClassParentTotalMaleStudentsActive   int32 `json:"class_parent_total_male_students_active"`
-	ClassParentTotalFemaleStudentsActive int32 `json:"class_parent_total_female_students_active"`
-	ClassParentTotalTeachersActive       int32 `json:"class_parent_total_teachers_active"`
+	// STATS (ACTIVE ONLY)
+	ClassParentClassActiveCount         int32 `json:"class_parent_class_active_count"`
+	ClassParentClassSectionActiveCount  int32 `json:"class_parent_class_section_active_count"`
+	ClassParentStudentActiveCount       int32 `json:"class_parent_student_active_count"`
+	ClassParentStudentMaleActiveCount   int32 `json:"class_parent_student_male_active_count"`
+	ClassParentStudentFemaleActiveCount int32 `json:"class_parent_student_female_active_count"`
+	ClassParentTeacherActiveCount       int32 `json:"class_parent_teacher_active_count"`
 
 	ClassParentRequirements            datatypes.JSONMap `json:"class_parent_requirements"`
 	ClassParentImageURL                *string           `json:"class_parent_image_url"`
@@ -233,21 +233,21 @@ func FromModelClassParent(cp *m.ClassParentModel) ClassParentResponse {
 		ClassParentLevel:       cp.ClassParentLevel,
 		ClassParentIsActive:    cp.ClassParentIsActive,
 
-		// snapshot ALL
-		ClassParentTotalClasses:        cp.ClassParentTotalClasses,
-		ClassParentTotalClassSections:  cp.ClassParentTotalClassSections,
-		ClassParentTotalStudents:       cp.ClassParentTotalStudents,
-		ClassParentTotalMaleStudents:   cp.ClassParentTotalMaleStudents,
-		ClassParentTotalFemaleStudents: cp.ClassParentTotalFemaleStudents,
-		ClassParentTotalTeachers:       cp.ClassParentTotalTeachers,
+		// STATS (ALL)
+		ClassParentClassCount:         cp.ClassParentClassCount,
+		ClassParentClassSectionCount:  cp.ClassParentClassSectionCount,
+		ClassParentStudentCount:       cp.ClassParentStudentCount,
+		ClassParentStudentMaleCount:   cp.ClassParentStudentMaleCount,
+		ClassParentStudentFemaleCount: cp.ClassParentStudentFemaleCount,
+		ClassParentTeacherCount:       cp.ClassParentTeacherCount,
 
-		// snapshot ACTIVE ONLY
-		ClassParentTotalClassesActive:        cp.ClassParentTotalClassesActive,
-		ClassParentTotalClassSectionsActive:  cp.ClassParentTotalClassSectionsActive,
-		ClassParentTotalStudentsActive:       cp.ClassParentTotalStudentsActive,
-		ClassParentTotalMaleStudentsActive:   cp.ClassParentTotalMaleStudentsActive,
-		ClassParentTotalFemaleStudentsActive: cp.ClassParentTotalFemaleStudentsActive,
-		ClassParentTotalTeachersActive:       cp.ClassParentTotalTeachersActive,
+		// STATS (ACTIVE ONLY)
+		ClassParentClassActiveCount:         cp.ClassParentClassActiveCount,
+		ClassParentClassSectionActiveCount:  cp.ClassParentClassSectionActiveCount,
+		ClassParentStudentActiveCount:       cp.ClassParentStudentActiveCount,
+		ClassParentStudentMaleActiveCount:   cp.ClassParentStudentMaleActiveCount,
+		ClassParentStudentFemaleActiveCount: cp.ClassParentStudentFemaleActiveCount,
+		ClassParentTeacherActiveCount:       cp.ClassParentTeacherActiveCount,
 
 		ClassParentRequirements:            cp.ClassParentRequirements,
 		ClassParentImageURL:                cp.ClassParentImageURL,
@@ -275,8 +275,8 @@ type ClassParentPatchRequest struct {
 	ClassParentLevel       PatchFieldClassParent[*int16]  `json:"class_parent_level"`
 	ClassParentIsActive    PatchFieldClassParent[*bool]   `json:"class_parent_is_active"`
 
-	// hanya total_classes yang boleh di-patch (opsional, stats lain dihitung sistem)
-	ClassParentTotalClasses PatchFieldClassParent[*int32] `json:"class_parent_total_classes"`
+	// contoh: hanya class_parent_class_count yang boleh di-patch manual
+	ClassParentClassCount PatchFieldClassParent[*int32] `json:"class_parent_class_count"`
 
 	ClassParentRequirements PatchFieldClassParent[JSONMapFlexible] `json:"class_parent_requirements"`
 
@@ -367,12 +367,12 @@ func (p ClassParentPatchRequest) Apply(cp *m.ClassParentModel) {
 		cp.ClassParentIsActive = **p.ClassParentIsActive.Value
 	}
 
-	// total_classes saja yang boleh di-patch
-	if p.ClassParentTotalClasses.Present {
-		if p.ClassParentTotalClasses.Value == nil {
-			cp.ClassParentTotalClasses = 0
+	// class_parent_class_count (JSON) → ClassParentClassCount (model)
+	if p.ClassParentClassCount.Present {
+		if p.ClassParentClassCount.Value == nil {
+			cp.ClassParentClassCount = 0
 		} else {
-			cp.ClassParentTotalClasses = **p.ClassParentTotalClasses.Value
+			cp.ClassParentClassCount = **p.ClassParentClassCount.Value
 		}
 	}
 
@@ -653,7 +653,8 @@ func decodePatchClassParentMultipart(c *fiber.Ctx, r *ClassParentPatchRequest) e
 	if err := setBoolPtr(&r.ClassParentIsActive, "class_parent_is_active"); err != nil {
 		return err
 	}
-	if err := setInt32Ptr(&r.ClassParentTotalClasses, "class_parent_total_classes"); err != nil {
+	// pakai key baru: class_parent_class_count
+	if err := setInt32Ptr(&r.ClassParentClassCount, "class_parent_class_count"); err != nil {
 		return err
 	}
 

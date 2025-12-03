@@ -281,8 +281,8 @@ func fetchRulesGrouped(db *gorm.DB, schoolID uuid.UUID, scheduleIDs []uuid.UUID,
 		WeeksOfMonth       pq.Int64Array `gorm:"column:class_schedule_rule_weeks_of_month"`
 		LastWeekOfMonth    bool          `gorm:"column:class_schedule_rule_last_week_of_month"`
 		CSSTID             uuid.UUID     `gorm:"column:class_schedule_rule_csst_id"`
-		CSSTSlugSnapshot   *string       `gorm:"column:class_schedule_rule_csst_slug_snapshot"`
-		CSSTSnapshotRaw    []byte        `gorm:"column:class_schedule_rule_csst_snapshot"`
+		CSSTSlugCache   *string       `gorm:"column:class_schedule_rule_csst_slug_cache"`
+		CSSTCacheRaw    []byte        `gorm:"column:class_schedule_rule_csst_cache"`
 		CSSTTeacherID      *uuid.UUID    `gorm:"column:class_schedule_rule_csst_student_teacher_id"`
 		CSSTSectionID      *uuid.UUID    `gorm:"column:class_schedule_rule_csst_class_section_id"`
 		CSSTClassSubjectID *uuid.UUID    `gorm:"column:class_schedule_rule_csst_class_subject_id"`
@@ -309,8 +309,8 @@ func fetchRulesGrouped(db *gorm.DB, schoolID uuid.UUID, scheduleIDs []uuid.UUID,
 			class_schedule_rule_weeks_of_month,
 			class_schedule_rule_last_week_of_month,
 			class_schedule_rule_csst_id,
-			class_schedule_rule_csst_slug_snapshot,
-			class_schedule_rule_csst_snapshot,
+			class_schedule_rule_csst_slug_cache,
+			class_schedule_rule_csst_cache,
 			class_schedule_rule_csst_student_teacher_id,
 			class_schedule_rule_csst_class_section_id,
 			class_schedule_rule_csst_class_subject_id,
@@ -339,8 +339,8 @@ func fetchRulesGrouped(db *gorm.DB, schoolID uuid.UUID, scheduleIDs []uuid.UUID,
 
 	for _, r := range rows {
 		var snap map[string]any
-		if len(r.CSSTSnapshotRaw) > 0 {
-			_ = json.Unmarshal(r.CSSTSnapshotRaw, &snap)
+		if len(r.CSSTCacheRaw) > 0 {
+			_ = json.Unmarshal(r.CSSTCacheRaw, &snap)
 		}
 
 		resp := d.ClassScheduleRuleResponse{
@@ -356,8 +356,8 @@ func fetchRulesGrouped(db *gorm.DB, schoolID uuid.UUID, scheduleIDs []uuid.UUID,
 			ClassScheduleRuleWeeksOfMonth:         []int64(r.WeeksOfMonth),
 			ClassScheduleRuleLastWeekOfMonth:      r.LastWeekOfMonth,
 			ClassScheduleRuleCSSTID:               r.CSSTID,
-			ClassScheduleRuleCSSTSlugSnapshot:     r.CSSTSlugSnapshot,
-			ClassScheduleRuleCSSTSnapshot:         snap,
+			ClassScheduleRuleCSSTSlugCache:     r.CSSTSlugCache,
+			ClassScheduleRuleCSSTCache:         snap,
 			ClassScheduleRuleCSSTStudentTeacherID: r.CSSTTeacherID,
 			ClassScheduleRuleCSSTClassSectionID:   r.CSSTSectionID,
 			ClassScheduleRuleCSSTClassSubjectID:   r.CSSTClassSubjectID,

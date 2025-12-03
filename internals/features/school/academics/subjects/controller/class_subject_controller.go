@@ -16,7 +16,7 @@ import (
 	classSubjectBookModel "madinahsalam_backend/internals/features/school/academics/books/model"
 	csDTO "madinahsalam_backend/internals/features/school/academics/subjects/dto"
 	csModel "madinahsalam_backend/internals/features/school/academics/subjects/model"
-	snapshotSubject "madinahsalam_backend/internals/features/school/academics/subjects/snapshot"
+	cacheSubject "madinahsalam_backend/internals/features/school/academics/subjects/service"
 
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
@@ -34,7 +34,7 @@ func ptrStr(p *string) string {
 	return *p
 }
 
-// ===== Snapshot class_parent (ringan, tenant-aware) =====
+// ===== Cache class_parent (ringan, tenant-aware) =====
 type classParentSnap struct {
 	Code  *string
 	Slug  *string
@@ -42,8 +42,8 @@ type classParentSnap struct {
 	Name  *string
 }
 
-// Ambil snapshot Class Parent — TANPA SELECT kolom yang tak ada.
-func fetchClassParentSnapshot(db *gorm.DB, schoolID, parentID uuid.UUID) (classParentSnap, error) {
+// Ambil cache Class Parent — TANPA SELECT kolom yang tak ada.
+func fetchClassParentCache(db *gorm.DB, schoolID, parentID uuid.UUID) (classParentSnap, error) {
 	var snap classParentSnap
 	err := db.
 		Table("class_parents").
@@ -72,11 +72,11 @@ func parentURLFromSlug(slug *string) *string {
 	return &u
 }
 
-// setParentURLSnapshotIfExists: set field "ClassSubjectClassParentURLSnapshot" jika ada di model.
+// setParentURLCacheIfExists: set field "ClassSubjectClassParentURLCache" jika ada di model.
 // Aman: kalau field nggak ada, fungsi ini no-op.
-func setParentURLSnapshotIfExists(m *csModel.ClassSubjectModel, url *string) {
+func setParentURLCacheIfExists(m *csModel.ClassSubjectModel, url *string) {
 	v := reflect.ValueOf(m).Elem()
-	f := v.FieldByName("ClassSubjectClassParentURLSnapshot")
+	f := v.FieldByName("ClassSubjectClassParentURLCache")
 	if !f.IsValid() || !f.CanSet() {
 		return
 	}
@@ -214,46 +214,46 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
 		}
 
-		// === Snapshot Subject (tenant-aware) ===
-		subjSnap, err := snapshotSubject.BuildSubjectSnapshot(c.Context(), tx, req.SchoolID, req.SubjectID)
+		// === Cache Subject (tenant-aware) ===
+		subjSnap, err := cacheSubject.BuildSubjectCache(c.Context(), tx, req.SchoolID, req.SubjectID)
 		if err != nil {
 			switch {
 			case errors.Is(err, gorm.ErrRecordNotFound):
 				return fiber.NewError(fiber.StatusNotFound, "Subject tidak ditemukan")
-			case errors.Is(err, snapshotSubject.ErrSchoolMismatch):
+			case errors.Is(err, cacheSubject.ErrSchoolMismatch):
 				return fiber.NewError(fiber.StatusForbidden, "Subject bukan milik school ini")
 			default:
-				return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil snapshot subject")
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil cache subject")
 			}
 		}
 
-		// === Snapshot Class Parent (tanpa kolom URL) ===
-		parentSnap, err := fetchClassParentSnapshot(tx, req.SchoolID, req.ClassParentID)
+		// === Cache Class Parent (tanpa kolom URL) ===
+		parentSnap, err := fetchClassParentCache(tx, req.SchoolID, req.ClassParentID)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return fiber.NewError(fiber.StatusNotFound, "Class parent tidak ditemukan")
 			}
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil snapshot class parent")
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil cache class parent")
 		}
 
-		// === Build model + isi snapshots ===
+		// === Build model + isi caches ===
 		m := req.ToModel()
 		m.ClassSubjectSlug = &uniqueSlug
 
-		// Subject snapshots
-		m.ClassSubjectSubjectNameSnapshot = &subjSnap.Name
-		m.ClassSubjectSubjectCodeSnapshot = &subjSnap.Code
-		m.ClassSubjectSubjectSlugSnapshot = &subjSnap.Slug
-		m.ClassSubjectSubjectURLSnapshot = subjSnap.URL // asumsi subject memang punya URL snapshot
+		// Subject caches
+		m.ClassSubjectSubjectNameCache = &subjSnap.Name
+		m.ClassSubjectSubjectCodeCache = &subjSnap.Code
+		m.ClassSubjectSubjectSlugCache = &subjSnap.Slug
+		m.ClassSubjectSubjectURLCache = subjSnap.URL // asumsi subject memang punya URL cache
 
-		// Class Parent snapshots
-		m.ClassSubjectClassParentCodeSnapshot = parentSnap.Code
-		m.ClassSubjectClassParentSlugSnapshot = parentSnap.Slug
-		m.ClassSubjectClassParentLevelSnapshot = parentSnap.Level
-		m.ClassSubjectClassParentNameSnapshot = parentSnap.Name
+		// Class Parent caches
+		m.ClassSubjectClassParentCodeCache = parentSnap.Code
+		m.ClassSubjectClassParentSlugCache = parentSnap.Slug
+		m.ClassSubjectClassParentLevelCache = parentSnap.Level
+		m.ClassSubjectClassParentNameCache = parentSnap.Name
 
 		// Opsional: derive URL dari slug parent—DISET hanya jika field-nya ada di model.
-		setParentURLSnapshotIfExists(&m, parentURLFromSlug(parentSnap.Slug))
+		setParentURLCacheIfExists(&m, parentURLFromSlug(parentSnap.Slug))
 
 		// === Upsert race-safe: DO NOTHING ===
 		res := tx.
@@ -430,37 +430,37 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 		// Terapkan perubahan dari req ke model
 		req.Apply(&m)
 
-		// === Jika SubjectID berubah → refresh SubjectSnapshot ===
+		// === Jika SubjectID berubah → refresh SubjectCache ===
 		if m.ClassSubjectSubjectID != oldSubjectID {
-			subjSnap, err := snapshotSubject.BuildSubjectSnapshot(c.Context(), tx, schoolID, m.ClassSubjectSubjectID)
+			subjSnap, err := cacheSubject.BuildSubjectCache(c.Context(), tx, schoolID, m.ClassSubjectSubjectID)
 			if err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					return fiber.NewError(fiber.StatusNotFound, "Subject tidak ditemukan")
 				}
-				if errors.Is(err, snapshotSubject.ErrSchoolMismatch) {
+				if errors.Is(err, cacheSubject.ErrSchoolMismatch) {
 					return fiber.NewError(fiber.StatusForbidden, "Subject bukan milik school ini")
 				}
-				return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil snapshot subject")
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil cache subject")
 			}
-			m.ClassSubjectSubjectNameSnapshot = &subjSnap.Name
-			m.ClassSubjectSubjectCodeSnapshot = &subjSnap.Code
-			m.ClassSubjectSubjectSlugSnapshot = &subjSnap.Slug
-			m.ClassSubjectSubjectURLSnapshot = subjSnap.URL
+			m.ClassSubjectSubjectNameCache = &subjSnap.Name
+			m.ClassSubjectSubjectCodeCache = &subjSnap.Code
+			m.ClassSubjectSubjectSlugCache = &subjSnap.Slug
+			m.ClassSubjectSubjectURLCache = subjSnap.URL
 		}
 
-		// === Jika ClassParentID berubah → refresh ClassParentSnapshot ===
+		// === Jika ClassParentID berubah → refresh ClassParentCache ===
 		if m.ClassSubjectClassParentID != oldParentID {
-			parentSnap, err := fetchClassParentSnapshot(tx, schoolID, m.ClassSubjectClassParentID)
+			parentSnap, err := fetchClassParentCache(tx, schoolID, m.ClassSubjectClassParentID)
 			if err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					return fiber.NewError(fiber.StatusNotFound, "Class parent tidak ditemukan")
 				}
-				return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil snapshot class parent")
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil cache class parent")
 			}
-			m.ClassSubjectClassParentCodeSnapshot = parentSnap.Code
-			m.ClassSubjectClassParentSlugSnapshot = parentSnap.Slug
-			m.ClassSubjectClassParentLevelSnapshot = parentSnap.Level
-			m.ClassSubjectClassParentNameSnapshot = parentSnap.Name
+			m.ClassSubjectClassParentCodeCache = parentSnap.Code
+			m.ClassSubjectClassParentSlugCache = parentSnap.Slug
+			m.ClassSubjectClassParentLevelCache = parentSnap.Level
+			m.ClassSubjectClassParentNameCache = parentSnap.Name
 		}
 
 		// === Slug handling (regen jika kosong / parent berubah / subject berubah / user set slug manual) ===
@@ -542,17 +542,17 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 				"class_subject_weight_mid":             m.ClassSubjectWeightMid,
 				"class_subject_weight_final":           m.ClassSubjectWeightFinal,
 				"class_subject_min_attendance_percent": m.ClassSubjectMinAttendancePercent,
-				// snapshots subject (mungkin unchanged)
-				"class_subject_subject_name_snapshot": m.ClassSubjectSubjectNameSnapshot,
-				"class_subject_subject_code_snapshot": m.ClassSubjectSubjectCodeSnapshot,
-				"class_subject_subject_slug_snapshot": m.ClassSubjectSubjectSlugSnapshot,
-				"class_subject_subject_url_snapshot":  m.ClassSubjectSubjectURLSnapshot,
-				// snapshots class_parent (mungkin unchanged)
-				"class_subject_class_parent_code_snapshot":  m.ClassSubjectClassParentCodeSnapshot,
-				"class_subject_class_parent_slug_snapshot":  m.ClassSubjectClassParentSlugSnapshot,
-				"class_subject_class_parent_level_snapshot": m.ClassSubjectClassParentLevelSnapshot,
-				"class_subject_class_parent_url_snapshot":   m.ClassSubjectClassParentURLSnapshot,
-				"class_subject_class_parent_name_snapshot":  m.ClassSubjectClassParentNameSnapshot,
+				// caches subject (mungkin unchanged)
+				"class_subject_subject_name_cache": m.ClassSubjectSubjectNameCache,
+				"class_subject_subject_code_cache": m.ClassSubjectSubjectCodeCache,
+				"class_subject_subject_slug_cache": m.ClassSubjectSubjectSlugCache,
+				"class_subject_subject_url_cache":  m.ClassSubjectSubjectURLCache,
+				// caches class_parent (mungkin unchanged)
+				"class_subject_class_parent_code_cache":  m.ClassSubjectClassParentCodeCache,
+				"class_subject_class_parent_slug_cache":  m.ClassSubjectClassParentSlugCache,
+				"class_subject_class_parent_level_cache": m.ClassSubjectClassParentLevelCache,
+				"class_subject_class_parent_url_cache":   m.ClassSubjectClassParentURLCache,
+				"class_subject_class_parent_name_cache":  m.ClassSubjectClassParentNameCache,
 
 				"class_subject_is_active": m.ClassSubjectIsActive,
 			}).Error; err != nil {

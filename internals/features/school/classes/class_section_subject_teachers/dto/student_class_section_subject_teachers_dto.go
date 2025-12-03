@@ -217,13 +217,13 @@ type StudentCSSTItem struct {
 	StudentClassSectionSubjectTeacherGradePoint    *float64 `json:"student_class_section_subject_teacher_grade_point,omitempty"`
 	StudentClassSectionSubjectTeacherIsPassed      *bool    `json:"student_class_section_subject_teacher_is_passed,omitempty"`
 
-	StudentClassSectionSubjectTeacherUserProfileNameSnapshot              *string `json:"student_class_section_subject_teacher_user_profile_name_snapshot,omitempty"`
-	StudentClassSectionSubjectTeacherUserProfileAvatarURLSnapshot         *string `json:"student_class_section_subject_teacher_user_profile_avatar_url_snapshot,omitempty"`
-	StudentClassSectionSubjectTeacherUserProfileWhatsappURLSnapshot       *string `json:"student_class_section_subject_teacher_user_profile_whatsapp_url_snapshot,omitempty"`
-	StudentClassSectionSubjectTeacherUserProfileParentNameSnapshot        *string `json:"student_class_section_subject_teacher_user_profile_parent_name_snapshot,omitempty"`
-	StudentClassSectionSubjectTeacherUserProfileParentWhatsappURLSnapshot *string `json:"student_class_section_subject_teacher_user_profile_parent_whatsapp_url_snapshot,omitempty"`
-	StudentClassSectionSubjectTeacherUserProfileGenderSnapshot            *string `json:"student_class_section_subject_teacher_user_profile_gender_snapshot,omitempty"`
-	StudentClassSectionSubjectTeacherStudentCodeSnapshot                  *string `json:"student_class_section_subject_teacher_student_code_snapshot,omitempty"`
+	StudentClassSectionSubjectTeacherUserProfileNameCache              *string `json:"student_class_section_subject_teacher_user_profile_name_cache,omitempty"`
+	StudentClassSectionSubjectTeacherUserProfileAvatarURLCache         *string `json:"student_class_section_subject_teacher_user_profile_avatar_url_cache,omitempty"`
+	StudentClassSectionSubjectTeacherUserProfileWhatsappURLCache       *string `json:"student_class_section_subject_teacher_user_profile_whatsapp_url_cache,omitempty"`
+	StudentClassSectionSubjectTeacherUserProfileParentNameCache        *string `json:"student_class_section_subject_teacher_user_profile_parent_name_cache,omitempty"`
+	StudentClassSectionSubjectTeacherUserProfileParentWhatsappURLCache *string `json:"student_class_section_subject_teacher_user_profile_parent_whatsapp_url_cache,omitempty"`
+	StudentClassSectionSubjectTeacherUserProfileGenderCache            *string `json:"student_class_section_subject_teacher_user_profile_gender_cache,omitempty"`
+	StudentClassSectionSubjectTeacherStudentCodeCache                  *string `json:"student_class_section_subject_teacher_student_code_cache,omitempty"`
 
 	StudentClassSectionSubjectTeacherEditsHistory datatypes.JSON `json:"student_class_section_subject_teacher_edits_history"`
 

@@ -18,18 +18,18 @@ type StudentClassSectionCompactResp struct {
 	StudentClassSectionSectionID       uuid.UUID `json:"student_class_section_section_id"`
 	StudentClassSectionSchoolID        uuid.UUID `json:"student_class_section_school_id"`
 
-	// Snapshot minimal untuk list
-	StudentClassSectionSectionSlugSnapshot string  `json:"student_class_section_section_slug_snapshot"`
-	StudentClassSectionStudentCodeSnapshot *string `json:"student_class_section_student_code_snapshot,omitempty"`
+	// Cache minimal untuk list
+	StudentClassSectionSectionSlugCache string  `json:"student_class_section_section_slug_cache"`
+	StudentClassSectionStudentCodeCache *string `json:"student_class_section_student_code_cache,omitempty"`
 
 	StudentClassSectionStatus string  `json:"student_class_section_status"`
 	StudentClassSectionResult *string `json:"student_class_section_result,omitempty"`
 
-	// Snapshot users_profile (ringkas)
-	StudentClassSectionUserProfileNameSnapshot        *string `json:"student_class_section_user_profile_name_snapshot,omitempty"`
-	StudentClassSectionUserProfileAvatarURLSnapshot   *string `json:"student_class_section_user_profile_avatar_url_snapshot,omitempty"`
-	StudentClassSectionUserProfileWhatsappURLSnapshot *string `json:"student_class_section_user_profile_whatsapp_url_snapshot,omitempty"`
-	StudentClassSectionUserProfileGenderSnapshot      *string `json:"student_class_section_user_profile_gender_snapshot,omitempty"`
+	// Cache users_profile (ringkas)
+	StudentClassSectionUserProfileNameCache        *string `json:"student_class_section_user_profile_name_cache,omitempty"`
+	StudentClassSectionUserProfileAvatarURLCache   *string `json:"student_class_section_user_profile_avatar_url_cache,omitempty"`
+	StudentClassSectionUserProfileWhatsappURLCache *string `json:"student_class_section_user_profile_whatsapp_url_cache,omitempty"`
+	StudentClassSectionUserProfileGenderCache      *string `json:"student_class_section_user_profile_gender_cache,omitempty"`
 
 	StudentClassSectionAssignedAt   time.Time  `json:"student_class_section_assigned_at"`
 	StudentClassSectionUnassignedAt *time.Time `json:"student_class_section_unassigned_at,omitempty"`
@@ -60,16 +60,16 @@ func FromModelCompact(m *model.StudentClassSection) StudentClassSectionCompactRe
 		StudentClassSectionSectionID:       m.StudentClassSectionSectionID,
 		StudentClassSectionSchoolID:        m.StudentClassSectionSchoolID,
 
-		StudentClassSectionSectionSlugSnapshot: m.StudentClassSectionSectionSlugSnapshot,
-		StudentClassSectionStudentCodeSnapshot: m.StudentClassSectionStudentCodeSnapshot,
+		StudentClassSectionSectionSlugCache: m.StudentClassSectionSectionSlugCache,
+		StudentClassSectionStudentCodeCache: m.StudentClassSectionStudentCodeCache,
 
 		StudentClassSectionStatus: string(m.StudentClassSectionStatus),
 		StudentClassSectionResult: res,
 
-		StudentClassSectionUserProfileNameSnapshot:        m.StudentClassSectionUserProfileNameSnapshot,
-		StudentClassSectionUserProfileAvatarURLSnapshot:   m.StudentClassSectionUserProfileAvatarURLSnapshot,
-		StudentClassSectionUserProfileWhatsappURLSnapshot: m.StudentClassSectionUserProfileWhatsappURLSnapshot,
-		StudentClassSectionUserProfileGenderSnapshot:      m.StudentClassSectionUserProfileGenderSnapshot,
+		StudentClassSectionUserProfileNameCache:        m.StudentClassSectionUserProfileNameCache,
+		StudentClassSectionUserProfileAvatarURLCache:   m.StudentClassSectionUserProfileAvatarURLCache,
+		StudentClassSectionUserProfileWhatsappURLCache: m.StudentClassSectionUserProfileWhatsappURLCache,
+		StudentClassSectionUserProfileGenderCache:      m.StudentClassSectionUserProfileGenderCache,
 
 		StudentClassSectionAssignedAt:   m.StudentClassSectionAssignedAt,
 		StudentClassSectionUnassignedAt: m.StudentClassSectionUnassignedAt,

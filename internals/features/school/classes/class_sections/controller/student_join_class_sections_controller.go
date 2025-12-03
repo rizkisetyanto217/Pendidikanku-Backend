@@ -22,7 +22,7 @@ import (
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
-	userProfileSnapshot "madinahsalam_backend/internals/features/users/users/snapshot"
+	UserProfileCache "madinahsalam_backend/internals/features/users/users/service"
 )
 
 /* =========================
@@ -79,8 +79,8 @@ func getUsersProfileID(tx *gorm.DB, userID uuid.UUID) (uuid.UUID, error) {
 	return r.ID, nil
 }
 
-// Snapshot school (ringkas)
-func getSchoolSnapshot(tx *gorm.DB, schoolID uuid.UUID) (name, slug, logo, icon, bg *string, err error) {
+// Cache school (ringkas)
+func getSchoolCache(tx *gorm.DB, schoolID uuid.UUID) (name, slug, logo, icon, bg *string, err error) {
 	var row struct {
 		Name *string `gorm:"column:school_name"`
 		Slug *string `gorm:"column:school_slug"`
@@ -103,21 +103,21 @@ func getSchoolSnapshot(tx *gorm.DB, schoolID uuid.UUID) (name, slug, logo, icon,
 ========================= */
 
 // Get/create school_students + isi snapshots (profil & school)
-func getOrCreateSchoolStudentWithSnapshots(
+func getOrCreateSchoolStudentWithCaches(
 	ctx context.Context,
 	tx *gorm.DB,
 	schoolID uuid.UUID,
 	userProfileID uuid.UUID,
-	profileSnap *userProfileSnapshot.UserProfileSnapshot, // boleh nil
+	profileSnap *UserProfileCache.UserProfileCache, // boleh nil
 ) (uuid.UUID, error) {
 	// snapshot profil kalau belum ada
 	if profileSnap == nil {
-		if ps, e := userProfileSnapshot.BuildUserProfileSnapshotByProfileID(ctx, tx, userProfileID); e == nil {
+		if ps, e := UserProfileCache.BuildUserProfileCacheByProfileID(ctx, tx, userProfileID); e == nil {
 			profileSnap = ps
 		}
 	}
 	// snapshot school
-	mName, mSlug, mLogo, mIcon, mBg, _ := getSchoolSnapshot(tx, schoolID)
+	mName, mSlug, mLogo, mIcon, mBg, _ := getSchoolCache(tx, schoolID)
 
 	// ada existing?
 	var cur struct {
@@ -349,12 +349,12 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoSchool(c *fiber.Ctx) err
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusBadRequest, "Profil user belum ada. Lengkapi profil terlebih dahulu.")
 	}
-	profileSnap, perr := userProfileSnapshot.BuildUserProfileSnapshotByProfileID(c.Context(), tx, usersProfileID)
+	profileSnap, perr := UserProfileCache.BuildUserProfileCacheByProfileID(c.Context(), tx, usersProfileID)
 	if perr != nil && !errors.Is(perr, gorm.ErrRecordNotFound) {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil snapshot profil")
 	}
-	schoolStudentID, err := getOrCreateSchoolStudentWithSnapshots(c.Context(), tx, schoolID, usersProfileID, profileSnap)
+	schoolStudentID, err := getOrCreateSchoolStudentWithCaches(c.Context(), tx, schoolID, usersProfileID, profileSnap)
 	if err != nil {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek/buat status student")
@@ -404,7 +404,7 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoSchool(c *fiber.Ctx) err
 		StudentClassSectionSchoolID:            schoolID,
 		StudentClassSectionSchoolStudentID:     schoolStudentID,
 		StudentClassSectionSectionID:           sec.ClassSectionID,
-		StudentClassSectionSectionSlugSnapshot: slug,
+		StudentClassSectionSectionSlugCache: slug,
 		StudentClassSectionStatus:              model.StudentClassSectionActive,
 		StudentClassSectionAssignedAt:          now,
 		StudentClassSectionCreatedAt:           now,
@@ -413,17 +413,17 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoSchool(c *fiber.Ctx) err
 
 	if profileSnap != nil {
 		if name := strings.TrimSpace(profileSnap.Name); name != "" {
-			scs.StudentClassSectionUserProfileNameSnapshot = &name
+			scs.StudentClassSectionUserProfileNameCache = &name
 		}
-		scs.StudentClassSectionUserProfileAvatarURLSnapshot = nzTrim(profileSnap.AvatarURL)
-		scs.StudentClassSectionUserProfileWhatsappURLSnapshot = nzTrim(profileSnap.WhatsappURL)
-		scs.StudentClassSectionUserProfileParentNameSnapshot = nzTrim(profileSnap.ParentName)
-		scs.StudentClassSectionUserProfileParentWhatsappURLSnapshot = nzTrim(profileSnap.ParentWhatsappURL)
+		scs.StudentClassSectionUserProfileAvatarURLCache = nzTrim(profileSnap.AvatarURL)
+		scs.StudentClassSectionUserProfileWhatsappURLCache = nzTrim(profileSnap.WhatsappURL)
+		scs.StudentClassSectionUserProfileParentNameCache = nzTrim(profileSnap.ParentName)
+		scs.StudentClassSectionUserProfileParentWhatsappURLCache = nzTrim(profileSnap.ParentWhatsappURL)
 
 		// NEW: gender snapshot ke student_class_sections
 		if profileSnap.Gender != nil {
 			if g := strings.TrimSpace(*profileSnap.Gender); g != "" {
-				scs.StudentClassSectionUserProfileGenderSnapshot = &g
+				scs.StudentClassSectionUserProfileGenderCache = &g
 			}
 		}
 	}
@@ -431,7 +431,7 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoSchool(c *fiber.Ctx) err
 	// NEW: snapshot kode siswa (NIS) dari school_students
 	if stuRow.Code != nil {
 		if v := nzTrim(stuRow.Code); v != nil {
-			scs.StudentClassSectionStudentCodeSnapshot = v
+			scs.StudentClassSectionStudentCodeCache = v
 		}
 	}
 

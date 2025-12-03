@@ -64,16 +64,23 @@ CREATE INDEX IF NOT EXISTS idx_subject_image_purge_due
   WHERE subject_image_object_key_old IS NOT NULL;
 
 
+  
+-- +migrate Up
+-- =========================================================
+-- TABLE: class_subjects
+-- Relasi per tenant antara Class Parent ↔ Subject
+-- Snapshot cache diambil dari subjects & class_parents
+-- =========================================================
 
-
--- CLASS_SUBJECTS
 CREATE TABLE IF NOT EXISTS class_subjects (
-  class_subject_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  class_subject_school_id   UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
+  class_subject_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  class_subject_school_id     UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
-  -- slug opsional
-  class_subject_slug        VARCHAR(160),
+  -- Optional slug (unique alive per tenant)
+  class_subject_slug          VARCHAR(160),
 
+  -- Display / akademik
   class_subject_order_index       INT,
   class_subject_hours_per_week    INT,
   class_subject_min_passing_score INT,
@@ -81,37 +88,48 @@ CREATE TABLE IF NOT EXISTS class_subjects (
   class_subject_is_core           BOOLEAN NOT NULL DEFAULT FALSE,
   class_subject_desc              TEXT,
 
+  -- Bobot (SMALLINT)
   class_subject_weight_assignment SMALLINT,
   class_subject_weight_quiz       SMALLINT,
   class_subject_weight_mid        SMALLINT,
   class_subject_weight_final      SMALLINT,
   class_subject_min_attendance_percent SMALLINT,
 
-  -- ===== Subject snapshot & FK (TENANT-SAFE) =====
-  class_subject_subject_id  UUID NOT NULL,
-  class_subject_subject_name_snapshot VARCHAR(160),
-  class_subject_subject_code_snapshot VARCHAR(80),
-  class_subject_subject_slug_snapshot VARCHAR(160),
-  class_subject_subject_url_snapshot  TEXT,
+  /* =====================================================
+       SUBJECT CACHE  + FK (TENANT-SAFE)
+     ===================================================== */
+  class_subject_subject_id            UUID NOT NULL,
+  class_subject_subject_name_cache    VARCHAR(160),
+  class_subject_subject_code_cache    VARCHAR(80),
+  class_subject_subject_slug_cache    VARCHAR(160),
+  class_subject_subject_url_cache     TEXT,
 
-  -- ===== Class Parent snapshot & FK (TENANT-SAFE) =====
-  class_subject_class_parent_id   UUID NOT NULL,
-  class_subject_class_parent_code_snapshot  VARCHAR(80),
-  class_subject_class_parent_slug_snapshot  VARCHAR(160),
-  class_subject_class_parent_level_snapshot SMALLINT,
-  class_subject_class_parent_url_snapshot   TEXT,
-  class_subject_class_parent_name_snapshot  VARCHAR(160),
+  /* =====================================================
+       CLASS PARENT CACHE + FK (TENANT-SAFE)
+     ===================================================== */
+  class_subject_class_parent_id          UUID NOT NULL,
+  class_subject_class_parent_code_cache  VARCHAR(80),
+  class_subject_class_parent_slug_cache  VARCHAR(160),
+  class_subject_class_parent_level_cache SMALLINT,
+  class_subject_class_parent_url_cache   TEXT,
+  class_subject_class_parent_name_cache  VARCHAR(160),
 
-  -- lifecycle
+  /* =====================================================
+       Lifecycle
+     ===================================================== */
   class_subject_is_active   BOOLEAN     NOT NULL DEFAULT TRUE,
   class_subject_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_subject_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_subject_deleted_at  TIMESTAMPTZ,
 
-  -- tenant-safe pair
+  /* =====================================================
+       Tenant-safe identity pair
+     ===================================================== */
   UNIQUE (class_subject_id, class_subject_school_id),
 
-  -- guard bobot
+  /* =====================================================
+       Guard nilai bobot
+     ===================================================== */
   CONSTRAINT ck_class_subject_weights_nonneg CHECK (
     (class_subject_weight_assignment IS NULL OR class_subject_weight_assignment >= 0) AND
     (class_subject_weight_quiz       IS NULL OR class_subject_weight_quiz       >= 0) AND
@@ -119,7 +137,9 @@ CREATE TABLE IF NOT EXISTS class_subjects (
     (class_subject_weight_final      IS NULL OR class_subject_weight_final      >= 0)
   ),
 
-  -- ===== FK KOMPOSIT TENANT-SAFE =====
+  /* =====================================================
+       FK KOMPOSIT TENANT-SAFE
+     ===================================================== */
   CONSTRAINT fk_class_subject_subject_same_school
     FOREIGN KEY (class_subject_subject_id, class_subject_school_id)
     REFERENCES subjects (subject_id, subject_school_id)
@@ -131,9 +151,11 @@ CREATE TABLE IF NOT EXISTS class_subjects (
     ON UPDATE CASCADE ON DELETE CASCADE
 );
 
--- ===== Indexes untuk class_subjects =====
+-- =========================================================
+-- INDEXES
+-- =========================================================
 
--- aktif (alive only)
+-- active only
 CREATE INDEX IF NOT EXISTS idx_class_subject_active_alive
   ON class_subjects (class_subject_is_active)
   WHERE class_subject_deleted_at IS NULL;
@@ -142,23 +164,27 @@ CREATE INDEX IF NOT EXISTS idx_class_subject_active_alive
 CREATE INDEX IF NOT EXISTS idx_class_subjects_school
   ON class_subjects (class_subject_school_id);
 
--- parent (PERBAIKAN: pakai class_subject_class_parent_id)
+-- filter per parent
 CREATE INDEX IF NOT EXISTS idx_class_subjects_parent
   ON class_subjects (class_subject_class_parent_id);
 
--- unik kombinasi per tenant+parent+subject, alive only (PERBAIKAN kolom)
+-- unique parent + subject per tenant (alive only)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_subject_per_parent_subject_alive
-  ON class_subjects (class_subject_school_id, class_subject_class_parent_id, class_subject_subject_id)
+  ON class_subjects (
+    class_subject_school_id,
+    class_subject_class_parent_id,
+    class_subject_subject_id
+  )
   WHERE class_subject_deleted_at IS NULL;
 
--- slug per tenant, alive only
+-- slug unik per tenant (alive only)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_subject_slug_per_tenant_alive
-  ON class_subjects (class_subject_school_id, lower(class_subject_slug))
+  ON class_subjects (class_subject_school_id, LOWER(class_subject_slug))
   WHERE class_subject_deleted_at IS NULL
     AND class_subject_slug IS NOT NULL;
 
--- trigram slug (opsional)
+-- trigram search untuk slug
 CREATE INDEX IF NOT EXISTS gin_class_subject_slug_trgm_alive
-  ON class_subjects USING GIN (lower(class_subject_slug) gin_trgm_ops)
+  ON class_subjects USING GIN (LOWER(class_subject_slug) gin_trgm_ops)
   WHERE class_subject_deleted_at IS NULL
     AND class_subject_slug IS NOT NULL;

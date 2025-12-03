@@ -83,13 +83,13 @@ type SchoolStudentCreateReq struct {
 	SchoolStudentLeftAt             *time.Time                        `json:"school_student_left_at,omitempty"`
 	SchoolStudentNeedsClassSections *bool                             `json:"school_student_needs_class_sections,omitempty"`
 
-	// Snapshots users_profile (opsional di saat create)
-	SchoolStudentUserProfileNameSnapshot              *string `json:"school_student_user_profile_name_snapshot,omitempty"`
-	SchoolStudentUserProfileAvatarURLSnapshot         *string `json:"school_student_user_profile_avatar_url_snapshot,omitempty"`
-	SchoolStudentUserProfileWhatsappURLSnapshot       *string `json:"school_student_user_profile_whatsapp_url_snapshot,omitempty"`
-	SchoolStudentUserProfileParentNameSnapshot        *string `json:"school_student_user_profile_parent_name_snapshot,omitempty"`
-	SchoolStudentUserProfileParentWhatsappURLSnapshot *string `json:"school_student_user_profile_parent_whatsapp_url_snapshot,omitempty"`
-	SchoolStudentUserProfileGenderSnapshot            *string `json:"school_student_user_profile_gender_snapshot,omitempty"`
+	// Caches users_profile (opsional di saat create)
+	SchoolStudentUserProfileNameCache              *string `json:"school_student_user_profile_name_cache,omitempty"`
+	SchoolStudentUserProfileAvatarURLCache         *string `json:"school_student_user_profile_avatar_url_cache,omitempty"`
+	SchoolStudentUserProfileWhatsappURLCache       *string `json:"school_student_user_profile_whatsapp_url_cache,omitempty"`
+	SchoolStudentUserProfileParentNameCache        *string `json:"school_student_user_profile_parent_name_cache,omitempty"`
+	SchoolStudentUserProfileParentWhatsappURLCache *string `json:"school_student_user_profile_parent_whatsapp_url_cache,omitempty"`
+	SchoolStudentUserProfileGenderCache            *string `json:"school_student_user_profile_gender_cache,omitempty"`
 }
 
 func (r *SchoolStudentCreateReq) Normalize() {
@@ -161,13 +161,13 @@ func (r *SchoolStudentCreateReq) ToModel() *studentmodel.SchoolStudentModel {
 
 		SchoolStudentNeedsClassSections: needsClassSections,
 
-		// snapshots users_profile
-		SchoolStudentUserProfileNameSnapshot:              r.SchoolStudentUserProfileNameSnapshot,
-		SchoolStudentUserProfileAvatarURLSnapshot:         r.SchoolStudentUserProfileAvatarURLSnapshot,
-		SchoolStudentUserProfileWhatsappURLSnapshot:       r.SchoolStudentUserProfileWhatsappURLSnapshot,
-		SchoolStudentUserProfileParentNameSnapshot:        r.SchoolStudentUserProfileParentNameSnapshot,
-		SchoolStudentUserProfileParentWhatsappURLSnapshot: r.SchoolStudentUserProfileParentWhatsappURLSnapshot,
-		SchoolStudentUserProfileGenderSnapshot:            r.SchoolStudentUserProfileGenderSnapshot,
+		// caches users_profile
+		SchoolStudentUserProfileNameCache:              r.SchoolStudentUserProfileNameCache,
+		SchoolStudentUserProfileAvatarURLCache:         r.SchoolStudentUserProfileAvatarURLCache,
+		SchoolStudentUserProfileWhatsappURLCache:       r.SchoolStudentUserProfileWhatsappURLCache,
+		SchoolStudentUserProfileParentNameCache:        r.SchoolStudentUserProfileParentNameCache,
+		SchoolStudentUserProfileParentWhatsappURLCache: r.SchoolStudentUserProfileParentWhatsappURLCache,
+		SchoolStudentUserProfileGenderCache:            r.SchoolStudentUserProfileGenderCache,
 	}
 }
 
@@ -187,13 +187,13 @@ type SchoolStudentUpdateReq struct {
 
 	SchoolStudentNeedsClassSections *bool `json:"school_student_needs_class_sections,omitempty"`
 
-	// snapshots users_profile
-	SchoolStudentUserProfileNameSnapshot              *string `json:"school_student_user_profile_name_snapshot,omitempty"`
-	SchoolStudentUserProfileAvatarURLSnapshot         *string `json:"school_student_user_profile_avatar_url_snapshot,omitempty"`
-	SchoolStudentUserProfileWhatsappURLSnapshot       *string `json:"school_student_user_profile_whatsapp_url_snapshot,omitempty"`
-	SchoolStudentUserProfileParentNameSnapshot        *string `json:"school_student_user_profile_parent_name_snapshot,omitempty"`
-	SchoolStudentUserProfileParentWhatsappURLSnapshot *string `json:"school_student_user_profile_parent_whatsapp_url_snapshot,omitempty"`
-	SchoolStudentUserProfileGenderSnapshot            *string `json:"school_student_user_profile_gender_snapshot,omitempty"`
+	// caches users_profile
+	SchoolStudentUserProfileNameCache              *string `json:"school_student_user_profile_name_cache,omitempty"`
+	SchoolStudentUserProfileAvatarURLCache         *string `json:"school_student_user_profile_avatar_url_cache,omitempty"`
+	SchoolStudentUserProfileWhatsappURLCache       *string `json:"school_student_user_profile_whatsapp_url_cache,omitempty"`
+	SchoolStudentUserProfileParentNameCache        *string `json:"school_student_user_profile_parent_name_cache,omitempty"`
+	SchoolStudentUserProfileParentWhatsappURLCache *string `json:"school_student_user_profile_parent_whatsapp_url_cache,omitempty"`
+	SchoolStudentUserProfileGenderCache            *string `json:"school_student_user_profile_gender_cache,omitempty"`
 }
 
 func (r *SchoolStudentUpdateReq) Normalize() {
@@ -243,13 +243,13 @@ func (r *SchoolStudentUpdateReq) Apply(m *studentmodel.SchoolStudentModel) {
 		m.SchoolStudentNeedsClassSections = *r.SchoolStudentNeedsClassSections
 	}
 
-	// snapshots users_profile
-	m.SchoolStudentUserProfileNameSnapshot = r.SchoolStudentUserProfileNameSnapshot
-	m.SchoolStudentUserProfileAvatarURLSnapshot = r.SchoolStudentUserProfileAvatarURLSnapshot
-	m.SchoolStudentUserProfileWhatsappURLSnapshot = r.SchoolStudentUserProfileWhatsappURLSnapshot
-	m.SchoolStudentUserProfileParentNameSnapshot = r.SchoolStudentUserProfileParentNameSnapshot
-	m.SchoolStudentUserProfileParentWhatsappURLSnapshot = r.SchoolStudentUserProfileParentWhatsappURLSnapshot
-	m.SchoolStudentUserProfileGenderSnapshot = r.SchoolStudentUserProfileGenderSnapshot
+	// caches users_profile
+	m.SchoolStudentUserProfileNameCache = r.SchoolStudentUserProfileNameCache
+	m.SchoolStudentUserProfileAvatarURLCache = r.SchoolStudentUserProfileAvatarURLCache
+	m.SchoolStudentUserProfileWhatsappURLCache = r.SchoolStudentUserProfileWhatsappURLCache
+	m.SchoolStudentUserProfileParentNameCache = r.SchoolStudentUserProfileParentNameCache
+	m.SchoolStudentUserProfileParentWhatsappURLCache = r.SchoolStudentUserProfileParentWhatsappURLCache
+	m.SchoolStudentUserProfileGenderCache = r.SchoolStudentUserProfileGenderCache
 }
 
 /* =========================================================
@@ -267,13 +267,13 @@ type SchoolStudentPatchReq struct {
 
 	SchoolStudentNeedsClassSections *PatchField[bool] `json:"school_student_needs_class_sections,omitempty"`
 
-	// snapshots users_profile
-	SchoolStudentUserProfileNameSnapshot              *PatchField[*string] `json:"school_student_user_profile_name_snapshot,omitempty"`
-	SchoolStudentUserProfileAvatarURLSnapshot         *PatchField[*string] `json:"school_student_user_profile_avatar_url_snapshot,omitempty"`
-	SchoolStudentUserProfileWhatsappURLSnapshot       *PatchField[*string] `json:"school_student_user_profile_whatsapp_url_snapshot,omitempty"`
-	SchoolStudentUserProfileParentNameSnapshot        *PatchField[*string] `json:"school_student_user_profile_parent_name_snapshot,omitempty"`
-	SchoolStudentUserProfileParentWhatsappURLSnapshot *PatchField[*string] `json:"school_student_user_profile_parent_whatsapp_url_snapshot,omitempty"`
-	SchoolStudentUserProfileGenderSnapshot            *PatchField[*string] `json:"school_student_user_profile_gender_snapshot,omitempty"`
+	// caches users_profile
+	SchoolStudentUserProfileNameCache              *PatchField[*string] `json:"school_student_user_profile_name_cache,omitempty"`
+	SchoolStudentUserProfileAvatarURLCache         *PatchField[*string] `json:"school_student_user_profile_avatar_url_cache,omitempty"`
+	SchoolStudentUserProfileWhatsappURLCache       *PatchField[*string] `json:"school_student_user_profile_whatsapp_url_cache,omitempty"`
+	SchoolStudentUserProfileParentNameCache        *PatchField[*string] `json:"school_student_user_profile_parent_name_cache,omitempty"`
+	SchoolStudentUserProfileParentWhatsappURLCache *PatchField[*string] `json:"school_student_user_profile_parent_whatsapp_url_cache,omitempty"`
+	SchoolStudentUserProfileGenderCache            *PatchField[*string] `json:"school_student_user_profile_gender_cache,omitempty"`
 }
 
 func (r *SchoolStudentPatchReq) Normalize() {
@@ -299,11 +299,11 @@ func (r *SchoolStudentPatchReq) Normalize() {
 			r.SchoolStudentNote.Value = &n
 		}
 	}
-	if r.SchoolStudentUserProfileGenderSnapshot != nil && r.SchoolStudentUserProfileGenderSnapshot.Set && r.SchoolStudentUserProfileGenderSnapshot.Value != nil {
-		if g := strings.TrimSpace(*r.SchoolStudentUserProfileGenderSnapshot.Value); g == "" {
-			r.SchoolStudentUserProfileGenderSnapshot.Value = nil
+	if r.SchoolStudentUserProfileGenderCache != nil && r.SchoolStudentUserProfileGenderCache.Set && r.SchoolStudentUserProfileGenderCache.Value != nil {
+		if g := strings.TrimSpace(*r.SchoolStudentUserProfileGenderCache.Value); g == "" {
+			r.SchoolStudentUserProfileGenderCache.Value = nil
 		} else {
-			r.SchoolStudentUserProfileGenderSnapshot.Value = &g
+			r.SchoolStudentUserProfileGenderCache.Value = &g
 		}
 	}
 }
@@ -351,24 +351,24 @@ func (r *SchoolStudentPatchReq) Apply(m *studentmodel.SchoolStudentModel) {
 		m.SchoolStudentNeedsClassSections = r.SchoolStudentNeedsClassSections.Value
 	}
 
-	// snapshots users_profile
-	if r.SchoolStudentUserProfileNameSnapshot != nil && r.SchoolStudentUserProfileNameSnapshot.Set {
-		m.SchoolStudentUserProfileNameSnapshot = r.SchoolStudentUserProfileNameSnapshot.Value
+	// caches users_profile
+	if r.SchoolStudentUserProfileNameCache != nil && r.SchoolStudentUserProfileNameCache.Set {
+		m.SchoolStudentUserProfileNameCache = r.SchoolStudentUserProfileNameCache.Value
 	}
-	if r.SchoolStudentUserProfileAvatarURLSnapshot != nil && r.SchoolStudentUserProfileAvatarURLSnapshot.Set {
-		m.SchoolStudentUserProfileAvatarURLSnapshot = r.SchoolStudentUserProfileAvatarURLSnapshot.Value
+	if r.SchoolStudentUserProfileAvatarURLCache != nil && r.SchoolStudentUserProfileAvatarURLCache.Set {
+		m.SchoolStudentUserProfileAvatarURLCache = r.SchoolStudentUserProfileAvatarURLCache.Value
 	}
-	if r.SchoolStudentUserProfileWhatsappURLSnapshot != nil && r.SchoolStudentUserProfileWhatsappURLSnapshot.Set {
-		m.SchoolStudentUserProfileWhatsappURLSnapshot = r.SchoolStudentUserProfileWhatsappURLSnapshot.Value
+	if r.SchoolStudentUserProfileWhatsappURLCache != nil && r.SchoolStudentUserProfileWhatsappURLCache.Set {
+		m.SchoolStudentUserProfileWhatsappURLCache = r.SchoolStudentUserProfileWhatsappURLCache.Value
 	}
-	if r.SchoolStudentUserProfileParentNameSnapshot != nil && r.SchoolStudentUserProfileParentNameSnapshot.Set {
-		m.SchoolStudentUserProfileParentNameSnapshot = r.SchoolStudentUserProfileParentNameSnapshot.Value
+	if r.SchoolStudentUserProfileParentNameCache != nil && r.SchoolStudentUserProfileParentNameCache.Set {
+		m.SchoolStudentUserProfileParentNameCache = r.SchoolStudentUserProfileParentNameCache.Value
 	}
-	if r.SchoolStudentUserProfileParentWhatsappURLSnapshot != nil && r.SchoolStudentUserProfileParentWhatsappURLSnapshot.Set {
-		m.SchoolStudentUserProfileParentWhatsappURLSnapshot = r.SchoolStudentUserProfileParentWhatsappURLSnapshot.Value
+	if r.SchoolStudentUserProfileParentWhatsappURLCache != nil && r.SchoolStudentUserProfileParentWhatsappURLCache.Set {
+		m.SchoolStudentUserProfileParentWhatsappURLCache = r.SchoolStudentUserProfileParentWhatsappURLCache.Value
 	}
-	if r.SchoolStudentUserProfileGenderSnapshot != nil && r.SchoolStudentUserProfileGenderSnapshot.Set {
-		m.SchoolStudentUserProfileGenderSnapshot = r.SchoolStudentUserProfileGenderSnapshot.Value
+	if r.SchoolStudentUserProfileGenderCache != nil && r.SchoolStudentUserProfileGenderCache.Set {
+		m.SchoolStudentUserProfileGenderCache = r.SchoolStudentUserProfileGenderCache.Value
 	}
 }
 
@@ -392,13 +392,13 @@ type SchoolStudentResp struct {
 	// flag: butuh penempatan ke class_sections?
 	SchoolStudentNeedsClassSections bool `json:"school_student_needs_class_sections"`
 
-	// snapshots users_profile
-	SchoolStudentUserProfileNameSnapshot              *string `json:"school_student_user_profile_name_snapshot,omitempty"`
-	SchoolStudentUserProfileAvatarURLSnapshot         *string `json:"school_student_user_profile_avatar_url_snapshot,omitempty"`
-	SchoolStudentUserProfileWhatsappURLSnapshot       *string `json:"school_student_user_profile_whatsapp_url_snapshot,omitempty"`
-	SchoolStudentUserProfileParentNameSnapshot        *string `json:"school_student_user_profile_parent_name_snapshot,omitempty"`
-	SchoolStudentUserProfileParentWhatsappURLSnapshot *string `json:"school_student_user_profile_parent_whatsapp_url_snapshot,omitempty"`
-	SchoolStudentUserProfileGenderSnapshot            *string `json:"school_student_user_profile_gender_snapshot,omitempty"`
+	// caches users_profile
+	SchoolStudentUserProfileNameCache              *string `json:"school_student_user_profile_name_cache,omitempty"`
+	SchoolStudentUserProfileAvatarURLCache         *string `json:"school_student_user_profile_avatar_url_cache,omitempty"`
+	SchoolStudentUserProfileWhatsappURLCache       *string `json:"school_student_user_profile_whatsapp_url_cache,omitempty"`
+	SchoolStudentUserProfileParentNameCache        *string `json:"school_student_user_profile_parent_name_cache,omitempty"`
+	SchoolStudentUserProfileParentWhatsappURLCache *string `json:"school_student_user_profile_parent_whatsapp_url_cache,omitempty"`
+	SchoolStudentUserProfileGenderCache            *string `json:"school_student_user_profile_gender_cache,omitempty"`
 
 	// Class sections (read-only dari backend)
 	SchoolStudentSections []SchoolStudentSectionItem `json:"school_student_class_sections"`
@@ -453,13 +453,13 @@ func FromModel(m *studentmodel.SchoolStudentModel) SchoolStudentResp {
 
 		SchoolStudentNeedsClassSections: m.SchoolStudentNeedsClassSections,
 
-		// snapshots users_profile
-		SchoolStudentUserProfileNameSnapshot:              m.SchoolStudentUserProfileNameSnapshot,
-		SchoolStudentUserProfileAvatarURLSnapshot:         m.SchoolStudentUserProfileAvatarURLSnapshot,
-		SchoolStudentUserProfileWhatsappURLSnapshot:       m.SchoolStudentUserProfileWhatsappURLSnapshot,
-		SchoolStudentUserProfileParentNameSnapshot:        m.SchoolStudentUserProfileParentNameSnapshot,
-		SchoolStudentUserProfileParentWhatsappURLSnapshot: m.SchoolStudentUserProfileParentWhatsappURLSnapshot,
-		SchoolStudentUserProfileGenderSnapshot:            m.SchoolStudentUserProfileGenderSnapshot,
+		// caches users_profile
+		SchoolStudentUserProfileNameCache:              m.SchoolStudentUserProfileNameCache,
+		SchoolStudentUserProfileAvatarURLCache:         m.SchoolStudentUserProfileAvatarURLCache,
+		SchoolStudentUserProfileWhatsappURLCache:       m.SchoolStudentUserProfileWhatsappURLCache,
+		SchoolStudentUserProfileParentNameCache:        m.SchoolStudentUserProfileParentNameCache,
+		SchoolStudentUserProfileParentWhatsappURLCache: m.SchoolStudentUserProfileParentWhatsappURLCache,
+		SchoolStudentUserProfileGenderCache:            m.SchoolStudentUserProfileGenderCache,
 
 		SchoolStudentSections:                               sections,
 		SchoolStudentClassSectionSubjectTeachers:            csstRaw,

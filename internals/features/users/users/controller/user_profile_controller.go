@@ -17,7 +17,7 @@ import (
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 	helperOSS "madinahsalam_backend/internals/helpers/oss"
 
-	snapshotUserSections "madinahsalam_backend/internals/features/school/classes/class_sections/snapshot"
+	snapshotUserSections "madinahsalam_backend/internals/features/school/classes/class_sections/service"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -451,7 +451,7 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 	// === SNAPSHOT SYNC → user_class_sections (nama, avatar, WA, orangtua) via service ===
 	// Trigger hanya jika ada field relevan yang berubah
 	if hasAnyKey(updateMap,
-		"user_profile_full_name_snapshot", // kalau suatu saat kamu isi snapshot nama
+		"user_profile_full_name_cache", // kalau suatu saat kamu isi snapshot nama
 		"user_profile_name",
 		"user_profile_avatar_url",
 		"user_profile_whatsapp_url",
@@ -461,10 +461,10 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 		snapshotUserSections.SyncUCSnapshotsFromUserProfile(
 			c.Context(),
 			upc.DB,
-			snapshotUserSections.UserProfileSnapshotInput{
+			snapshotUserSections.UserProfileCacheInput{
 				UserID:            after.UserProfileUserID,
 				UserProfileID:     &after.UserProfileID,
-				FullNameSnapshot:  after.UserProfileFullNameSnapshot,
+				FullNameCache:     after.UserProfileFullNameCache,
 				AvatarURL:         after.UserProfileAvatarURL,
 				WhatsappURL:       after.UserProfileWhatsappURL,
 				ParentName:        after.UserProfileParentName,

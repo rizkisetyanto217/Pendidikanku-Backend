@@ -21,18 +21,18 @@ import (
 type CSSTIncluded struct {
 	ID                  uuid.UUID `json:"class_section_subject_teacher_id"`
 	Slug                *string   `json:"class_section_subject_teacher_slug,omitempty"`
-	SubjectName         *string   `json:"class_section_subject_teacher_subject_name_snapshot,omitempty"`
-	SubjectCode         *string   `json:"class_section_subject_teacher_subject_code_snapshot,omitempty"`
-	SubjectSlug         *string   `json:"class_section_subject_teacher_subject_slug_snapshot,omitempty"`
-	TeacherNameSnapshot *string   `json:"class_section_subject_teacher_school_teacher_name_snapshot,omitempty"`
+	SubjectName         *string   `json:"class_section_subject_teacher_subject_name_cache,omitempty"`
+	SubjectCode         *string   `json:"class_section_subject_teacher_subject_code_cache,omitempty"`
+	SubjectSlug         *string   `json:"class_section_subject_teacher_subject_slug_cache,omitempty"`
+	TeacherNameCache *string   `json:"class_section_subject_teacher_school_teacher_name_cache,omitempty"`
 	ClassSectionID      uuid.UUID `json:"class_section_subject_teacher_class_section_id"`
-	ClassSectionName    *string   `json:"class_section_subject_teacher_class_section_name_snapshot,omitempty"`
-	ClassSectionCode    *string   `json:"class_section_subject_teacher_class_section_code_snapshot,omitempty"`
-	ClassSectionSlug    *string   `json:"class_section_subject_teacher_class_section_slug_snapshot,omitempty"`
+	ClassSectionName    *string   `json:"class_section_subject_teacher_class_section_name_cache,omitempty"`
+	ClassSectionCode    *string   `json:"class_section_subject_teacher_class_section_code_cache,omitempty"`
+	ClassSectionSlug    *string   `json:"class_section_subject_teacher_class_section_slug_cache,omitempty"`
 	DeliveryMode        string    `json:"class_section_subject_teacher_delivery_mode"`
 	EnrolledCount       int       `json:"class_section_subject_teacher_enrolled_count"`
 	MinPassingScore     *int      `json:"class_section_subject_teacher_min_passing_score,omitempty"`
-	ClassRoomName       *string   `json:"class_section_subject_teacher_class_room_name_snapshot,omitempty"`
+	ClassRoomName       *string   `json:"class_section_subject_teacher_class_room_name_cache,omitempty"`
 
 	// Tambahan info CSST
 	TotalBooks int       `json:"class_section_subject_teacher_total_books"`
@@ -239,18 +239,18 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 			item := CSSTIncluded{
 				ID:                  cs.ClassSectionSubjectTeacherID,
 				Slug:                cs.ClassSectionSubjectTeacherSlug,
-				SubjectName:         cs.ClassSectionSubjectTeacherSubjectNameSnapshot,
-				SubjectCode:         cs.ClassSectionSubjectTeacherSubjectCodeSnapshot,
-				SubjectSlug:         cs.ClassSectionSubjectTeacherSubjectSlugSnapshot,
-				TeacherNameSnapshot: cs.ClassSectionSubjectTeacherSchoolTeacherNameSnapshot,
+				SubjectName:         cs.ClassSectionSubjectTeacherSubjectNameCache,
+				SubjectCode:         cs.ClassSectionSubjectTeacherSubjectCodeCache,
+				SubjectSlug:         cs.ClassSectionSubjectTeacherSubjectSlugCache,
+				TeacherNameCache: cs.ClassSectionSubjectTeacherSchoolTeacherNameCache,
 				ClassSectionID:      cs.ClassSectionSubjectTeacherClassSectionID,
-				ClassSectionName:    cs.ClassSectionSubjectTeacherClassSectionNameSnapshot,
-				ClassSectionCode:    cs.ClassSectionSubjectTeacherClassSectionCodeSnapshot,
-				ClassSectionSlug:    cs.ClassSectionSubjectTeacherClassSectionSlugSnapshot,
+				ClassSectionName:    cs.ClassSectionSubjectTeacherClassSectionNameCache,
+				ClassSectionCode:    cs.ClassSectionSubjectTeacherClassSectionCodeCache,
+				ClassSectionSlug:    cs.ClassSectionSubjectTeacherClassSectionSlugCache,
 				DeliveryMode:        string(cs.ClassSectionSubjectTeacherDeliveryMode),
 				EnrolledCount:       cs.ClassSectionSubjectTeacherEnrolledCount,
 				MinPassingScore:     cs.ClassSectionSubjectTeacherMinPassingScore,
-				ClassRoomName:       cs.ClassSectionSubjectTeacherClassRoomNameSnapshot,
+				ClassRoomName:       cs.ClassSectionSubjectTeacherClassRoomNameCache,
 				IsActive:            cs.ClassSectionSubjectTeacherIsActive,
 				SchoolID:            cs.ClassSectionSubjectTeacherSchoolID,
 				CreatedAt:           cs.ClassSectionSubjectTeacherCreatedAt.Format(time.RFC3339),
@@ -317,18 +317,18 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 			item := &CSSTIncluded{
 				ID:                  cs.ClassSectionSubjectTeacherID,
 				Slug:                cs.ClassSectionSubjectTeacherSlug,
-				SubjectName:         cs.ClassSectionSubjectTeacherSubjectNameSnapshot,
-				SubjectCode:         cs.ClassSectionSubjectTeacherSubjectCodeSnapshot,
-				SubjectSlug:         cs.ClassSectionSubjectTeacherSubjectSlugSnapshot,
-				TeacherNameSnapshot: cs.ClassSectionSubjectTeacherSchoolTeacherNameSnapshot,
+				SubjectName:         cs.ClassSectionSubjectTeacherSubjectNameCache,
+				SubjectCode:         cs.ClassSectionSubjectTeacherSubjectCodeCache,
+				SubjectSlug:         cs.ClassSectionSubjectTeacherSubjectSlugCache,
+				TeacherNameCache: cs.ClassSectionSubjectTeacherSchoolTeacherNameCache,
 				ClassSectionID:      cs.ClassSectionSubjectTeacherClassSectionID,
-				ClassSectionName:    cs.ClassSectionSubjectTeacherClassSectionNameSnapshot,
-				ClassSectionCode:    cs.ClassSectionSubjectTeacherClassSectionCodeSnapshot,
-				ClassSectionSlug:    cs.ClassSectionSubjectTeacherClassSectionSlugSnapshot,
+				ClassSectionName:    cs.ClassSectionSubjectTeacherClassSectionNameCache,
+				ClassSectionCode:    cs.ClassSectionSubjectTeacherClassSectionCodeCache,
+				ClassSectionSlug:    cs.ClassSectionSubjectTeacherClassSectionSlugCache,
 				DeliveryMode:        string(cs.ClassSectionSubjectTeacherDeliveryMode),
 				EnrolledCount:       cs.ClassSectionSubjectTeacherEnrolledCount,
 				MinPassingScore:     cs.ClassSectionSubjectTeacherMinPassingScore,
-				ClassRoomName:       cs.ClassSectionSubjectTeacherClassRoomNameSnapshot,
+				ClassRoomName:       cs.ClassSectionSubjectTeacherClassRoomNameCache,
 				IsActive:            cs.ClassSectionSubjectTeacherIsActive,
 				SchoolID:            cs.ClassSectionSubjectTeacherSchoolID,
 				CreatedAt:           cs.ClassSectionSubjectTeacherCreatedAt.Format(time.RFC3339),

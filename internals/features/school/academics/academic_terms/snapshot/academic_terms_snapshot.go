@@ -58,24 +58,24 @@ func fetchAcademicTermSnapRow(
 }
 
 func applyAcademicTermSnapshotToClass(m *classmodel.ClassModel, tr academicTermSnapRow) {
-	m.ClassAcademicTermSlugSnapshot = trimPtr(tr.Slug)
-	m.ClassAcademicTermNameSnapshot = trimPtr(tr.Name)
-	m.ClassAcademicTermAcademicYearSnapshot = trimPtr(tr.AcademicYear)
+	m.ClassAcademicTermSlugCache = trimPtr(tr.Slug)
+	m.ClassAcademicTermNameCache = trimPtr(tr.Name)
+	m.ClassAcademicTermAcademicYearCache = trimPtr(tr.AcademicYear)
 
 	// Di ClassModel: angkatan bertipe *string → convert dari *int bila ada
 	if tr.Angkatan != nil {
 		s := strconv.Itoa(*tr.Angkatan)
-		m.ClassAcademicTermAngkatanSnapshot = &s
+		m.ClassAcademicTermAngkatanCache = &s
 	} else {
-		m.ClassAcademicTermAngkatanSnapshot = nil
+		m.ClassAcademicTermAngkatanCache = nil
 	}
 }
 
 func clearAcademicTermSnapshotOnClass(m *classmodel.ClassModel) {
-	m.ClassAcademicTermSlugSnapshot = nil
-	m.ClassAcademicTermNameSnapshot = nil
-	m.ClassAcademicTermAcademicYearSnapshot = nil
-	m.ClassAcademicTermAngkatanSnapshot = nil
+	m.ClassAcademicTermSlugCache = nil
+	m.ClassAcademicTermNameCache = nil
+	m.ClassAcademicTermAcademicYearCache = nil
+	m.ClassAcademicTermAngkatanCache = nil
 }
 
 // Fungsi publik: isi snapshot term ke ClassModel

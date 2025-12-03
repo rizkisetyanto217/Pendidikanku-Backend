@@ -23,7 +23,7 @@ type UserProfileModel struct {
 	UserProfileUserID uuid.UUID `gorm:"type:uuid;not null;column:user_profile_user_id;uniqueIndex:uq_user_profile_user_id" json:"user_profile_user_id"`
 
 	// Snapshot nama user (dari users)
-	UserProfileFullNameSnapshot *string `gorm:"size:100;column:user_profile_full_name_snapshot" json:"user_profile_full_name_snapshot,omitempty"`
+	UserProfileFullNameCache *string `gorm:"size:100;column:user_profile_full_name_cache" json:"user_profile_full_name_cache,omitempty"`
 
 	// Identitas dasar
 	UserProfileSlug         *string    `gorm:"size:80;column:user_profile_slug" json:"user_profile_slug,omitempty"`

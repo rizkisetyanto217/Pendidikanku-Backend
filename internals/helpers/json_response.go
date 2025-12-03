@@ -366,3 +366,37 @@ func JsonDeleted(c *fiber.Ctx, message string, data any) error {
 		"data":    data,
 	})
 }
+
+// JsonListWithInclude: list + include (singular) — pattern:
+//
+//	{
+//	  "success": true,
+//	  "message": "...",
+//	  "data": [...],
+//	  "include": { ... },
+//	  "pagination": { ... }
+//	}
+func JsonListWithInclude(c *fiber.Ctx, message string, data any, include any, pagination any) error {
+	if strings.TrimSpace(message) == "" {
+		message = "ok"
+	}
+
+	body := fiber.Map{
+		"success": true,
+		"message": message,
+		"data":    data,
+	}
+
+	// pagination (auto isi count & per_page_options)
+	if p, ok := coercePagination(pagination); ok {
+		enrichPaginationWithCountAndOpts(&p, data)
+		body["pagination"] = p
+	}
+
+	// include (singular)
+	if include != nil {
+		body["include"] = include
+	}
+
+	return c.Status(fiber.StatusOK).JSON(body)
+}

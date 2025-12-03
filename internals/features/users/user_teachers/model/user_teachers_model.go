@@ -15,7 +15,7 @@ type UserTeacherModel struct {
 	UserTeacherUserID uuid.UUID `json:"user_teacher_user_id" gorm:"type:uuid;not null;column:user_teacher_user_id;uniqueIndex:uq_user_teachers_user"`
 
 	// Profil ringkas
-	UserTeacherNameSnapshot string `json:"user_teacher_name_snapshot" gorm:"type:varchar(100);not null;column:user_teacher_name_snapshot"`
+	UserTeacherFullNameCache   string  `json:"user_teacher_full_name_cache" gorm:"type:varchar(100);not null;column:user_teacher_full_name_cache"`
 	UserTeacherField           *string `json:"user_teacher_field,omitempty" gorm:"type:varchar(80);column:user_teacher_field"`
 	UserTeacherShortBio        *string `json:"user_teacher_short_bio,omitempty" gorm:"type:varchar(300);column:user_teacher_short_bio"`
 	UserTeacherLongBio         *string `json:"user_teacher_long_bio,omitempty" gorm:"type:text;column:user_teacher_long_bio"`

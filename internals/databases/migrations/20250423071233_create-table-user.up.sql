@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS user_profiles (
   user_profile_user_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 
   -- Identitas dasar
-  user_profile_full_name_snapshot   VARCHAR(100),
+  user_profile_full_name_cache   VARCHAR(100),
   user_profile_slug                 VARCHAR(80),
   user_profile_donation_name        VARCHAR(50),
   user_profile_date_of_birth        DATE,

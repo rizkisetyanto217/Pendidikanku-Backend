@@ -211,17 +211,16 @@ func (h *SubjectsController) Create(c *fiber.Ctx) error {
 	_ = h.DB.WithContext(c.Context()).
 		First(&ent, "subject_id = ?", ent.SubjectID).Error
 
-	return helper.JsonCreated(c, "Berhasil membuat subject", fiber.Map{
-		"subject":            subjectDTO.FromSubjectModel(ent),
-		"uploaded_image_url": uploadedURL,
-	})
+	// Response: langsung subject-nya, tanpa nesting & tanpa uploaded_image_url terpisah
+	return helper.JsonCreated(c, "Berhasil membuat subject", subjectDTO.FromSubjectModel(ent))
+
 }
 
 /*
 =========================================================
 
 	PATCH (DKM/Admin only) — tri-state + slug unique + optional upload
-	+ sync snapshot ke class_subjects (name/code/slug[/url])
+	+ sync cache ke class_subjects (name/code/slug[/url])
 
 =========================================================
 */
@@ -383,7 +382,7 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan perubahan")
 	}
 
-	// ==== Sinkronisasi snapshot di class_subjects (name/code/slug[/url opsional]) ====
+	// ==== Sinkronisasi cache di class_subjects (name/code/slug[/url opsional]) ====
 	trimOrNil := func(s string) *string {
 		t := strings.TrimSpace(s)
 		if t == "" {
@@ -396,19 +395,19 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 	snapSlug := trimOrNil(ent.SubjectSlug)
 
 	snapPatch := map[string]any{
-		"class_subject_subject_name_snapshot": func() any {
+		"class_subject_subject_name_cache": func() any {
 			if snapName == nil {
 				return gorm.Expr("NULL")
 			}
 			return *snapName
 		}(),
-		"class_subject_subject_code_snapshot": func() any {
+		"class_subject_subject_code_cache": func() any {
 			if snapCode == nil {
 				return gorm.Expr("NULL")
 			}
 			return *snapCode
 		}(),
-		"class_subject_subject_slug_snapshot": func() any {
+		"class_subject_subject_slug_cache": func() any {
 			if snapSlug == nil {
 				return gorm.Expr("NULL")
 			}
@@ -424,14 +423,13 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 		`, ent.SubjectID, ent.SubjectSchoolID).
 		Updates(snapPatch)
 	if txSync.Error != nil {
-		log.Printf("[SUBJECTS][PATCH] sync class_subjects snapshot error: %v", txSync.Error)
+		log.Printf("[SUBJECTS][PATCH] sync class_subjects cache error: %v", txSync.Error)
 	} else {
-		log.Printf("[SUBJECTS][PATCH] sync class_subjects snapshot ok, rows=%d", txSync.RowsAffected)
+		log.Printf("[SUBJECTS][PATCH] sync class_subjects cache ok, rows=%d", txSync.RowsAffected)
 	}
 
 	// ===== Optional: upload image jika ada file =====
 	uploadedURL := ""
-	movedOld := ""
 
 	// pakai file dari BindMultipartPatch kalau ada; kalau tidak, fallback pickImageFile
 	if fh == nil {
@@ -477,7 +475,6 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 				if oldURL != "" {
 					if mv, mvErr := helperOSS.MoveToSpamByPublicURLENV(oldURL, 0); mvErr == nil {
 						movedURL = mv
-						movedOld = mv
 						// sinkronkan key lama ke lokasi baru
 						if k, e := helperOSS.ExtractKeyFromPublicURL(movedURL); e == nil {
 							oldObjKey = k
@@ -537,11 +534,9 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 	_ = h.DB.WithContext(c.Context()).
 		First(&ent, "subject_id = ?", ent.SubjectID).Error
 
-	return helper.JsonOK(c, "Berhasil memperbarui subject", fiber.Map{
-		"subject":             subjectDTO.FromSubjectModel(ent),
-		"uploaded_image_url":  uploadedURL,
-		"moved_old_image_url": movedOld,
-	})
+	// Response: langsung subject yang sudah diupdate
+	return helper.JsonOK(c, "Berhasil memperbarui subject", subjectDTO.FromSubjectModel(ent))
+
 }
 
 /*

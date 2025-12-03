@@ -1,5 +1,5 @@
-// file: internals/services/snapsvc/class_subject_snapshot.go
-package snapsvc
+// file: internals/services/snapsvc/class_subject_cache.go
+package service
 
 import (
 	"context"
@@ -12,8 +12,8 @@ import (
 )
 
 // Struktur JSON yang akan disimpan ke kolom
-// class_section_subject_teacher_class_subject_snapshot (JSONB)
-type ClassSubjectSnapshot struct {
+// class_section_subject_teacher_class_subject_cache (JSONB)
+type ClassSubjectCache struct {
 	ID        uuid.UUID `json:"id"`
 	SchoolID  uuid.UUID `json:"school_id"`
 	ParentID  uuid.UUID `json:"parent_id"`
@@ -29,17 +29,17 @@ type ClassSubjectSnapshot struct {
 	ClassSubjectSlug *string `json:"class_subject_slug,omitempty"`
 }
 
-// BuildClassSubjectSnapshot:
+// BuildClassSubjectCache:
 // - Validasi tenant & soft-delete pada class_subjects
-// - Prefer ambil dari tabel subjects (jika masih ada), fallback ke snapshot di class_subjects
+// - Prefer ambil dari tabel subjects (jika masih ada), fallback ke cache di class_subjects
 // - gorm.ErrRecordNotFound bila class_subject tidak ada
 // - ErrSchoolMismatch bila tenant beda
-func BuildClassSubjectSnapshot(
+func BuildClassSubjectCache(
 	ctx context.Context,
 	tx *gorm.DB,
 	schoolID uuid.UUID,
 	classSubjectID uuid.UUID,
-) (*ClassSubjectSnapshot, error) {
+) (*ClassSubjectCache, error) {
 	var row struct {
 		// dari class_subjects
 		CSSchoolID       uuid.UUID
@@ -54,7 +54,7 @@ func BuildClassSubjectSnapshot(
 		SubjSlug string
 		SubjURL  *string
 
-		// fallback snapshot di class_subjects
+		// fallback cache di class_subjects
 		SnapName string
 		SnapCode string
 		SnapSlug string
@@ -74,10 +74,10 @@ func BuildClassSubjectSnapshot(
 			COALESCE(s.subject_slug,  '') AS subj_slug,
 			s.subject_image_url            AS subj_url,
 
-			COALESCE(cs.class_subject_subject_name_snapshot, '') AS snap_name,
-			COALESCE(cs.class_subject_subject_code_snapshot, '') AS snap_code,
-			COALESCE(cs.class_subject_subject_slug_snapshot, '') AS snap_slug,
-			cs.class_subject_subject_url_snapshot               AS snap_url
+			COALESCE(cs.class_subject_subject_name_cache, '') AS snap_name,
+			COALESCE(cs.class_subject_subject_code_cache, '') AS snap_code,
+			COALESCE(cs.class_subject_subject_slug_cache, '') AS snap_slug,
+			cs.class_subject_subject_url_cache               AS snap_url
 		FROM class_subjects cs
 		LEFT JOIN subjects s
 		  ON s.subject_id = cs.class_subject_subject_id
@@ -118,7 +118,7 @@ func BuildClassSubjectSnapshot(
 		return &v
 	}
 
-	// prefer data live dari subjects, fallback ke snapshot cs
+	// prefer data live dari subjects, fallback ke cache cs
 	name := trim(row.SubjName)
 	if name == "" {
 		name = trim(row.SnapName)
@@ -131,7 +131,7 @@ func BuildClassSubjectSnapshot(
 	if slug == "" {
 		slug = trim(row.SnapSlug)
 	}
-	// URL: kalau dari subject kosong/null → ambil dari snapshot
+	// URL: kalau dari subject kosong/null → ambil dari cache
 	var url *string
 	if trimDeref(row.SubjURL) != "" {
 		url = row.SubjURL
@@ -140,7 +140,7 @@ func BuildClassSubjectSnapshot(
 	}
 	url = nzPtr(url)
 
-	out := &ClassSubjectSnapshot{
+	out := &ClassSubjectCache{
 		ID:               row.CSID,
 		SchoolID:         row.CSSchoolID,
 		ParentID:         row.ParentID,
@@ -154,14 +154,14 @@ func BuildClassSubjectSnapshot(
 	return out, nil
 }
 
-// BuildClassSubjectSnapshotJSON: langsung pulangkan datatypes.JSON tanpa bergantung ToJSONB eksternal.
-func BuildClassSubjectSnapshotJSON(
+// BuildClassSubjectCacheJSON: langsung pulangkan datatypes.JSON tanpa bergantung ToJSONB eksternal.
+func BuildClassSubjectCacheJSON(
 	ctx context.Context,
 	tx *gorm.DB,
 	schoolID uuid.UUID,
 	classSubjectID uuid.UUID,
 ) (datatypes.JSON, error) {
-	snap, err := BuildClassSubjectSnapshot(ctx, tx, schoolID, classSubjectID)
+	snap, err := BuildClassSubjectCache(ctx, tx, schoolID, classSubjectID)
 	if err != nil {
 		return nil, err
 	}

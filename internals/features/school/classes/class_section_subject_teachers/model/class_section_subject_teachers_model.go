@@ -55,7 +55,11 @@ type ClassSectionSubjectTeacherModel struct {
 	// total murid lulus passing score
 	ClassSectionSubjectTeacherTotalStudentsPassed int `gorm:"not null;default:0;column:class_section_subject_teacher_total_students_passed" json:"class_section_subject_teacher_total_students_passed"`
 
-	// NEW: breakdown gender
+	// NOTE:
+	// Kolom male/female ini hanya valid kalau di DB sudah ada:
+	//   class_section_subject_teacher_total_students_male
+	//   class_section_subject_teacher_total_students_female
+	// Kalau SQL kamu belum punya, entah bikin ALTER TABLE, atau hapus 2 field ini.
 	ClassSectionSubjectTeacherTotalStudentsMale   int `gorm:"not null;default:0;column:class_section_subject_teacher_total_students_male" json:"class_section_subject_teacher_total_students_male"`
 	ClassSectionSubjectTeacherTotalStudentsFemale int `gorm:"not null;default:0;column:class_section_subject_teacher_total_students_female" json:"class_section_subject_teacher_total_students_female"`
 
@@ -63,47 +67,52 @@ type ClassSectionSubjectTeacherModel struct {
 	ClassSectionSubjectTeacherDeliveryMode ClassDeliveryMode `gorm:"type:class_delivery_mode_enum;not null;default:'offline';column:class_section_subject_teacher_delivery_mode" json:"class_section_subject_teacher_delivery_mode"`
 
 	/* ===== SNAPSHOT: attendance entry mode efektif di CSST ===== */
-	// Kalau kosong → diset saat create dari School.SchoolDefaultAttendanceEntryMode
-	// Kalau guru isi custom → diset ke nilai custom itu
-	ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot *AttendanceEntryMode `gorm:"type:attendance_entry_mode_enum;column:class_section_subject_teacher_school_attendance_entry_mode_snapshot" json:"class_section_subject_teacher_school_attendance_entry_mode_snapshot,omitempty"`
+	ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache *AttendanceEntryMode `gorm:"type:attendance_entry_mode_enum;column:class_section_subject_teacher_school_attendance_entry_mode_cache" json:"class_section_subject_teacher_school_attendance_entry_mode_cache,omitempty"`
 
-	/* ===== SECTION snapshots (tanpa JSONB) ===== */
+	/* ===== SECTION caches (tanpa JSONB) ===== */
 	ClassSectionSubjectTeacherClassSectionID           uuid.UUID `gorm:"type:uuid;not null;column:class_section_subject_teacher_class_section_id" json:"class_section_subject_teacher_class_section_id"`
-	ClassSectionSubjectTeacherClassSectionSlugSnapshot *string   `gorm:"type:varchar(160);column:class_section_subject_teacher_class_section_slug_snapshot" json:"class_section_subject_teacher_class_section_slug_snapshot,omitempty"`
-	ClassSectionSubjectTeacherClassSectionNameSnapshot *string   `gorm:"type:varchar(160);column:class_section_subject_teacher_class_section_name_snapshot" json:"class_section_subject_teacher_class_section_name_snapshot,omitempty"`
-	ClassSectionSubjectTeacherClassSectionCodeSnapshot *string   `gorm:"type:varchar(50);column:class_section_subject_teacher_class_section_code_snapshot" json:"class_section_subject_teacher_class_section_code_snapshot,omitempty"`
-	ClassSectionSubjectTeacherClassSectionURLSnapshot  *string   `gorm:"type:text;column:class_section_subject_teacher_class_section_url_snapshot" json:"class_section_subject_teacher_class_section_url_snapshot,omitempty"`
+	ClassSectionSubjectTeacherClassSectionSlugCache *string   `gorm:"type:varchar(160);column:class_section_subject_teacher_class_section_slug_cache" json:"class_section_subject_teacher_class_section_slug_cache,omitempty"`
+	ClassSectionSubjectTeacherClassSectionNameCache *string   `gorm:"type:varchar(160);column:class_section_subject_teacher_class_section_name_cache" json:"class_section_subject_teacher_class_section_name_cache,omitempty"`
+	ClassSectionSubjectTeacherClassSectionCodeCache *string   `gorm:"type:varchar(50);column:class_section_subject_teacher_class_section_code_cache" json:"class_section_subject_teacher_class_section_code_cache,omitempty"`
+	ClassSectionSubjectTeacherClassSectionURLCache  *string   `gorm:"type:text;column:class_section_subject_teacher_class_section_url_cache" json:"class_section_subject_teacher_class_section_url_cache,omitempty"`
 
-	/* ===== ROOM snapshot ===== */
+	/* ===== ROOM cache ===== */
 	ClassSectionSubjectTeacherClassRoomID           *uuid.UUID      `gorm:"type:uuid;column:class_section_subject_teacher_class_room_id" json:"class_section_subject_teacher_class_room_id,omitempty"`
-	ClassSectionSubjectTeacherClassRoomSlugSnapshot *string         `gorm:"type:varchar(160);column:class_section_subject_teacher_class_room_slug_snapshot" json:"class_section_subject_teacher_class_room_slug_snapshot,omitempty"`
-	ClassSectionSubjectTeacherClassRoomSnapshot     *datatypes.JSON `gorm:"type:jsonb;column:class_section_subject_teacher_class_room_snapshot" json:"class_section_subject_teacher_class_room_snapshot,omitempty"`
+	ClassSectionSubjectTeacherClassRoomSlugCache *string         `gorm:"type:varchar(160);column:class_section_subject_teacher_class_room_slug_cache" json:"class_section_subject_teacher_class_room_slug_cache,omitempty"`
+	ClassSectionSubjectTeacherClassRoomCache     *datatypes.JSON `gorm:"type:jsonb;column:class_section_subject_teacher_class_room_cache" json:"class_section_subject_teacher_class_room_cache,omitempty"`
 
 	// generated (read-only)
-	ClassSectionSubjectTeacherClassRoomNameSnapshot     *string `gorm:"->;column:class_section_subject_teacher_class_room_name_snapshot" json:"class_section_subject_teacher_class_room_name_snapshot,omitempty"`
-	ClassSectionSubjectTeacherClassRoomSlugSnapshotGen  *string `gorm:"->;column:class_section_subject_teacher_class_room_slug_snapshot_gen" json:"class_section_subject_teacher_class_room_slug_snapshot_gen,omitempty"`
-	ClassSectionSubjectTeacherClassRoomLocationSnapshot *string `gorm:"->;column:class_section_subject_teacher_class_room_location_snapshot" json:"class_section_subject_teacher_class_room_location_snapshot,omitempty"`
+	ClassSectionSubjectTeacherClassRoomNameCache     *string `gorm:"->;column:class_section_subject_teacher_class_room_name_cache" json:"class_section_subject_teacher_class_room_name_cache,omitempty"`
+	ClassSectionSubjectTeacherClassRoomSlugCacheGen  *string `gorm:"->;column:class_section_subject_teacher_class_room_slug_cache_gen" json:"class_section_subject_teacher_class_room_slug_cache_gen,omitempty"`
+	ClassSectionSubjectTeacherClassRoomLocationCache *string `gorm:"->;column:class_section_subject_teacher_class_room_location_cache" json:"class_section_subject_teacher_class_room_location_cache,omitempty"`
 
-	/* ===== PEOPLE snapshots (teacher & assistant) ===== */
+	/* ===== PEOPLE caches (teacher & assistant) ===== */
 	ClassSectionSubjectTeacherSchoolTeacherID           uuid.UUID       `gorm:"type:uuid;not null;column:class_section_subject_teacher_school_teacher_id" json:"class_section_subject_teacher_school_teacher_id"`
-	ClassSectionSubjectTeacherSchoolTeacherSlugSnapshot *string         `gorm:"type:varchar(160);column:class_section_subject_teacher_school_teacher_slug_snapshot" json:"class_section_subject_teacher_school_teacher_slug_snapshot,omitempty"`
-	ClassSectionSubjectTeacherSchoolTeacherSnapshot     *datatypes.JSON `gorm:"type:jsonb;column:class_section_subject_teacher_school_teacher_snapshot" json:"class_section_subject_teacher_school_teacher_snapshot,omitempty"`
+	ClassSectionSubjectTeacherSchoolTeacherSlugCache *string         `gorm:"type:varchar(160);column:class_section_subject_teacher_school_teacher_slug_cache" json:"class_section_subject_teacher_school_teacher_slug_cache,omitempty"`
+	ClassSectionSubjectTeacherSchoolTeacherCache        *datatypes.JSON `gorm:"type:jsonb;column:class_section_subject_teacher_school_teacher_cache" json:"class_section_subject_teacher_school_teacher_cache,omitempty"`
 
 	ClassSectionSubjectTeacherAssistantSchoolTeacherID           *uuid.UUID      `gorm:"type:uuid;column:class_section_subject_teacher_assistant_school_teacher_id" json:"class_section_subject_teacher_assistant_school_teacher_id,omitempty"`
-	ClassSectionSubjectTeacherAssistantSchoolTeacherSlugSnapshot *string         `gorm:"type:varchar(160);column:class_section_subject_teacher_assistant_school_teacher_slug_snapshot" json:"class_section_subject_teacher_assistant_school_teacher_slug_snapshot,omitempty"`
-	ClassSectionSubjectTeacherAssistantSchoolTeacherSnapshot     *datatypes.JSON `gorm:"type:jsonb;column:class_section_subject_teacher_assistant_school_teacher_snapshot" json:"class_section_subject_teacher_assistant_school_teacher_snapshot,omitempty"`
+	ClassSectionSubjectTeacherAssistantSchoolTeacherSlugCache *string         `gorm:"type:varchar(160);column:class_section_subject_teacher_assistant_school_teacher_slug_cache" json:"class_section_subject_teacher_assistant_school_teacher_slug_cache,omitempty"`
+	ClassSectionSubjectTeacherAssistantSchoolTeacherCache        *datatypes.JSON `gorm:"type:jsonb;column:class_section_subject_teacher_assistant_school_teacher_cache" json:"class_section_subject_teacher_assistant_school_teacher_cache,omitempty"`
 
 	// generated names (read-only)
-	ClassSectionSubjectTeacherSchoolTeacherNameSnapshot          *string `gorm:"->;column:class_section_subject_teacher_school_teacher_name_snapshot" json:"class_section_subject_teacher_school_teacher_name_snapshot,omitempty"`
-	ClassSectionSubjectTeacherAssistantSchoolTeacherNameSnapshot *string `gorm:"->;column:class_section_subject_teacher_assistant_school_teacher_name_snapshot" json:"class_section_subject_teacher_assistant_school_teacher_name_snapshot,omitempty"`
+	ClassSectionSubjectTeacherSchoolTeacherNameCache          *string `gorm:"->;column:class_section_subject_teacher_school_teacher_name_cache" json:"class_section_subject_teacher_school_teacher_name_cache,omitempty"`
+	ClassSectionSubjectTeacherAssistantSchoolTeacherNameCache *string `gorm:"->;column:class_section_subject_teacher_assistant_school_teacher_name_cache" json:"class_section_subject_teacher_assistant_school_teacher_name_cache,omitempty"`
 
-	/* ===== SUBJECT (via CLASS_SUBJECT) snapshot ===== */
+	/* ===== SUBJECT (via CLASS_SUBJECT) cache ===== */
 	ClassSectionSubjectTeacherTotalBooks          int        `gorm:"not null;default:0;column:class_section_subject_teacher_total_books" json:"class_section_subject_teacher_total_books"`
 	ClassSectionSubjectTeacherClassSubjectID      uuid.UUID  `gorm:"type:uuid;not null;column:class_section_subject_teacher_class_subject_id" json:"class_section_subject_teacher_class_subject_id"`
-	ClassSectionSubjectTeacherSubjectIDSnapshot   *uuid.UUID `gorm:"type:uuid;column:class_section_subject_teacher_subject_id_snapshot" json:"class_section_subject_teacher_subject_id_snapshot,omitempty"`
-	ClassSectionSubjectTeacherSubjectNameSnapshot *string    `gorm:"type:varchar(160);column:class_section_subject_teacher_subject_name_snapshot" json:"class_section_subject_teacher_subject_name_snapshot,omitempty"`
-	ClassSectionSubjectTeacherSubjectCodeSnapshot *string    `gorm:"type:varchar(80);column:class_section_subject_teacher_subject_code_snapshot" json:"class_section_subject_teacher_subject_code_snapshot,omitempty"`
-	ClassSectionSubjectTeacherSubjectSlugSnapshot *string    `gorm:"type:varchar(160);column:class_section_subject_teacher_subject_slug_snapshot" json:"class_section_subject_teacher_subject_slug_snapshot,omitempty"`
+	ClassSectionSubjectTeacherSubjectIDCache   *uuid.UUID `gorm:"type:uuid;column:class_section_subject_teacher_subject_id_cache" json:"class_section_subject_teacher_subject_id_cache,omitempty"`
+	ClassSectionSubjectTeacherSubjectNameCache *string    `gorm:"type:varchar(160);column:class_section_subject_teacher_subject_name_cache" json:"class_section_subject_teacher_subject_name_cache,omitempty"`
+	ClassSectionSubjectTeacherSubjectCodeCache *string    `gorm:"type:varchar(80);column:class_section_subject_teacher_subject_code_cache" json:"class_section_subject_teacher_subject_code_cache,omitempty"`
+	ClassSectionSubjectTeacherSubjectSlugCache *string    `gorm:"type:varchar(160);column:class_section_subject_teacher_subject_slug_cache" json:"class_section_subject_teacher_subject_slug_cache,omitempty"`
+
+	/* ===== ACADEMIC_TERM cache ===== */
+	ClassSectionSubjectTeacherAcademicTermID               *uuid.UUID `gorm:"type:uuid;column:class_section_subject_teacher_academic_term_id" json:"class_section_subject_teacher_academic_term_id,omitempty"`
+	ClassSectionSubjectTeacherAcademicTermNameCache     *string    `gorm:"type:varchar(160);column:class_section_subject_teacher_academic_term_name_cache" json:"class_section_subject_teacher_academic_term_name_cache,omitempty"`
+	ClassSectionSubjectTeacherAcademicTermSlugCache     *string    `gorm:"type:varchar(160);column:class_section_subject_teacher_academic_term_slug_cache" json:"class_section_subject_teacher_academic_term_slug_cache,omitempty"`
+	ClassSectionSubjectTeacherAcademicYearCache         *string    `gorm:"type:varchar(160);column:class_section_subject_teacher_academic_year_cache" json:"class_section_subject_teacher_academic_year_cache,omitempty"`
+	ClassSectionSubjectTeacherAcademicTermAngkatanCache *int       `gorm:"column:class_section_subject_teacher_academic_term_angkatan_cache" json:"class_section_subject_teacher_academic_term_angkatan_cache,omitempty"`
 
 	/* ===== KKM SNAPSHOT (opsional override per CSST) ===== */
 	ClassSectionSubjectTeacherMinPassingScore *int `gorm:"column:class_section_subject_teacher_min_passing_score" json:"class_section_subject_teacher_min_passing_score,omitempty"`

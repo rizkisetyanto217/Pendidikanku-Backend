@@ -241,8 +241,8 @@ type ClassScheduleRuleResponse struct {
 
 	// CSST
 	ClassScheduleRuleCSSTID           uuid.UUID      `json:"class_schedule_rule_csst_id"`
-	ClassScheduleRuleCSSTSlugSnapshot *string        `json:"class_schedule_rule_csst_slug_snapshot,omitempty"`
-	ClassScheduleRuleCSSTSnapshot     map[string]any `json:"class_schedule_rule_csst_snapshot,omitempty"`
+	ClassScheduleRuleCSSTSlugCache *string        `json:"class_schedule_rule_csst_slug_cache,omitempty"`
+	ClassScheduleRuleCSSTCache     map[string]any `json:"class_schedule_rule_csst_cache,omitempty"`
 
 	// Generated columns (tanpa join)
 	ClassScheduleRuleCSSTStudentTeacherID *uuid.UUID `json:"class_schedule_rule_csst_student_teacher_id,omitempty"`
@@ -266,9 +266,9 @@ func FromRuleModel(m model.ClassScheduleRuleModel) ClassScheduleRuleResponse {
 	}
 
 	var snap map[string]any
-	if m.ClassScheduleRuleCSSTSnapshot != nil {
+	if m.ClassScheduleRuleCSSTCache != nil {
 		// datatypes.JSONMap underlying type is map[string]any, safe to convert
-		snap = map[string]any(m.ClassScheduleRuleCSSTSnapshot)
+		snap = map[string]any(m.ClassScheduleRuleCSSTCache)
 	}
 
 	return ClassScheduleRuleResponse{
@@ -289,8 +289,8 @@ func FromRuleModel(m model.ClassScheduleRuleModel) ClassScheduleRuleResponse {
 		ClassScheduleRuleLastWeekOfMonth: m.ClassScheduleRuleLastWeekOfMonth,
 
 		ClassScheduleRuleCSSTID:           m.ClassScheduleRuleCSSTID,
-		ClassScheduleRuleCSSTSlugSnapshot: m.ClassScheduleRuleCSSTSlugSnapshot,
-		ClassScheduleRuleCSSTSnapshot:     snap,
+		ClassScheduleRuleCSSTSlugCache: m.ClassScheduleRuleCSSTSlugCache,
+		ClassScheduleRuleCSSTCache:     snap,
 
 		ClassScheduleRuleCreatedAt: m.ClassScheduleRuleCreatedAt,
 		ClassScheduleRuleUpdatedAt: m.ClassScheduleRuleUpdatedAt,

@@ -74,9 +74,9 @@ func (ctl *StudentClassSectionController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// ========= ensure slug snapshot dari class_sections (tenant-safe) =========
-	// Jika client tidak kirim snapshot, kita ambil dari sumbernya.
-	if req.StudentClassSectionSectionSlugSnapshot == nil {
+	// ========= ensure slug cache dari class_sections (tenant-safe) =========
+	// Jika client tidak kirim cache, kita ambil dari sumbernya.
+	if req.StudentClassSectionSectionSlugCache == nil {
 		var row struct {
 			Slug string `gorm:"column:class_section_slug"`
 		}
@@ -94,30 +94,30 @@ func (ctl *StudentClassSectionController) Create(c *fiber.Ctx) error {
 			}
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil slug section")
 		}
-		req.StudentClassSectionSectionSlugSnapshot = &row.Slug
+		req.StudentClassSectionSectionSlugCache = &row.Slug
 	}
 
-	// ========= Snapshot siswa (code + user_profile snapshots) =========
-	// Diambil dari tabel school_students yang sudah punya snapshot user_profile.
+	// ========= Cache siswa (code + user_profile caches) =========
+	// Diambil dari tabel school_students yang sudah punya cache user_profile.
 	var stuSnap struct {
 		Code              *string `gorm:"column:school_student_code"`
-		Name              *string `gorm:"column:school_student_user_profile_name_snapshot"`
-		AvatarURL         *string `gorm:"column:school_student_user_profile_avatar_url_snapshot"`
-		WhatsappURL       *string `gorm:"column:school_student_user_profile_whatsapp_url_snapshot"`
-		ParentName        *string `gorm:"column:school_student_user_profile_parent_name_snapshot"`
-		ParentWhatsappURL *string `gorm:"column:school_student_user_profile_parent_whatsapp_url_snapshot"`
-		Gender            *string `gorm:"column:school_student_user_profile_gender_snapshot"`
+		Name              *string `gorm:"column:school_student_user_profile_name_cache"`
+		AvatarURL         *string `gorm:"column:school_student_user_profile_avatar_url_cache"`
+		WhatsappURL       *string `gorm:"column:school_student_user_profile_whatsapp_url_cache"`
+		ParentName        *string `gorm:"column:school_student_user_profile_parent_name_cache"`
+		ParentWhatsappURL *string `gorm:"column:school_student_user_profile_parent_whatsapp_url_cache"`
+		Gender            *string `gorm:"column:school_student_user_profile_gender_cache"`
 	}
 	if err := ctl.DB.
 		Table("school_students").
 		Select(`
 			school_student_code,
-			school_student_user_profile_name_snapshot,
-			school_student_user_profile_avatar_url_snapshot,
-			school_student_user_profile_whatsapp_url_snapshot,
-			school_student_user_profile_parent_name_snapshot,
-			school_student_user_profile_parent_whatsapp_url_snapshot,
-			school_student_user_profile_gender_snapshot
+			school_student_user_profile_name_cache,
+			school_student_user_profile_avatar_url_cache,
+			school_student_user_profile_whatsapp_url_cache,
+			school_student_user_profile_parent_name_cache,
+			school_student_user_profile_parent_whatsapp_url_cache,
+			school_student_user_profile_gender_cache
 		`).
 		Where(`
 			school_student_id = ?
@@ -129,17 +129,17 @@ func (ctl *StudentClassSectionController) Create(c *fiber.Ctx) error {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusBadRequest, "Siswa tidak ditemukan / beda tenant")
 		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil snapshot siswa")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil cache siswa")
 	}
 
-	// Override snapshot di request agar selalu konsisten dari backend
-	req.StudentClassSectionStudentCodeSnapshot = stuSnap.Code
-	req.StudentClassSectionUserProfileNameSnapshot = stuSnap.Name
-	req.StudentClassSectionUserProfileAvatarURLSnapshot = stuSnap.AvatarURL
-	req.StudentClassSectionUserProfileWhatsappURLSnapshot = stuSnap.WhatsappURL
-	req.StudentClassSectionUserProfileParentNameSnapshot = stuSnap.ParentName
-	req.StudentClassSectionUserProfileParentWhatsappURLSnapshot = stuSnap.ParentWhatsappURL
-	req.StudentClassSectionUserProfileGenderSnapshot = stuSnap.Gender
+	// Override cache di request agar selalu konsisten dari backend
+	req.StudentClassSectionStudentCodeCache = stuSnap.Code
+	req.StudentClassSectionUserProfileNameCache = stuSnap.Name
+	req.StudentClassSectionUserProfileAvatarURLCache = stuSnap.AvatarURL
+	req.StudentClassSectionUserProfileWhatsappURLCache = stuSnap.WhatsappURL
+	req.StudentClassSectionUserProfileParentNameCache = stuSnap.ParentName
+	req.StudentClassSectionUserProfileParentWhatsappURLCache = stuSnap.ParentWhatsappURL
+	req.StudentClassSectionUserProfileGenderCache = stuSnap.Gender
 
 	m := req.ToModel() // *model.StudentClassSection
 

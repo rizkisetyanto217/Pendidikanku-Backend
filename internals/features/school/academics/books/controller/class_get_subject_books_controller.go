@@ -32,16 +32,17 @@ Resolver school:
 3) Kalau tetap tidak ada → ErrSchoolContextMissing.
 
 Query:
-  - id / ids         : UUID atau comma-separated UUIDs
-  - class_subject_id : UUID
-  - book_id          : UUID
-  - is_active        : bool
-  - is_primary       : bool
-  - is_required      : bool
-  - with_deleted     : bool
-  - q                : cari di slug relasi, judul buku snapshot, nama/slug subject snapshot
-  - sort (legacy)    : created_at_asc|created_at_desc|updated_at_asc|updated_at_desc
-  - sort_by/order    : created_at|updated_at + asc|desc
+  - id / ids      : UUID atau comma-separated UUIDs
+  - subject_id    : UUID  (pivot subject-book)
+    (legacy alias: class_subject_id masih didukung di query string)
+  - book_id       : UUID
+  - is_active     : bool
+  - is_primary    : bool
+  - is_required   : bool
+  - with_deleted  : bool
+  - q             : cari di slug relasi, judul buku cache, nama/slug subject cache
+  - sort (legacy) : created_at_asc|created_at_desc|updated_at_asc|updated_at_desc
+  - sort_by/order : created_at|updated_at + asc|desc
   - limit/per_page, page/offset
 
 =========================================================
@@ -153,12 +154,18 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		return err
 	}
 
-	// class_subject_id
-	if q.ClassSubjectID != nil {
-		qBase = qBase.Where("csb.class_subject_book_class_subject_id = ?", *q.ClassSubjectID)
-	} else if v := strings.TrimSpace(c.Query("class_subject_id")); v != "" {
+	// subject_id (baru) + alias legacy class_subject_id
+	if q.SubjectID != nil {
+		qBase = qBase.Where("csb.class_subject_book_subject_id = ?", *q.SubjectID)
+	} else if v := strings.TrimSpace(c.Query("subject_id")); v != "" {
 		if id, er := uuid.Parse(v); er == nil {
-			qBase = qBase.Where("csb.class_subject_book_class_subject_id = ?", id)
+			qBase = qBase.Where("csb.class_subject_book_subject_id = ?", id)
+		} else {
+			return helper.JsonError(c, fiber.StatusBadRequest, "subject_id tidak valid")
+		}
+	} else if v := strings.TrimSpace(c.Query("class_subject_id")); v != "" { // legacy support
+		if id, er := uuid.Parse(v); er == nil {
+			qBase = qBase.Where("csb.class_subject_book_subject_id = ?", id)
 		} else {
 			return helper.JsonError(c, fiber.StatusBadRequest, "class_subject_id tidak valid")
 		}
@@ -229,14 +236,14 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// q: cari di slug relasi & snapshots
+	// q: cari di slug relasi & caches
 	if q.Q != nil && strings.TrimSpace(*q.Q) != "" {
 		needle := "%" + strings.TrimSpace(*q.Q) + "%"
 		qBase = qBase.Where(`
 			(csb.class_subject_book_slug ILIKE ? OR
-			 csb.class_subject_book_book_title_snapshot ILIKE ? OR
-			 csb.class_subject_book_subject_name_snapshot ILIKE ? OR
-			 csb.class_subject_book_subject_slug_snapshot ILIKE ?)`,
+			 csb.class_subject_book_book_title_cache ILIKE ? OR
+			 csb.class_subject_book_subject_name_cache ILIKE ? OR
+			 csb.class_subject_book_subject_slug_cache ILIKE ?)`,
 			needle, needle, needle, needle)
 	}
 
@@ -252,7 +259,7 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	selectCols := []string{
 		"csb.class_subject_book_id",
 		"csb.class_subject_book_school_id",
-		"csb.class_subject_book_class_subject_id",
+		"csb.class_subject_book_subject_id",
 		"csb.class_subject_book_book_id",
 		"csb.class_subject_book_slug",
 		"csb.class_subject_book_is_primary",
@@ -264,49 +271,47 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		"csb.class_subject_book_updated_at",
 		"csb.class_subject_book_deleted_at",
 
-		// snapshots BOOK (inline di csb)
-		"csb.class_subject_book_book_title_snapshot",
-		"csb.class_subject_book_book_author_snapshot",
-		"csb.class_subject_book_book_slug_snapshot",
-		"csb.class_subject_book_book_publisher_snapshot",
-		"csb.class_subject_book_book_publication_year_snapshot",
-		"csb.class_subject_book_book_image_url_snapshot",
+		// caches BOOK (inline di csb)
+		"csb.class_subject_book_book_title_cache",
+		"csb.class_subject_book_book_author_cache",
+		"csb.class_subject_book_book_slug_cache",
+		"csb.class_subject_book_book_publisher_cache",
+		"csb.class_subject_book_book_publication_year_cache",
+		"csb.class_subject_book_book_image_url_cache",
 
-		// snapshots SUBJECT (inline di csb)
-		"csb.class_subject_book_subject_id",
-		"csb.class_subject_book_subject_code_snapshot",
-		"csb.class_subject_book_subject_name_snapshot",
-		"csb.class_subject_book_subject_slug_snapshot",
+		// caches SUBJECT (inline di csb)
+		"csb.class_subject_book_subject_code_cache",
+		"csb.class_subject_book_subject_name_cache",
+		"csb.class_subject_book_subject_slug_cache",
 	}
 
 	type row struct {
-		ClassSubjectBookID             uuid.UUID  `gorm:"column:class_subject_book_id"`
-		ClassSubjectBookSchoolID       uuid.UUID  `gorm:"column:class_subject_book_school_id"`
-		ClassSubjectBookClassSubjectID uuid.UUID  `gorm:"column:class_subject_book_class_subject_id"`
-		ClassSubjectBookBookID         uuid.UUID  `gorm:"column:class_subject_book_book_id"`
-		ClassSubjectBookSlug           *string    `gorm:"column:class_subject_book_slug"`
-		ClassSubjectBookIsPrimary      bool       `gorm:"column:class_subject_book_is_primary"`
-		ClassSubjectBookIsRequired     bool       `gorm:"column:class_subject_book_is_required"`
-		ClassSubjectBookOrder          *int       `gorm:"column:class_subject_book_order"`
-		ClassSubjectBookIsActive       bool       `gorm:"column:class_subject_book_is_active"`
-		ClassSubjectBookDesc           *string    `gorm:"column:class_subject_book_desc"`
-		ClassSubjectBookCreatedAt      time.Time  `gorm:"column:class_subject_book_created_at"`
-		ClassSubjectBookUpdatedAt      time.Time  `gorm:"column:class_subject_book_updated_at"`
-		ClassSubjectBookDeletedAt      *time.Time `gorm:"column:class_subject_book_deleted_at"`
+		ClassSubjectBookID         uuid.UUID  `gorm:"column:class_subject_book_id"`
+		ClassSubjectBookSchoolID   uuid.UUID  `gorm:"column:class_subject_book_school_id"`
+		ClassSubjectBookSubjectID  uuid.UUID  `gorm:"column:class_subject_book_subject_id"`
+		ClassSubjectBookBookID     uuid.UUID  `gorm:"column:class_subject_book_book_id"`
+		ClassSubjectBookSlug       *string    `gorm:"column:class_subject_book_slug"`
+		ClassSubjectBookIsPrimary  bool       `gorm:"column:class_subject_book_is_primary"`
+		ClassSubjectBookIsRequired bool       `gorm:"column:class_subject_book_is_required"`
+		ClassSubjectBookOrder      *int       `gorm:"column:class_subject_book_order"`
+		ClassSubjectBookIsActive   bool       `gorm:"column:class_subject_book_is_active"`
+		ClassSubjectBookDesc       *string    `gorm:"column:class_subject_book_desc"`
+		ClassSubjectBookCreatedAt  time.Time  `gorm:"column:class_subject_book_created_at"`
+		ClassSubjectBookUpdatedAt  time.Time  `gorm:"column:class_subject_book_updated_at"`
+		ClassSubjectBookDeletedAt  *time.Time `gorm:"column:class_subject_book_deleted_at"`
 
-		// BOOK snapshots
-		ClassSubjectBookBookTitleSnapshot           *string `gorm:"column:class_subject_book_book_title_snapshot"`
-		ClassSubjectBookBookAuthorSnapshot          *string `gorm:"column:class_subject_book_book_author_snapshot"`
-		ClassSubjectBookBookSlugSnapshot            *string `gorm:"column:class_subject_book_book_slug_snapshot"`
-		ClassSubjectBookBookPublisherSnapshot       *string `gorm:"column:class_subject_book_book_publisher_snapshot"`
-		ClassSubjectBookBookPublicationYearSnapshot *int16  `gorm:"column:class_subject_book_book_publication_year_snapshot"`
-		ClassSubjectBookBookImageURLSnapshot        *string `gorm:"column:class_subject_book_book_image_url_snapshot"`
+		// BOOK caches
+		ClassSubjectBookBookTitleCache           *string `gorm:"column:class_subject_book_book_title_cache"`
+		ClassSubjectBookBookAuthorCache          *string `gorm:"column:class_subject_book_book_author_cache"`
+		ClassSubjectBookBookSlugCache            *string `gorm:"column:class_subject_book_book_slug_cache"`
+		ClassSubjectBookBookPublisherCache       *string `gorm:"column:class_subject_book_book_publisher_cache"`
+		ClassSubjectBookBookPublicationYearCache *int16  `gorm:"column:class_subject_book_book_publication_year_cache"`
+		ClassSubjectBookBookImageURLCache        *string `gorm:"column:class_subject_book_book_image_url_cache"`
 
-		// SUBJECT snapshots
-		ClassSubjectBookSubjectID           *uuid.UUID `gorm:"column:class_subject_book_subject_id"`
-		ClassSubjectBookSubjectCodeSnapshot *string    `gorm:"column:class_subject_book_subject_code_snapshot"`
-		ClassSubjectBookSubjectNameSnapshot *string    `gorm:"column:class_subject_book_subject_name_snapshot"`
-		ClassSubjectBookSubjectSlugSnapshot *string    `gorm:"column:class_subject_book_subject_slug_snapshot"`
+		// SUBJECT caches
+		ClassSubjectBookSubjectCodeCache *string `gorm:"column:class_subject_book_subject_code_cache"`
+		ClassSubjectBookSubjectNameCache *string `gorm:"column:class_subject_book_subject_name_cache"`
+		ClassSubjectBookSubjectSlugCache *string `gorm:"column:class_subject_book_subject_slug_cache"`
 	}
 
 	var rows []row
@@ -323,10 +328,10 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	items := make([]csbDTO.ClassSubjectBookResponse, 0, len(rows))
 	for _, r := range rows {
 		items = append(items, csbDTO.ClassSubjectBookResponse{
-			ClassSubjectBookID:             r.ClassSubjectBookID,
-			ClassSubjectBookSchoolID:       r.ClassSubjectBookSchoolID,
-			ClassSubjectBookClassSubjectID: r.ClassSubjectBookClassSubjectID,
-			ClassSubjectBookBookID:         r.ClassSubjectBookBookID,
+			ClassSubjectBookID:        r.ClassSubjectBookID,
+			ClassSubjectBookSchoolID:  r.ClassSubjectBookSchoolID,
+			ClassSubjectBookSubjectID: r.ClassSubjectBookSubjectID,
+			ClassSubjectBookBookID:    r.ClassSubjectBookBookID,
 
 			ClassSubjectBookSlug:       r.ClassSubjectBookSlug,
 			ClassSubjectBookIsPrimary:  r.ClassSubjectBookIsPrimary,
@@ -335,17 +340,16 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 			ClassSubjectBookIsActive:   r.ClassSubjectBookIsActive,
 			ClassSubjectBookDesc:       r.ClassSubjectBookDesc,
 
-			ClassSubjectBookBookTitleSnapshot:           r.ClassSubjectBookBookTitleSnapshot,
-			ClassSubjectBookBookAuthorSnapshot:          r.ClassSubjectBookBookAuthorSnapshot,
-			ClassSubjectBookBookSlugSnapshot:            r.ClassSubjectBookBookSlugSnapshot,
-			ClassSubjectBookBookPublisherSnapshot:       r.ClassSubjectBookBookPublisherSnapshot,
-			ClassSubjectBookBookPublicationYearSnapshot: r.ClassSubjectBookBookPublicationYearSnapshot,
-			ClassSubjectBookBookImageURLSnapshot:        r.ClassSubjectBookBookImageURLSnapshot,
+			ClassSubjectBookBookTitleCache:           r.ClassSubjectBookBookTitleCache,
+			ClassSubjectBookBookAuthorCache:          r.ClassSubjectBookBookAuthorCache,
+			ClassSubjectBookBookSlugCache:            r.ClassSubjectBookBookSlugCache,
+			ClassSubjectBookBookPublisherCache:       r.ClassSubjectBookBookPublisherCache,
+			ClassSubjectBookBookPublicationYearCache: r.ClassSubjectBookBookPublicationYearCache,
+			ClassSubjectBookBookImageURLCache:        r.ClassSubjectBookBookImageURLCache,
 
-			ClassSubjectBookSubjectID:           r.ClassSubjectBookSubjectID,
-			ClassSubjectBookSubjectCodeSnapshot: r.ClassSubjectBookSubjectCodeSnapshot,
-			ClassSubjectBookSubjectNameSnapshot: r.ClassSubjectBookSubjectNameSnapshot,
-			ClassSubjectBookSubjectSlugSnapshot: r.ClassSubjectBookSubjectSlugSnapshot,
+			ClassSubjectBookSubjectCodeCache: r.ClassSubjectBookSubjectCodeCache,
+			ClassSubjectBookSubjectNameCache: r.ClassSubjectBookSubjectNameCache,
+			ClassSubjectBookSubjectSlugCache: r.ClassSubjectBookSubjectSlugCache,
 
 			ClassSubjectBookCreatedAt: r.ClassSubjectBookCreatedAt,
 			ClassSubjectBookUpdatedAt: r.ClassSubjectBookUpdatedAt,

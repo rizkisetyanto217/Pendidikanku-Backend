@@ -19,7 +19,7 @@ import (
 	helperOSS "madinahsalam_backend/internals/helpers/oss"
 
 	serviceSchedule "madinahsalam_backend/internals/features/school/classes/class_schedules/services"
-	snapshotCSST "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/snapshot"
+	snapshotCSST "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/service"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -596,7 +596,7 @@ LIMIT 1`
 		if req.ClassAttendanceSessionCSSTId != nil && *req.ClassAttendanceSessionCSSTId != uuid.Nil {
 			effCSSTID = req.ClassAttendanceSessionCSSTId
 
-			if cs, err := snapshotCSST.ValidateAndSnapshotCSST(tx, schoolID, *effCSSTID); err == nil {
+			if cs, err := snapshotCSST.ValidateAndCacheCSST(tx, schoolID, *effCSSTID); err == nil {
 				jb := snapshotCSST.ToJSON(cs)
 				var mm map[string]any
 				_ = json.Unmarshal(jb, &mm)

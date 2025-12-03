@@ -69,12 +69,12 @@ type SchoolTeacher struct {
 	SchoolTeacherNotes    *string `json:"school_teacher_notes,omitempty"`
 
 	// Snapshot dari user_teachers
-	SchoolTeacherUserTeacherNameSnapshot        *string `json:"school_teacher_user_teacher_name_snapshot,omitempty"`
-	SchoolTeacherUserTeacherAvatarURLSnapshot   *string `json:"school_teacher_user_teacher_avatar_url_snapshot,omitempty"`
-	SchoolTeacherUserTeacherWhatsappURLSnapshot *string `json:"school_teacher_user_teacher_whatsapp_url_snapshot,omitempty"`
-	SchoolTeacherUserTeacherTitlePrefixSnapshot *string `json:"school_teacher_user_teacher_title_prefix_snapshot,omitempty"`
-	SchoolTeacherUserTeacherTitleSuffixSnapshot *string `json:"school_teacher_user_teacher_title_suffix_snapshot,omitempty"`
-	SchoolTeacherUserTeacherGenderSnapshot      *string `json:"school_teacher_user_teacher_gender_snapshot,omitempty"`
+	SchoolTeacherUserTeacherFullNameCache    *string `json:"school_teacher_user_teacher_full_name_cache,omitempty"`
+	SchoolTeacherUserTeacherAvatarURLCache   *string `json:"school_teacher_user_teacher_avatar_url_cache,omitempty"`
+	SchoolTeacherUserTeacherWhatsappURLCache *string `json:"school_teacher_user_teacher_whatsapp_url_cache,omitempty"`
+	SchoolTeacherUserTeacherTitlePrefixCache *string `json:"school_teacher_user_teacher_title_prefix_cache,omitempty"`
+	SchoolTeacherUserTeacherTitleSuffixCache *string `json:"school_teacher_user_teacher_title_suffix_cache,omitempty"`
+	SchoolTeacherUserTeacherGenderCache     *string `json:"school_teacher_user_teacher_gender_cache,omitempty"`
 
 	// JSONB: sections & csst
 	SchoolTeacherSections []DTOTeacherSectionItem `json:"school_teacher_sections"`
@@ -254,12 +254,12 @@ func NewSchoolTeacherResponse(m *teacherModel.SchoolTeacherModel) *SchoolTeacher
 		SchoolTeacherIsPublic: m.SchoolTeacherIsPublic,
 		SchoolTeacherNotes:    m.SchoolTeacherNotes,
 
-		SchoolTeacherUserTeacherNameSnapshot:        m.SchoolTeacherUserTeacherNameSnapshot,
-		SchoolTeacherUserTeacherAvatarURLSnapshot:   m.SchoolTeacherUserTeacherAvatarURLSnapshot,
-		SchoolTeacherUserTeacherWhatsappURLSnapshot: m.SchoolTeacherUserTeacherWhatsappURLSnapshot,
-		SchoolTeacherUserTeacherTitlePrefixSnapshot: m.SchoolTeacherUserTeacherTitlePrefixSnapshot,
-		SchoolTeacherUserTeacherTitleSuffixSnapshot: m.SchoolTeacherUserTeacherTitleSuffixSnapshot,
-		SchoolTeacherUserTeacherGenderSnapshot:      m.SchoolTeacherUserTeacherGenderSnapshot,
+		SchoolTeacherUserTeacherFullNameCache:    m.SchoolTeacherUserTeacherFullNameCache,
+		SchoolTeacherUserTeacherAvatarURLCache:   m.SchoolTeacherUserTeacherAvatarURLCache,
+		SchoolTeacherUserTeacherWhatsappURLCache: m.SchoolTeacherUserTeacherWhatsappURLCache,
+		SchoolTeacherUserTeacherTitlePrefixCache: m.SchoolTeacherUserTeacherTitlePrefixCache,
+		SchoolTeacherUserTeacherTitleSuffixCache: m.SchoolTeacherUserTeacherTitleSuffixCache,
+		SchoolTeacherUserTeacherGenderCache:   m.SchoolTeacherUserTeacherGenderCache,
 
 		// JSONB
 		SchoolTeacherSections: sections,

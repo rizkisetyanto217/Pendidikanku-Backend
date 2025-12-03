@@ -112,8 +112,7 @@ func enrichEnrollmentExtras(
 	classIDsSet := map[uuid.UUID]struct{}{}
 	for _, it := range items {
 		stuIDsSet[it.StudentClassEnrollmentSchoolStudentID] = struct{}{}
-
-		// ⬇️ pakai ClassID (field baru di DTO)
+		// pakai ClassID convenience di DTO
 		classIDsSet[it.ClassID] = struct{}{}
 	}
 
@@ -126,7 +125,7 @@ func enrichEnrollmentExtras(
 		classIDs = append(classIDs, id)
 	}
 
-	// ===== Ambil students (pakai snapshot user_profile) =====
+	// ===== Ambil students (pakai snapshot user_profile di school_students) =====
 	type stuRow struct {
 		ID            uuid.UUID `gorm:"column:school_student_id"`
 		UserProfileID uuid.UUID `gorm:"column:school_student_user_profile_id"`
@@ -255,7 +254,7 @@ func enrichEnrollmentExtras(
 			}
 		}
 
-		// pakai ClassID (bukan field lama StudentClassEnrollmentClassID)
+		// pakai ClassID convenience dari DTO
 		if cRow, ok := clsMap[items[i].ClassID]; ok {
 			items[i].StudentClassEnrollmentClassName = cRow.ClassName
 		}
@@ -273,7 +272,7 @@ func (ctl *StudentClassEnrollmentController) Create(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	// ⬇️ DKM/Admin only
+	// DKM/Admin only
 	if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
 		return er
 	}
@@ -325,13 +324,13 @@ func (ctl *StudentClassEnrollmentController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// Normalisasi nilai snapshot student
+	// Normalisasi nilai nama student
 	studentName := ""
 	if stu.NameSnapshot != nil {
 		studentName = *stu.NameSnapshot
 	}
 
-	// ===== Build model & isi SNAPSHOT =====
+	// ===== Build model & isi cache =====
 	m := emodel.StudentClassEnrollmentModel{
 		StudentClassEnrollmentsSchoolID:        schoolID,
 		StudentClassEnrollmentsSchoolStudentID: body.SchoolStudentID,
@@ -341,12 +340,12 @@ func (ctl *StudentClassEnrollmentController) Create(c *fiber.Ctx) error {
 		StudentClassEnrollmentsTotalDueIDR: body.TotalDueIDR,
 		StudentClassEnrollmentsAppliedAt:   time.Now(),
 
-		// snapshots
-		StudentClassEnrollmentsClassNameSnapshot:       cls.ClassName,
-		StudentClassEnrollmentsClassSlugSnapshot:       &cls.Slug,
-		StudentClassEnrollmentsUserProfileNameSnapshot: studentName,
-		StudentClassEnrollmentsStudentCodeSnapshot:     stu.Code,
-		StudentClassEnrollmentsStudentSlugSnapshot:     &stu.Slug,
+		// caches
+		StudentClassEnrollmentsClassNameCache:       cls.ClassName,
+		StudentClassEnrollmentsClassSlugCache:       &cls.Slug,
+		StudentClassEnrollmentsUserProfileNameCache: studentName,
+		StudentClassEnrollmentsStudentCodeCache:     stu.Code,
+		StudentClassEnrollmentsStudentSlugCache:     &stu.Slug,
 	}
 
 	if body.Preferences != nil {
@@ -372,7 +371,7 @@ func (ctl *StudentClassEnrollmentController) Update(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	// ⬇️ DKM/Admin only
+	// DKM/Admin only
 	if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
 		return er
 	}
@@ -418,7 +417,7 @@ func (ctl *StudentClassEnrollmentController) UpdateStatus(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	// ⬇️ DKM/Admin only
+	// DKM/Admin only
 	if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
 		return er
 	}
@@ -506,7 +505,7 @@ func (ctl *StudentClassEnrollmentController) AssignPayment(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	// ⬇️ DKM/Admin only
+	// DKM/Admin only
 	if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
 		return er
 	}
@@ -551,7 +550,7 @@ func (ctl *StudentClassEnrollmentController) Delete(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	// ⬇️ DKM/Admin only
+	// DKM/Admin only
 	if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
 		return er
 	}

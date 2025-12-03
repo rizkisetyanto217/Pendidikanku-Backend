@@ -33,6 +33,8 @@ func (p *PatchFieldSessions[T]) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+func (p PatchFieldSessions[T]) Get() (*T, bool) { return p.Value, p.Present }
+
 func getStrFromAnyMap(m map[string]any, key string) *string {
 	if m == nil {
 		return nil
@@ -61,8 +63,6 @@ func getUUIDFromAnyMap(m map[string]any, key string) *uuid.UUID {
 	}
 	return nil
 }
-
-func (p PatchFieldSessions[T]) Get() (*T, bool) { return p.Value, p.Present }
 
 // Helper kecil
 func isZeroUUID(id uuid.UUID) bool { return id == uuid.Nil }
@@ -358,7 +358,7 @@ type ListClassAttendanceSessionQuery struct {
 }
 
 /* ========================================================
-   3) SESSION RESPONSE DTOs (TERMASUK TYPE & RULE SNAPSHOT)
+   3) SESSION RESPONSE DTOs (TERMASUK TYPE & RULE)
    ======================================================== */
 
 type ClassAttendanceSessionResponse struct {
@@ -418,23 +418,23 @@ type ClassAttendanceSessionResponse struct {
 	ClassAttendanceSessionCSSTSnapshot map[string]any `json:"class_attendance_session_csst_snapshot,omitempty"`
 	ClassAttendanceSessionRuleSnapshot map[string]any `json:"class_attendance_session_rule_snapshot,omitempty"`
 
-	// Generated from CSST snapshot (read-only, *_snapshot)
-	ClassAttendanceSessionCSSTIdSnapshot      *uuid.UUID `json:"class_attendance_session_csst_id_snapshot,omitempty"`
-	ClassAttendanceSessionSubjectIdSnapshot   *uuid.UUID `json:"class_attendance_session_subject_id_snapshot,omitempty"`
-	ClassAttendanceSessionSectionIdSnapshot   *uuid.UUID `json:"class_attendance_session_section_id_snapshot,omitempty"`
-	ClassAttendanceSessionTeacherIdSnapshot   *uuid.UUID `json:"class_attendance_session_teacher_id_snapshot,omitempty"`
-	ClassAttendanceSessionRoomIdSnapshot      *uuid.UUID `json:"class_attendance_session_room_id_snapshot,omitempty"`
-	ClassAttendanceSessionSubjectCodeSnapshot *string    `json:"class_attendance_session_subject_code_snapshot,omitempty"`
-	ClassAttendanceSessionSubjectNameSnapshot *string    `json:"class_attendance_session_subject_name_snapshot,omitempty"`
-	ClassAttendanceSessionSectionNameSnapshot *string    `json:"class_attendance_session_section_name_snapshot,omitempty"`
-	ClassAttendanceSessionTeacherNameSnapshot *string    `json:"class_attendance_session_teacher_name_snapshot,omitempty"`
-	ClassAttendanceSessionRoomNameSnapshot    *string    `json:"class_attendance_session_room_name_snapshot,omitempty"`
+	// Generated from CSST snapshot → CACHE (read-only)
+	ClassAttendanceSessionCSSTIdCache      *uuid.UUID `json:"class_attendance_session_csst_id_cache,omitempty"`
+	ClassAttendanceSessionSubjectIdCache   *uuid.UUID `json:"class_attendance_session_subject_id_cache,omitempty"`
+	ClassAttendanceSessionSectionIdCache   *uuid.UUID `json:"class_attendance_session_section_id_cache,omitempty"`
+	ClassAttendanceSessionTeacherIdCache   *uuid.UUID `json:"class_attendance_session_teacher_id_cache,omitempty"`
+	ClassAttendanceSessionRoomIdCache      *uuid.UUID `json:"class_attendance_session_room_id_cache,omitempty"`
+	ClassAttendanceSessionSubjectCodeCache *string    `json:"class_attendance_session_subject_code_cache,omitempty"`
+	ClassAttendanceSessionSubjectNameCache *string    `json:"class_attendance_session_subject_name_cache,omitempty"`
+	ClassAttendanceSessionSectionNameCache *string    `json:"class_attendance_session_section_name_cache,omitempty"`
+	ClassAttendanceSessionTeacherNameCache *string    `json:"class_attendance_session_teacher_name_cache,omitempty"`
+	ClassAttendanceSessionRoomNameCache    *string    `json:"class_attendance_session_room_name_cache,omitempty"`
 
-	// Generated from RULE snapshot (read-only)
-	ClassAttendanceSessionRuleDayOfWeekSnapshot  *int    `json:"class_attendance_session_rule_day_of_week_snapshot,omitempty"`
-	ClassAttendanceSessionRuleStartTimeSnapshot  *string `json:"class_attendance_session_rule_start_time_snapshot,omitempty"`
-	ClassAttendanceSessionRuleEndTimeSnapshot    *string `json:"class_attendance_session_rule_end_time_snapshot,omitempty"`
-	ClassAttendanceSessionRuleWeekParitySnapshot *string `json:"class_attendance_session_rule_week_parity_snapshot,omitempty"`
+	// Generated from RULE snapshot → CACHE (read-only)
+	ClassAttendanceSessionRuleDayOfWeekCache  *int    `json:"class_attendance_session_rule_day_of_week_cache,omitempty"`
+	ClassAttendanceSessionRuleStartTimeCache  *string `json:"class_attendance_session_rule_start_time_cache,omitempty"`
+	ClassAttendanceSessionRuleEndTimeCache    *string `json:"class_attendance_session_rule_end_time_cache,omitempty"`
+	ClassAttendanceSessionRuleWeekParityCache *string `json:"class_attendance_session_rule_week_parity_cache,omitempty"`
 
 	// Audit & soft delete
 	ClassAttendanceSessionCreatedAt time.Time  `json:"class_attendance_session_created_at"`
@@ -461,7 +461,6 @@ type ListMeta struct {
    ======================================================== */
 
 // Compact response: untuk list ringan (agenda, kalender, timeline siswa)
-// Compact response: untuk list ringan (agenda, kalender, timeline siswa)
 type ClassAttendanceSessionCompactResponse struct {
 	ClassAttendanceSessionId       uuid.UUID `json:"class_attendance_session_id"`
 	ClassAttendanceSessionSchoolId uuid.UUID `json:"class_attendance_session_school_id"`
@@ -483,16 +482,16 @@ type ClassAttendanceSessionCompactResponse struct {
 	ClassAttendanceSessionStatus           string `json:"class_attendance_session_status"`
 	ClassAttendanceSessionAttendanceStatus string `json:"class_attendance_session_attendance_status"`
 
-	// Snapshot matpel/kelas/ruang/guru (read-only, dari *_snapshot)
-	ClassAttendanceSessionSubjectNameSnapshot *string    `json:"class_attendance_session_subject_name_snapshot,omitempty"`
-	ClassAttendanceSessionSubjectCodeSnapshot *string    `json:"class_attendance_session_subject_code_snapshot,omitempty"`
-	ClassAttendanceSessionSectionNameSnapshot *string    `json:"class_attendance_session_section_name_snapshot,omitempty"`
-	ClassAttendanceSessionRoomNameSnapshot    *string    `json:"class_attendance_session_room_name_snapshot,omitempty"`
-	ClassAttendanceSessionTeacherNameSnapshot *string    `json:"class_attendance_session_teacher_name_snapshot,omitempty"`
-	ClassAttendanceSessionTeacherIdSnapshot   *uuid.UUID `json:"class_attendance_session_teacher_id_snapshot,omitempty"`
-	ClassAttendanceSessionSectionIdSnapshot   *uuid.UUID `json:"class_attendance_session_section_id_snapshot,omitempty"`
-	ClassAttendanceSessionSubjectIdSnapshot   *uuid.UUID `json:"class_attendance_session_subject_id_snapshot,omitempty"`
-	ClassAttendanceSessionCSSTIdSnapshot      *uuid.UUID `json:"class_attendance_session_csst_id_snapshot,omitempty"`
+	// Cache matpel/kelas/ruang/guru (read-only, dari *_cache)
+	ClassAttendanceSessionSubjectNameCache *string    `json:"class_attendance_session_subject_name_cache,omitempty"`
+	ClassAttendanceSessionSubjectCodeCache *string    `json:"class_attendance_session_subject_code_cache,omitempty"`
+	ClassAttendanceSessionSectionNameCache *string    `json:"class_attendance_session_section_name_cache,omitempty"`
+	ClassAttendanceSessionRoomNameCache    *string    `json:"class_attendance_session_room_name_cache,omitempty"`
+	ClassAttendanceSessionTeacherNameCache *string    `json:"class_attendance_session_teacher_name_cache,omitempty"`
+	ClassAttendanceSessionTeacherIdCache   *uuid.UUID `json:"class_attendance_session_teacher_id_cache,omitempty"`
+	ClassAttendanceSessionSectionIdCache   *uuid.UUID `json:"class_attendance_session_section_id_cache,omitempty"`
+	ClassAttendanceSessionSubjectIdCache   *uuid.UUID `json:"class_attendance_session_subject_id_cache,omitempty"`
+	ClassAttendanceSessionCSSTIdCache      *uuid.UUID `json:"class_attendance_session_csst_id_cache,omitempty"`
 
 	// ⬅️ Tambahan: raw CSST snapshot JSON
 	ClassAttendanceSessionCSSTSnapshot map[string]any `json:"class_attendance_session_csst_snapshot,omitempty"`
@@ -532,15 +531,15 @@ func FromClassAttendanceSessionModelCompact(m model.ClassAttendanceSessionModel)
 		ClassAttendanceSessionStatus:           string(m.ClassAttendanceSessionStatus),
 		ClassAttendanceSessionAttendanceStatus: string(m.ClassAttendanceSessionAttendanceStatus),
 
-		ClassAttendanceSessionSubjectNameSnapshot: m.ClassAttendanceSessionSubjectNameSnapshot,
-		ClassAttendanceSessionSubjectCodeSnapshot: m.ClassAttendanceSessionSubjectCodeSnapshot,
-		ClassAttendanceSessionSectionNameSnapshot: m.ClassAttendanceSessionSectionNameSnapshot,
-		ClassAttendanceSessionRoomNameSnapshot:    m.ClassAttendanceSessionRoomNameSnapshot,
-		ClassAttendanceSessionTeacherNameSnapshot: m.ClassAttendanceSessionTeacherNameSnapshot,
-		ClassAttendanceSessionTeacherIdSnapshot:   m.ClassAttendanceSessionTeacherIDSnapshot,
-		ClassAttendanceSessionSectionIdSnapshot:   m.ClassAttendanceSessionSectionIDSnapshot,
-		ClassAttendanceSessionSubjectIdSnapshot:   m.ClassAttendanceSessionSubjectIDSnapshot,
-		ClassAttendanceSessionCSSTIdSnapshot:      m.ClassAttendanceSessionCSSTIDSnapshot,
+		ClassAttendanceSessionSubjectNameCache: m.ClassAttendanceSessionSubjectNameCache,
+		ClassAttendanceSessionSubjectCodeCache: m.ClassAttendanceSessionSubjectCodeCache,
+		ClassAttendanceSessionSectionNameCache: m.ClassAttendanceSessionSectionNameCache,
+		ClassAttendanceSessionRoomNameCache:    m.ClassAttendanceSessionRoomNameCache,
+		ClassAttendanceSessionTeacherNameCache: m.ClassAttendanceSessionTeacherNameCache,
+		ClassAttendanceSessionTeacherIdCache:   m.ClassAttendanceSessionTeacherIDCache,
+		ClassAttendanceSessionSectionIdCache:   m.ClassAttendanceSessionSectionIDCache,
+		ClassAttendanceSessionSubjectIdCache:   m.ClassAttendanceSessionSubjectIDCache,
+		ClassAttendanceSessionCSSTIdCache:      m.ClassAttendanceSessionCSSTIDCache,
 
 		ClassAttendanceSessionCSSTSnapshot: csstSnap,
 
@@ -720,23 +719,23 @@ func FromClassAttendanceSessionModel(m model.ClassAttendanceSessionModel) ClassA
 		ClassAttendanceSessionCSSTSnapshot: csstSnap,
 		ClassAttendanceSessionRuleSnapshot: ruleSnap,
 
-		// generated (nama *_snapshot) — CSST
-		ClassAttendanceSessionCSSTIdSnapshot:      m.ClassAttendanceSessionCSSTIDSnapshot,
-		ClassAttendanceSessionSubjectIdSnapshot:   m.ClassAttendanceSessionSubjectIDSnapshot,
-		ClassAttendanceSessionSectionIdSnapshot:   m.ClassAttendanceSessionSectionIDSnapshot,
-		ClassAttendanceSessionTeacherIdSnapshot:   m.ClassAttendanceSessionTeacherIDSnapshot,
-		ClassAttendanceSessionRoomIdSnapshot:      m.ClassAttendanceSessionRoomIDSnapshot,
-		ClassAttendanceSessionSubjectCodeSnapshot: m.ClassAttendanceSessionSubjectCodeSnapshot,
-		ClassAttendanceSessionSubjectNameSnapshot: m.ClassAttendanceSessionSubjectNameSnapshot,
-		ClassAttendanceSessionSectionNameSnapshot: m.ClassAttendanceSessionSectionNameSnapshot,
-		ClassAttendanceSessionTeacherNameSnapshot: m.ClassAttendanceSessionTeacherNameSnapshot,
-		ClassAttendanceSessionRoomNameSnapshot:    m.ClassAttendanceSessionRoomNameSnapshot,
+		// generated (nama *_cache) — CSST
+		ClassAttendanceSessionCSSTIdCache:      m.ClassAttendanceSessionCSSTIDCache,
+		ClassAttendanceSessionSubjectIdCache:   m.ClassAttendanceSessionSubjectIDCache,
+		ClassAttendanceSessionSectionIdCache:   m.ClassAttendanceSessionSectionIDCache,
+		ClassAttendanceSessionTeacherIdCache:   m.ClassAttendanceSessionTeacherIDCache,
+		ClassAttendanceSessionRoomIdCache:      m.ClassAttendanceSessionRoomIDCache,
+		ClassAttendanceSessionSubjectCodeCache: m.ClassAttendanceSessionSubjectCodeCache,
+		ClassAttendanceSessionSubjectNameCache: m.ClassAttendanceSessionSubjectNameCache,
+		ClassAttendanceSessionSectionNameCache: m.ClassAttendanceSessionSectionNameCache,
+		ClassAttendanceSessionTeacherNameCache: m.ClassAttendanceSessionTeacherNameCache,
+		ClassAttendanceSessionRoomNameCache:    m.ClassAttendanceSessionRoomNameCache,
 
-		// generated — RULE
-		ClassAttendanceSessionRuleDayOfWeekSnapshot:  m.ClassAttendanceSessionRuleDayOfWeekSnapshot,
-		ClassAttendanceSessionRuleStartTimeSnapshot:  m.ClassAttendanceSessionRuleStartTimeSnapshot,
-		ClassAttendanceSessionRuleEndTimeSnapshot:    m.ClassAttendanceSessionRuleEndTimeSnapshot,
-		ClassAttendanceSessionRuleWeekParitySnapshot: m.ClassAttendanceSessionRuleWeekParitySnapshot,
+		// generated — RULE (cache)
+		ClassAttendanceSessionRuleDayOfWeekCache:  m.ClassAttendanceSessionRuleDayOfWeekCache,
+		ClassAttendanceSessionRuleStartTimeCache:  m.ClassAttendanceSessionRuleStartTimeCache,
+		ClassAttendanceSessionRuleEndTimeCache:    m.ClassAttendanceSessionRuleEndTimeCache,
+		ClassAttendanceSessionRuleWeekParityCache: m.ClassAttendanceSessionRuleWeekParityCache,
 
 		ClassAttendanceSessionCreatedAt: m.ClassAttendanceSessionCreatedAt,
 		ClassAttendanceSessionUpdatedAt: m.ClassAttendanceSessionUpdatedAt,
@@ -955,7 +954,7 @@ func (r *UpdateClassAttendanceSessionRequest) NormalizeURLOps() {
 }
 
 /* ========================================================
-   6) Timeline kehadiran per siswa
+   6) Timeline kehadiran per siswa/guru
    ======================================================== */
 
 type StudentSessionAttendanceItem struct {
@@ -966,13 +965,11 @@ type StudentSessionAttendanceItem struct {
 	} `json:"participant"`
 }
 
-// Kalau mau pakai pattern List + Meta yang sama:
 type StudentSessionAttendanceListResponse struct {
 	Items []StudentSessionAttendanceItem `json:"items"`
 	Meta  ListMeta                       `json:"meta"`
 }
 
-// Timeline kehadiran per guru (anchor di guru & CSST / sesi yang dia ajar)
 type TeacherSessionAttendanceItem struct {
 	Session     ClassAttendanceSessionCompactResponse `json:"session"`
 	Participant struct {

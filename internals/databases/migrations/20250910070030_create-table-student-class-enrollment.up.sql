@@ -8,7 +8,6 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS btree_gist;
 
-
 -- =========================================
 -- ENUMS (idempotent)
 -- =========================================
@@ -33,7 +32,7 @@ BEGIN
 END$$;
 
 -- =========================================
--- TABLE: student_class_enrollments (+ term snapshots)
+-- TABLE: student_class_enrollments (+ term caches)
 -- =========================================
 CREATE TABLE IF NOT EXISTS student_class_enrollments (
   student_class_enrollments_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -69,17 +68,16 @@ CREATE TABLE IF NOT EXISTS student_class_enrollments (
   CONSTRAINT ck_sce_prefs_obj
     CHECK (jsonb_typeof(student_class_enrollments_preferences) = 'object'),
 
-  -- ===== Snapshots (DIMINTA) =====
-  -- Dari classes
-  student_class_enrollments_class_name_snapshot VARCHAR(160),
-  student_class_enrollments_class_slug_snapshot VARCHAR(160),
+  -- ===== Caches dari classes =====
+  student_class_enrollments_class_name_cache VARCHAR(160),
+  student_class_enrollments_class_slug_cache VARCHAR(160),
 
-  -- ===== Denormalized TERM (diambil dari classes → class_term_*) =====
-  student_class_enrollments_term_id                       UUID,
-  student_class_enrollments_term_academic_year_snapshot   TEXT,
-  student_class_enrollments_term_name_snapshot            TEXT,
-  student_class_enrollments_term_slug_snapshot            TEXT,
-  student_class_enrollments_term_angkatan_snapshot        INTEGER,
+  -- ===== TERM (denormalized dari classes → academic_terms) =====
+  student_class_enrollments_term_id                     UUID,
+  student_class_enrollments_term_academic_year_cache    TEXT,
+  student_class_enrollments_term_name_cache             TEXT,
+  student_class_enrollments_term_slug_cache             TEXT,
+  student_class_enrollments_term_angkatan_cache         INTEGER,
 
   -- FK komposit ke academic_terms (nullable; historis)
   CONSTRAINT fk_sce_term_same_school
@@ -87,23 +85,21 @@ CREATE TABLE IF NOT EXISTS student_class_enrollments (
     REFERENCES academic_terms (academic_term_id, academic_term_school_id)
     ON UPDATE CASCADE ON DELETE RESTRICT,
 
-  -- Dari school_students (snapshot identitas)
-  student_class_enrollments_user_profile_name_snapshot VARCHAR(80),
-  student_class_enrollments_user_profile_avatar_url_snapshot          VARCHAR(255),
-  student_class_enrollments_user_profile_whatsapp_url_snapshot        VARCHAR(50),
-  student_class_enrollments_user_profile_parent_name_snapshot         VARCHAR(80),
-  student_class_enrollments_user_profile_parent_whatsapp_url_snapshot VARCHAR(50),
-  -- NEW: gender snapshot
-  student_class_enrollments_user_profile_gender_snapshot              VARCHAR(20),
+  -- ===== Caches dari school_students / user_profile =====
+  student_class_enrollments_user_profile_name_cache              VARCHAR(80),
+  student_class_enrollments_user_profile_avatar_url_cache        VARCHAR(255),
+  student_class_enrollments_user_profile_whatsapp_url_cache      VARCHAR(50),
+  student_class_enrollments_user_profile_parent_name_cache       VARCHAR(80),
+  student_class_enrollments_user_profile_parent_whatsapp_url_cache VARCHAR(50),
+  student_class_enrollments_user_profile_gender_cache            VARCHAR(20),
 
+  student_class_enrollments_student_code_cache VARCHAR(50),
+  student_class_enrollments_student_slug_cache VARCHAR(50),
 
-  student_class_enrollments_student_code_snapshot VARCHAR(50),
-  student_class_enrollments_student_slug_snapshot VARCHAR(50),
-
-
-  student_class_enrollments_class_section_id UUID,
-  student_class_enrollments_class_section_name_snapshot VARCHAR(50),
-  student_class_enrollments_class_section_slug_snapshot VARCHAR(50),
+  -- ===== CLASS SECTION (opsional) =====
+  student_class_enrollments_class_section_id           UUID,
+  student_class_enrollments_class_section_name_cache   VARCHAR(50),
+  student_class_enrollments_class_section_slug_cache   VARCHAR(50),
 
   -- jejak waktu (audit)
   student_class_enrollments_applied_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -120,8 +116,6 @@ CREATE TABLE IF NOT EXISTS student_class_enrollments (
   -- tenant-safe pair
   UNIQUE (student_class_enrollments_id, student_class_enrollments_school_id)
 );
-
-
 
 -- =========================================
 -- FK komposit ke class_sections (tenant-safe)
@@ -141,7 +135,6 @@ BEGIN
       ON DELETE SET NULL;
   END IF;
 END$$;
-
 
 -- ==========================
 -- INDEXES
@@ -183,33 +176,43 @@ CREATE INDEX IF NOT EXISTS ix_sce_status_created_alive
 CREATE INDEX IF NOT EXISTS gin_sce_prefs
   ON student_class_enrollments USING GIN (student_class_enrollments_preferences jsonb_path_ops);
 
--- Search cepat pada snapshot nama
-CREATE INDEX IF NOT EXISTS gin_sce_class_name_snap_trgm_alive
-  ON student_class_enrollments USING GIN (LOWER(student_class_enrollments_class_name_snapshot) gin_trgm_ops)
+-- Search cepat pada cache nama class
+CREATE INDEX IF NOT EXISTS gin_sce_class_name_cache_trgm_alive
+  ON student_class_enrollments USING GIN (
+    LOWER(student_class_enrollments_class_name_cache) gin_trgm_ops
+  )
   WHERE student_class_enrollments_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS gin_sce_student_name_snap_trgm_alive
-  ON student_class_enrollments USING GIN (LOWER(student_class_enrollments_user_profile_name_snapshot) gin_trgm_ops)
+-- Search cepat pada cache nama student
+CREATE INDEX IF NOT EXISTS gin_sce_student_name_cache_trgm_alive
+  ON student_class_enrollments USING GIN (
+    LOWER(student_class_enrollments_user_profile_name_cache) gin_trgm_ops
+  )
   WHERE student_class_enrollments_deleted_at IS NULL;
 
 -- Filter per tenant & term (denormalized)
 CREATE INDEX IF NOT EXISTS idx_sce_tenant_term_alive
-  ON student_class_enrollments (student_class_enrollments_school_id, student_class_enrollments_term_id)
+  ON student_class_enrollments (
+    student_class_enrollments_school_id,
+    student_class_enrollments_term_id
+  )
   WHERE student_class_enrollments_deleted_at IS NULL;
 
--- Fuzzy search (opsional) di nama term & year
-CREATE INDEX IF NOT EXISTS gin_sce_term_name_trgm_alive
-  ON student_class_enrollments USING GIN (LOWER(student_class_enrollments_term_name_snapshot) gin_trgm_ops)
+-- Fuzzy search (opsional) di nama term & year (cache)
+CREATE INDEX IF NOT EXISTS gin_sce_term_name_cache_trgm_alive
+  ON student_class_enrollments USING GIN (
+    LOWER(student_class_enrollments_term_name_cache) gin_trgm_ops
+  )
   WHERE student_class_enrollments_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS gin_sce_term_year_trgm_alive
-  ON student_class_enrollments USING GIN (LOWER(student_class_enrollments_term_academic_year_snapshot) gin_trgm_ops)
+CREATE INDEX IF NOT EXISTS gin_sce_term_year_cache_trgm_alive
+  ON student_class_enrollments USING GIN (
+    LOWER(student_class_enrollments_term_academic_year_cache) gin_trgm_ops
+  )
   WHERE student_class_enrollments_deleted_at IS NULL;
-
-
 
 -- =========================================
--- INDEXES untuk kolom baru
+-- INDEXES untuk kolom section (baru)
 -- =========================================
 
 -- 1) Lookup per tenant + section (buat filter "section ini isinya siapa saja")
@@ -221,17 +224,17 @@ CREATE INDEX IF NOT EXISTS idx_sce_tenant_section_alive
   WHERE student_class_enrollments_deleted_at IS NULL;
 
 -- 2) Optional: cepat cari berdasarkan NAMA section (trgm, fuzzy search)
-CREATE INDEX IF NOT EXISTS gin_sce_class_section_name_snap_trgm_alive
+CREATE INDEX IF NOT EXISTS gin_sce_class_section_name_cache_trgm_alive
   ON student_class_enrollments USING GIN (
-    LOWER(student_class_enrollments_class_section_name_snapshot) gin_trgm_ops
+    LOWER(student_class_enrollments_class_section_name_cache) gin_trgm_ops
   )
   WHERE student_class_enrollments_deleted_at IS NULL;
 
--- 3) Optional: index slug snapshot per tenant (buat join / lookup exact)
-CREATE INDEX IF NOT EXISTS idx_sce_tenant_section_slug_snap_alive
+-- 3) Optional: index slug cache per tenant (buat join / lookup exact)
+CREATE INDEX IF NOT EXISTS idx_sce_tenant_section_slug_cache_alive
   ON student_class_enrollments (
     student_class_enrollments_school_id,
-    student_class_enrollments_class_section_slug_snapshot
+    student_class_enrollments_class_section_slug_cache
   )
   WHERE student_class_enrollments_deleted_at IS NULL;
 

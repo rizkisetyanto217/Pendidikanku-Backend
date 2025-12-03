@@ -15,7 +15,7 @@ import (
 	attendanceModel "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/model"
 	attendanceService "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/service"
 
-	snapSvc "madinahsalam_backend/internals/features/users/users/snapshot"
+	snapSvc "madinahsalam_backend/internals/features/users/users/service"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 	helperOSS "madinahsalam_backend/internals/helpers/oss"
@@ -108,7 +108,7 @@ func (ctl *ClassAttendanceSessionParticipantController) hydrateStudentSnapshotFo
 	}
 
 	// 2) build snapshot dari user_profiles via snapsvc
-	up, err := snapSvc.BuildUserProfileSnapshotByProfileID(ctx, ctl.DB, row.ProfileID)
+	up, err := snapSvc.BuildUserProfileCacheByProfileID(ctx, ctl.DB, row.ProfileID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			// user_profile belum ada → nggak fatal
@@ -182,7 +182,7 @@ func (ctl *ClassAttendanceSessionParticipantController) hydrateStudentSnapshotFo
 	}
 
 	// 2) build snapshot dari user_profiles via snapsvc
-	up, err := snapSvc.BuildUserProfileSnapshotByProfileID(ctx, ctl.DB, row.ProfileID)
+	up, err := snapSvc.BuildUserProfileCacheByProfileID(ctx, ctl.DB, row.ProfileID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil

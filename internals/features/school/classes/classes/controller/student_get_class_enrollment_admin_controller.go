@@ -165,12 +165,12 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 
 	if strings.TrimSpace(q.AcademicYear) != "" {
 		base = base.Where(
-			"student_class_enrollments_term_academic_year_snapshot = ?",
+			"student_class_enrollments_term_academic_year_cache = ?",
 			strings.TrimSpace(q.AcademicYear),
 		)
 	}
 	if q.Angkatan != nil {
-		base = base.Where("student_class_enrollments_term_angkatan_snapshot = ?", *q.Angkatan)
+		base = base.Where("student_class_enrollments_term_angkatan_cache = ?", *q.Angkatan)
 	}
 
 	// ===== CATEGORY filter (JSONB) =====
@@ -193,9 +193,9 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 	if strings.TrimSpace(q.Q) != "" {
 		pat := "%" + strings.TrimSpace(q.Q) + "%"
 		base = base.Where(`
-			student_class_enrollments_user_profile_name_snapshot ILIKE ?
-			OR student_class_enrollments_class_name_snapshot ILIKE ?
-			OR COALESCE(student_class_enrollments_term_name_snapshot, '') ILIKE ?
+			student_class_enrollments_user_profile_name_cache ILIKE ?
+			OR student_class_enrollments_class_name_cache ILIKE ?
+			OR COALESCE(student_class_enrollments_term_name_cache, '') ILIKE ?
 		`, pat, pat, pat)
 	}
 
@@ -216,33 +216,33 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 			"student_class_enrollments_status",
 			"student_class_enrollments_total_due_idr",
 
-			// convenience (mirror snapshot & ids)
+			// convenience (mirror cache & ids)
 			"student_class_enrollments_school_student_id",
-			"student_class_enrollments_user_profile_name_snapshot",
+			"student_class_enrollments_user_profile_name_cache",
 			"student_class_enrollments_class_id",
-			"student_class_enrollments_class_name_snapshot",
-			"student_class_enrollments_class_slug_snapshot",
+			"student_class_enrollments_class_name_cache",
+			"student_class_enrollments_class_slug_cache",
 
-			// SNAPSHOT MURID LENGKAP
-			"student_class_enrollments_user_profile_avatar_url_snapshot",
-			"student_class_enrollments_user_profile_whatsapp_url_snapshot",
-			"student_class_enrollments_user_profile_parent_name_snapshot",
-			"student_class_enrollments_user_profile_parent_whatsapp_url_snapshot",
-			"student_class_enrollments_user_profile_gender_snapshot",
-			"student_class_enrollments_student_code_snapshot",
-			"student_class_enrollments_student_slug_snapshot",
+			// CACHE MURID LENGKAP
+			"student_class_enrollments_user_profile_avatar_url_cache",
+			"student_class_enrollments_user_profile_whatsapp_url_cache",
+			"student_class_enrollments_user_profile_parent_name_cache",
+			"student_class_enrollments_user_profile_parent_whatsapp_url_cache",
+			"student_class_enrollments_user_profile_gender_cache",
+			"student_class_enrollments_student_code_cache",
+			"student_class_enrollments_student_slug_cache",
 
-			// term (denormalized, optional)
+			// term (denormalized, optional; cache)
 			"student_class_enrollments_term_id",
-			"student_class_enrollments_term_name_snapshot",
-			"student_class_enrollments_term_academic_year_snapshot",
-			"student_class_enrollments_term_angkatan_snapshot",
-			"student_class_enrollments_term_slug_snapshot",
+			"student_class_enrollments_term_name_cache",
+			"student_class_enrollments_term_academic_year_cache",
+			"student_class_enrollments_term_angkatan_cache",
+			"student_class_enrollments_term_slug_cache",
 
-			// CLASS SECTION (optional)
+			// CLASS SECTION (optional; cache)
 			"student_class_enrollments_class_section_id",
-			"student_class_enrollments_class_section_name_snapshot",
-			"student_class_enrollments_class_section_slug_snapshot",
+			"student_class_enrollments_class_section_name_cache",
+			"student_class_enrollments_class_section_slug_cache",
 
 			// payment snapshot + preferences (JSONB)
 			"student_class_enrollments_payment_snapshot",
@@ -272,7 +272,7 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 	}
 
 	// default: full payload
-	resp := dto.FromModels(rows) // tipe slice dari DTO-mu yang lama
+	resp := dto.FromModels(rows)
 
 	// (opsional) enrich convenience fields tambahan (Username, dll.)
 	enrichEnrollmentExtras(c.Context(), ctl.DB, schoolID, resp)

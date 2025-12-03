@@ -93,7 +93,7 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusBadRequest, "Profil user belum ada. Lengkapi profil terlebih dahulu.")
 		}
 
-		msID, err := getOrCreateSchoolStudentWithSnapshots(c.Context(), tx, schoolID, usersProfileID, nil)
+		msID, err := getOrCreateSchoolStudentWithCaches(c.Context(), tx, schoolID, usersProfileID, nil)
 		if err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mendapatkan status student")
 		}
@@ -202,9 +202,9 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	if searchTerm != "" {
 		s := "%" + strings.ToLower(searchTerm) + "%"
 		q = q.Where(`
-			LOWER(COALESCE(student_class_section_user_profile_name_snapshot, '')) LIKE ?
-			OR LOWER(student_class_section_section_slug_snapshot) LIKE ?
-			OR LOWER(COALESCE(student_class_section_student_code_snapshot, '')) LIKE ?
+			LOWER(COALESCE(student_class_section_user_profile_name_cache, '')) LIKE ?
+			OR LOWER(student_class_section_section_slug_cache) LIKE ?
+			OR LOWER(COALESCE(student_class_section_student_code_cache, '')) LIKE ?
 		`, s, s, s)
 	}
 
@@ -265,45 +265,45 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 
 	// ---- Tipe nested untuk CSST ----
 	type CSSTIncluded struct {
-		ID                                 uuid.UUID                   `json:"class_section_subject_teacher_id"`
-		Slug                               *string                     `json:"class_section_subject_teacher_slug,omitempty"`
-		Description                        *string                     `json:"class_section_subject_teacher_description,omitempty"`
-		GroupURL                           *string                     `json:"class_section_subject_teacher_group_url,omitempty"`
-		TotalAttendance                    int                         `json:"class_section_subject_teacher_total_attendance"`
-		TotalMeetingsTarget                *int                        `json:"class_section_subject_teacher_total_meetings_target,omitempty"`
-		Capacity                           *int                        `json:"class_section_subject_teacher_capacity,omitempty"`
-		EnrolledCount                      int                         `json:"class_section_subject_teacher_enrolled_count"`
-		TotalAssessments                   int                         `json:"class_section_subject_teacher_total_assessments"`
-		TotalAssessmentsGraded             int                         `json:"class_section_subject_teacher_total_assessments_graded"`
-		TotalAssessmentsUngraded           int                         `json:"class_section_subject_teacher_total_assessments_ungraded"`
-		TotalStudentsPassed                int                         `json:"class_section_subject_teacher_total_students_passed"`
-		DeliveryMode                       csstModel.ClassDeliveryMode `json:"class_section_subject_teacher_delivery_mode"`
-		ClassSectionID                     uuid.UUID                   `json:"class_section_subject_teacher_class_section_id"`
-		ClassRoomNameSnapshot              *string                     `json:"class_section_subject_teacher_class_room_name_snapshot,omitempty"`
-		SchoolTeacherNameSnapshot          *string                     `json:"class_section_subject_teacher_school_teacher_name_snapshot,omitempty"`
-		AssistantSchoolTeacherNameSnapshot *string                     `json:"class_section_subject_teacher_assistant_school_teacher_name_snapshot,omitempty"`
-		SubjectNameSnapshot                *string                     `json:"class_section_subject_teacher_subject_name_snapshot,omitempty"`
-		SubjectCodeSnapshot                *string                     `json:"class_section_subject_teacher_subject_code_snapshot,omitempty"`
-		SubjectSlugSnapshot                *string                     `json:"class_section_subject_teacher_subject_slug_snapshot,omitempty"`
-		MinPassingScore                    *int                        `json:"class_section_subject_teacher_min_passing_score,omitempty"`
-		IsActive                           bool                        `json:"class_section_subject_teacher_is_active"`
-		CreatedAt                          time.Time                   `json:"class_section_subject_teacher_created_at"`
-		UpdatedAt                          time.Time                   `json:"class_section_subject_teacher_updated_at"`
+		ID                              uuid.UUID                   `json:"class_section_subject_teacher_id"`
+		Slug                            *string                     `json:"class_section_subject_teacher_slug,omitempty"`
+		Description                     *string                     `json:"class_section_subject_teacher_description,omitempty"`
+		GroupURL                        *string                     `json:"class_section_subject_teacher_group_url,omitempty"`
+		TotalAttendance                 int                         `json:"class_section_subject_teacher_total_attendance"`
+		TotalMeetingsTarget             *int                        `json:"class_section_subject_teacher_total_meetings_target,omitempty"`
+		Capacity                        *int                        `json:"class_section_subject_teacher_capacity,omitempty"`
+		EnrolledCount                   int                         `json:"class_section_subject_teacher_enrolled_count"`
+		TotalAssessments                int                         `json:"class_section_subject_teacher_total_assessments"`
+		TotalAssessmentsGraded          int                         `json:"class_section_subject_teacher_total_assessments_graded"`
+		TotalAssessmentsUngraded        int                         `json:"class_section_subject_teacher_total_assessments_ungraded"`
+		TotalStudentsPassed             int                         `json:"class_section_subject_teacher_total_students_passed"`
+		DeliveryMode                    csstModel.ClassDeliveryMode `json:"class_section_subject_teacher_delivery_mode"`
+		ClassSectionID                  uuid.UUID                   `json:"class_section_subject_teacher_class_section_id"`
+		ClassRoomNameCache              *string                     `json:"class_section_subject_teacher_class_room_name_cache,omitempty"`
+		SchoolTeacherNameCache          *string                     `json:"class_section_subject_teacher_school_teacher_name_cache,omitempty"`
+		AssistantSchoolTeacherNameCache *string                     `json:"class_section_subject_teacher_assistant_school_teacher_name_cache,omitempty"`
+		SubjectNameCache                *string                     `json:"class_section_subject_teacher_subject_name_cache,omitempty"`
+		SubjectCodeCache                *string                     `json:"class_section_subject_teacher_subject_code_cache,omitempty"`
+		SubjectSlugCache                *string                     `json:"class_section_subject_teacher_subject_slug_cache,omitempty"`
+		MinPassingScore                 *int                        `json:"class_section_subject_teacher_min_passing_score,omitempty"`
+		IsActive                        bool                        `json:"class_section_subject_teacher_is_active"`
+		CreatedAt                       time.Time                   `json:"class_section_subject_teacher_created_at"`
+		UpdatedAt                       time.Time                   `json:"class_section_subject_teacher_updated_at"`
 	}
 
 	// 2) Tipe nested untuk ClassSection + CSST list
 	type ClassSectionIncluded struct {
-		ID            uuid.UUID  `json:"class_section_id"`
-		SchoolID      uuid.UUID  `json:"class_section_school_id"`
-		ClassID       *uuid.UUID `json:"class_section_class_id,omitempty"`
-		Slug          string     `json:"class_section_slug"`
-		Name          string     `json:"class_section_name"`
-		Code          *string    `json:"class_section_code,omitempty"`
-		Schedule      *string    `json:"class_section_schedule,omitempty"`
-		Capacity      *int       `json:"class_section_capacity,omitempty"`
-		TotalStudents int        `json:"class_section_total_students"`
-		GroupURL      *string    `json:"class_section_group_url,omitempty"`
-		IsActive      bool       `json:"class_section_is_active"`
+		ID         uuid.UUID  `json:"class_section_id"`
+		SchoolID   uuid.UUID  `json:"class_section_school_id"`
+		ClassID    *uuid.UUID `json:"class_section_class_id,omitempty"`
+		Slug       string     `json:"class_section_slug"`
+		Name       string     `json:"class_section_name"`
+		Code       *string    `json:"class_section_code,omitempty"`
+		Schedule   *string    `json:"class_section_schedule,omitempty"`
+		QuotaTotal *int       `json:"class_section_quota_total,omitempty"`
+		QuotaTaken int        `json:"class_section_quota_taken"`
+		GroupURL   *string    `json:"class_section_group_url,omitempty"`
+		IsActive   bool       `json:"class_section_is_active"`
 
 		ImageURL                *string    `json:"class_section_image_url,omitempty"`
 		ImageObjectKey          *string    `json:"class_section_image_object_key,omitempty"`
@@ -311,15 +311,15 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		ImageObjectKeyOld       *string    `json:"class_section_image_object_key_old,omitempty"`
 		ImageDeletePendingUntil *time.Time `json:"class_section_image_delete_pending_until,omitempty"`
 
-		ClassNameSnapshot        *string    `json:"class_section_class_name_snapshot,omitempty"`
-		ClassSlugSnapshot        *string    `json:"class_section_class_slug_snapshot,omitempty"`
-		ClassParentID            *uuid.UUID `json:"class_section_class_parent_id,omitempty"`
-		ClassParentNameSnapshot  *string    `json:"class_section_class_parent_name_snapshot,omitempty"`
-		ClassParentSlugSnapshot  *string    `json:"class_section_class_parent_slug_snapshot,omitempty"`
-		ClassParentLevelSnapshot *int16     `json:"class_section_class_parent_level_snapshot,omitempty"`
-		SchoolTeacherID          *uuid.UUID `json:"class_section_school_teacher_id,omitempty"`
-		ClassRoomID              *uuid.UUID `json:"class_section_class_room_id,omitempty"`
-		AcademicTermID           *uuid.UUID `json:"class_section_academic_term_id,omitempty"`
+		ClassNameCache        *string    `json:"class_section_class_name_cache,omitempty"`
+		ClassSlugCache        *string    `json:"class_section_class_slug_cache,omitempty"`
+		ClassParentID         *uuid.UUID `json:"class_section_class_parent_id,omitempty"`
+		ClassParentNameCache  *string    `json:"class_section_class_parent_name_cache,omitempty"`
+		ClassParentSlugCache  *string    `json:"class_section_class_parent_slug_cache,omitempty"`
+		ClassParentLevelCache *int16     `json:"class_section_class_parent_level_cache,omitempty"`
+		SchoolTeacherID       *uuid.UUID `json:"class_section_school_teacher_id,omitempty"`
+		ClassRoomID           *uuid.UUID `json:"class_section_class_room_id,omitempty"`
+		AcademicTermID        *uuid.UUID `json:"class_section_academic_term_id,omitempty"`
 
 		// list CSST
 		SubjectTeachers []*CSSTIncluded `json:"class_section_subject_teachers,omitempty"`
@@ -345,17 +345,17 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 			cs := secRows[i]
 
 			item := &ClassSectionIncluded{
-				ID:            cs.ClassSectionID,
-				SchoolID:      cs.ClassSectionSchoolID,
-				ClassID:       cs.ClassSectionClassID,
-				Slug:          cs.ClassSectionSlug,
-				Name:          cs.ClassSectionName,
-				Code:          cs.ClassSectionCode,
-				Schedule:      cs.ClassSectionSchedule,
-				Capacity:      cs.ClassSectionCapacity,
-				TotalStudents: cs.ClassSectionTotalStudents,
-				GroupURL:      cs.ClassSectionGroupURL,
-				IsActive:      cs.ClassSectionIsActive,
+				ID:         cs.ClassSectionID,
+				SchoolID:   cs.ClassSectionSchoolID,
+				ClassID:    cs.ClassSectionClassID,
+				Slug:       cs.ClassSectionSlug,
+				Name:       cs.ClassSectionName,
+				Code:       cs.ClassSectionCode,
+				Schedule:   cs.ClassSectionSchedule,
+				QuotaTotal: cs.ClassSectionQuotaTotal,
+				QuotaTaken: cs.ClassSectionQuotaTaken,
+				GroupURL:   cs.ClassSectionGroupURL,
+				IsActive:   cs.ClassSectionIsActive,
 
 				ImageURL:                cs.ClassSectionImageURL,
 				ImageObjectKey:          cs.ClassSectionImageObjectKey,
@@ -363,15 +363,15 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 				ImageObjectKeyOld:       cs.ClassSectionImageObjectKeyOld,
 				ImageDeletePendingUntil: cs.ClassSectionImageDeletePendingUntil,
 
-				ClassNameSnapshot:        cs.ClassSectionClassNameSnapshot,
-				ClassSlugSnapshot:        cs.ClassSectionClassSlugSnapshot,
-				ClassParentID:            cs.ClassSectionClassParentID,
-				ClassParentNameSnapshot:  cs.ClassSectionClassParentNameSnapshot,
-				ClassParentSlugSnapshot:  cs.ClassSectionClassParentSlugSnapshot,
-				ClassParentLevelSnapshot: cs.ClassSectionClassParentLevelSnapshot,
-				SchoolTeacherID:          cs.ClassSectionSchoolTeacherID,
-				ClassRoomID:              cs.ClassSectionClassRoomID,
-				AcademicTermID:           cs.ClassSectionAcademicTermID,
+				ClassNameCache:        cs.ClassSectionClassNameCache,
+				ClassSlugCache:        cs.ClassSectionClassSlugCache,
+				ClassParentID:         cs.ClassSectionClassParentID,
+				ClassParentNameCache:  cs.ClassSectionClassParentNameCache,
+				ClassParentSlugCache:  cs.ClassSectionClassParentSlugCache,
+				ClassParentLevelCache: cs.ClassSectionClassParentLevelCache,
+				SchoolTeacherID:       cs.ClassSectionSchoolTeacherID,
+				ClassRoomID:           cs.ClassSectionClassRoomID,
+				AcademicTermID:        cs.ClassSectionAcademicTermID,
 			}
 
 			classSectionMap[cs.ClassSectionID] = item
@@ -396,30 +396,30 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 			r := csstRows[i]
 
 			ci := &CSSTIncluded{
-				ID:                                 r.ClassSectionSubjectTeacherID,
-				Slug:                               r.ClassSectionSubjectTeacherSlug,
-				Description:                        r.ClassSectionSubjectTeacherDescription,
-				GroupURL:                           r.ClassSectionSubjectTeacherGroupURL,
-				TotalAttendance:                    r.ClassSectionSubjectTeacherTotalAttendance,
-				TotalMeetingsTarget:                r.ClassSectionSubjectTeacherTotalMeetingsTarget,
-				Capacity:                           r.ClassSectionSubjectTeacherCapacity,
-				EnrolledCount:                      r.ClassSectionSubjectTeacherEnrolledCount,
-				TotalAssessments:                   r.ClassSectionSubjectTeacherTotalAssessments,
-				TotalAssessmentsGraded:             r.ClassSectionSubjectTeacherTotalAssessmentsGraded,
-				TotalAssessmentsUngraded:           r.ClassSectionSubjectTeacherTotalAssessmentsUngraded,
-				TotalStudentsPassed:                r.ClassSectionSubjectTeacherTotalStudentsPassed,
-				DeliveryMode:                       r.ClassSectionSubjectTeacherDeliveryMode,
-				ClassSectionID:                     r.ClassSectionSubjectTeacherClassSectionID,
-				ClassRoomNameSnapshot:              r.ClassSectionSubjectTeacherClassRoomNameSnapshot,
-				SchoolTeacherNameSnapshot:          r.ClassSectionSubjectTeacherSchoolTeacherNameSnapshot,
-				AssistantSchoolTeacherNameSnapshot: r.ClassSectionSubjectTeacherAssistantSchoolTeacherNameSnapshot,
-				SubjectNameSnapshot:                r.ClassSectionSubjectTeacherSubjectNameSnapshot,
-				SubjectCodeSnapshot:                r.ClassSectionSubjectTeacherSubjectCodeSnapshot,
-				SubjectSlugSnapshot:                r.ClassSectionSubjectTeacherSubjectSlugSnapshot,
-				MinPassingScore:                    r.ClassSectionSubjectTeacherMinPassingScore,
-				IsActive:                           r.ClassSectionSubjectTeacherIsActive,
-				CreatedAt:                          r.ClassSectionSubjectTeacherCreatedAt,
-				UpdatedAt:                          r.ClassSectionSubjectTeacherUpdatedAt,
+				ID:                              r.ClassSectionSubjectTeacherID,
+				Slug:                            r.ClassSectionSubjectTeacherSlug,
+				Description:                     r.ClassSectionSubjectTeacherDescription,
+				GroupURL:                        r.ClassSectionSubjectTeacherGroupURL,
+				TotalAttendance:                 r.ClassSectionSubjectTeacherTotalAttendance,
+				TotalMeetingsTarget:             r.ClassSectionSubjectTeacherTotalMeetingsTarget,
+				Capacity:                        r.ClassSectionSubjectTeacherCapacity,
+				EnrolledCount:                   r.ClassSectionSubjectTeacherEnrolledCount,
+				TotalAssessments:                r.ClassSectionSubjectTeacherTotalAssessments,
+				TotalAssessmentsGraded:          r.ClassSectionSubjectTeacherTotalAssessmentsGraded,
+				TotalAssessmentsUngraded:        r.ClassSectionSubjectTeacherTotalAssessmentsUngraded,
+				TotalStudentsPassed:             r.ClassSectionSubjectTeacherTotalStudentsPassed,
+				DeliveryMode:                    r.ClassSectionSubjectTeacherDeliveryMode,
+				ClassSectionID:                  r.ClassSectionSubjectTeacherClassSectionID,
+				ClassRoomNameCache:              r.ClassSectionSubjectTeacherClassRoomNameCache,
+				SchoolTeacherNameCache:          r.ClassSectionSubjectTeacherSchoolTeacherNameCache,
+				AssistantSchoolTeacherNameCache: r.ClassSectionSubjectTeacherAssistantSchoolTeacherNameCache,
+				SubjectNameCache:                r.ClassSectionSubjectTeacherSubjectNameCache,
+				SubjectCodeCache:                r.ClassSectionSubjectTeacherSubjectCodeCache,
+				SubjectSlugCache:                r.ClassSectionSubjectTeacherSubjectSlugCache,
+				MinPassingScore:                 r.ClassSectionSubjectTeacherMinPassingScore,
+				IsActive:                        r.ClassSectionSubjectTeacherIsActive,
+				CreatedAt:                       r.ClassSectionSubjectTeacherCreatedAt,
+				UpdatedAt:                       r.ClassSectionSubjectTeacherUpdatedAt,
 			}
 
 			if sec, ok := classSectionMap[r.ClassSectionSubjectTeacherClassSectionID]; ok {

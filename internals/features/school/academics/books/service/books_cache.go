@@ -1,5 +1,5 @@
-// file: internals/features/library/books/snapshot/book_snapshot.go
-package snapshot
+// file: internals/features/library/books/cache/book_cache.go
+package cache
 
 import (
 	"context"
@@ -13,10 +13,10 @@ import (
 )
 
 /* =========================================================
-   Single Book Snapshot (live from books)
+   Single Book Cache (live from books)
    ========================================================= */
 
-type BookSnapshot struct {
+type BookCache struct {
 	Title           string
 	Author          *string
 	Slug            *string
@@ -26,7 +26,7 @@ type BookSnapshot struct {
 	// tambah field lain jika perlu
 }
 
-func FetchBookSnapshot(tx *gorm.DB, bookID uuid.UUID) (*BookSnapshot, error) {
+func FetchBookCache(tx *gorm.DB, bookID uuid.UUID) (*BookCache, error) {
 	if tx == nil {
 		return nil, errors.New("nil tx")
 	}
@@ -44,7 +44,7 @@ func FetchBookSnapshot(tx *gorm.DB, bookID uuid.UUID) (*BookSnapshot, error) {
 		Take(&row).Error; err != nil {
 		return nil, err
 	}
-	return &BookSnapshot{
+	return &BookCache{
 		Title:           row.Title,
 		Author:          row.Author,
 		Slug:            row.Slug,
@@ -55,12 +55,12 @@ func FetchBookSnapshot(tx *gorm.DB, bookID uuid.UUID) (*BookSnapshot, error) {
 }
 
 /* =========================================================
-   Class-Subject Books Snapshot (list → JSONB array)
+   Class-Subject Books Cache (list → JSONB array)
    - Kumpulkan daftar buku aktif untuk 1 class_subject
-   - COALESCE ke snapshot di CSB kalau ada, fallback ke books.*
+   - COALESCE ke cache di CSB kalau ada, fallback ke books.*
    ========================================================= */
 
-// struktur item untuk array snapshot (tidak diexport, supaya bebas ubah internal)
+// struktur item untuk array cache (tidak diexport, supaya bebas ubah internal)
 type bookListSnap struct {
 	CSBID     uuid.UUID  `json:"csb_id"`
 	BookID    uuid.UUID  `json:"book_id"`
@@ -73,10 +73,10 @@ type bookListSnap struct {
 	// IsPrimary bool `json:"is_primary"`
 }
 
-// BuildBooksSnapshotJSON mengembalikan JSONB array berisi daftar buku aktif
+// BuildBooksCacheJSON mengembalikan JSONB array berisi daftar buku aktif
 // yang dipakai oleh class_subject tertentu (tenant-aware). Hasil cocok untuk
-// disimpan di kolom class_section_subject_teacher_books_snapshot.
-func BuildBooksSnapshotJSON(
+// disimpan di kolom class_section_subject_teacher_books_cache.
+func BuildBooksCacheJSON(
 	_ context.Context,
 	tx *gorm.DB,
 	schoolID uuid.UUID,
@@ -93,10 +93,10 @@ func BuildBooksSnapshotJSON(
 		Select(`
 			csb.class_subject_book_id                                    AS csb_id,
 			csb.class_subject_book_book_id                               AS book_id,
-			COALESCE(csb.class_subject_book_book_title_snapshot, b.book_title)         AS title,
-			COALESCE(csb.class_subject_book_book_author_snapshot, b.book_author)       AS author,
-			COALESCE(csb.class_subject_book_book_slug_snapshot, b.book_slug)           AS slug,
-			COALESCE(csb.class_subject_book_book_image_url_snapshot, b.book_image_url) AS image_url,
+			COALESCE(csb.class_subject_book_book_title_cache, b.book_title)         AS title,
+			COALESCE(csb.class_subject_book_book_author_cache, b.book_author)       AS author,
+			COALESCE(csb.class_subject_book_book_slug_cache, b.book_slug)           AS slug,
+			COALESCE(csb.class_subject_book_book_image_url_cache, b.book_image_url) AS image_url,
 			csb.class_subject_book_created_at                             AS created_at
 		`).
 		Joins(`

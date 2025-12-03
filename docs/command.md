@@ -96,3 +96,47 @@ PGPASSWORD='nCzXbpAEDzqPjbwxGobwMvbyDHUpUsgP' psql \
 migrate -path internals/databases/migrations \
   -database "postgresql://postgres:nCzXbpAEDzqPjbwxGobwMvbyDHUpUsgP@shortline.proxy.rlwy.net:46351/railway?sslmode=disable" \
   down 2
+
+
+
+{
+  "success": true,
+  "message": "ok",
+  "data": [
+    { ...term fields langsung... }
+  ],
+  "include": {
+    "classes": [ ... ],
+    "class_sections": [ ... ],
+    "fee_rules": [ ... ]
+  },
+  "pagination": { ... }
+}
+
+
+
+1️⃣ Konfirmasi dulu: 5 “fundamental block” itu ini
+
+Biar kita sinkron sekali lagi:
+
+FK normal
+
+Hanya simpan ID → join kalau butuh.
+
+Snapshot (immutable)
+
+Foto sekali → nggak diutak-atik lagi.
+
+Cache / Denorm
+
+Copy kecil buat baca cepat → boleh ikut berubah.
+
+History / Audit
+
+Riwayat perubahan master dari waktu ke waktu.
+
+Summary / Aggregation / Projection
+
+Data hasil olahan (rekap, view khusus, dll).
+
+Semua pola lain (CQRS, event sourcing, MV, search index) kalau di-“zoom in” jatuhnya ke kombinasi ini juga.

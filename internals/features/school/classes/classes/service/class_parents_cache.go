@@ -1,5 +1,5 @@
 // file: internals/features/school/classes/classes/snapshot/class_parent_snapshot.go
-package snapshot
+package service
 
 import (
 	"context"
@@ -52,18 +52,18 @@ func fetchClassParentSnapRow(
 func applyClassParentSnapshot(m *classmodel.ClassModel, pr classParentSnapRow) {
 	// Wajib: name selalu ada (string)
 	name := strings.TrimSpace(pr.Name)
-	m.ClassParentNameSnapshot = &name
+	m.ClassClassParentNameCache = &name
 
 	// Optional: code & slug bisa nil/empty → trim ke nil
-	m.ClassParentCodeSnapshot = trimPtr(pr.Code)
-	m.ClassParentSlugSnapshot = trimPtr(pr.Slug)
+	m.ClassClassParentCodeCache = trimPtr(pr.Code)
+	m.ClassClassParentSlugCache = trimPtr(pr.Slug)
 
 	// Level: dari *int → *int16 di model
 	if pr.Level != nil {
 		lv := int16(*pr.Level)
-		m.ClassParentLevelSnapshot = &lv
+		m.ClassClassParentLevelCache = &lv
 	} else {
-		m.ClassParentLevelSnapshot = nil
+		m.ClassClassParentLevelCache = nil
 	}
 
 	// Jika kamu punya kolom URL di DB dan field di model:

@@ -33,18 +33,18 @@ type ClassSubjectModel struct {
 	ClassSubjectWeightFinal          *int16 `gorm:"column:class_subject_weight_final"           json:"class_subject_weight_final,omitempty"`
 	ClassSubjectMinAttendancePercent *int16 `gorm:"column:class_subject_min_attendance_percent" json:"class_subject_min_attendance_percent,omitempty"`
 
-	/* ============ Snapshots: subjects ============ */
-	ClassSubjectSubjectNameSnapshot *string `gorm:"column:class_subject_subject_name_snapshot;type:varchar(160)" json:"class_subject_subject_name_snapshot,omitempty"`
-	ClassSubjectSubjectCodeSnapshot *string `gorm:"column:class_subject_subject_code_snapshot;type:varchar(80)"  json:"class_subject_subject_code_snapshot,omitempty"`
-	ClassSubjectSubjectSlugSnapshot *string `gorm:"column:class_subject_subject_slug_snapshot;type:varchar(160)" json:"class_subject_subject_slug_snapshot,omitempty"`
-	ClassSubjectSubjectURLSnapshot  *string `gorm:"column:class_subject_subject_url_snapshot;type:text"          json:"class_subject_subject_url_snapshot,omitempty"`
+	/* ============ Caches: subjects ============ */
+	ClassSubjectSubjectNameCache *string `gorm:"column:class_subject_subject_name_cache;type:varchar(160)" json:"class_subject_subject_name_cache,omitempty"`
+	ClassSubjectSubjectCodeCache *string `gorm:"column:class_subject_subject_code_cache;type:varchar(80)"  json:"class_subject_subject_code_cache,omitempty"`
+	ClassSubjectSubjectSlugCache *string `gorm:"column:class_subject_subject_slug_cache;type:varchar(160)" json:"class_subject_subject_slug_cache,omitempty"`
+	ClassSubjectSubjectURLCache  *string `gorm:"column:class_subject_subject_url_cache;type:text"          json:"class_subject_subject_url_cache,omitempty"`
 
-	/* ============ Snapshots: class_parent (pakai prefix class_parent) ============ */
-	ClassSubjectClassParentCodeSnapshot  *string `gorm:"column:class_subject_class_parent_code_snapshot;type:varchar(80)"   json:"class_subject_class_parent_code_snapshot,omitempty"`
-	ClassSubjectClassParentSlugSnapshot  *string `gorm:"column:class_subject_class_parent_slug_snapshot;type:varchar(160)"  json:"class_subject_class_parent_slug_snapshot,omitempty"`
-	ClassSubjectClassParentLevelSnapshot *int16  `gorm:"column:class_subject_class_parent_level_snapshot"                   json:"class_subject_class_parent_level_snapshot,omitempty"`
-	ClassSubjectClassParentURLSnapshot   *string `gorm:"column:class_subject_class_parent_url_snapshot;type:text"           json:"class_subject_class_parent_url_snapshot,omitempty"`
-	ClassSubjectClassParentNameSnapshot  *string `gorm:"column:class_subject_class_parent_name_snapshot;type:varchar(160)"  json:"class_subject_class_parent_name_snapshot,omitempty"`
+	/* ============ Caches: class_parent (pakai prefix class_parent) ============ */
+	ClassSubjectClassParentCodeCache  *string `gorm:"column:class_subject_class_parent_code_cache;type:varchar(80)"   json:"class_subject_class_parent_code_cache,omitempty"`
+	ClassSubjectClassParentSlugCache  *string `gorm:"column:class_subject_class_parent_slug_cache;type:varchar(160)"  json:"class_subject_class_parent_slug_cache,omitempty"`
+	ClassSubjectClassParentLevelCache *int16  `gorm:"column:class_subject_class_parent_level_cache"                   json:"class_subject_class_parent_level_cache,omitempty"`
+	ClassSubjectClassParentURLCache   *string `gorm:"column:class_subject_class_parent_url_cache;type:text"           json:"class_subject_class_parent_url_cache,omitempty"`
+	ClassSubjectClassParentNameCache  *string `gorm:"column:class_subject_class_parent_name_cache;type:varchar(160)"  json:"class_subject_class_parent_name_cache,omitempty"`
 
 	/* ============ Status & audit ============ */
 	ClassSubjectIsActive  bool           `gorm:"column:class_subject_is_active;not null;default:true;index:idx_class_subject_active_alive" json:"class_subject_is_active"`

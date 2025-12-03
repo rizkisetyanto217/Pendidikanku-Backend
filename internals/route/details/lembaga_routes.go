@@ -36,6 +36,7 @@ func LembagaUserRoutes(r fiber.Router, db *gorm.DB) {
 
 	ScheduleRoutes.ScheduleUserRoutes(r, db)
 	LembagaSchoolTeacher.LembagaTeacherStudentUserRoutes(r, db)
+	LembagaRoutes.LembagaUserRoutes(r, db)
 
 }
 

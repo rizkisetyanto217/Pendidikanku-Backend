@@ -166,7 +166,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 		tx = tx.Where(`(school_teacher_notes ILIKE ? 
 			OR school_teacher_code ILIKE ? 
 			OR school_teacher_slug ILIKE ?
-			OR school_teacher_user_teacher_name_snapshot ILIKE ?)`, pat, pat, pat, pat)
+			OR school_teacher_user_teacher_full_name_cache ILIKE ?)`, pat, pat, pat, pat)
 	}
 
 	// 4) Count + data
@@ -242,7 +242,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 			var trows []struct {
 				UserTeacherID        uuid.UUID `gorm:"column:user_teacher_id"`
 				UserTeacherUserID    uuid.UUID `gorm:"column:user_teacher_user_id"`
-				UserTeacherName      string    `gorm:"column:user_teacher_name_snapshot"`
+				UserTeacherFullName  string    `gorm:"column:user_teacher_full_name_cache"`
 				UserTeacherWhatsapp  *string   `gorm:"column:user_teacher_whatsapp_url"`
 				UserTeacherAvatarURL *string   `gorm:"column:user_teacher_avatar_url"`
 				TitlePrefix          *string   `gorm:"column:user_teacher_title_prefix"`
@@ -254,7 +254,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 				Select(`
 					user_teacher_id,
 					user_teacher_user_id,
-					user_teacher_name_snapshot,
+					user_teacher_full_name_cache,
 					user_teacher_whatsapp_url,
 					user_teacher_avatar_url,
 					user_teacher_title_prefix,
@@ -271,7 +271,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 				teacherMap[t.UserTeacherID] = TeacherLite{
 					ID:         t.UserTeacherID,
 					UserID:     t.UserTeacherUserID,
-					Name:       t.UserTeacherName,
+					Name:       t.UserTeacherFullName,
 					Whatsapp:   t.UserTeacherWhatsapp,
 					AvatarURL:  t.UserTeacherAvatarURL,
 					TitlePref:  t.TitlePrefix,
@@ -317,7 +317,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 	type UserProfileLite struct {
 		ID                uuid.UUID `json:"id"`
 		UserID            uuid.UUID `json:"user_id"`
-		FullNameSnapshot  *string   `json:"full_name_snapshot,omitempty"`
+		FullNameCache     *string   `json:"full_name_cache,omitempty"`
 		AvatarURL         *string   `json:"avatar_url,omitempty"`
 		WhatsappURL       *string   `json:"whatsapp_url,omitempty"`
 		ParentName        *string   `json:"parent_name,omitempty"`
@@ -330,7 +330,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 		var prows []struct {
 			ID                uuid.UUID `gorm:"column:user_profile_id"`
 			UserID            uuid.UUID `gorm:"column:user_profile_user_id"`
-			FullNameSnapshot  *string   `gorm:"column:user_profile_full_name_snapshot"`
+			FullNameCache     *string   `gorm:"column:user_profile_full_name_cache"`
 			AvatarURL         *string   `gorm:"column:user_profile_avatar_url"`
 			WhatsappURL       *string   `gorm:"column:user_profile_whatsapp_url"`
 			ParentName        *string   `gorm:"column:user_profile_parent_name"`
@@ -341,7 +341,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 			Select(`
 				user_profile_id,
 				user_profile_user_id,
-				user_profile_full_name_snapshot,
+				user_profile_full_name_cache,
 				user_profile_avatar_url,
 				user_profile_whatsapp_url,
 				user_profile_parent_name,
@@ -357,7 +357,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 			profileMap[pr.UserID] = UserProfileLite{
 				ID:                pr.ID,
 				UserID:            pr.UserID,
-				FullNameSnapshot:  pr.FullNameSnapshot,
+				FullNameCache:     pr.FullNameCache,
 				AvatarURL:         pr.AvatarURL,
 				WhatsappURL:       pr.WhatsappURL,
 				ParentName:        pr.ParentName,

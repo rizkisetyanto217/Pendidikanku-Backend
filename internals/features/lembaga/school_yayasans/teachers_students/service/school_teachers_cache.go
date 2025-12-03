@@ -1,5 +1,5 @@
 // file: internals/features/school/school_teachers/snapshot/teacher_snapshot.go
-package snapshot
+package cache
 
 import (
 	"encoding/json"
@@ -11,9 +11,9 @@ import (
 	"gorm.io/gorm"
 )
 
-// TeacherSnapshot: struktur JSON yang disimpan untuk guru.
+// TeacherCache: struktur JSON yang disimpan untuk guru.
 // Struktur & nama field disesuaikan dengan kebutuhan FE (class_section, CSST, dll).
-type TeacherSnapshot struct {
+type TeacherCache struct {
 	ID            string  `json:"id"`                       // school_teacher_id (UUID → string)
 	Name          *string `json:"name,omitempty"`           // nama guru
 	AvatarURL     *string `json:"avatar_url,omitempty"`     // URL avatar
@@ -25,13 +25,13 @@ type TeacherSnapshot struct {
 	TeacherCode   *string `json:"teacher_code,omitempty"`   // kode guru (raw dari school_teacher_code)
 }
 
-// ValidateAndSnapshotTeacher baca data guru + validasi tenant (school).
+// ValidateAndCacheTeacher baca data guru + validasi tenant (school).
 // Return: struct snapshot yang siap di-serialize ke JSONB.
-func ValidateAndSnapshotTeacher(
+func ValidateAndCacheTeacher(
 	tx *gorm.DB,
 	expectSchoolID uuid.UUID,
 	teacherID uuid.UUID,
-) (*TeacherSnapshot, error) {
+) (*TeacherCache, error) {
 	var row struct {
 		SchoolID    string  `gorm:"column:school_id"`
 		Name        *string `gorm:"column:teacher_name"`
@@ -47,17 +47,17 @@ func ValidateAndSnapshotTeacher(
 	const q = `
 SELECT
   mt.school_teacher_school_id::text                                           AS school_id,
-  COALESCE(mt.school_teacher_user_teacher_name_snapshot,
-           ut.user_teacher_name_snapshot)                                     AS teacher_name,
-  COALESCE(mt.school_teacher_user_teacher_whatsapp_url_snapshot,
+  COALESCE(mt.school_teacher_user_teacher_user_full_name_cache,
+           ut.user_teacher_user_full_name_cache)                                     AS teacher_name,
+  COALESCE(mt.school_teacher_user_teacher_whatsapp_url_cache,
            ut.user_teacher_whatsapp_url)                                      AS whatsapp_url,
-  COALESCE(mt.school_teacher_user_teacher_title_prefix_snapshot,
+  COALESCE(mt.school_teacher_user_teacher_title_prefix_cache,
            ut.user_teacher_title_prefix)                                      AS title_prefix,
-  COALESCE(mt.school_teacher_user_teacher_title_suffix_snapshot,
+  COALESCE(mt.school_teacher_user_teacher_title_suffix_cache,
            ut.user_teacher_title_suffix)                                      AS title_suffix,
-  COALESCE(mt.school_teacher_user_teacher_avatar_url_snapshot,
+  COALESCE(mt.school_teacher_user_teacher_avatar_url_cache,
            ut.user_teacher_avatar_url)                                        AS avatar_url,
-  COALESCE(mt.school_teacher_user_teacher_gender_snapshot,
+  COALESCE(mt.school_teacher_user_teacher_gender_cache,
            ut.user_teacher_gender)                                            AS gender,
   mt.school_teacher_code                                                      AS teacher_code
 FROM school_teachers mt
@@ -98,7 +98,7 @@ LIMIT 1`
 	// Sementara: teacher_number & teacher_code sama-sama ambil dari school_teacher_code
 	code := trimPtr(row.TeacherCode)
 
-	snap := &TeacherSnapshot{
+	snap := &TeacherCache{
 		ID:            teacherID.String(),
 		Name:          trimPtr(row.Name),
 		AvatarURL:     trimPtr(row.AvatarURL),
@@ -113,8 +113,8 @@ LIMIT 1`
 	return snap, nil
 }
 
-// ToJSON ubah TeacherSnapshot → datatypes.JSON (untuk disimpan di kolom JSONB).
-func ToJSON(ts *TeacherSnapshot) datatypes.JSON {
+// ToJSON ubah TeacherCache → datatypes.JSON (untuk disimpan di kolom JSONB).
+func ToJSON(ts *TeacherCache) datatypes.JSON {
 	if ts == nil {
 		return datatypes.JSON([]byte("null"))
 	}

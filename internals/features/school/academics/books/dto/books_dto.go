@@ -140,16 +140,17 @@ type BookResponse struct {
 	BookDesc   *string `json:"book_desc,omitempty"`
 	BookSlug   *string `json:"book_slug,omitempty"`
 
-	// ⬇⬇⬇ TAMBAHKAN INI
 	BookImageURL       *string `json:"book_image_url,omitempty"`
 	BookImageObjectKey *string `json:"book_image_object_key,omitempty"`
+
+	// ⬇⬇⬇ tambahkan ini
+	BookImageURLOld             *string    `json:"book_image_url_old,omitempty"`
+	BookImageObjectKeyOld       *string    `json:"book_image_object_key_old,omitempty"`
+	BookImageDeletePendingUntil *time.Time `json:"book_image_delete_pending_until,omitempty"`
 
 	BookCreatedAt time.Time `json:"book_created_at"`
 	BookUpdatedAt time.Time `json:"book_updated_at"`
 	BookIsDeleted bool      `json:"book_is_deleted"`
-
-	// // (kalau sudah tidak pakai book_urls, bagian ini boleh dihapus)
-	// URLs []BookURLLite `json:"urls,omitempty"`
 }
 
 type PageInfo struct {
@@ -171,17 +172,24 @@ type BooksListResponse struct {
 */
 func ToBookResponse(m *model.BookModel) BookResponse {
 	return BookResponse{
-		BookID:             m.BookID,
-		BookSchoolID:       m.BookSchoolID,
-		BookTitle:          m.BookTitle,
-		BookAuthor:         m.BookAuthor,
-		BookDesc:           m.BookDesc,
-		BookSlug:           m.BookSlug,
-		BookImageURL:       m.BookImageURL,       // ⬅️ map
-		BookImageObjectKey: m.BookImageObjectKey, // ⬅️ map
-		BookCreatedAt:      m.BookCreatedAt,
-		BookUpdatedAt:      m.BookUpdatedAt,
-		BookIsDeleted:      !m.BookDeletedAt.Time.IsZero(),
+		BookID:       m.BookID,
+		BookSchoolID: m.BookSchoolID,
+
+		BookTitle:  m.BookTitle,
+		BookAuthor: m.BookAuthor,
+		BookDesc:   m.BookDesc,
+		BookSlug:   m.BookSlug,
+
+		BookImageURL:       m.BookImageURL,
+		BookImageObjectKey: m.BookImageObjectKey,
+
+		BookImageURLOld:             m.BookImageURLOld,
+		BookImageObjectKeyOld:       m.BookImageObjectKeyOld,
+		BookImageDeletePendingUntil: m.BookImageDeletePendingUntil,
+
+		BookCreatedAt: m.BookCreatedAt,
+		BookUpdatedAt: m.BookUpdatedAt,
+		BookIsDeleted: !m.BookDeletedAt.Time.IsZero(),
 	}
 }
 

@@ -102,8 +102,6 @@ BEGIN
   END IF;
 END$$;
 
-
-
 -- =========================================================
 -- TABLE: class_schedule_rules (single-tenant column; no trigger)
 -- =========================================================
@@ -132,20 +130,24 @@ CREATE TABLE IF NOT EXISTS class_schedule_rules (
 
   -- DEFAULT PENUGASAN: CSST (FK satu kolom)
   class_schedule_rule_csst_id            UUID NOT NULL,
-  class_schedule_rule_csst_slug_snapshot VARCHAR(100),
+  class_schedule_rule_csst_slug_cache    VARCHAR(100),
 
-  -- ===== Snapshot CSST (diisi backend) =====
-  class_schedule_rule_csst_snapshot JSONB NOT NULL,
+  -- ===== Cache CSST (diisi backend) =====
+  class_schedule_rule_csst_cache JSONB NOT NULL,
 
-  -- ===== Generated columns dari snapshot (rename versimu)
-  class_schedule_rule_csst_student_teacher_id UUID GENERATED ALWAYS AS ((class_schedule_rule_csst_snapshot->>'teacher_id')::uuid) STORED,
-  class_schedule_rule_csst_class_section_id   UUID GENERATED ALWAYS AS ((class_schedule_rule_csst_snapshot->>'section_id')::uuid) STORED,
-  class_schedule_rule_csst_class_subject_id   UUID GENERATED ALWAYS AS ((class_schedule_rule_csst_snapshot->>'class_subject_id')::uuid) STORED,
-  class_schedule_rule_csst_class_room_id      UUID GENERATED ALWAYS AS ((class_schedule_rule_csst_snapshot->>'room_id')::uuid) STORED,
+  -- ===== Generated columns dari cache =====
+  class_schedule_rule_csst_teacher_id   UUID
+    GENERATED ALWAYS AS ((class_schedule_rule_csst_cache->>'teacher_id')::uuid) STORED,
+  class_schedule_rule_csst_class_section_id UUID
+    GENERATED ALWAYS AS ((class_schedule_rule_csst_cache->>'section_id')::uuid) STORED,
+  class_schedule_rule_csst_class_subject_id UUID
+    GENERATED ALWAYS AS ((class_schedule_rule_csst_cache->>'class_subject_id')::uuid) STORED,
+  class_schedule_rule_csst_class_room_id UUID
+    GENERATED ALWAYS AS ((class_schedule_rule_csst_cache->>'room_id')::uuid) STORED,
 
-  -- Ambil school_id dari snapshot untuk guard tenant
-  class_schedule_rule_csst_school_id_from_snapshot UUID
-    GENERATED ALWAYS AS ((class_schedule_rule_csst_snapshot->>'school_id')::uuid) STORED,
+  -- Ambil school_id dari cache untuk guard tenant
+  class_schedule_rule_csst_school_id_from_cache UUID
+    GENERATED ALWAYS AS ((class_schedule_rule_csst_cache->>'school_id')::uuid) STORED,
 
   -- audit
   class_schedule_rule_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -162,10 +164,10 @@ CREATE TABLE IF NOT EXISTS class_schedule_rules (
     + EXTRACT(MINUTE FROM class_schedule_rule_end_time)::INT
   ) STORED,
 
-  -- ===== Tenant guard via snapshot (tanpa kolom dobel & tanpa trigger)
-  CONSTRAINT ck_csr_snapshot_tenant_guard CHECK (
-    (class_schedule_rule_csst_snapshot ? 'school_id')
-    AND (class_schedule_rule_csst_school_id_from_snapshot = class_schedule_rule_school_id)
+  -- ===== Tenant guard via cache (tanpa trigger)
+  CONSTRAINT ck_csr_cache_tenant_guard CHECK (
+    (class_schedule_rule_csst_cache ? 'school_id')
+    AND (class_schedule_rule_csst_school_id_from_cache = class_schedule_rule_school_id)
   )
 );
 
@@ -219,99 +221,3 @@ BEGIN
       WHERE (class_schedule_rule_deleted_at IS NULL);
   END IF;
 END$$;
-
-
--- =========================================================
--- TABLE: national_holidays (dikelola admin)
--- =========================================================
-CREATE TABLE IF NOT EXISTS national_holidays (
-  national_holiday_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-
-  -- opsional identitas
-  national_holiday_slug VARCHAR(160),
-
-  -- tanggal: satu hari (start=end) atau rentang
-  national_holiday_start_date DATE NOT NULL,
-  national_holiday_end_date   DATE NOT NULL CHECK (national_holiday_end_date >= national_holiday_start_date),
-
-  national_holiday_title  VARCHAR(200) NOT NULL,
-  national_holiday_reason TEXT,
-
-  national_holiday_is_active BOOLEAN NOT NULL DEFAULT TRUE,
-  national_holiday_is_recurring_yearly BOOLEAN NOT NULL DEFAULT FALSE,
-
-  -- audit
-  national_holiday_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  national_holiday_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  national_holiday_deleted_at TIMESTAMPTZ
-);
-
--- Indexes (national_holidays)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_national_holidays_slug_alive
-  ON national_holidays (LOWER(national_holiday_slug))
-  WHERE national_holiday_deleted_at IS NULL
-    AND national_holiday_slug IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS idx_national_holidays_date_range_alive
-  ON national_holidays (national_holiday_start_date, national_holiday_end_date)
-  WHERE national_holiday_deleted_at IS NULL
-    AND national_holiday_is_active = TRUE;
-
-CREATE INDEX IF NOT EXISTS gin_national_holidays_slug_trgm_alive
-  ON national_holidays USING GIN (LOWER(national_holiday_slug) gin_trgm_ops)
-  WHERE national_holiday_deleted_at IS NULL
-    AND national_holiday_slug IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS brin_national_holidays_created_at
-  ON national_holidays USING BRIN (national_holiday_created_at);
-
--- =========================================================
--- TABLE: school_holidays (libur custom per school/sekolah)
--- =========================================================
-CREATE TABLE IF NOT EXISTS school_holidays (
-  school_holiday_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  school_holiday_school_id UUID NOT NULL
-    REFERENCES schools(school_id) ON DELETE CASCADE,
-
-  -- opsional identitas
-  school_holiday_slug VARCHAR(160),
-
-  -- tanggal: satu hari (start=end) atau rentang
-  school_holiday_start_date DATE NOT NULL,
-  school_holiday_end_date   DATE NOT NULL CHECK (school_holiday_end_date >= school_holiday_start_date),
-
-  school_holiday_title  VARCHAR(200) NOT NULL,
-  school_holiday_reason TEXT,
-
-  school_holiday_is_active BOOLEAN NOT NULL DEFAULT TRUE,
-  school_holiday_is_recurring_yearly BOOLEAN NOT NULL DEFAULT FALSE,
-
-  -- audit
-  school_holiday_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  school_holiday_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  school_holiday_deleted_at TIMESTAMPTZ
-);
-
--- Indexes (school_holidays)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_school_holidays_slug_per_tenant_alive
-  ON school_holidays (school_holiday_school_id, LOWER(school_holiday_slug))
-  WHERE school_holiday_deleted_at IS NULL
-    AND school_holiday_slug IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS idx_school_holidays_tenant_alive
-  ON school_holidays (school_holiday_school_id)
-  WHERE school_holiday_deleted_at IS NULL
-    AND school_holiday_is_active = TRUE;
-
-CREATE INDEX IF NOT EXISTS idx_school_holidays_date_range_alive
-  ON school_holidays (school_holiday_start_date, school_holiday_end_date)
-  WHERE school_holiday_deleted_at IS NULL
-    AND school_holiday_is_active = TRUE;
-
-CREATE INDEX IF NOT EXISTS gin_school_holidays_slug_trgm_alive
-  ON school_holidays USING GIN (LOWER(school_holiday_slug) gin_trgm_ops)
-  WHERE school_holiday_deleted_at IS NULL
-    AND school_holiday_slug IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS brin_school_holidays_created_at
-  ON school_holidays USING BRIN (school_holiday_created_at);

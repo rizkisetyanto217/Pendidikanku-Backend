@@ -26,18 +26,9 @@ import (
 
 var fallbackValidator = validator.New()
 
-// NOTE: academicsDTO.AcademicTermResponseDTO sekarang sudah include:
-// - ALL stats + ACTIVE stats
-// - academic_term_stats jsonb
-type AcademicTermWithRelations struct {
-	Term          academicsDTO.AcademicTermResponseDTO  `json:"term"`
-	Classes       []classModel.ClassModel               `json:"classes,omitempty"`
-	ClassSections []classSectionModel.ClassSectionModel `json:"class_sections,omitempty"`
-	FeeRules      []feeRuleModel.FeeRule                `json:"fee_rules,omitempty"`
-}
-
 /* ================= Handlers ================= */
 
+// List academic terms + optional include
 // List academic terms + optional include
 func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	// Biar helper lain yang baca dari Locals("DB") tetap bisa jalan
@@ -209,14 +200,27 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	// ===== Pagination =====
 	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)
 
-	// Kalau tidak request include sama sekali → pure DTO list
+	// Konversi ke DTO sekali
+	termDTOs := academicsDTO.FromModels(list)
+
+	// ✅ 1) Kalau tidak request include sama sekali → pure list tanpa include
 	if !includeClasses && !includeSections && !includeFeeRules {
-		return helper.JsonList(c, "ok", academicsDTO.FromModels(list), pg)
+		return helper.JsonList(c, "ok", termDTOs, pg)
 	}
 
-	// Kalau nggak ada data, tapi include diminta → return kosong dengan shape include
+	// ✅ 2) Kalau nggak ada data, tapi include diminta → kosong tapi tetap ada key "include"
 	if len(list) == 0 {
-		return helper.JsonList(c, "ok", []AcademicTermWithRelations{}, pg)
+		includeMap := fiber.Map{}
+		if includeClasses {
+			includeMap["classes"] = []classModel.ClassModel{}
+		}
+		if includeSections {
+			includeMap["class_sections"] = []classSectionModel.ClassSectionModel{}
+		}
+		if includeFeeRules {
+			includeMap["fee_rules"] = []feeRuleModel.FeeRule{}
+		}
+		return helper.JsonListWithInclude(c, "ok", termDTOs, includeMap, pg)
 	}
 
 	/* ===================== INCLUDE ===================== */
@@ -227,8 +231,8 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 		termIDs = append(termIDs, t.AcademicTermID)
 	}
 
-	// --- INCLUDE: classes ---
-	classesByTerm := make(map[uuid.UUID][]classModel.ClassModel)
+	// --- INCLUDE: classes (flat slice) ---
+	var allClasses []classModel.ClassModel
 	if includeClasses {
 		dbClass := ctl.DB.Model(&classModel.ClassModel{}).
 			Where("class_school_id = ? AND class_deleted_at IS NULL", schoolID).
@@ -247,22 +251,13 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 			}
 		}
 
-		var cls []classModel.ClassModel
-		if err := dbClass.Find(&cls).Error; err != nil {
+		if err := dbClass.Find(&allClasses).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Query classes failed: "+err.Error())
-		}
-
-		for _, citem := range cls {
-			if citem.ClassAcademicTermID == nil {
-				continue
-			}
-			tid := *citem.ClassAcademicTermID
-			classesByTerm[tid] = append(classesByTerm[tid], citem)
 		}
 	}
 
-	// --- INCLUDE: class_sections ---
-	sectionsByTerm := make(map[uuid.UUID][]classSectionModel.ClassSectionModel)
+	// --- INCLUDE: class_sections (flat slice) ---
+	var allSections []classSectionModel.ClassSectionModel
 	if includeSections {
 		dbSec := ctl.DB.Model(&classSectionModel.ClassSectionModel{}).
 			Where("class_section_school_id = ? AND class_section_deleted_at IS NULL", schoolID).
@@ -287,22 +282,13 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 			}
 		}
 
-		var secs []classSectionModel.ClassSectionModel
-		if err := dbSec.Find(&secs).Error; err != nil {
+		if err := dbSec.Find(&allSections).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Query class_sections failed: "+err.Error())
-		}
-
-		for _, sitem := range secs {
-			if sitem.ClassSectionAcademicTermID == nil {
-				continue
-			}
-			tid := *sitem.ClassSectionAcademicTermID
-			sectionsByTerm[tid] = append(sectionsByTerm[tid], sitem)
 		}
 	}
 
-	// --- INCLUDE: fee_rules (SPP, dll) ---
-	feeRulesByTerm := make(map[uuid.UUID][]feeRuleModel.FeeRule)
+	// --- INCLUDE: fee_rules (SPP, dll) (flat slice) ---
+	var allFeeRules []feeRuleModel.FeeRule
 	if includeFeeRules {
 		dbFee := ctl.DB.Model(&feeRuleModel.FeeRule{}).
 			Where("fee_rule_school_id = ? AND fee_rule_deleted_at IS NULL", schoolID).
@@ -316,39 +302,22 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 			dbFee = dbFee.Where("LOWER(fee_rule_option_code) = ?", strings.ToLower(v))
 		}
 
-		var fees []feeRuleModel.FeeRule
-		if err := dbFee.Find(&fees).Error; err != nil {
+		if err := dbFee.Find(&allFeeRules).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Query fee_rules failed: "+err.Error())
 		}
-
-		for _, f := range fees {
-			if f.FeeRuleTermID == nil {
-				continue
-			}
-			tid := *f.FeeRuleTermID
-			feeRulesByTerm[tid] = append(feeRulesByTerm[tid], f)
-		}
 	}
 
-	// ===== Build response dengan include =====
-	termDTOs := academicsDTO.FromModels(list)
-	items := make([]AcademicTermWithRelations, len(list))
-	for i, tDTO := range termDTOs {
-		tid := list[i].AcademicTermID
-		item := AcademicTermWithRelations{
-			Term: tDTO, // sudah include ALL + ACTIVE stats dari DTO terbaru
-		}
-		if includeClasses {
-			item.Classes = classesByTerm[tid]
-		}
-		if includeSections {
-			item.ClassSections = sectionsByTerm[tid]
-		}
-		if includeFeeRules {
-			item.FeeRules = feeRulesByTerm[tid]
-		}
-		items[i] = item
+	// ✅ 3) Build include map (singular) dan kirim pakai JsonListWithInclude
+	includeMap := fiber.Map{}
+	if includeClasses {
+		includeMap["classes"] = allClasses
+	}
+	if includeSections {
+		includeMap["class_sections"] = allSections
+	}
+	if includeFeeRules {
+		includeMap["fee_rules"] = allFeeRules
 	}
 
-	return helper.JsonList(c, "ok", items, pg)
+	return helper.JsonListWithInclude(c, "ok", termDTOs, includeMap, pg)
 }

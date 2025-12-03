@@ -2,6 +2,7 @@ package dto
 
 import (
 	"encoding/json"
+
 	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 	m "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 
@@ -16,23 +17,25 @@ type ClassSectionCompact struct {
 	ClassSectionClassID *uuid.UUID `json:"class_section_class_id,omitempty"`
 	ClassSectionSlug    *string    `json:"class_section_slug,omitempty"`
 
-	// --- NEW: class snapshots ---
-	ClassSectionClassNameSnapshot *string `json:"class_section_class_name_snapshot,omitempty"`
-	ClassSectionClassSlugSnapshot *string `json:"class_section_class_slug_snapshot,omitempty"`
+	// --- class cache ---
+	ClassSectionClassNameCache *string `json:"class_section_class_name_cache,omitempty"`
+	ClassSectionClassSlugCache *string `json:"class_section_class_slug_cache,omitempty"`
 
-	// --- NEW: parent snapshots (kalau mau dipakai di FE) ---
-	ClassSectionClassParentID            *uuid.UUID `json:"class_section_class_parent_id,omitempty"`
-	ClassSectionClassParentNameSnapshot  *string    `json:"class_section_class_parent_name_snapshot,omitempty"`
-	ClassSectionClassParentSlugSnapshot  *string    `json:"class_section_class_parent_slug_snapshot,omitempty"`
-	ClassSectionClassParentLevelSnapshot *int16     `json:"class_section_class_parent_level_snapshot,omitempty"`
+	// --- parent cache (kalau mau dipakai di FE) ---
+	ClassSectionClassParentID         *uuid.UUID `json:"class_section_class_parent_id,omitempty"`
+	ClassSectionClassParentNameCache  *string    `json:"class_section_class_parent_name_cache,omitempty"`
+	ClassSectionClassParentSlugCache  *string    `json:"class_section_class_parent_slug_cache,omitempty"`
+	ClassSectionClassParentLevelCache *int16     `json:"class_section_class_parent_level_cache,omitempty"`
 
 	// Info dasar tambahan
 	ClassSectionCode     *string `json:"class_section_code,omitempty"`
 	ClassSectionSchedule *string `json:"class_section_schedule,omitempty"`
 
-	ClassSectionCapacity      *int `json:"class_section_capacity,omitempty"`
-	ClassSectionTotalStudents int  `json:"class_section_total_students"`
-	ClassSectionIsActive      bool `json:"class_section_is_active"`
+	// Kuota (mirror ke model: quota_total / quota_taken)
+	ClassSectionQuotaTotal *int `json:"class_section_quota_total,omitempty"`
+	ClassSectionQuotaTaken int  `json:"class_section_quota_taken"`
+
+	ClassSectionIsActive bool `json:"class_section_is_active"`
 
 	// Stats (ALL & ACTIVE)
 	ClassSectionTotalStudentsActive       int             `json:"class_section_total_students_active"`
@@ -50,31 +53,31 @@ type ClassSectionCompact struct {
 	ClassSectionGroupURL *string `json:"class_section_group_url,omitempty"`
 	ClassSectionImageURL *string `json:"class_section_image_url,omitempty"`
 
-	// Homeroom teacher (wali kelas) - ID + slug lama
-	ClassSectionSchoolTeacherID           *uuid.UUID `json:"class_section_school_teacher_id,omitempty"`
-	ClassSectionSchoolTeacherSlugSnapshot *string    `json:"class_section_school_teacher_slug_snapshot,omitempty"`
+	// Homeroom teacher (wali kelas) - ID + slug cache
+	ClassSectionSchoolTeacherID        *uuid.UUID `json:"class_section_school_teacher_id,omitempty"`
+	ClassSectionSchoolTeacherSlugCache *string    `json:"class_section_school_teacher_slug_cache,omitempty"`
 
-	// NEW: objek guru dari snapshot (nama, avatar, gender, nomor induk, dll)
+	// NEW: objek guru dari cache (nama, avatar, gender, nomor induk, dll)
 	HomeroomTeacher  *TeacherPersonLite `json:"homeroom_teacher,omitempty"`
 	AssistantTeacher *TeacherPersonLite `json:"assistant_teacher,omitempty"`
 
 	// Room
-	ClassSectionClassRoomID               *uuid.UUID `json:"class_section_class_room_id,omitempty"`
-	ClassSectionClassRoomSlugSnapshot     *string    `json:"class_section_class_room_slug_snapshot,omitempty"`
-	ClassSectionClassRoomNameSnapshot     *string    `json:"class_section_class_room_name_snapshot,omitempty"`
-	ClassSectionClassRoomLocationSnapshot *string    `json:"class_section_class_room_location_snapshot,omitempty"`
+	ClassSectionClassRoomID            *uuid.UUID `json:"class_section_class_room_id,omitempty"`
+	ClassSectionClassRoomSlugCache     *string    `json:"class_section_class_room_slug_cache,omitempty"`
+	ClassSectionClassRoomNameCache     *string    `json:"class_section_class_room_name_cache,omitempty"`
+	ClassSectionClassRoomLocationCache *string    `json:"class_section_class_room_location_cache,omitempty"`
 
 	// TERM
-	ClassSectionAcademicTermID                   *uuid.UUID `json:"class_section_academic_term_id,omitempty"`
-	ClassSectionAcademicTermNameSnapshot         *string    `json:"class_section_academic_term_name_snapshot,omitempty"`
-	ClassSectionAcademicTermSlugSnapshot         *string    `json:"class_section_academic_term_slug_snapshot,omitempty"`
-	ClassSectionAcademicTermAcademicYearSnapshot *string    `json:"class_section_academic_year_snapshot,omitempty"`
-	ClassSectionAcademicTermAngkatanSnapshot     *int       `json:"class_section_angkatan_snapshot,omitempty"`
+	ClassSectionAcademicTermID                *uuid.UUID `json:"class_section_academic_term_id,omitempty"`
+	ClassSectionAcademicTermNameCache         *string    `json:"class_section_academic_term_name_cache,omitempty"`
+	ClassSectionAcademicTermSlugCache         *string    `json:"class_section_academic_term_slug_cache,omitempty"`
+	ClassSectionAcademicTermAcademicYearCache *string    `json:"class_section_academic_term_academic_year_cache,omitempty"`
+	ClassSectionAcademicTermAngkatanCache     *int       `json:"class_section_academic_term_angkatan_cache,omitempty"`
 
 	SubjectTeachers []csstModel.ClassSectionSubjectTeacherModel `json:"class_section_subject_teachers,omitempty"`
 }
 
-// FromModelsCompact: mapping dari []ClassSectionModel → []ClassSectionCompact
+// FromModelsClassSectionCompact: mapping dari []ClassSectionModel → []ClassSectionCompact
 func FromModelsClassSectionCompact(rows []m.ClassSectionModel) []ClassSectionCompact {
 	out := make([]ClassSectionCompact, 0, len(rows))
 	for _, cs := range rows {
@@ -94,9 +97,11 @@ func FromModelsClassSectionCompact(rows []m.ClassSectionModel) []ClassSectionCom
 			ClassSectionCode:     cs.ClassSectionCode,
 			ClassSectionSchedule: cs.ClassSectionSchedule,
 
-			ClassSectionCapacity:      cs.ClassSectionCapacity,
-			ClassSectionTotalStudents: cs.ClassSectionTotalStudents,
-			ClassSectionIsActive:      cs.ClassSectionIsActive,
+			// Kuota
+			ClassSectionQuotaTotal: cs.ClassSectionQuotaTotal,
+			ClassSectionQuotaTaken: cs.ClassSectionQuotaTaken,
+
+			ClassSectionIsActive: cs.ClassSectionIsActive,
 
 			ClassSectionTotalStudentsActive:       cs.ClassSectionTotalStudentsActive,
 			ClassSectionTotalStudentsMale:         cs.ClassSectionTotalStudentsMale,
@@ -111,36 +116,37 @@ func FromModelsClassSectionCompact(rows []m.ClassSectionModel) []ClassSectionCom
 			ClassSectionGroupURL: cs.ClassSectionGroupURL,
 			ClassSectionImageURL: cs.ClassSectionImageURL,
 
-			ClassSectionSchoolTeacherID:           cs.ClassSectionSchoolTeacherID,
-			ClassSectionSchoolTeacherSlugSnapshot: cs.ClassSectionSchoolTeacherSlugSnapshot,
+			ClassSectionSchoolTeacherID:        cs.ClassSectionSchoolTeacherID,
+			ClassSectionSchoolTeacherSlugCache: cs.ClassSectionSchoolTeacherSlugCache,
 
-			ClassSectionClassRoomID:               cs.ClassSectionClassRoomID,
-			ClassSectionClassRoomSlugSnapshot:     cs.ClassSectionClassRoomSlugSnapshot,
-			ClassSectionClassRoomNameSnapshot:     cs.ClassSectionClassRoomNameSnapshot,
-			ClassSectionClassRoomLocationSnapshot: cs.ClassSectionClassRoomLocationSnapshot,
+			ClassSectionClassRoomID:            cs.ClassSectionClassRoomID,
+			ClassSectionClassRoomSlugCache:     cs.ClassSectionClassRoomSlugCache,
+			ClassSectionClassRoomNameCache:     cs.ClassSectionClassRoomNameCache,
+			ClassSectionClassRoomLocationCache: cs.ClassSectionClassRoomLocationCache,
 
-			// --- NEW: class snapshots ---
-			ClassSectionClassNameSnapshot: cs.ClassSectionClassNameSnapshot,
-			ClassSectionClassSlugSnapshot: cs.ClassSectionClassSlugSnapshot,
+			// class cache
+			ClassSectionClassNameCache: cs.ClassSectionClassNameCache,
+			ClassSectionClassSlugCache: cs.ClassSectionClassSlugCache,
 
-			// --- NEW: parent snapshots ---
-			ClassSectionClassParentID:            cs.ClassSectionClassParentID,
-			ClassSectionClassParentNameSnapshot:  cs.ClassSectionClassParentNameSnapshot,
-			ClassSectionClassParentSlugSnapshot:  cs.ClassSectionClassParentSlugSnapshot,
-			ClassSectionClassParentLevelSnapshot: cs.ClassSectionClassParentLevelSnapshot,
+			// parent cache
+			ClassSectionClassParentID:         cs.ClassSectionClassParentID,
+			ClassSectionClassParentNameCache:  cs.ClassSectionClassParentNameCache,
+			ClassSectionClassParentSlugCache:  cs.ClassSectionClassParentSlugCache,
+			ClassSectionClassParentLevelCache: cs.ClassSectionClassParentLevelCache,
 
 			// TERM
-			ClassSectionAcademicTermID:                   cs.ClassSectionAcademicTermID,
-			ClassSectionAcademicTermNameSnapshot:         cs.ClassSectionAcademicTermNameSnapshot,
-			ClassSectionAcademicTermSlugSnapshot:         cs.ClassSectionAcademicTermSlugSnapshot,
-			ClassSectionAcademicTermAcademicYearSnapshot: cs.ClassSectionAcademicTermAcademicYearSnapshot,
-			ClassSectionAcademicTermAngkatanSnapshot:     cs.ClassSectionAcademicTermAngkatanSnapshot,
+			ClassSectionAcademicTermID:                cs.ClassSectionAcademicTermID,
+			ClassSectionAcademicTermNameCache:         cs.ClassSectionAcademicTermNameCache,
+			ClassSectionAcademicTermSlugCache:         cs.ClassSectionAcademicTermSlugCache,
+			ClassSectionAcademicTermAcademicYearCache: cs.ClassSectionAcademicTermAcademicYearCache,
+			ClassSectionAcademicTermAngkatanCache:     cs.ClassSectionAcademicTermAngkatanCache,
 		}
 
-		if t := teacherLiteFromJSON(cs.ClassSectionSchoolTeacherSnapshot); t != nil {
+		// Homeroom & assistant teacher dari JSON cache
+		if t := teacherLiteFromJSON(cs.ClassSectionSchoolTeacherCache); t != nil {
 			item.HomeroomTeacher = t
 		}
-		if t := teacherLiteFromJSON(cs.ClassSectionAssistantSchoolTeacherSnapshot); t != nil {
+		if t := teacherLiteFromJSON(cs.ClassSectionAssistantSchoolTeacherCache); t != nil {
 			item.AssistantTeacher = t
 		}
 

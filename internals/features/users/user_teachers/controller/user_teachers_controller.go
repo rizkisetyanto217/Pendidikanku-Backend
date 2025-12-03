@@ -109,7 +109,7 @@ func isTeacherProfileCompleted(m *model.UserTeacherModel) bool {
 	// - Whatsapp
 	// - Gender
 	// - Field KEAHLIAN atau ShortBio
-	nameOK := strings.TrimSpace(m.UserTeacherNameSnapshot) != ""
+	nameOK := strings.TrimSpace(m.UserTeacherFullNameCache) != ""
 	waOK := trim(m.UserTeacherWhatsappURL) != ""
 	genderOK := trim(m.UserTeacherGender) != ""
 	fieldOK := trim(m.UserTeacherField) != "" || trim(m.UserTeacherShortBio) != ""
@@ -146,7 +146,7 @@ func parseMultipartNoPayload(c *fiber.Ctx, rid string, req *userdto.CreateUserTe
 	get := func(k string) string { return strings.TrimSpace(c.FormValue(k)) }
 
 	// wajib
-	req.UserTeacherNameSnapshot = get("user_teacher_name_snapshot")
+	req.UserTeacherFullNameCache = get("user_teacher_full_name_cache")
 
 	// profil ringkas
 	req.UserTeacherField = get("user_teacher_field")
@@ -280,7 +280,7 @@ func (uc *UserTeacherController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 	log.Printf("[user-teacher#create] reqid=%s validation OK name=%q field=%q expYears=%v",
-		rid, req.UserTeacherNameSnapshot, req.UserTeacherField, req.UserTeacherExperienceYears)
+		rid, req.UserTeacherFullNameCache, req.UserTeacherField, req.UserTeacherExperienceYears)
 
 	// --- pastikan 1 user = 1 profile ---
 	var exist int64
@@ -484,7 +484,7 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 	}
 
 	// ringkas
-	applyIfChanged("user_teacher_name_snapshot", before.UserTeacherNameSnapshot, m.UserTeacherNameSnapshot)
+	applyIfChanged("user_teacher_full_name_cache", before.UserTeacherFullNameCache, m.UserTeacherFullNameCache)
 	applyIfChangedStr("user_teacher_field", before.UserTeacherField, m.UserTeacherField)
 	applyIfChangedStr("user_teacher_short_bio", before.UserTeacherShortBio, m.UserTeacherShortBio)
 	applyIfChangedStr("user_teacher_long_bio", before.UserTeacherLongBio, m.UserTeacherLongBio)
@@ -551,7 +551,7 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 
 	// === SNAPSHOT SYNC ke school_teachers ===
 	changedSnapshot :=
-		before.UserTeacherNameSnapshot != m.UserTeacherNameSnapshot ||
+		before.UserTeacherFullNameCache != m.UserTeacherFullNameCache ||
 			derefStr(before.UserTeacherAvatarURL) != derefStr(m.UserTeacherAvatarURL) ||
 			derefStr(before.UserTeacherWhatsappURL) != derefStr(m.UserTeacherWhatsappURL) ||
 			derefStr(before.UserTeacherTitlePrefix) != derefStr(m.UserTeacherTitlePrefix) ||
@@ -560,16 +560,16 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 	if changedSnapshot {
 
 		set := map[string]any{
-			"school_teacher_user_teacher_name_snapshot":         m.UserTeacherNameSnapshot,
-			"school_teacher_user_teacher_avatar_url_snapshot":   m.UserTeacherAvatarURL,
-			"school_teacher_user_teacher_whatsapp_url_snapshot": m.UserTeacherWhatsappURL,
-			"school_teacher_user_teacher_title_prefix_snapshot": m.UserTeacherTitlePrefix,
-			"school_teacher_user_teacher_title_suffix_snapshot": m.UserTeacherTitleSuffix,
-			"school_teacher_updated_at":                         time.Now(),
+			"school_teacher_user_teacher_full_name_cache":    m.UserTeacherFullNameCache,
+			"school_teacher_user_teacher_avatar_url_cache":   m.UserTeacherAvatarURL,
+			"school_teacher_user_teacher_whatsapp_url_cache": m.UserTeacherWhatsappURL,
+			"school_teacher_user_teacher_title_prefix_cache": m.UserTeacherTitlePrefix,
+			"school_teacher_user_teacher_title_suffix_cache": m.UserTeacherTitleSuffix,
+			"school_teacher_updated_at":                      time.Now(),
 		}
 
 		// Guard opsional: kalau migrasinya belum naik, jangan bikin 500.
-		if !uc.DB.Migrator().HasColumn(&schoolTeacherModel.SchoolTeacherModel{}, "school_teacher_user_teacher_name_snapshot") {
+		if !uc.DB.Migrator().HasColumn(&schoolTeacherModel.SchoolTeacherModel{}, "school_teacher_user_teacher_user_full_name_cache") {
 			log.Printf("[user-teacher#patch] snapshot columns not found — skip sync to school_teachers")
 		} else {
 			if err := uc.DB.Model(&schoolTeacherModel.SchoolTeacherModel{}).
@@ -588,7 +588,7 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 		// --------------------------------
 		hasTeacherSnap := uc.DB.Migrator().HasColumn(&classsectionModel.ClassSectionModel{}, "class_section_teacher_snapshot")
 		hasAssistantSnap := uc.DB.Migrator().HasColumn(&classsectionModel.ClassSectionModel{}, "class_section_assistant_teacher_snapshot")
-		hasSnapUpdatedAt := uc.DB.Migrator().HasColumn(&classsectionModel.ClassSectionModel{}, "class_section_snapshot_updated_at")
+
 
 		if !(hasTeacherSnap || hasAssistantSnap) {
 			log.Printf("[user-teacher#patch] class_sections snapshot columns not found — skip sync to class_sections")
@@ -613,7 +613,7 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 				}
 				payload := smallTeacherSnap{
 					UserTeacherID: m.UserTeacherID,
-					Name:          m.UserTeacherNameSnapshot,
+					Name:          m.UserTeacherFullNameCache,
 					AvatarURL:     m.UserTeacherAvatarURL,
 					WhatsappURL:   m.UserTeacherWhatsappURL,
 					TitlePrefix:   m.UserTeacherTitlePrefix,
@@ -631,10 +631,7 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 				if hasAssistantSnap {
 					setAssistant["class_section_assistant_teacher_snapshot"] = jsonb
 				}
-				if hasSnapUpdatedAt {
-					setTeacher["class_section_snapshot_updated_at"] = now
-					setAssistant["class_section_snapshot_updated_at"] = now
-				}
+
 
 				if hasTeacherSnap {
 					if err := uc.DB.
@@ -689,7 +686,7 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 				}
 				minSnap := teacherMiniSnap{
 					UserTeacherID: m.UserTeacherID,
-					Name:          m.UserTeacherNameSnapshot,
+					Name:          m.UserTeacherFullNameCache,
 					AvatarURL:     m.UserTeacherAvatarURL,
 					WhatsappURL:   m.UserTeacherWhatsappURL,
 					TitlePrefix:   m.UserTeacherTitlePrefix,

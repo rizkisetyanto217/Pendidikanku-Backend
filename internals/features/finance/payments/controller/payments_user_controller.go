@@ -19,7 +19,7 @@ import (
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
-	// tambahkan di import:
+	// ⬇️ ganti ke package class_enrollments
 	cendto "madinahsalam_backend/internals/features/school/classes/classes/dto"
 	cenmodel "madinahsalam_backend/internals/features/school/classes/classes/model"
 
@@ -930,8 +930,8 @@ func (h *PaymentController) generateStudentCodeForClass(
 
 	if err := tx.WithContext(ctx).Raw(`
 		SELECT 
-			NULLIF(class_academic_term_academic_year_snapshot,'') AS year,
-			NULLIF(class_academic_term_angkatan_snapshot,'')      AS angkatan
+			NULLIF(class_academic_term_academic_year_cache,'') AS year,
+			NULLIF(class_academic_term_angkatan_cache,'')      AS angkatan
 		FROM classes
 		WHERE class_id = ?
 		  AND class_school_id = ?
@@ -1101,7 +1101,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 			up.user_profile_user_id            AS user_id,
 			u.full_name                        AS full_name,
 			u.email                            AS email,
-			up.user_profile_full_name_snapshot AS snap_name
+			up.user_profile_full_name_cache AS snap_name
 		FROM user_profiles up
 		JOIN users u ON u.id = up.user_profile_user_id
 		WHERE up.user_profile_id = ?
@@ -1494,9 +1494,9 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		Name       string     `gorm:"column:class_name"`
 		Slug       string     `gorm:"column:class_slug"`
 		TermID     *uuid.UUID `gorm:"column:class_academic_term_id"`
-		TermYear   *string    `gorm:"column:class_academic_term_academic_year_snapshot"`
-		TermName   *string    `gorm:"column:class_academic_term_name_snapshot"`
-		TermSlug   *string    `gorm:"column:class_academic_term_slug_snapshot"`
+		TermYear   *string    `gorm:"column:class_academic_term_academic_year_cache"`
+		TermName   *string    `gorm:"column:class_academic_term_name_cache"`
+		TermSlug   *string    `gorm:"column:class_academic_term_slug_cache"`
 		TermAngkat *int       `gorm:"column:term_angkatan_int"` // cast dari varchar
 	}
 
@@ -1513,10 +1513,10 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 				class_name,
 				class_slug,
 				class_academic_term_id,
-				class_academic_term_academic_year_snapshot,
-				class_academic_term_name_snapshot,
-				class_academic_term_slug_snapshot,
-				NULLIF(class_academic_term_angkatan_snapshot,'')::int AS term_angkatan_int
+				class_academic_term_academic_year_cache,
+				class_academic_term_name_cache,
+				class_academic_term_slug_cache,
+				NULLIF(class_academic_term_angkatan_cache,'')::int AS term_angkatan_int
 			`).
 			Where("class_school_id = ? AND class_id IN ?", schoolID, classIDs).
 			Find(&rows).Error; err != nil {
@@ -1576,7 +1576,6 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		}
 
 		// snapshot siswa (boleh nil → NULL)
-		// snapshot siswa (boleh nil → NULL)
 		var (
 			uName, uAvatar, uWa, uParentName, uParentWa, uGender *string
 			sCode, sSlug                                         *string
@@ -1626,32 +1625,32 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		student_class_enrollments_total_due_idr,
 		student_class_enrollments_preferences,
 
-		-- SNAPSHOTS (class & student)
-		student_class_enrollments_class_name_snapshot,
-		student_class_enrollments_class_slug_snapshot,
+		-- CACHES (class & student)
+		student_class_enrollments_class_name_cache,
+		student_class_enrollments_class_slug_cache,
 
-		student_class_enrollments_user_profile_name_snapshot,
-		student_class_enrollments_user_profile_avatar_url_snapshot,
-		student_class_enrollments_user_profile_whatsapp_url_snapshot,
-		student_class_enrollments_user_profile_parent_name_snapshot,
-		student_class_enrollments_user_profile_parent_whatsapp_url_snapshot,
-		student_class_enrollments_user_profile_gender_snapshot,
+		student_class_enrollments_user_profile_name_cache,
+		student_class_enrollments_user_profile_avatar_url_cache,
+		student_class_enrollments_user_profile_whatsapp_url_cache,
+		student_class_enrollments_user_profile_parent_name_cache,
+		student_class_enrollments_user_profile_parent_whatsapp_url_cache,
+		student_class_enrollments_user_profile_gender_cache,
 
-		student_class_enrollments_student_code_snapshot,
-		student_class_enrollments_student_slug_snapshot,
+		student_class_enrollments_student_code_cache,
+		student_class_enrollments_student_slug_cache,
 
-		-- TERM (denormalized)
+		-- TERM (denormalized, cache)
 		student_class_enrollments_term_id,
-		student_class_enrollments_term_academic_year_snapshot,
-		student_class_enrollments_term_name_snapshot,
-		student_class_enrollments_term_slug_snapshot,
-		student_class_enrollments_term_angkatan_snapshot
+		student_class_enrollments_term_academic_year_cache,
+		student_class_enrollments_term_name_cache,
+		student_class_enrollments_term_slug_cache,
+		student_class_enrollments_term_angkatan_cache
 	)
 	VALUES (?, ?, ?, 'initiated', ?, ?::jsonb,
-	        ?, ?,         -- class snapshots
-	        ?, ?, ?, ?, ?, ?,  -- user_profile snapshots
+	        ?, ?,         -- class caches
+	        ?, ?, ?, ?, ?, ?,  -- user_profile caches
 	        ?, ?,         -- student_code + slug
-	        ?, ?, ?, ?, ? -- term snapshots
+	        ?, ?, ?, ?, ? -- term caches
 	)
 	RETURNING student_class_enrollments_id
 `,
@@ -1847,39 +1846,39 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		// langsung isi dari snapshot yang tadi kita ambil (konsisten dengan DB)
 		if cs, ok := clsMap[items[i].ClassID]; ok {
 			if strings.TrimSpace(cs.Name) != "" {
-				dtoRow.StudentClassEnrollmentClassNameSnapshot = cs.Name
+				dtoRow.StudentClassEnrollmentClassNameCache = cs.Name
 				dtoRow.StudentClassEnrollmentClassName = cs.Name
 			}
 
 			// slug kalau mau ikutan (field DTO bertipe *string)
 			if strings.TrimSpace(cs.Slug) != "" {
 				slug := cs.Slug
-				dtoRow.StudentClassEnrollmentClassSlugSnapshot = &slug
+				dtoRow.StudentClassEnrollmentClassSlugCache = &slug
 			}
 
 			// ===== TERM snapshots (baru) =====
 			dtoRow.StudentClassEnrollmentTermID = cs.TermID
-			dtoRow.StudentClassEnrollmentTermAcademicYearSnapshot = cs.TermYear
-			dtoRow.StudentClassEnrollmentTermNameSnapshot = cs.TermName
-			dtoRow.StudentClassEnrollmentTermSlugSnapshot = cs.TermSlug
-			dtoRow.StudentClassEnrollmentTermAngkatanSnapshot = cs.TermAngkat
+			dtoRow.StudentClassEnrollmentTermAcademicYearCache = cs.TermYear
+			dtoRow.StudentClassEnrollmentTermNameCache = cs.TermName
+			dtoRow.StudentClassEnrollmentTermSlugCache = cs.TermSlug
+			dtoRow.StudentClassEnrollmentTermAngkatanCache = cs.TermAngkat
 		}
 
 		// snapshot siswa
 		if stuSnap.Name != nil && strings.TrimSpace(*stuSnap.Name) != "" {
 			name := strings.TrimSpace(*stuSnap.Name)
-			dtoRow.StudentClassEnrollmentUserProfileNameSnapshot = name
+			dtoRow.StudentClassEnrollmentUserProfileNameCache = name
 			dtoRow.StudentClassEnrollmentStudentName = name
 		}
 
 		if stuSnap.Code != nil && strings.TrimSpace(*stuSnap.Code) != "" {
 			code := strings.TrimSpace(*stuSnap.Code)
-			dtoRow.StudentClassEnrollmentStudentCodeSnapshot = &code
+			dtoRow.StudentClassEnrollmentStudentCodeCache = &code
 		}
 
 		if stuSnap.Slug != nil && strings.TrimSpace(*stuSnap.Slug) != "" {
 			slug := strings.TrimSpace(*stuSnap.Slug)
-			dtoRow.StudentClassEnrollmentStudentSlugSnapshot = &slug
+			dtoRow.StudentClassEnrollmentStudentSlugCache = &slug
 		}
 
 		enrollDTOs = append(enrollDTOs, dtoRow)

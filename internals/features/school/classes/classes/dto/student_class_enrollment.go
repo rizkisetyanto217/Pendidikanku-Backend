@@ -28,6 +28,7 @@ type CreateStudentClassEnrollmentRequest struct {
 }
 
 // Update mutable fields except status (PATCH /:id)
+// Update mutable fields except status (PATCH /:id)
 type UpdateStudentClassEnrollmentRequest struct {
 	TotalDueIDR *int64                 `json:"student_class_enrollments_total_due_idr"`
 	Preferences map[string]interface{} `json:"student_class_enrollments_preferences"`
@@ -68,7 +69,7 @@ type ListStudentClassEnrollmentQuery struct {
 	// optional: kalau mau mapping ke entitas lain
 	AcademicTermID *uuid.UUID `query:"academic_term_id"`
 
-	// simple search (snapshots: student / class / term)
+	// simple search (snapshots/cache: student / class / term)
 	Q string `query:"q"`
 
 	// paging & sort
@@ -119,32 +120,32 @@ type StudentClassEnrollmentResponse struct {
 
 	StudentClassEnrollmentPreferences map[string]interface{} `json:"student_class_enrollments_preferences,omitempty"`
 
-	// ===== Snapshots dari classes (sesuai DDL & model) =====
-	StudentClassEnrollmentClassNameSnapshot string  `json:"student_class_enrollments_class_name_snapshot"`
-	StudentClassEnrollmentClassSlugSnapshot *string `json:"student_class_enrollments_class_slug_snapshot,omitempty"`
+	// ===== Cache dari classes (sesuai model) =====
+	StudentClassEnrollmentClassNameCache string  `json:"student_class_enrollments_class_name_cache"`
+	StudentClassEnrollmentClassSlugCache *string `json:"student_class_enrollments_class_slug_cache,omitempty"`
 
-	// ===== SNAPSHOT dari school_students / user_profile =====
-	StudentClassEnrollmentUserProfileNameSnapshot              string  `json:"student_class_enrollments_user_profile_name_snapshot"`
-	StudentClassEnrollmentUserProfileAvatarURLSnapshot         *string `json:"student_class_enrollments_user_profile_avatar_url_snapshot,omitempty"`
-	StudentClassEnrollmentUserProfileWhatsappURLSnapshot       *string `json:"student_class_enrollments_user_profile_whatsapp_url_snapshot,omitempty"`
-	StudentClassEnrollmentUserProfileParentNameSnapshot        *string `json:"student_class_enrollments_user_profile_parent_name_snapshot,omitempty"`
-	StudentClassEnrollmentUserProfileParentWhatsappURLSnapshot *string `json:"student_class_enrollments_user_profile_parent_whatsapp_url_snapshot,omitempty"`
-	StudentClassEnrollmentUserProfileGenderSnapshot            *string `json:"student_class_enrollments_user_profile_gender_snapshot,omitempty"`
+	// ===== CACHE dari school_students / user_profile =====
+	StudentClassEnrollmentUserProfileNameCache              string  `json:"student_class_enrollments_user_profile_name_cache"`
+	StudentClassEnrollmentUserProfileAvatarURLCache         *string `json:"student_class_enrollments_user_profile_avatar_url_cache,omitempty"`
+	StudentClassEnrollmentUserProfileWhatsappURLCache       *string `json:"student_class_enrollments_user_profile_whatsapp_url_cache,omitempty"`
+	StudentClassEnrollmentUserProfileParentNameCache        *string `json:"student_class_enrollments_user_profile_parent_name_cache,omitempty"`
+	StudentClassEnrollmentUserProfileParentWhatsappURLCache *string `json:"student_class_enrollments_user_profile_parent_whatsapp_url_cache,omitempty"`
+	StudentClassEnrollmentUserProfileGenderCache            *string `json:"student_class_enrollments_user_profile_gender_cache,omitempty"`
 
-	StudentClassEnrollmentStudentCodeSnapshot *string `json:"student_class_enrollments_student_code_snapshot,omitempty"`
-	StudentClassEnrollmentStudentSlugSnapshot *string `json:"student_class_enrollments_student_slug_snapshot,omitempty"`
+	StudentClassEnrollmentStudentCodeCache *string `json:"student_class_enrollments_student_code_cache,omitempty"`
+	StudentClassEnrollmentStudentSlugCache *string `json:"student_class_enrollments_student_slug_cache,omitempty"`
 
-	// ===== Denormalized TERM =====
-	StudentClassEnrollmentTermID                   *uuid.UUID `json:"student_class_enrollments_term_id,omitempty"`
-	StudentClassEnrollmentTermAcademicYearSnapshot *string    `json:"student_class_enrollments_term_academic_year_snapshot,omitempty"`
-	StudentClassEnrollmentTermNameSnapshot         *string    `json:"student_class_enrollments_term_name_snapshot,omitempty"`
-	StudentClassEnrollmentTermSlugSnapshot         *string    `json:"student_class_enrollments_term_slug_snapshot,omitempty"`
-	StudentClassEnrollmentTermAngkatanSnapshot     *int       `json:"student_class_enrollments_term_angkatan_snapshot,omitempty"`
+	// ===== Denormalized TERM (cache) =====
+	StudentClassEnrollmentTermID                *uuid.UUID `json:"student_class_enrollments_term_id,omitempty"`
+	StudentClassEnrollmentTermAcademicYearCache *string    `json:"student_class_enrollments_term_academic_year_cache,omitempty"`
+	StudentClassEnrollmentTermNameCache         *string    `json:"student_class_enrollments_term_name_cache,omitempty"`
+	StudentClassEnrollmentTermSlugCache         *string    `json:"student_class_enrollments_term_slug_cache,omitempty"`
+	StudentClassEnrollmentTermAngkatanCache     *int       `json:"student_class_enrollments_term_angkatan_cache,omitempty"`
 
 	// ===== CLASS SECTION (baru, opsional) =====
-	StudentClassEnrollmentClassSectionID           *uuid.UUID `json:"student_class_enrollments_class_section_id"`
-	StudentClassEnrollmentClassSectionNameSnapshot *string    `json:"student_class_enrollments_class_section_name_snapshot"`
-	StudentClassEnrollmentClassSectionSlugSnapshot *string    `json:"student_class_enrollments_class_section_slug_snapshot"`
+	StudentClassEnrollmentClassSectionID        *uuid.UUID `json:"student_class_enrollments_class_section_id"`
+	StudentClassEnrollmentClassSectionNameCache *string    `json:"student_class_enrollments_class_section_name_cache"`
+	StudentClassEnrollmentClassSectionSlugCache *string    `json:"student_class_enrollments_class_section_slug_cache"`
 
 	// Jejak waktu (audit)
 	StudentClassEnrollmentAppliedAt    time.Time  `json:"student_class_enrollments_applied_at"`
@@ -157,9 +158,8 @@ type StudentClassEnrollmentResponse struct {
 	StudentClassEnrollmentCreatedAt time.Time `json:"student_class_enrollments_created_at"`
 	StudentClassEnrollmentUpdatedAt time.Time `json:"student_class_enrollments_updated_at"`
 
-	// ===== Convenience (mirror snapshot, bukan kolom DB) =====
-	// pakai nama lama biar frontend nggak rusak,
-	// tapi isi dari user_profile_name_snapshot
+	// ===== Convenience (mirror cache, bukan kolom DB) =====
+	// pakai nama lebih pendek buat konsumsi frontend
 	StudentClassEnrollmentStudentName string  `json:"student_class_enrollments_student_name,omitempty"`
 	StudentClassEnrollmentUsername    *string `json:"student_class_enrollments_username,omitempty"`
 	StudentClassEnrollmentClassName   string  `json:"student_class_enrollments_class_name,omitempty"`
@@ -184,9 +184,9 @@ func FromModelStudentClassEnrollment(mo *m.StudentClassEnrollmentModel) StudentC
 		StudentClassEnrollmentStatus:      mo.StudentClassEnrollmentsStatus,
 		StudentClassEnrollmentTotalDueIDR: mo.StudentClassEnrollmentsTotalDueIDR,
 
-		// snapshots (class)
-		StudentClassEnrollmentClassNameSnapshot: mo.StudentClassEnrollmentsClassNameSnapshot,
-		StudentClassEnrollmentClassSlugSnapshot: mo.StudentClassEnrollmentsClassSlugSnapshot,
+		// class cache
+		StudentClassEnrollmentClassNameCache: mo.StudentClassEnrollmentsClassNameCache,
+		StudentClassEnrollmentClassSlugCache: mo.StudentClassEnrollmentsClassSlugCache,
 
 		// audit
 		StudentClassEnrollmentAppliedAt:    mo.StudentClassEnrollmentsAppliedAt,
@@ -200,31 +200,31 @@ func FromModelStudentClassEnrollment(mo *m.StudentClassEnrollmentModel) StudentC
 		StudentClassEnrollmentUpdatedAt: mo.StudentClassEnrollmentsUpdatedAt,
 
 		// mirrors (convenience)
-		StudentClassEnrollmentStudentName: mo.StudentClassEnrollmentsUserProfileNameSnapshot,
-		StudentClassEnrollmentClassName:   mo.StudentClassEnrollmentsClassNameSnapshot,
+		StudentClassEnrollmentStudentName: mo.StudentClassEnrollmentsUserProfileNameCache,
+		StudentClassEnrollmentClassName:   mo.StudentClassEnrollmentsClassNameCache,
 	}
 
-	// SNAPSHOT user_profile / student
-	resp.StudentClassEnrollmentUserProfileNameSnapshot = mo.StudentClassEnrollmentsUserProfileNameSnapshot
-	resp.StudentClassEnrollmentUserProfileAvatarURLSnapshot = mo.StudentClassEnrollmentsUserProfileAvatarURLSnapshot
-	resp.StudentClassEnrollmentUserProfileWhatsappURLSnapshot = mo.StudentClassEnrollmentsUserProfileWhatsappURLSnapshot
-	resp.StudentClassEnrollmentUserProfileParentNameSnapshot = mo.StudentClassEnrollmentsUserProfileParentNameSnapshot
-	resp.StudentClassEnrollmentUserProfileParentWhatsappURLSnapshot = mo.StudentClassEnrollmentsUserProfileParentWhatsappURLSnapshot
-	resp.StudentClassEnrollmentUserProfileGenderSnapshot = mo.StudentClassEnrollmentsUserProfileGenderSnapshot
-	resp.StudentClassEnrollmentStudentCodeSnapshot = mo.StudentClassEnrollmentsStudentCodeSnapshot
-	resp.StudentClassEnrollmentStudentSlugSnapshot = mo.StudentClassEnrollmentsStudentSlugSnapshot
+	// CACHE user_profile / student
+	resp.StudentClassEnrollmentUserProfileNameCache = mo.StudentClassEnrollmentsUserProfileNameCache
+	resp.StudentClassEnrollmentUserProfileAvatarURLCache = mo.StudentClassEnrollmentsUserProfileAvatarURLCache
+	resp.StudentClassEnrollmentUserProfileWhatsappURLCache = mo.StudentClassEnrollmentsUserProfileWhatsappURLCache
+	resp.StudentClassEnrollmentUserProfileParentNameCache = mo.StudentClassEnrollmentsUserProfileParentNameCache
+	resp.StudentClassEnrollmentUserProfileParentWhatsappURLCache = mo.StudentClassEnrollmentsUserProfileParentWhatsappURLCache
+	resp.StudentClassEnrollmentUserProfileGenderCache = mo.StudentClassEnrollmentsUserProfileGenderCache
+	resp.StudentClassEnrollmentStudentCodeCache = mo.StudentClassEnrollmentsStudentCodeCache
+	resp.StudentClassEnrollmentStudentSlugCache = mo.StudentClassEnrollmentsStudentSlugCache
 
-	// Term
+	// Term cache
 	resp.StudentClassEnrollmentTermID = mo.StudentClassEnrollmentsTermID
-	resp.StudentClassEnrollmentTermAcademicYearSnapshot = mo.StudentClassEnrollmentsTermAcademicYearSnapshot
-	resp.StudentClassEnrollmentTermNameSnapshot = mo.StudentClassEnrollmentsTermNameSnapshot
-	resp.StudentClassEnrollmentTermSlugSnapshot = mo.StudentClassEnrollmentsTermSlugSnapshot
-	resp.StudentClassEnrollmentTermAngkatanSnapshot = mo.StudentClassEnrollmentsTermAngkatanSnapshot
+	resp.StudentClassEnrollmentTermAcademicYearCache = mo.StudentClassEnrollmentsTermAcademicYearCache
+	resp.StudentClassEnrollmentTermNameCache = mo.StudentClassEnrollmentsTermNameCache
+	resp.StudentClassEnrollmentTermSlugCache = mo.StudentClassEnrollmentsTermSlugCache
+	resp.StudentClassEnrollmentTermAngkatanCache = mo.StudentClassEnrollmentsTermAngkatanCache
 
-	// Class section
+	// Class section cache
 	resp.StudentClassEnrollmentClassSectionID = mo.StudentClassEnrollmentsClassSectionID
-	resp.StudentClassEnrollmentClassSectionNameSnapshot = mo.StudentClassEnrollmentsClassSectionNameSnapshot
-	resp.StudentClassEnrollmentClassSectionSlugSnapshot = mo.StudentClassEnrollmentsClassSectionSlugSnapshot
+	resp.StudentClassEnrollmentClassSectionNameCache = mo.StudentClassEnrollmentsClassSectionNameCache
+	resp.StudentClassEnrollmentClassSectionSlugCache = mo.StudentClassEnrollmentsClassSectionSlugCache
 
 	// Payment
 	resp.StudentClassEnrollmentPaymentID = mo.StudentClassEnrollmentsPaymentID

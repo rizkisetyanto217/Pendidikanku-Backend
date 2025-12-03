@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS student_class_sections (
   -- section (kelas paralel) & tenant
   student_class_section_section_id UUID NOT NULL,
   -- slug adalah teks; gunakan panjang aman
-  student_class_section_section_slug_snapshot VARCHAR(160) NOT NULL,
+  student_class_section_section_slug_cache VARCHAR(160) NOT NULL,
 
   -- lifecycle enrolment
   student_class_section_status TEXT NOT NULL DEFAULT 'active'
@@ -59,16 +59,16 @@ CREATE TABLE IF NOT EXISTS student_class_sections (
   student_class_section_graded_at TIMESTAMPTZ,
 
   -- Snapshot users_profile (per siswa saat enrol ke section)
-  student_class_section_user_profile_name_snapshot                VARCHAR(80),
-  student_class_section_user_profile_avatar_url_snapshot          VARCHAR(255),
-  student_class_section_user_profile_whatsapp_url_snapshot        VARCHAR(50),
-  student_class_section_user_profile_parent_name_snapshot         VARCHAR(80),
-  student_class_section_user_profile_parent_whatsapp_url_snapshot VARCHAR(50),
-  -- NEW: gender snapshot
-  student_class_section_user_profile_gender_snapshot              VARCHAR(20),
+  student_class_section_user_profile_name_cache                VARCHAR(80),
+  student_class_section_user_profile_avatar_url_cache          VARCHAR(255),
+  student_class_section_user_profile_whatsapp_url_cache        VARCHAR(50),
+  student_class_section_user_profile_parent_name_cache         VARCHAR(80),
+  student_class_section_user_profile_parent_whatsapp_url_cache VARCHAR(50),
+  -- NEW: gender cache
+  student_class_section_user_profile_gender_cache              VARCHAR(20),
 
-  -- NEW: snapshot NIS / kode siswa
-  student_class_section_student_code_snapshot VARCHAR(50),
+  -- NEW: cache NIS / kode siswa
+  student_class_section_student_code_cache VARCHAR(50),
 
   -- jejak waktu enrolment
   student_class_section_assigned_at   DATE NOT NULL DEFAULT CURRENT_DATE,

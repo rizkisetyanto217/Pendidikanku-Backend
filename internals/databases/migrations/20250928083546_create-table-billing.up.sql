@@ -127,7 +127,7 @@ CREATE TABLE IF NOT EXISTS fee_rules (
   fee_rule_school_student_id UUID,
 
   -- Periode (salah satu: term_id ATAU year+month)
-  fee_rule_term_id           UUID REFERENCES academic_terms(academic_term_id) ON DELETE SET NULL,
+  fee_rule_term_id           UUID,
   fee_rule_month             SMALLINT,
   fee_rule_year              SMALLINT,
 
@@ -167,10 +167,18 @@ CREATE TABLE IF NOT EXISTS fee_rules (
   fee_rule_updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   fee_rule_deleted_at        TIMESTAMPTZ,
 
+  -- TENANT-SAFE FK ke academic_terms
+  CONSTRAINT fk_fee_rule_term_tenant
+    FOREIGN KEY (fee_rule_term_id, fee_rule_school_id)
+    REFERENCES academic_terms (academic_term_id, academic_term_school_id)
+    ON UPDATE CASCADE ON DELETE SET NULL,
+
   -- CHECK minimal (tanpa subquery)
   CONSTRAINT chk_fee_rule_amounts_json_array
-    CHECK (jsonb_typeof(fee_rule_amount_options) = 'array'
-           AND jsonb_array_length(fee_rule_amount_options) >= 1)
+    CHECK (
+      jsonb_typeof(fee_rule_amount_options) = 'array'
+      AND jsonb_array_length(fee_rule_amount_options) >= 1
+    )
 );
 
 -- =========================
@@ -209,13 +217,13 @@ CREATE TABLE IF NOT EXISTS bill_batches (
   bill_batch_school_id  UUID NOT NULL
     REFERENCES schools(school_id) ON DELETE CASCADE,
 
-  bill_batch_class_id   UUID REFERENCES classes(class_id) ON DELETE SET NULL,
-  bill_batch_section_id UUID REFERENCES class_sections(class_section_id) ON DELETE SET NULL,
+  bill_batch_class_id   UUID,
+  bill_batch_section_id UUID,
 
   -- Periode (untuk recurring seperti SPP)
   bill_batch_month      SMALLINT CHECK (bill_batch_month BETWEEN 1 AND 12),
   bill_batch_year       SMALLINT CHECK (bill_batch_year BETWEEN 2000 AND 2100),
-  bill_batch_term_id    UUID REFERENCES academic_terms(academic_term_id) ON UPDATE CASCADE ON DELETE SET NULL,
+  bill_batch_term_id    UUID,
 
   -- Katalog jenis + denorm code + option untuk one-off
   bill_batch_general_billing_kind_id UUID
@@ -238,6 +246,20 @@ CREATE TABLE IF NOT EXISTS bill_batches (
   bill_batch_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   bill_batch_deleted_at TIMESTAMPTZ,
 
+  -- TENANT-SAFE FK komposit
+  CONSTRAINT fk_bill_batch_class_tenant
+    FOREIGN KEY (bill_batch_class_id, bill_batch_school_id)
+    REFERENCES classes (class_id, class_school_id)
+    ON UPDATE CASCADE ON DELETE SET NULL,
+  CONSTRAINT fk_bill_batch_section_tenant
+    FOREIGN KEY (bill_batch_section_id, bill_batch_school_id)
+    REFERENCES class_sections (class_section_id, class_section_school_id)
+    ON UPDATE CASCADE ON DELETE SET NULL,
+  CONSTRAINT fk_bill_batch_term_tenant
+    FOREIGN KEY (bill_batch_term_id, bill_batch_school_id)
+    REFERENCES academic_terms (academic_term_id, academic_term_school_id)
+    ON UPDATE CASCADE ON DELETE SET NULL,
+
   CONSTRAINT ck_bill_batches_xor_class_section
     CHECK (
       (bill_batch_class_id IS NOT NULL AND bill_batch_section_id IS NULL)
@@ -250,25 +272,51 @@ CREATE TABLE IF NOT EXISTS bill_batches (
 -- INDEXES: bill_batches
 -- =========================
 CREATE UNIQUE INDEX IF NOT EXISTS uq_batch_periodic_section
-  ON bill_batches (bill_batch_school_id, bill_batch_bill_code, bill_batch_section_id, bill_batch_term_id, bill_batch_year, bill_batch_month)
+  ON bill_batches (
+    bill_batch_school_id,
+    bill_batch_bill_code,
+    bill_batch_section_id,
+    bill_batch_term_id,
+    bill_batch_year,
+    bill_batch_month
+  )
   WHERE bill_batch_deleted_at IS NULL
     AND bill_batch_section_id IS NOT NULL
     AND bill_batch_option_code IS NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_batch_periodic_class
-  ON bill_batches (bill_batch_school_id, bill_batch_bill_code, bill_batch_class_id, bill_batch_term_id, bill_batch_year, bill_batch_month)
+  ON bill_batches (
+    bill_batch_school_id,
+    bill_batch_bill_code,
+    bill_batch_class_id,
+    bill_batch_term_id,
+    bill_batch_year,
+    bill_batch_month
+  )
   WHERE bill_batch_deleted_at IS NULL
     AND bill_batch_class_id IS NOT NULL
     AND bill_batch_option_code IS NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_batch_oneoff_section
-  ON bill_batches (bill_batch_school_id, bill_batch_bill_code, bill_batch_section_id, bill_batch_term_id, bill_batch_option_code)
+  ON bill_batches (
+    bill_batch_school_id,
+    bill_batch_bill_code,
+    bill_batch_section_id,
+    bill_batch_term_id,
+    bill_batch_option_code
+  )
   WHERE bill_batch_deleted_at IS NULL
     AND bill_batch_section_id IS NOT NULL
     AND bill_batch_option_code IS NOT NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_batch_oneoff_class
-  ON bill_batches (bill_batch_school_id, bill_batch_bill_code, bill_batch_class_id, bill_batch_term_id, bill_batch_option_code)
+  ON bill_batches (
+    bill_batch_school_id,
+    bill_batch_bill_code,
+    bill_batch_class_id,
+    bill_batch_term_id,
+    bill_batch_option_code
+  )
   WHERE bill_batch_deleted_at IS NULL
     AND bill_batch_class_id IS NOT NULL
     AND bill_batch_option_code IS NOT NULL;
@@ -370,8 +418,23 @@ CREATE TABLE IF NOT EXISTS student_bills (
   student_bill_updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   student_bill_deleted_at        TIMESTAMPTZ,
 
+  -- TENANT-SAFE FK komposit
+  CONSTRAINT fk_student_bill_class_tenant
+    FOREIGN KEY (student_bill_class_id, student_bill_school_id)
+    REFERENCES classes (class_id, class_school_id)
+    ON UPDATE CASCADE ON DELETE SET NULL,
+  CONSTRAINT fk_student_bill_section_tenant
+    FOREIGN KEY (student_bill_section_id, student_bill_school_id)
+    REFERENCES class_sections (class_section_id, class_section_school_id)
+    ON UPDATE CASCADE ON DELETE SET NULL,
+  CONSTRAINT fk_student_bill_term_tenant
+    FOREIGN KEY (student_bill_term_id, student_bill_school_id)
+    REFERENCES academic_terms (academic_term_id, academic_term_school_id)
+    ON UPDATE CASCADE ON DELETE SET NULL,
+
   -- Idempotensi per-batch
-  CONSTRAINT uq_student_bill_per_student UNIQUE (student_bill_batch_id, student_bill_school_student_id)
+  CONSTRAINT uq_student_bill_per_student
+    UNIQUE (student_bill_batch_id, student_bill_school_student_id)
 );
 
 -- =========================

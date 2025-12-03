@@ -165,7 +165,7 @@ func (ctrl *SchoolTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 		}
 		if err := tx.Raw(`
 			SELECT
-				ut.user_teacher_name_snapshot      AS name,
+				ut.user_teacher_full_name_cache      AS name,
 				ut.user_teacher_avatar_url         AS avatar_url,
 				ut.user_teacher_whatsapp_url       AS whatsapp_url,
 				ut.user_teacher_title_prefix       AS title_prefix,
@@ -225,12 +225,12 @@ func (ctrl *SchoolTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 			SchoolTeacherCreatedAt: now,
 			SchoolTeacherUpdatedAt: now,
 
-			SchoolTeacherUserTeacherNameSnapshot:        sptr(ut.Name),
-			SchoolTeacherUserTeacherAvatarURLSnapshot:   ut.AvatarURL,
-			SchoolTeacherUserTeacherWhatsappURLSnapshot: ut.WhatsappURL,
-			SchoolTeacherUserTeacherTitlePrefixSnapshot: ut.TitlePrefix,
-			SchoolTeacherUserTeacherTitleSuffixSnapshot: ut.TitleSuffix,
-			SchoolTeacherUserTeacherGenderSnapshot:      ut.Gender,
+			SchoolTeacherUserTeacherFullNameCache:        sptr(ut.Name),
+			SchoolTeacherUserTeacherAvatarURLCache:   ut.AvatarURL,
+			SchoolTeacherUserTeacherWhatsappURLCache: ut.WhatsappURL,
+			SchoolTeacherUserTeacherTitlePrefixCache: ut.TitlePrefix,
+			SchoolTeacherUserTeacherTitleSuffixCache: ut.TitleSuffix,
+			SchoolTeacherUserTeacherGenderCache:      ut.Gender,
 			// JSONB sections & csst akan ikut default DB ('[]') kalau tidak di-set di sini
 		}
 

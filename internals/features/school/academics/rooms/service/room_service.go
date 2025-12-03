@@ -1,5 +1,5 @@
-// file: internals/features/school/classes/class_sections/snapshot/room_snapshot.go
-package snapshot
+// file: internals/features/school/classes/class_sections/cache/room_cache.go
+package cache
 
 import (
 	"encoding/json"
@@ -13,12 +13,12 @@ import (
 	"gorm.io/gorm"
 )
 
-// RoomSnapshot berisi data yang disimpan ke JSON snapshot & kolom turunan.
-type RoomSnapshot struct {
+// RoomCache berisi data yang disimpan ke JSON cache & kolom turunan.
+type RoomCache struct {
 	Name     string
 	Slug     *string
 	Location *string
-	// Metadata opsional ikut disimpan ke JSON snapshot:
+	// Metadata opsional ikut disimpan ke JSON cache:
 	Code      *string
 	Capacity  *int
 	IsVirtual bool
@@ -26,13 +26,13 @@ type RoomSnapshot struct {
 	JoinURL   *string
 }
 
-// ValidateAndSnapshotRoom membaca room dari DB + validasi tenant.
+// ValidateAndCacheRoom membaca room dari DB + validasi tenant.
 // Catatan: class_room_school_id di-cast ke TEXT agar aman walau kolom bukan UUID native.
-func ValidateAndSnapshotRoom(
+func ValidateAndCacheRoom(
 	tx *gorm.DB,
 	expectSchoolID uuid.UUID,
 	roomID uuid.UUID,
-) (*RoomSnapshot, error) {
+) (*RoomCache, error) {
 	var row struct {
 		SchoolID  string  `gorm:"column:school_id"`
 		Name      string  `gorm:"column:name"`
@@ -89,7 +89,7 @@ func ValidateAndSnapshotRoom(
 		name = "Ruang"
 	}
 
-	return &RoomSnapshot{
+	return &RoomCache{
 		Name:      name,
 		Slug:      trimPtr(row.Slug),
 		Location:  trimPtr(row.Location),
@@ -101,17 +101,17 @@ func ValidateAndSnapshotRoom(
 	}, nil
 }
 
-// ApplyRoomSnapshotToSection menulis snapshot ruang ke model section
-// (JSON + kolom turunan: *_name_snapshot, *_slug_snapshot, *_location_snapshot).
-// Catatan: fungsi ini TIDAK mengubah class_section_class_room_id_snapshot.
-// Jika ingin sekalian set ID, gunakan ApplyRoomIDAndSnapshotToSection.
-func ApplyRoomSnapshotToSection(mcs *secModel.ClassSectionModel, rs *RoomSnapshot) {
+// ApplyRoomCacheToSection menulis cache ruang ke model section
+// (JSON + kolom turunan: *_name_cache, *_slug_cache, *_location_cache).
+// Catatan: fungsi ini TIDAK mengubah class_section_class_room_id_cache.
+// Jika ingin sekalian set ID, gunakan ApplyRoomIDAndCacheToSection.
+func ApplyRoomCacheToSection(mcs *secModel.ClassSectionModel, rs *RoomCache) {
 	if rs == nil {
-		// clear snapshot JSON & turunan string
-		mcs.ClassSectionClassRoomSnapshot = datatypes.JSON([]byte("null"))
-		mcs.ClassSectionClassRoomNameSnapshot = nil
-		mcs.ClassSectionClassRoomSlugSnapshot = nil
-		mcs.ClassSectionClassRoomLocationSnapshot = nil
+		// clear cache JSON & turunan string
+		mcs.ClassSectionClassRoomCache = datatypes.JSON([]byte("null"))
+		mcs.ClassSectionClassRoomNameCache = nil
+		mcs.ClassSectionClassRoomSlugCache = nil
+		mcs.ClassSectionClassRoomLocationCache = nil
 		return
 	}
 
@@ -140,39 +140,39 @@ func ApplyRoomSnapshotToSection(mcs *secModel.ClassSectionModel, rs *RoomSnapsho
 	}
 
 	if b, err := json.Marshal(snap); err == nil {
-		mcs.ClassSectionClassRoomSnapshot = datatypes.JSON(b) // datatypes.JSON == []byte
+		mcs.ClassSectionClassRoomCache = datatypes.JSON(b) // datatypes.JSON == []byte
 	} else {
 		// fallback defensif
-		mcs.ClassSectionClassRoomSnapshot = datatypes.JSON([]byte("null"))
+		mcs.ClassSectionClassRoomCache = datatypes.JSON([]byte("null"))
 	}
 
 	// kolom turunan (string) untuk filter/sort cepat
 	name := rs.Name
-	mcs.ClassSectionClassRoomNameSnapshot = &name
+	mcs.ClassSectionClassRoomNameCache = &name
 
 	if rs.Slug != nil && strings.TrimSpace(*rs.Slug) != "" {
-		mcs.ClassSectionClassRoomSlugSnapshot = rs.Slug
+		mcs.ClassSectionClassRoomSlugCache = rs.Slug
 	} else {
-		mcs.ClassSectionClassRoomSlugSnapshot = nil
+		mcs.ClassSectionClassRoomSlugCache = nil
 	}
 
 	if rs.Location != nil && strings.TrimSpace(*rs.Location) != "" {
-		mcs.ClassSectionClassRoomLocationSnapshot = rs.Location
+		mcs.ClassSectionClassRoomLocationCache = rs.Location
 	} else {
-		mcs.ClassSectionClassRoomLocationSnapshot = nil
+		mcs.ClassSectionClassRoomLocationCache = nil
 	}
 }
 
-// ApplyRoomIDAndSnapshotToSection mengisi ID snapshot dan JSON snapshot sekaligus.
-func ApplyRoomIDAndSnapshotToSection(mcs *secModel.ClassSectionModel, roomID *uuid.UUID, rs *RoomSnapshot) {
-	// set ID snapshot (boleh nil untuk clear)
+// ApplyRoomIDAndCacheToSection mengisi ID cache dan JSON cache sekaligus.
+func ApplyRoomIDAndCacheToSection(mcs *secModel.ClassSectionModel, roomID *uuid.UUID, rs *RoomCache) {
+	// set ID cache (boleh nil untuk clear)
 	mcs.ClassSectionClassRoomID = roomID
 	// set JSON & turunan
-	ApplyRoomSnapshotToSection(mcs, rs)
+	ApplyRoomCacheToSection(mcs, rs)
 }
 
-// ToJSON mengubah RoomSnapshot → datatypes.JSON (schema sama dengan ApplyRoomSnapshotToSection)
-func ToJSON(rs *RoomSnapshot) datatypes.JSON {
+// ToJSON mengubah RoomCache → datatypes.JSON (schema sama dengan ApplyRoomCacheToSection)
+func ToJSON(rs *RoomCache) datatypes.JSON {
 	if rs == nil {
 		return datatypes.JSON([]byte("null"))
 	}

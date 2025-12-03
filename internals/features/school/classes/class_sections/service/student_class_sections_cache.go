@@ -1,5 +1,5 @@
-// file: internals/features/school/classes/class_sections/service/snapshots.go
-package snapshot
+// file: internals/features/school/classes/class_sections/service/caches.go
+package service
 
 import (
 	"context"
@@ -14,10 +14,10 @@ import (
 )
 
 // Input minimal agar tidak import ke package profiles (hindari cycle).
-type UserProfileSnapshotInput struct {
+type UserProfileCacheInput struct {
 	UserID            uuid.UUID  // user_id (opsional jika ada UserProfileID)
 	UserProfileID     *uuid.UUID // rekomendasi: kirim ini dari controller agar query hemat
-	FullNameSnapshot  *string
+	FullNameCache     *string
 	AvatarURL         *string
 	WhatsappURL       *string
 	ParentName        *string
@@ -38,11 +38,11 @@ var (
 func ensureColumns(db *gorm.DB) {
 	colsOnce.Do(func() {
 		// pakai model agar aman terhadap schema/alias
-		cols.Name = db.Migrator().HasColumn(&scsModel.StudentClassSection{}, "student_class_section_user_profile_name_snapshot")
-		cols.Avatar = db.Migrator().HasColumn(&scsModel.StudentClassSection{}, "student_class_section_user_profile_avatar_url_snapshot")
-		cols.Wa = db.Migrator().HasColumn(&scsModel.StudentClassSection{}, "student_class_section_user_profile_whatsapp_url_snapshot")
-		cols.Parent = db.Migrator().HasColumn(&scsModel.StudentClassSection{}, "student_class_section_user_profile_parent_name_snapshot")
-		cols.ParentWa = db.Migrator().HasColumn(&scsModel.StudentClassSection{}, "student_class_section_user_profile_parent_whatsapp_url_snapshot")
+		cols.Name = db.Migrator().HasColumn(&scsModel.StudentClassSection{}, "student_class_section_user_profile_name_cache")
+		cols.Avatar = db.Migrator().HasColumn(&scsModel.StudentClassSection{}, "student_class_section_user_profile_avatar_url_cache")
+		cols.Wa = db.Migrator().HasColumn(&scsModel.StudentClassSection{}, "student_class_section_user_profile_whatsapp_url_cache")
+		cols.Parent = db.Migrator().HasColumn(&scsModel.StudentClassSection{}, "student_class_section_user_profile_parent_name_cache")
+		cols.ParentWa = db.Migrator().HasColumn(&scsModel.StudentClassSection{}, "student_class_section_user_profile_parent_whatsapp_url_cache")
 		cols.UpdatedAt = db.Migrator().HasColumn(&scsModel.StudentClassSection{}, "student_class_section_updated_at")
 	})
 }
@@ -53,10 +53,10 @@ func ensureColumns(db *gorm.DB) {
 
 // Dipanggil dari controller manapun ketika profil user berubah.
 // (Nama fungsi dipertahankan untuk backward compatibility)
-func SyncUCSnapshotsFromUserProfile(ctx context.Context, db *gorm.DB, in UserProfileSnapshotInput, now time.Time) {
+func SyncUCSnapshotsFromUserProfile(ctx context.Context, db *gorm.DB, in UserProfileCacheInput, now time.Time) {
 	ensureColumns(db)
 	if !(cols.Name || cols.Avatar || cols.Wa || cols.Parent || cols.ParentWa) {
-		log.Printf("[scs/sync] snapshot columns not found — skip")
+		log.Printf("[scs/sync] cache columns not found — skip")
 		return
 	}
 
@@ -85,7 +85,7 @@ func SyncUCSnapshotsFromUserProfile(ctx context.Context, db *gorm.DB, in UserPro
 			Model(&scsModel.StudentClassSection{}).
 			Where("student_class_section_school_student_id IN ? AND student_class_section_deleted_at IS NULL", part).
 			Updates(set).Error; err != nil {
-			log.Printf("[scs/sync] update snapshots failed (batch %d-%d): %v", i, j, err)
+			log.Printf("[scs/sync] update caches failed (batch %d-%d): %v", i, j, err)
 			// lanjut batch berikutnya agar partial progress tetap jalan
 		}
 	}
@@ -95,7 +95,7 @@ func SyncUCSnapshotsFromUserProfile(ctx context.Context, db *gorm.DB, in UserPro
    Helpers
 ========================================================= */
 
-func resolveSchoolStudentIDs(ctx context.Context, db *gorm.DB, in UserProfileSnapshotInput) []uuid.UUID {
+func resolveSchoolStudentIDs(ctx context.Context, db *gorm.DB, in UserProfileCacheInput) []uuid.UUID {
 	var msIDs []uuid.UUID
 
 	q := db.WithContext(ctx).
@@ -120,24 +120,24 @@ func resolveSchoolStudentIDs(ctx context.Context, db *gorm.DB, in UserProfileSna
 	return msIDs
 }
 
-func buildUpdateSet(in UserProfileSnapshotInput, now time.Time) map[string]any {
+func buildUpdateSet(in UserProfileCacheInput, now time.Time) map[string]any {
 	set := map[string]any{}
 
 	// Nil di map → akan ditulis sebagai NULL (asalkan kolom NULLable)
 	if cols.Name {
-		set["student_class_section_user_profile_name_snapshot"] = in.FullNameSnapshot
+		set["student_class_section_user_profile_name_cache"] = in.FullNameCache
 	}
 	if cols.Avatar {
-		set["student_class_section_user_profile_avatar_url_snapshot"] = in.AvatarURL
+		set["student_class_section_user_profile_avatar_url_cache"] = in.AvatarURL
 	}
 	if cols.Wa {
-		set["student_class_section_user_profile_whatsapp_url_snapshot"] = in.WhatsappURL
+		set["student_class_section_user_profile_whatsapp_url_cache"] = in.WhatsappURL
 	}
 	if cols.Parent {
-		set["student_class_section_user_profile_parent_name_snapshot"] = in.ParentName
+		set["student_class_section_user_profile_parent_name_cache"] = in.ParentName
 	}
 	if cols.ParentWa {
-		set["student_class_section_user_profile_parent_whatsapp_url_snapshot"] = in.ParentWhatsappURL
+		set["student_class_section_user_profile_parent_whatsapp_url_cache"] = in.ParentWhatsappURL
 	}
 	if cols.UpdatedAt {
 		set["student_class_section_updated_at"] = now

@@ -1,4 +1,4 @@
-package snapshot
+package service
 
 import (
 	"encoding/json"
@@ -13,15 +13,15 @@ import (
 )
 
 /* ======================================================
-   Snapshot struct
+   Cache struct
 ====================================================== */
 
-// CSSTSnapshot sekarang lebih kaya, tapi tetap kompatibel:
+// CSSTCache sekarang lebih kaya, tapi tetap kompatibel:
 //   - field lama: Name, TeacherID, SectionID (TETAP ADA)
 //   - tambah: CSSTID, SchoolID, SubjectID, SectionName, SubjectName,
 //     SubjectCode, SubjectSlug, TeacherName, Slug, TitlePrefix/Suffix,
 //     ClassSectionSlug, SchoolTeacherSlug
-type CSSTSnapshot struct {
+type CSSTCache struct {
 	// legacy / dipakai controller
 	Name      *string    `json:"name,omitempty"`
 	TeacherID *uuid.UUID `json:"teacher_id,omitempty"`
@@ -46,10 +46,10 @@ type CSSTSnapshot struct {
 	ClassSectionSlug  *string `json:"class_section_slug,omitempty"`
 	SchoolTeacherSlug *string `json:"school_teacher_slug,omitempty"`
 
-	// 🔹 baru: snapshot attendance entry mode efektif (string enum)
+	// 🔹 baru: cache attendance entry mode efektif (string enum)
 	// disamakan key JSON-nya dengan yang di model biar gampang trace:
-	// "class_section_subject_teacher_school_attendance_entry_mode_snapshot"
-	AttendanceEntryMode *string `json:"class_section_subject_teacher_school_attendance_entry_mode_snapshot,omitempty"`
+	// "class_section_subject_teacher_school_attendance_entry_mode_cache"
+	AttendanceEntryMode *string `json:"class_section_subject_teacher_school_attendance_entry_mode_cache,omitempty"`
 }
 
 /* ======================================================
@@ -90,17 +90,17 @@ func firstExisting(cols map[string]struct{}, cands ...string) string {
 }
 
 /* ======================================================
-   Main: Validate & snapshot
+   Main: Validate & cache
 ====================================================== */
 
-// ValidateAndSnapshotCSST
+// ValidateAndCacheCSST
 // - tetap dinamis via information_schema
-// - tapi SELECT lebih banyak kolom, supaya snapshot bisa lebih kaya
-func ValidateAndSnapshotCSST(
+// - tapi SELECT lebih banyak kolom, supaya cache bisa lebih kaya
+func ValidateAndCacheCSST(
 	tx *gorm.DB,
 	expectSchoolID uuid.UUID,
 	csstID uuid.UUID,
-) (*CSSTSnapshot, error) {
+) (*CSSTCache, error) {
 	if csstID == uuid.Nil {
 		return nil, fiber.NewError(fiber.StatusBadRequest, "csst_id tidak valid")
 	}
@@ -130,16 +130,16 @@ func ValidateAndSnapshotCSST(
 		"name",
 	)
 
-	// Nama section (kelas) snapshot
+	// Nama section (kelas) cache
 	sectionNameCol := firstExisting(cols,
-		"class_section_subject_teacher_class_section_name_snapshot",
+		"class_section_subject_teacher_class_section_name_cache",
 		"class_section_name",
 		"section_name",
 	)
 
-	// Slug section snapshot (kalau ada)
+	// Slug section cache (kalau ada)
 	classSectionSlugCol := firstExisting(cols,
-		"class_section_subject_teacher_class_section_slug_snapshot",
+		"class_section_subject_teacher_class_section_slug_cache",
 		"class_section_slug",
 		"section_slug",
 	)
@@ -166,46 +166,46 @@ func ValidateAndSnapshotCSST(
 		"subject_id",
 	)
 
-	// Subject name snapshot
+	// Subject name cache
 	subjectNameCol := firstExisting(cols,
-		"class_section_subject_teacher_subject_name_snapshot",
+		"class_section_subject_teacher_subject_name_cache",
 		"subject_name",
 	)
 
-	// Subject code snapshot
+	// Subject code cache
 	subjectCodeCol := firstExisting(cols,
-		"class_section_subject_teacher_subject_code_snapshot",
+		"class_section_subject_teacher_subject_code_cache",
 		"subject_code",
 	)
 
-	// Subject slug snapshot
+	// Subject slug cache
 	subjectSlugCol := firstExisting(cols,
-		"class_section_subject_teacher_subject_slug_snapshot",
+		"class_section_subject_teacher_subject_slug_cache",
 		"subject_slug",
 	)
 
-	// Teacher name snapshot (di CSST, kalau ada)
+	// Teacher name cache (di CSST, kalau ada)
 	teacherNameCol := firstExisting(cols,
-		"class_section_subject_teacher_teacher_name_snapshot",
+		"class_section_subject_teacher_teacher_name_cache",
 		"school_teacher_name",
 		"teacher_name",
 	)
 
-	// Teacher title prefix/suffix snapshot (di CSST, kalau ada)
+	// Teacher title prefix/suffix cache (di CSST, kalau ada)
 	teacherTitlePrefixCol := firstExisting(cols,
-		"class_section_subject_teacher_teacher_title_prefix_snapshot",
+		"class_section_subject_teacher_teacher_title_prefix_cache",
 		"teacher_title_prefix",
 		"school_teacher_title_prefix",
 	)
 	teacherTitleSuffixCol := firstExisting(cols,
-		"class_section_subject_teacher_teacher_title_suffix_snapshot",
+		"class_section_subject_teacher_teacher_title_suffix_cache",
 		"teacher_title_suffix",
 		"school_teacher_title_suffix",
 	)
 
-	// Teacher slug snapshot (kalau ada di CSST)
+	// Teacher slug cache (kalau ada di CSST)
 	schoolTeacherSlugCol := firstExisting(cols,
-		"class_section_subject_teacher_school_teacher_slug_snapshot",
+		"class_section_subject_teacher_school_teacher_slug_cache",
 		"school_teacher_slug",
 		"teacher_slug",
 	)
@@ -216,11 +216,11 @@ func ValidateAndSnapshotCSST(
 		"slug",
 	)
 
-	// 🔹 attendance entry mode snapshot di CSST
+	// 🔹 attendance entry mode cache di CSST
 	attendanceModeCol := firstExisting(cols,
-		"class_section_subject_teacher_school_attendance_entry_mode_snapshot",
-		"school_attendance_entry_mode_snapshot",
-		"attendance_entry_mode_snapshot",
+		"class_section_subject_teacher_school_attendance_entry_mode_cache",
+		"school_attendance_entry_mode_cache",
+		"attendance_entry_mode_cache",
 	)
 
 	deletedCol := firstExisting(cols,
@@ -229,7 +229,7 @@ func ValidateAndSnapshotCSST(
 	)
 
 	if idCol == "" || schoolCol == "" {
-		return nil, fiber.NewError(fiber.StatusInternalServerError, "CSST snapshot: kolom minimal (id/school_id) tidak ditemukan")
+		return nil, fiber.NewError(fiber.StatusInternalServerError, "CSST cache: kolom minimal (id/school_id) tidak ditemukan")
 	}
 
 	// ========== build expr dinamis per kolom ==========
@@ -363,7 +363,7 @@ func ValidateAndSnapshotCSST(
 
 	schoolUUID := rmz
 
-	snap := &CSSTSnapshot{
+	snap := &CSSTCache{
 		Name:      trimPtr(row.CSSTName),
 		TeacherID: row.TeacherID,
 		SectionID: row.SectionID,
@@ -389,7 +389,7 @@ func ValidateAndSnapshotCSST(
 
 	// 🔍 Enrich dari school_teachers kalau name/prefix/suffix/slug belum ada,
 	// tapi TeacherID ada (kayak kasus "Hendra / Ustadz / Lc").
-	if err := enrichTeacherSnapshotFromSchoolTeacher(tx, expectSchoolID, snap); err != nil {
+	if err := enrichTeacherCacheFromSchoolTeacher(tx, expectSchoolID, snap); err != nil {
 		return nil, err
 	}
 
@@ -397,13 +397,13 @@ func ValidateAndSnapshotCSST(
 }
 
 /* ======================================================
-   Enrich teacher snapshot from school_teachers
+   Enrich teacher cache from school_teachers
 ====================================================== */
 
-func enrichTeacherSnapshotFromSchoolTeacher(
+func enrichTeacherCacheFromSchoolTeacher(
 	tx *gorm.DB,
 	expectSchoolID uuid.UUID,
-	cs *CSSTSnapshot,
+	cs *CSSTCache,
 ) error {
 	if cs == nil || cs.TeacherID == nil || *cs.TeacherID == uuid.Nil {
 		return nil
@@ -432,9 +432,9 @@ func enrichTeacherSnapshotFromSchoolTeacher(
 	q := `
 		SELECT
 			school_teacher_school_id::text                      AS school_id,
-			school_teacher_user_teacher_name_snapshot           AS name,
-			school_teacher_user_teacher_title_prefix_snapshot   AS title_prefix,
-			school_teacher_user_teacher_title_suffix_snapshot   AS title_suffix,
+			school_teacher_user_teacher_full_name_cache           AS name,
+			school_teacher_user_teacher_title_prefix_cache   AS title_prefix,
+			school_teacher_user_teacher_title_suffix_cache   AS title_suffix,
 			school_teacher_slug                                 AS slug
 		FROM school_teachers
 		WHERE school_teacher_id = ?
@@ -444,7 +444,7 @@ func enrichTeacherSnapshotFromSchoolTeacher(
 
 	var r row
 	if err := tx.Raw(q, *cs.TeacherID).Scan(&r).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memuat guru untuk snapshot CSST")
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memuat guru untuk cache CSST")
 	}
 	if strings.TrimSpace(r.SchoolID) == "" {
 		// guru tidak ditemukan → nggak fatal, skip saja
@@ -490,11 +490,11 @@ func enrichTeacherSnapshotFromSchoolTeacher(
 /*
 ======================================================
 
-	ToJSON: bentuk final JSON snapshot
+	ToJSON: bentuk final JSON cache
 
 ======================================================
 */
-func ToJSON(cs *CSSTSnapshot) datatypes.JSON {
+func ToJSON(cs *CSSTCache) datatypes.JSON {
 	if cs == nil {
 		return datatypes.JSON([]byte("null"))
 	}
@@ -653,8 +653,8 @@ func ToJSON(cs *CSSTSnapshot) datatypes.JSON {
 	}
 	// 🔹 attendance entry mode efektif (root)
 	if attendanceModeVal != "" {
-		// disamakan dengan json tag di model + snapshot
-		m["class_section_subject_teacher_school_attendance_entry_mode_snapshot"] = attendanceModeVal
+		// disamakan dengan json tag di model + cache
+		m["class_section_subject_teacher_school_attendance_entry_mode_cache"] = attendanceModeVal
 	}
 
 	b, _ := json.Marshal(m)

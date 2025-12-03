@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	teacherSnap "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/snapshot"
+	teacherSnap "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/service"
 	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 
 	"github.com/google/uuid"
@@ -39,8 +39,8 @@ func trimPtr(s *string) *string {
 	return &t
 }
 
-// decode JSONB → *TeacherSnapshot (dipakai di response)
-func teacherSnapshotFromJSON(j *datatypes.JSON) *teacherSnap.TeacherSnapshot {
+// decode JSONB → *TeacherCache (dipakai di response)
+func TeacherCacheFromJSON(j *datatypes.JSON) *teacherSnap.TeacherCache {
 	if j == nil {
 		return nil
 	}
@@ -53,12 +53,12 @@ func teacherSnapshotFromJSON(j *datatypes.JSON) *teacherSnap.TeacherSnapshot {
 		return nil
 	}
 
-	var ts teacherSnap.TeacherSnapshot
+	var ts teacherSnap.TeacherCache
 	if err := json.Unmarshal(raw, &ts); err != nil {
 		// kalau gagal parse, jangan panik – cukup kembalikan nil
 		return nil
 	}
-	// opsional: trim string di dalam snapshot supaya bersih
+	// opsional: trim string di dalam cache supaya bersih
 	trim := func(p *string) *string {
 		if p == nil {
 			return nil
@@ -127,7 +127,7 @@ type CreateClassSectionSubjectTeacherRequest struct {
 
 	// 🆕 Attendance entry mode per CSST (boleh kosong, nanti fallback ke default school di service)
 	// enum: teacher_only | student_only | both
-	ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot *csstModel.AttendanceEntryMode `json:"class_section_subject_teacher_school_attendance_entry_mode_snapshot" validate:"omitempty,oneof=teacher_only student_only both"`
+	ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache *csstModel.AttendanceEntryMode `json:"class_section_subject_teacher_school_attendance_entry_mode_cache" validate:"omitempty,oneof=teacher_only student_only both"`
 
 	// Target pertemuan & KKM spesifik CSST (opsional)
 	ClassSectionSubjectTeacherTotalMeetingsTarget *int `json:"class_section_subject_teacher_total_meetings_target" validate:"omitempty"`
@@ -155,7 +155,7 @@ type UpdateClassSectionSubjectTeacherRequest struct {
 	ClassSectionSubjectTeacherDeliveryMode *csstModel.ClassDeliveryMode `json:"class_section_subject_teacher_delivery_mode" validate:"omitempty,oneof=offline online hybrid"`
 
 	// 🆕 Bisa update custom attendance mode juga
-	ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot *csstModel.AttendanceEntryMode `json:"class_section_subject_teacher_school_attendance_entry_mode_snapshot" validate:"omitempty,oneof=teacher_only student_only both"`
+	ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache *csstModel.AttendanceEntryMode `json:"class_section_subject_teacher_school_attendance_entry_mode_cache" validate:"omitempty,oneof=teacher_only student_only both"`
 
 	ClassSectionSubjectTeacherTotalMeetingsTarget *int `json:"class_section_subject_teacher_total_meetings_target" validate:"omitempty"`
 	ClassSectionSubjectTeacherMinPassingScore     *int `json:"class_section_subject_teacher_min_passing_score" validate:"omitempty,gte=0"`
@@ -166,7 +166,7 @@ type UpdateClassSectionSubjectTeacherRequest struct {
 /*
 =========================================================
  2. RESPONSE DTO — sinkron SQL/model terbaru
-    + decode teacher snapshot JSONB → TeacherSnapshot struct
+    + decode teacher cache JSONB → TeacherCache struct
 
 =========================================================
 */
@@ -203,37 +203,44 @@ type ClassSectionSubjectTeacherResponse struct {
 	ClassSectionSubjectTeacherTotalStudentsMale   int `json:"class_section_subject_teacher_total_students_male"`
 	ClassSectionSubjectTeacherTotalStudentsFemale int `json:"class_section_subject_teacher_total_students_female"`
 
-	// 🆕 Attendance mode efektif yang dipakai di CSST (hasil snapshot)
-	ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot *string `json:"class_section_subject_teacher_school_attendance_entry_mode_snapshot,omitempty"`
+	// 🆕 Attendance mode efektif yang dipakai di CSST (hasil cache)
+	ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache *string `json:"class_section_subject_teacher_school_attendance_entry_mode_cache,omitempty"`
 
-	/* ===== SECTION snapshots (varchar/text) ===== */
-	ClassSectionSubjectTeacherClassSectionSlugSnapshot *string `json:"class_section_subject_teacher_class_section_slug_snapshot,omitempty"`
-	ClassSectionSubjectTeacherClassSectionNameSnapshot *string `json:"class_section_subject_teacher_class_section_name_snapshot,omitempty"`
-	ClassSectionSubjectTeacherClassSectionCodeSnapshot *string `json:"class_section_subject_teacher_class_section_code_snapshot,omitempty"`
-	ClassSectionSubjectTeacherClassSectionURLSnapshot  *string `json:"class_section_subject_teacher_class_section_url_snapshot,omitempty"`
+	/* ===== SECTION caches (varchar/text) ===== */
+	ClassSectionSubjectTeacherClassSectionSlugCache *string `json:"class_section_subject_teacher_class_section_slug_cache,omitempty"`
+	ClassSectionSubjectTeacherClassSectionNameCache *string `json:"class_section_subject_teacher_class_section_name_cache,omitempty"`
+	ClassSectionSubjectTeacherClassSectionCodeCache *string `json:"class_section_subject_teacher_class_section_code_cache,omitempty"`
+	ClassSectionSubjectTeacherClassSectionURLCache  *string `json:"class_section_subject_teacher_class_section_url_cache,omitempty"`
 
-	/* ===== ROOM snapshot ===== */
-	ClassSectionSubjectTeacherClassRoomSlugSnapshot *string         `json:"class_section_subject_teacher_class_room_slug_snapshot,omitempty"`
-	ClassSectionSubjectTeacherClassRoomSnapshot     *datatypes.JSON `json:"class_section_subject_teacher_class_room_snapshot,omitempty"`
+	/* ===== ROOM cache ===== */
+	ClassSectionSubjectTeacherClassRoomSlugCache *string         `json:"class_section_subject_teacher_class_room_slug_cache,omitempty"`
+	ClassSectionSubjectTeacherClassRoomCache     *datatypes.JSON `json:"class_section_subject_teacher_class_room_cache,omitempty"`
 	// generated
-	ClassSectionSubjectTeacherClassRoomNameSnapshot     *string `json:"class_section_subject_teacher_class_room_name_snapshot,omitempty"`
-	ClassSectionSubjectTeacherClassRoomSlugSnapshotGen  *string `json:"class_section_subject_teacher_class_room_slug_snapshot_gen,omitempty"`
-	ClassSectionSubjectTeacherClassRoomLocationSnapshot *string `json:"class_section_subject_teacher_class_room_location_snapshot,omitempty"`
+	ClassSectionSubjectTeacherClassRoomNameCache     *string `json:"class_section_subject_teacher_class_room_name_cache,omitempty"`
+	ClassSectionSubjectTeacherClassRoomSlugCacheGen  *string `json:"class_section_subject_teacher_class_room_slug_cache_gen,omitempty"`
+	ClassSectionSubjectTeacherClassRoomLocationCache *string `json:"class_section_subject_teacher_class_room_location_cache,omitempty"`
 
-	/* ===== PEOPLE snapshots ===== */
-	ClassSectionSubjectTeacherSchoolTeacherSlugSnapshot          *string                      `json:"class_section_subject_teacher_school_teacher_slug_snapshot,omitempty"`
-	ClassSectionSubjectTeacherSchoolTeacherSnapshot              *teacherSnap.TeacherSnapshot `json:"class_section_subject_teacher_school_teacher_snapshot,omitempty"`
-	ClassSectionSubjectTeacherAssistantSchoolTeacherSlugSnapshot *string                      `json:"class_section_subject_teacher_assistant_school_teacher_slug_snapshot,omitempty"`
-	ClassSectionSubjectTeacherAssistantSchoolTeacherSnapshot     *teacherSnap.TeacherSnapshot `json:"class_section_subject_teacher_assistant_school_teacher_snapshot,omitempty"`
+	/* ===== PEOPLE caches ===== */
+	ClassSectionSubjectTeacherSchoolTeacherSlugCache          *string                   `json:"class_section_subject_teacher_school_teacher_slug_cache,omitempty"`
+	ClassSectionSubjectTeacherSchoolTeacherCache                 *teacherSnap.TeacherCache `json:"class_section_subject_teacher_school_teacher_cache,omitempty"`
+	ClassSectionSubjectTeacherAssistantSchoolTeacherSlugCache *string                   `json:"class_section_subject_teacher_assistant_school_teacher_slug_cache,omitempty"`
+	ClassSectionSubjectTeacherAssistantSchoolTeacherCache        *teacherSnap.TeacherCache `json:"class_section_subject_teacher_assistant_school_teacher_cache,omitempty"`
 	// generated names
-	ClassSectionSubjectTeacherSchoolTeacherNameSnapshot          *string `json:"class_section_subject_teacher_school_teacher_name_snapshot,omitempty"`
-	ClassSectionSubjectTeacherAssistantSchoolTeacherNameSnapshot *string `json:"class_section_subject_teacher_assistant_school_teacher_name_snapshot,omitempty"`
+	ClassSectionSubjectTeacherSchoolTeacherNameCache          *string `json:"class_section_subject_teacher_school_teacher_name_cache,omitempty"`
+	ClassSectionSubjectTeacherAssistantSchoolTeacherNameCache *string `json:"class_section_subject_teacher_assistant_school_teacher_name_cache,omitempty"`
 
-	/* ===== SUBJECT (via CLASS_SUBJECT) snapshot ===== */
-	ClassSectionSubjectTeacherSubjectIDSnapshot   *uuid.UUID `json:"class_section_subject_teacher_subject_id_snapshot,omitempty"`
-	ClassSectionSubjectTeacherSubjectNameSnapshot *string    `json:"class_section_subject_teacher_subject_name_snapshot,omitempty"`
-	ClassSectionSubjectTeacherSubjectCodeSnapshot *string    `json:"class_section_subject_teacher_subject_code_snapshot,omitempty"`
-	ClassSectionSubjectTeacherSubjectSlugSnapshot *string    `json:"class_section_subject_teacher_subject_slug_snapshot,omitempty"`
+	/* ===== SUBJECT (via CLASS_SUBJECT) cache ===== */
+	ClassSectionSubjectTeacherSubjectIDCache   *uuid.UUID `json:"class_section_subject_teacher_subject_id_cache,omitempty"`
+	ClassSectionSubjectTeacherSubjectNameCache *string    `json:"class_section_subject_teacher_subject_name_cache,omitempty"`
+	ClassSectionSubjectTeacherSubjectCodeCache *string    `json:"class_section_subject_teacher_subject_code_cache,omitempty"`
+	ClassSectionSubjectTeacherSubjectSlugCache *string    `json:"class_section_subject_teacher_subject_slug_cache,omitempty"`
+
+	/* ===== 🆕 ACADEMIC_TERM cache ===== */
+	ClassSectionSubjectTeacherAcademicTermID               *uuid.UUID `json:"class_section_subject_teacher_academic_term_id,omitempty"`
+	ClassSectionSubjectTeacherAcademicTermNameCache     *string    `json:"class_section_subject_teacher_academic_term_name_cache,omitempty"`
+	ClassSectionSubjectTeacherAcademicTermSlugCache     *string    `json:"class_section_subject_teacher_academic_term_slug_cache,omitempty"`
+	ClassSectionSubjectTeacherAcademicYearCache         *string    `json:"class_section_subject_teacher_academic_year_cache,omitempty"`
+	ClassSectionSubjectTeacherAcademicTermAngkatanCache *int       `json:"class_section_subject_teacher_academic_term_angkatan_cache,omitempty"`
 
 	/* ===== KKM SNAPSHOT (opsional override per CSST) ===== */
 	ClassSectionSubjectTeacherMinPassingScore *int `json:"class_section_subject_teacher_min_passing_score,omitempty"`
@@ -288,8 +295,8 @@ func (r CreateClassSectionSubjectTeacherRequest) ToModel() csstModel.ClassSectio
 	}
 
 	// 🆕 kalau create langsung mau set custom attendance, boleh diisi di sini
-	if r.ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot != nil {
-		m.ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot = r.ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot
+	if r.ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache != nil {
+		m.ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache = r.ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache
 	}
 
 	return m
@@ -341,8 +348,8 @@ func (r UpdateClassSectionSubjectTeacherRequest) Apply(m *csstModel.ClassSection
 		m.ClassSectionSubjectTeacherIsActive = *r.ClassSectionSubjectTeacherIsActive
 	}
 	// 🆕 update custom attendance mode
-	if r.ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot != nil {
-		m.ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot = r.ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot
+	if r.ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache != nil {
+		m.ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache = r.ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache
 	}
 }
 
@@ -354,10 +361,10 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 	}
 
 	// 🆕 convert enum pointer → *string untuk JSON
-	var attendanceSnapshot *string
-	if m.ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot != nil {
-		v := string(*m.ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot)
-		attendanceSnapshot = &v
+	var attendanceCache *string
+	if m.ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache != nil {
+		v := string(*m.ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache)
+		attendanceCache = &v
 	}
 
 	return ClassSectionSubjectTeacherResponse{
@@ -391,35 +398,42 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 		ClassSectionSubjectTeacherTotalStudentsMale:   m.ClassSectionSubjectTeacherTotalStudentsMale,
 		ClassSectionSubjectTeacherTotalStudentsFemale: m.ClassSectionSubjectTeacherTotalStudentsFemale,
 
-		// 🆕 attendance snapshot
-		ClassSectionSubjectTeacherSchoolAttendanceEntryModeSnapshot: attendanceSnapshot,
+		// 🆕 attendance cache
+		ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache: attendanceCache,
 
-		// SECTION snapshots
-		ClassSectionSubjectTeacherClassSectionSlugSnapshot: m.ClassSectionSubjectTeacherClassSectionSlugSnapshot,
-		ClassSectionSubjectTeacherClassSectionNameSnapshot: m.ClassSectionSubjectTeacherClassSectionNameSnapshot,
-		ClassSectionSubjectTeacherClassSectionCodeSnapshot: m.ClassSectionSubjectTeacherClassSectionCodeSnapshot,
-		ClassSectionSubjectTeacherClassSectionURLSnapshot:  m.ClassSectionSubjectTeacherClassSectionURLSnapshot,
+		// SECTION caches
+		ClassSectionSubjectTeacherClassSectionSlugCache: m.ClassSectionSubjectTeacherClassSectionSlugCache,
+		ClassSectionSubjectTeacherClassSectionNameCache: m.ClassSectionSubjectTeacherClassSectionNameCache,
+		ClassSectionSubjectTeacherClassSectionCodeCache: m.ClassSectionSubjectTeacherClassSectionCodeCache,
+		ClassSectionSubjectTeacherClassSectionURLCache:  m.ClassSectionSubjectTeacherClassSectionURLCache,
 
-		// ROOM snapshot + generated
-		ClassSectionSubjectTeacherClassRoomSlugSnapshot:     m.ClassSectionSubjectTeacherClassRoomSlugSnapshot,
-		ClassSectionSubjectTeacherClassRoomSnapshot:         m.ClassSectionSubjectTeacherClassRoomSnapshot,
-		ClassSectionSubjectTeacherClassRoomNameSnapshot:     m.ClassSectionSubjectTeacherClassRoomNameSnapshot,
-		ClassSectionSubjectTeacherClassRoomSlugSnapshotGen:  m.ClassSectionSubjectTeacherClassRoomSlugSnapshotGen,
-		ClassSectionSubjectTeacherClassRoomLocationSnapshot: m.ClassSectionSubjectTeacherClassRoomLocationSnapshot,
+		// ROOM cache + generated
+		ClassSectionSubjectTeacherClassRoomSlugCache:     m.ClassSectionSubjectTeacherClassRoomSlugCache,
+		ClassSectionSubjectTeacherClassRoomCache:         m.ClassSectionSubjectTeacherClassRoomCache,
+		ClassSectionSubjectTeacherClassRoomNameCache:     m.ClassSectionSubjectTeacherClassRoomNameCache,
+		ClassSectionSubjectTeacherClassRoomSlugCacheGen:  m.ClassSectionSubjectTeacherClassRoomSlugCacheGen,
+		ClassSectionSubjectTeacherClassRoomLocationCache: m.ClassSectionSubjectTeacherClassRoomLocationCache,
 
-		// PEOPLE snapshots + generated names
-		ClassSectionSubjectTeacherSchoolTeacherSlugSnapshot:          m.ClassSectionSubjectTeacherSchoolTeacherSlugSnapshot,
-		ClassSectionSubjectTeacherSchoolTeacherSnapshot:              teacherSnapshotFromJSON(m.ClassSectionSubjectTeacherSchoolTeacherSnapshot),
-		ClassSectionSubjectTeacherAssistantSchoolTeacherSlugSnapshot: m.ClassSectionSubjectTeacherAssistantSchoolTeacherSlugSnapshot,
-		ClassSectionSubjectTeacherAssistantSchoolTeacherSnapshot:     teacherSnapshotFromJSON(m.ClassSectionSubjectTeacherAssistantSchoolTeacherSnapshot),
-		ClassSectionSubjectTeacherSchoolTeacherNameSnapshot:          m.ClassSectionSubjectTeacherSchoolTeacherNameSnapshot,
-		ClassSectionSubjectTeacherAssistantSchoolTeacherNameSnapshot: m.ClassSectionSubjectTeacherAssistantSchoolTeacherNameSnapshot,
+		// PEOPLE caches + generated names
+		ClassSectionSubjectTeacherSchoolTeacherSlugCache:          m.ClassSectionSubjectTeacherSchoolTeacherSlugCache,
+		ClassSectionSubjectTeacherSchoolTeacherCache:                 TeacherCacheFromJSON(m.ClassSectionSubjectTeacherSchoolTeacherCache),
+		ClassSectionSubjectTeacherAssistantSchoolTeacherSlugCache: m.ClassSectionSubjectTeacherAssistantSchoolTeacherSlugCache,
+		ClassSectionSubjectTeacherAssistantSchoolTeacherCache:        TeacherCacheFromJSON(m.ClassSectionSubjectTeacherAssistantSchoolTeacherCache),
+		ClassSectionSubjectTeacherSchoolTeacherNameCache:          m.ClassSectionSubjectTeacherSchoolTeacherNameCache,
+		ClassSectionSubjectTeacherAssistantSchoolTeacherNameCache: m.ClassSectionSubjectTeacherAssistantSchoolTeacherNameCache,
 
-		// SUBJECT snapshot
-		ClassSectionSubjectTeacherSubjectIDSnapshot:   m.ClassSectionSubjectTeacherSubjectIDSnapshot,
-		ClassSectionSubjectTeacherSubjectNameSnapshot: m.ClassSectionSubjectTeacherSubjectNameSnapshot,
-		ClassSectionSubjectTeacherSubjectCodeSnapshot: m.ClassSectionSubjectTeacherSubjectCodeSnapshot,
-		ClassSectionSubjectTeacherSubjectSlugSnapshot: m.ClassSectionSubjectTeacherSubjectSlugSnapshot,
+		// SUBJECT cache
+		ClassSectionSubjectTeacherSubjectIDCache:   m.ClassSectionSubjectTeacherSubjectIDCache,
+		ClassSectionSubjectTeacherSubjectNameCache: m.ClassSectionSubjectTeacherSubjectNameCache,
+		ClassSectionSubjectTeacherSubjectCodeCache: m.ClassSectionSubjectTeacherSubjectCodeCache,
+		ClassSectionSubjectTeacherSubjectSlugCache: m.ClassSectionSubjectTeacherSubjectSlugCache,
+
+		// 🆕 ACADEMIC_TERM cache
+		ClassSectionSubjectTeacherAcademicTermID:               m.ClassSectionSubjectTeacherAcademicTermID,
+		ClassSectionSubjectTeacherAcademicTermNameCache:     m.ClassSectionSubjectTeacherAcademicTermNameCache,
+		ClassSectionSubjectTeacherAcademicTermSlugCache:     m.ClassSectionSubjectTeacherAcademicTermSlugCache,
+		ClassSectionSubjectTeacherAcademicYearCache:         m.ClassSectionSubjectTeacherAcademicYearCache,
+		ClassSectionSubjectTeacherAcademicTermAngkatanCache: m.ClassSectionSubjectTeacherAcademicTermAngkatanCache,
 
 		// KKM
 		ClassSectionSubjectTeacherMinPassingScore: m.ClassSectionSubjectTeacherMinPassingScore,

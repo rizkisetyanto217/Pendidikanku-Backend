@@ -26,7 +26,7 @@ import (
 
 	// class_sections & class_parent tetap di modul lama
 	classSectionModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
-	classParentSnapshot "madinahsalam_backend/internals/features/school/classes/classes/snapshot"
+	classParentSnapshot "madinahsalam_backend/internals/features/school/classes/classes/service"
 
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
@@ -277,10 +277,10 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 
 	/* ---- class_name (gabungan parent + term) ---- */
 	parent := ""
-	if m.ClassParentNameSnapshot != nil {
-		parent = *m.ClassParentNameSnapshot
+	if m.ClassClassParentNameCache != nil {
+		parent = *m.ClassClassParentNameCache
 	}
-	m.ClassName = strPtrOrNil(dto.ComposeClassNameSpace(parent, m.ClassAcademicTermNameSnapshot))
+	m.ClassName = strPtrOrNil(dto.ComposeClassNameSpace(parent, m.ClassAcademicTermNameCache))
 
 	/* ---- Insert ---- */
 	if err := tx.Create(m).Error; err != nil {
@@ -523,10 +523,10 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 		}
 		// recompute class_name: "<Parent> — <Term>" (atau hanya parent jika term nil/empty)
 		parent := ""
-		if existing.ClassParentNameSnapshot != nil {
-			parent = *existing.ClassParentNameSnapshot
+		if existing.ClassClassParentNameCache != nil {
+			parent = *existing.ClassClassParentNameCache
 		}
-		existing.ClassName = strPtrOrNil(dto.ComposeClassNameSpace(parent, existing.ClassAcademicTermNameSnapshot))
+		existing.ClassName = strPtrOrNil(dto.ComposeClassNameSpace(parent, existing.ClassAcademicTermNameCache))
 	}
 
 	// ---- Simpan ----
@@ -546,9 +546,6 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 	}
 
 	// ---- Optional: upload gambar baru → pindahkan lama ke spam ----
-	uploadedURL := ""
-	movedOld := ""
-
 	if fh := pickImageFile(c, "image", "file", "class_image"); fh != nil {
 		svc, er := helperOSS.NewOSSServiceFromEnv("")
 		if er == nil {
@@ -557,13 +554,12 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 
 			keyPrefix := fmt.Sprintf("schools/%s/classes", existing.ClassSchoolID.String())
 			if url, upErr := svc.UploadAsWebP(ctx, fh, keyPrefix); upErr == nil {
-				uploadedURL = url
 
 				// object key baru
 				newObjKey := ""
-				if k, e := helperOSS.ExtractKeyFromPublicURL(uploadedURL); e == nil {
+				if k, e := helperOSS.ExtractKeyFromPublicURL(url); e == nil {
 					newObjKey = k
-				} else if k2, e2 := helperOSS.KeyFromPublicURL(uploadedURL); e2 == nil {
+				} else if k2, e2 := helperOSS.KeyFromPublicURL(url); e2 == nil {
 					newObjKey = k2
 				}
 
@@ -587,7 +583,6 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 				if oldURL != "" {
 					if mv, mvErr := helperOSS.MoveToSpamByPublicURLENV(oldURL, 0); mvErr == nil {
 						movedURL = mv
-						movedOld = mv
 						// sinkronkan key lama ke lokasi baru
 						if k, e := helperOSS.ExtractKeyFromPublicURL(movedURL); e == nil {
 							oldObjKey = k
@@ -602,7 +597,7 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 				_ = tx.Model(&classmodel.ClassModel{}).
 					Where("class_id = ?", existing.ClassID).
 					Updates(map[string]any{
-						"class_image_url":        uploadedURL,
+						"class_image_url":        url,
 						"class_image_object_key": newObjKey,
 						"class_image_url_old": func() any {
 							if movedURL == "" {
@@ -644,11 +639,8 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
-	return helper.JsonUpdated(c, "Kelas berhasil diperbarui", fiber.Map{
-		"class":               dto.FromModel(&existing),
-		"uploaded_image_url":  uploadedURL,
-		"moved_old_image_url": movedOld,
-	})
+	// ✅ Response disederhanakan: langsung 1 object class sebagai data
+	return helper.JsonUpdated(c, "Kelas berhasil diperbarui", dto.FromModel(&existing))
 }
 
 /* =========================== DELETE (soft) =========================== */

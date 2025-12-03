@@ -49,32 +49,32 @@ type StudentClassEnrollmentModel struct {
 	// Preferensi (JSONB object)
 	StudentClassEnrollmentsPreferences datatypes.JSON `gorm:"column:student_class_enrollments_preferences;type:jsonb;not null;default:'{}'" json:"student_class_enrollments_preferences"`
 
-	// ===== Snapshots dari classes =====
-	StudentClassEnrollmentsClassNameSnapshot string  `gorm:"column:student_class_enrollments_class_name_snapshot;type:varchar(160)" json:"student_class_enrollments_class_name_snapshot"`
-	StudentClassEnrollmentsClassSlugSnapshot *string `gorm:"column:student_class_enrollments_class_slug_snapshot;type:varchar(160)" json:"student_class_enrollments_class_slug_snapshot,omitempty"`
+	// ===== Caches dari classes =====
+	StudentClassEnrollmentsClassNameCache string  `gorm:"column:student_class_enrollments_class_name_cache;type:varchar(160)" json:"student_class_enrollments_class_name_cache"`
+	StudentClassEnrollmentsClassSlugCache *string `gorm:"column:student_class_enrollments_class_slug_cache;type:varchar(160)" json:"student_class_enrollments_class_slug_cache,omitempty"`
 
 	// ===== TERM (denormalized dari classes → academic_terms) =====
 	StudentClassEnrollmentsTermID                   *uuid.UUID `gorm:"column:student_class_enrollments_term_id;type:uuid" json:"student_class_enrollments_term_id,omitempty"`
-	StudentClassEnrollmentsTermAcademicYearSnapshot *string    `gorm:"column:student_class_enrollments_term_academic_year_snapshot;type:text" json:"student_class_enrollments_term_academic_year_snapshot,omitempty"`
-	StudentClassEnrollmentsTermNameSnapshot         *string    `gorm:"column:student_class_enrollments_term_name_snapshot;type:text" json:"student_class_enrollments_term_name_snapshot,omitempty"`
-	StudentClassEnrollmentsTermSlugSnapshot         *string    `gorm:"column:student_class_enrollments_term_slug_snapshot;type:text" json:"student_class_enrollments_term_slug_snapshot,omitempty"`
-	StudentClassEnrollmentsTermAngkatanSnapshot     *int       `gorm:"column:student_class_enrollments_term_angkatan_snapshot;type:int" json:"student_class_enrollments_term_angkatan_snapshot,omitempty"`
+	StudentClassEnrollmentsTermAcademicYearCache *string    `gorm:"column:student_class_enrollments_term_academic_year_cache;type:text" json:"student_class_enrollments_term_academic_year_cache,omitempty"`
+	StudentClassEnrollmentsTermNameCache         *string    `gorm:"column:student_class_enrollments_term_name_cache;type:text" json:"student_class_enrollments_term_name_cache,omitempty"`
+	StudentClassEnrollmentsTermSlugCache         *string    `gorm:"column:student_class_enrollments_term_slug_cache;type:text" json:"student_class_enrollments_term_slug_cache,omitempty"`
+	StudentClassEnrollmentsTermAngkatanCache     *int       `gorm:"column:student_class_enrollments_term_angkatan_cache;type:int" json:"student_class_enrollments_term_angkatan_cache,omitempty"`
 
 	// ===== SNAPSHOT dari school_students / user_profile =====
-	StudentClassEnrollmentsUserProfileNameSnapshot              string  `gorm:"column:student_class_enrollments_user_profile_name_snapshot;type:varchar(80)" json:"student_class_enrollments_user_profile_name_snapshot"`
-	StudentClassEnrollmentsUserProfileAvatarURLSnapshot         *string `gorm:"column:student_class_enrollments_user_profile_avatar_url_snapshot;type:varchar(255)" json:"student_class_enrollments_user_profile_avatar_url_snapshot,omitempty"`
-	StudentClassEnrollmentsUserProfileWhatsappURLSnapshot       *string `gorm:"column:student_class_enrollments_user_profile_whatsapp_url_snapshot;type:varchar(50)" json:"student_class_enrollments_user_profile_whatsapp_url_snapshot,omitempty"`
-	StudentClassEnrollmentsUserProfileParentNameSnapshot        *string `gorm:"column:student_class_enrollments_user_profile_parent_name_snapshot;type:varchar(80)" json:"student_class_enrollments_user_profile_parent_name_snapshot,omitempty"`
-	StudentClassEnrollmentsUserProfileParentWhatsappURLSnapshot *string `gorm:"column:student_class_enrollments_user_profile_parent_whatsapp_url_snapshot;type:varchar(50)" json:"student_class_enrollments_user_profile_parent_whatsapp_url_snapshot,omitempty"`
-	StudentClassEnrollmentsUserProfileGenderSnapshot            *string `gorm:"column:student_class_enrollments_user_profile_gender_snapshot;type:varchar(20)" json:"student_class_enrollments_user_profile_gender_snapshot,omitempty"`
+	StudentClassEnrollmentsUserProfileNameCache              string  `gorm:"column:student_class_enrollments_user_profile_name_cache;type:varchar(80)" json:"student_class_enrollments_user_profile_name_cache"`
+	StudentClassEnrollmentsUserProfileAvatarURLCache         *string `gorm:"column:student_class_enrollments_user_profile_avatar_url_cache;type:varchar(255)" json:"student_class_enrollments_user_profile_avatar_url_cache,omitempty"`
+	StudentClassEnrollmentsUserProfileWhatsappURLCache       *string `gorm:"column:student_class_enrollments_user_profile_whatsapp_url_cache;type:varchar(50)" json:"student_class_enrollments_user_profile_whatsapp_url_cache,omitempty"`
+	StudentClassEnrollmentsUserProfileParentNameCache        *string `gorm:"column:student_class_enrollments_user_profile_parent_name_cache;type:varchar(80)" json:"student_class_enrollments_user_profile_parent_name_cache,omitempty"`
+	StudentClassEnrollmentsUserProfileParentWhatsappURLCache *string `gorm:"column:student_class_enrollments_user_profile_parent_whatsapp_url_cache;type:varchar(50)" json:"student_class_enrollments_user_profile_parent_whatsapp_url_cache,omitempty"`
+	StudentClassEnrollmentsUserProfileGenderCache            *string `gorm:"column:student_class_enrollments_user_profile_gender_cache;type:varchar(20)" json:"student_class_enrollments_user_profile_gender_cache,omitempty"`
 
-	StudentClassEnrollmentsStudentCodeSnapshot *string `gorm:"column:student_class_enrollments_student_code_snapshot;type:varchar(50)" json:"student_class_enrollments_student_code_snapshot,omitempty"`
-	StudentClassEnrollmentsStudentSlugSnapshot *string `gorm:"column:student_class_enrollments_student_slug_snapshot;type:varchar(50)" json:"student_class_enrollments_student_slug_snapshot,omitempty"`
+	StudentClassEnrollmentsStudentCodeCache *string `gorm:"column:student_class_enrollments_student_code_cache;type:varchar(50)" json:"student_class_enrollments_student_code_cache,omitempty"`
+	StudentClassEnrollmentsStudentSlugCache *string `gorm:"column:student_class_enrollments_student_slug_cache;type:varchar(50)" json:"student_class_enrollments_student_slug_cache,omitempty"`
 
 	// ===== CLASS SECTION (opsional) =====
 	StudentClassEnrollmentsClassSectionID           *uuid.UUID `gorm:"column:student_class_enrollments_class_section_id;type:uuid" json:"student_class_enrollments_class_section_id,omitempty"`
-	StudentClassEnrollmentsClassSectionNameSnapshot *string    `gorm:"column:student_class_enrollments_class_section_name_snapshot;type:varchar(50)" json:"student_class_enrollments_class_section_name_snapshot,omitempty"`
-	StudentClassEnrollmentsClassSectionSlugSnapshot *string    `gorm:"column:student_class_enrollments_class_section_slug_snapshot;type:varchar(50)" json:"student_class_enrollments_class_section_slug_snapshot,omitempty"`
+	StudentClassEnrollmentsClassSectionNameCache *string    `gorm:"column:student_class_enrollments_class_section_name_cache;type:varchar(50)" json:"student_class_enrollments_class_section_name_cache,omitempty"`
+	StudentClassEnrollmentsClassSectionSlugCache *string    `gorm:"column:student_class_enrollments_class_section_slug_cache;type:varchar(50)" json:"student_class_enrollments_class_section_slug_cache,omitempty"`
 
 	// Jejak waktu proses
 	StudentClassEnrollmentsAppliedAt    time.Time  `gorm:"column:student_class_enrollments_applied_at;type:timestamptz;not null;default:now()" json:"student_class_enrollments_applied_at"`

@@ -450,19 +450,20 @@ type ClassResponse struct {
 	ClassImageDeletePendingUntil *time.Time `json:"class_image_delete_pending_until,omitempty"`
 
 	// Snapshots Parent
-	ClassParentCodeSnapshot  *string `json:"class_parent_code_snapshot,omitempty"`
-	ClassParentNameSnapshot  *string `json:"class_parent_name_snapshot,omitempty"`
-	ClassParentSlugSnapshot  *string `json:"class_parent_slug_snapshot,omitempty"`
-	ClassParentLevelSnapshot *int16  `json:"class_parent_level_snapshot,omitempty"`
-	ClassParentURLSnapshot   *string `json:"class_parent_url_snapshot,omitempty"`
+	ClassClassParentCodeCache  *string `json:"class_class_parent_code_cache,omitempty"`
+	ClassClassParentNameCache  *string `json:"class_class_parent_name_cache,omitempty"`
+	ClassClassParentSlugCache  *string `json:"class_class_parent_slug_cache,omitempty"`
+	ClassClassParentLevelCache *int16  `json:"class_class_parent_level_cache,omitempty"`
+	ClassClassParentURLCache   *string `json:"class_class_parent_url_cache,omitempty"`
 
 	// Snapshots Term
-	ClassTermAcademicYearSnapshot *string `json:"class_academic_term_academic_year_snapshot,omitempty"`
-	ClassTermNameSnapshot         *string `json:"class_academic_term_name_snapshot,omitempty"`
-	ClassTermSlugSnapshot         *string `json:"class_academic_term_slug_snapshot,omitempty"`
-	ClassTermAngkatanSnapshot     *string `json:"class_academic_term_angkatan_snapshot,omitempty"`
+	ClassTermAcademicYearCache *string `json:"class_academic_term_academic_year_cache,omitempty"`
+	ClassTermNameCache         *string `json:"class_academic_term_name_cache,omitempty"`
+	ClassTermSlugCache         *string `json:"class_academic_term_slug_cache,omitempty"`
+	ClassTermAngkatanCache     *string `json:"class_academic_term_angkatan_cache,omitempty"`
 
-	// Stats (ALL)
+	// Stats (ALL) — JSON name masih "total_*" biar kompatibel API,
+	// tapi source-nya dari field *_count di model.
 	ClassTotalClassSections    int `json:"class_total_class_sections"`
 	ClassTotalStudents         int `json:"class_total_students"`
 	ClassTotalStudentsMale     int `json:"class_total_students_male"`
@@ -503,10 +504,10 @@ func FromModel(m *model.ClassModel) ClassResponse {
 		name = *m.ClassName
 	} else {
 		var parentName string
-		if m.ClassParentNameSnapshot != nil {
-			parentName = *m.ClassParentNameSnapshot
+		if m.ClassClassParentNameCache != nil {
+			parentName = *m.ClassClassParentNameCache
 		}
-		name = ComposeClassName(parentName, m.ClassAcademicTermNameSnapshot)
+		name = ComposeClassName(parentName, m.ClassAcademicTermNameCache)
 	}
 
 	return ClassResponse{
@@ -541,33 +542,33 @@ func FromModel(m *model.ClassModel) ClassResponse {
 		ClassImageDeletePendingUntil: m.ClassImageDeletePendingUntil,
 
 		// parent snapshots
-		ClassParentCodeSnapshot:  m.ClassParentCodeSnapshot,
-		ClassParentNameSnapshot:  m.ClassParentNameSnapshot,
-		ClassParentSlugSnapshot:  m.ClassParentSlugSnapshot,
-		ClassParentLevelSnapshot: m.ClassParentLevelSnapshot,
-		ClassParentURLSnapshot:   m.ClassParentURLSnapshot,
+		ClassClassParentCodeCache:  m.ClassClassParentCodeCache,
+		ClassClassParentNameCache:  m.ClassClassParentNameCache,
+		ClassClassParentSlugCache:  m.ClassClassParentSlugCache,
+		ClassClassParentLevelCache: m.ClassClassParentLevelCache,
+		ClassClassParentURLCache:   m.ClassClassParentURLCache,
 
 		// term snapshots
-		ClassTermAcademicYearSnapshot: m.ClassAcademicTermAcademicYearSnapshot,
-		ClassTermNameSnapshot:         m.ClassAcademicTermNameSnapshot,
-		ClassTermSlugSnapshot:         m.ClassAcademicTermSlugSnapshot,
-		ClassTermAngkatanSnapshot:     m.ClassAcademicTermAngkatanSnapshot,
+		ClassTermAcademicYearCache: m.ClassAcademicTermAcademicYearCache,
+		ClassTermNameCache:         m.ClassAcademicTermNameCache,
+		ClassTermSlugCache:         m.ClassAcademicTermSlugCache,
+		ClassTermAngkatanCache:     m.ClassAcademicTermAngkatanCache,
 
-		// stats ALL
-		ClassTotalClassSections:    m.ClassTotalClassSections,
-		ClassTotalStudents:         m.ClassTotalStudents,
-		ClassTotalStudentsMale:     m.ClassTotalStudentsMale,
-		ClassTotalStudentsFemale:   m.ClassTotalStudentsFemale,
-		ClassTotalTeachers:         m.ClassTotalTeachers,
-		ClassTotalClassEnrollments: m.ClassTotalClassEnrollments,
+		// stats ALL → ambil dari *_count di model
+		ClassTotalClassSections:    m.ClassClassSectionCount,
+		ClassTotalStudents:         m.ClassStudentCount,
+		ClassTotalStudentsMale:     m.ClassStudentMaleCount,
+		ClassTotalStudentsFemale:   m.ClassStudentFemaleCount,
+		ClassTotalTeachers:         m.ClassTeacherCount,
+		ClassTotalClassEnrollments: m.ClassClassEnrollmentCount,
 
 		// stats ACTIVE ONLY
-		ClassTotalClassSectionsActive:    m.ClassTotalClassSectionsActive,
-		ClassTotalStudentsActive:         m.ClassTotalStudentsActive,
-		ClassTotalStudentsMaleActive:     m.ClassTotalStudentsMaleActive,
-		ClassTotalStudentsFemaleActive:   m.ClassTotalStudentsFemaleActive,
-		ClassTotalTeachersActive:         m.ClassTotalTeachersActive,
-		ClassTotalClassEnrollmentsActive: m.ClassTotalClassEnrollmentsActive,
+		ClassTotalClassSectionsActive:    m.ClassClassSectionActiveCount,
+		ClassTotalStudentsActive:         m.ClassStudentActiveCount,
+		ClassTotalStudentsMaleActive:     m.ClassStudentMaleActiveCount,
+		ClassTotalStudentsFemaleActive:   m.ClassStudentFemaleActiveCount,
+		ClassTotalTeachersActive:         m.ClassTeacherActiveCount,
+		ClassTotalClassEnrollmentsActive: m.ClassClassEnrollmentActiveCount,
 
 		ClassStats: stats,
 

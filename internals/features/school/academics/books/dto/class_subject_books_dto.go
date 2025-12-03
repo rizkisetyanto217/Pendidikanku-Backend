@@ -17,9 +17,9 @@ import (
 
 // Create
 type CreateClassSubjectBookRequest struct {
-	ClassSubjectBookSchoolID       uuid.UUID `json:"class_subject_book_school_id"        validate:"required"`
-	ClassSubjectBookClassSubjectID uuid.UUID `json:"class_subject_book_class_subject_id" validate:"required"`
-	ClassSubjectBookBookID         uuid.UUID `json:"class_subject_book_book_id"          validate:"required"`
+	ClassSubjectBookSchoolID  uuid.UUID `json:"class_subject_book_school_id" validate:"required"`
+	ClassSubjectBookSubjectID uuid.UUID `json:"class_subject_book_subject_id" validate:"required"`
+	ClassSubjectBookBookID    uuid.UUID `json:"class_subject_book_book_id"    validate:"required"`
 
 	// opsional; controller yang normalize + ensure-unique (alive-only)
 	ClassSubjectBookSlug *string `json:"class_subject_book_slug" validate:"omitempty,max=160"`
@@ -70,9 +70,9 @@ func (r CreateClassSubjectBookRequest) ToModel() model.ClassSubjectBookModel {
 	}
 
 	return model.ClassSubjectBookModel{
-		ClassSubjectBookSchoolID:       r.ClassSubjectBookSchoolID,
-		ClassSubjectBookClassSubjectID: r.ClassSubjectBookClassSubjectID,
-		ClassSubjectBookBookID:         r.ClassSubjectBookBookID,
+		ClassSubjectBookSchoolID:  r.ClassSubjectBookSchoolID,
+		ClassSubjectBookSubjectID: r.ClassSubjectBookSubjectID,
+		ClassSubjectBookBookID:    r.ClassSubjectBookBookID,
 
 		ClassSubjectBookSlug:       r.ClassSubjectBookSlug,
 		ClassSubjectBookIsPrimary:  isPrimary,
@@ -86,9 +86,9 @@ func (r CreateClassSubjectBookRequest) ToModel() model.ClassSubjectBookModel {
 
 // Update (partial)
 type UpdateClassSubjectBookRequest struct {
-	ClassSubjectBookSchoolID       *uuid.UUID `json:"class_subject_book_school_id"        validate:"omitempty"`
-	ClassSubjectBookClassSubjectID *uuid.UUID `json:"class_subject_book_class_subject_id" validate:"omitempty"`
-	ClassSubjectBookBookID         *uuid.UUID `json:"class_subject_book_book_id"          validate:"omitempty"`
+	ClassSubjectBookSchoolID  *uuid.UUID `json:"class_subject_book_school_id"  validate:"omitempty"`
+	ClassSubjectBookSubjectID *uuid.UUID `json:"class_subject_book_subject_id" validate:"omitempty"`
+	ClassSubjectBookBookID    *uuid.UUID `json:"class_subject_book_book_id"    validate:"omitempty"`
 
 	// controller yang ensure-unique (alive-only)
 	ClassSubjectBookSlug *string `json:"class_subject_book_slug" validate:"omitempty,max=160"`
@@ -108,11 +108,11 @@ func (r *UpdateClassSubjectBookRequest) Apply(m *model.ClassSubjectBookModel) er
 	if r.ClassSubjectBookSchoolID != nil {
 		m.ClassSubjectBookSchoolID = *r.ClassSubjectBookSchoolID
 	}
-	if r.ClassSubjectBookClassSubjectID != nil {
-		m.ClassSubjectBookClassSubjectID = *r.ClassSubjectBookClassSubjectID
+	if r.ClassSubjectBookSubjectID != nil {
+		m.ClassSubjectBookSubjectID = *r.ClassSubjectBookSubjectID
 	}
 	if r.ClassSubjectBookBookID != nil {
-		// Mengubah book_id akan diproses trigger DB untuk refresh snapshot buku.
+		// Perubahan book_id → controller akan refresh cache buku
 		m.ClassSubjectBookBookID = *r.ClassSubjectBookBookID
 	}
 	if r.ClassSubjectBookIsActive != nil {
@@ -151,16 +151,16 @@ func (r *UpdateClassSubjectBookRequest) Apply(m *model.ClassSubjectBookModel) er
 ========================================================= */
 
 type ListClassSubjectBookQuery struct {
-	Limit          *int       `query:"limit" validate:"omitempty,min=1,max=200"`
-	Offset         *int       `query:"offset" validate:"omitempty,min=0"`
-	ClassSubjectID *uuid.UUID `query:"class_subject_id" validate:"omitempty"`
-	BookID         *uuid.UUID `query:"book_id" validate:"omitempty"`
-	IsActive       *bool      `query:"is_active" validate:"omitempty"`
-	IsPrimary      *bool      `query:"is_primary" validate:"omitempty"`
-	IsRequired     *bool      `query:"is_required" validate:"omitempty"`
-	WithDeleted    *bool      `query:"with_deleted" validate:"omitempty"`
+	Limit       *int       `query:"limit"  validate:"omitempty,min=1,max=200"`
+	Offset      *int       `query:"offset" validate:"omitempty,min=0"`
+	SubjectID   *uuid.UUID `query:"subject_id" validate:"omitempty"`
+	BookID      *uuid.UUID `query:"book_id"    validate:"omitempty"`
+	IsActive    *bool      `query:"is_active"  validate:"omitempty"`
+	IsPrimary   *bool      `query:"is_primary" validate:"omitempty"`
+	IsRequired  *bool      `query:"is_required" validate:"omitempty"`
+	WithDeleted *bool      `query:"with_deleted" validate:"omitempty"`
 
-	// q: cari di slug relasi & judul buku snapshot & nama/slug subject snapshot (LOWER LIKE/TRGM)
+	// q: cari di slug relasi & judul buku cache & nama/slug subject cache (LOWER LIKE/TRGM)
 	Q *string `query:"q" validate:"omitempty,max=100"`
 
 	// created_at_asc|created_at_desc|updated_at_asc|updated_at_desc
@@ -210,12 +210,12 @@ type SubjectLite struct {
 	SubjectSlug     string    `json:"subject_slug"`
 }
 
-// Response utama relasi + snapshot buku/subject (dibekukan via trigger)
+// Response utama relasi + cache buku/subject (dibekukan via service/controller)
 type ClassSubjectBookResponse struct {
-	ClassSubjectBookID             uuid.UUID `json:"class_subject_book_id"`
-	ClassSubjectBookSchoolID       uuid.UUID `json:"class_subject_book_school_id"`
-	ClassSubjectBookClassSubjectID uuid.UUID `json:"class_subject_book_class_subject_id"`
-	ClassSubjectBookBookID         uuid.UUID `json:"class_subject_book_book_id"`
+	ClassSubjectBookID        uuid.UUID `json:"class_subject_book_id"`
+	ClassSubjectBookSchoolID  uuid.UUID `json:"class_subject_book_school_id"`
+	ClassSubjectBookSubjectID uuid.UUID `json:"class_subject_book_subject_id"`
+	ClassSubjectBookBookID    uuid.UUID `json:"class_subject_book_book_id"`
 
 	ClassSubjectBookSlug *string `json:"class_subject_book_slug,omitempty"`
 
@@ -225,19 +225,18 @@ type ClassSubjectBookResponse struct {
 	ClassSubjectBookIsActive   bool    `json:"class_subject_book_is_active"`
 	ClassSubjectBookDesc       *string `json:"class_subject_book_desc,omitempty"`
 
-	// snapshots dari books
-	ClassSubjectBookBookTitleSnapshot           *string `json:"class_subject_book_book_title_snapshot,omitempty"`
-	ClassSubjectBookBookAuthorSnapshot          *string `json:"class_subject_book_book_author_snapshot,omitempty"`
-	ClassSubjectBookBookSlugSnapshot            *string `json:"class_subject_book_book_slug_snapshot,omitempty"`
-	ClassSubjectBookBookPublisherSnapshot       *string `json:"class_subject_book_book_publisher_snapshot,omitempty"`
-	ClassSubjectBookBookPublicationYearSnapshot *int16  `json:"class_subject_book_book_publication_year_snapshot,omitempty"`
-	ClassSubjectBookBookImageURLSnapshot        *string `json:"class_subject_book_book_image_url_snapshot,omitempty"`
+	// caches dari books
+	ClassSubjectBookBookTitleCache           *string `json:"class_subject_book_book_title_cache,omitempty"`
+	ClassSubjectBookBookAuthorCache          *string `json:"class_subject_book_book_author_cache,omitempty"`
+	ClassSubjectBookBookSlugCache            *string `json:"class_subject_book_book_slug_cache,omitempty"`
+	ClassSubjectBookBookPublisherCache       *string `json:"class_subject_book_book_publisher_cache,omitempty"`
+	ClassSubjectBookBookPublicationYearCache *int16  `json:"class_subject_book_book_publication_year_cache,omitempty"`
+	ClassSubjectBookBookImageURLCache        *string `json:"class_subject_book_book_image_url_cache,omitempty"`
 
-	// snapshots subject
-	ClassSubjectBookSubjectID           *uuid.UUID `json:"class_subject_book_subject_id,omitempty"`
-	ClassSubjectBookSubjectCodeSnapshot *string    `json:"class_subject_book_subject_code_snapshot,omitempty"`
-	ClassSubjectBookSubjectNameSnapshot *string    `json:"class_subject_book_subject_name_snapshot,omitempty"`
-	ClassSubjectBookSubjectSlugSnapshot *string    `json:"class_subject_book_subject_slug_snapshot,omitempty"`
+	// caches subject
+	ClassSubjectBookSubjectCodeCache *string `json:"class_subject_book_subject_code_cache,omitempty"`
+	ClassSubjectBookSubjectNameCache *string `json:"class_subject_book_subject_name_cache,omitempty"`
+	ClassSubjectBookSubjectSlugCache *string `json:"class_subject_book_subject_slug_cache,omitempty"`
 
 	ClassSubjectBookCreatedAt time.Time  `json:"class_subject_book_created_at"`
 	ClassSubjectBookUpdatedAt time.Time  `json:"class_subject_book_updated_at"`
@@ -269,10 +268,10 @@ func FromModel(m model.ClassSubjectBookModel) ClassSubjectBookResponse {
 		deletedAt = &m.ClassSubjectBookDeletedAt.Time
 	}
 	return ClassSubjectBookResponse{
-		ClassSubjectBookID:             m.ClassSubjectBookID,
-		ClassSubjectBookSchoolID:       m.ClassSubjectBookSchoolID,
-		ClassSubjectBookClassSubjectID: m.ClassSubjectBookClassSubjectID,
-		ClassSubjectBookBookID:         m.ClassSubjectBookBookID,
+		ClassSubjectBookID:        m.ClassSubjectBookID,
+		ClassSubjectBookSchoolID:  m.ClassSubjectBookSchoolID,
+		ClassSubjectBookSubjectID: m.ClassSubjectBookSubjectID,
+		ClassSubjectBookBookID:    m.ClassSubjectBookBookID,
 
 		ClassSubjectBookSlug:       m.ClassSubjectBookSlug,
 		ClassSubjectBookIsPrimary:  m.ClassSubjectBookIsPrimary,
@@ -285,19 +284,18 @@ func FromModel(m model.ClassSubjectBookModel) ClassSubjectBookResponse {
 		ClassSubjectBookUpdatedAt: m.ClassSubjectBookUpdatedAt,
 		ClassSubjectBookDeletedAt: deletedAt,
 
-		// snapshots buku
-		ClassSubjectBookBookTitleSnapshot:           m.ClassSubjectBookBookTitleSnapshot,
-		ClassSubjectBookBookAuthorSnapshot:          m.ClassSubjectBookBookAuthorSnapshot,
-		ClassSubjectBookBookSlugSnapshot:            m.ClassSubjectBookBookSlugSnapshot,
-		ClassSubjectBookBookPublisherSnapshot:       m.ClassSubjectBookBookPublisherSnapshot,
-		ClassSubjectBookBookPublicationYearSnapshot: m.ClassSubjectBookBookPublicationYearSnapshot,
-		ClassSubjectBookBookImageURLSnapshot:        m.ClassSubjectBookBookImageURLSnapshot,
+		// caches buku
+		ClassSubjectBookBookTitleCache:           m.ClassSubjectBookBookTitleCache,
+		ClassSubjectBookBookAuthorCache:          m.ClassSubjectBookBookAuthorCache,
+		ClassSubjectBookBookSlugCache:            m.ClassSubjectBookBookSlugCache,
+		ClassSubjectBookBookPublisherCache:       m.ClassSubjectBookBookPublisherCache,
+		ClassSubjectBookBookPublicationYearCache: m.ClassSubjectBookBookPublicationYearCache,
+		ClassSubjectBookBookImageURLCache:        m.ClassSubjectBookBookImageURLCache,
 
-		// snapshots subject
-		ClassSubjectBookSubjectID:           m.ClassSubjectBookSubjectID,
-		ClassSubjectBookSubjectCodeSnapshot: m.ClassSubjectBookSubjectCodeSnapshot,
-		ClassSubjectBookSubjectNameSnapshot: m.ClassSubjectBookSubjectNameSnapshot,
-		ClassSubjectBookSubjectSlugSnapshot: m.ClassSubjectBookSubjectSlugSnapshot,
+		// caches subject
+		ClassSubjectBookSubjectCodeCache: m.ClassSubjectBookSubjectCodeCache,
+		ClassSubjectBookSubjectNameCache: m.ClassSubjectBookSubjectNameCache,
+		ClassSubjectBookSubjectSlugCache: m.ClassSubjectBookSubjectSlugCache,
 	}
 }
 

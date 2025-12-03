@@ -1,3 +1,6 @@
+-- +migrate Up
+BEGIN;
+
 -- =========================================================
 -- EXTENSIONS (idempotent)
 -- =========================================================
@@ -37,114 +40,8 @@ BEGIN
 END$$;
 
 -- =========================================================
--- TABLE: SCHOOLS
+-- SEQUENCE: SCHOOL NUMBER
 -- =========================================================
-CREATE TABLE IF NOT EXISTS schools (
-  school_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-
-  -- Running number (auto-increment, global per tabel)
-  school_number BIGINT,
-
-  -- Relasi
-  school_yayasan_id       UUID REFERENCES yayasans (yayasan_id) ON UPDATE CASCADE ON DELETE SET NULL,
-  school_current_plan_id  UUID,
-
-  -- Identitas & lokasi ringkas
-  school_name      VARCHAR(100) NOT NULL,
-  school_bio_short TEXT,
-  school_location  TEXT,
-  school_city      VARCHAR(80),
-
-  -- Domain & slug
-  school_domain VARCHAR(50),
-  school_slug   VARCHAR(100) NOT NULL,
-
-  -- Status & verifikasi
-  school_is_active BOOLEAN NOT NULL DEFAULT TRUE,
-  school_is_verified BOOLEAN NOT NULL DEFAULT FALSE,
-  school_verification_status verification_status_enum NOT NULL DEFAULT 'pending',
-  school_verified_at TIMESTAMPTZ,
-  school_verification_notes TEXT,
-
-  -- Kontak & admin
-  school_contact_person_name  VARCHAR(100),
-  school_contact_person_phone VARCHAR(30),
-
-  -- Flag
-  school_is_islamic_school BOOLEAN NOT NULL DEFAULT FALSE,
-
-  -- Peruntukan tenant
-  school_tenant_profile tenant_profile_enum NOT NULL DEFAULT 'school_basic',
-
-  -- Levels (tag array)
-  school_levels JSONB,
-
-  -- Teacher invite/join code
-  school_teacher_code_hash BYTEA,
-  school_teacher_code_set_at TIMESTAMPTZ,
-
-  -- Media: icon (2-slot + retensi)
-  school_icon_url                  TEXT,
-  school_icon_object_key           TEXT,
-  school_icon_url_old              TEXT,
-  school_icon_object_key_old       TEXT,
-  school_icon_delete_pending_until TIMESTAMPTZ,
-
-  -- Media: logo (2-slot + retensi)
-  school_logo_url                  TEXT,
-  school_logo_object_key           TEXT,
-  school_logo_url_old              TEXT,
-  school_logo_object_key_old       TEXT,
-  school_logo_delete_pending_until TIMESTAMPTZ,
-
-  -- Media: background (2-slot + retensi)
-  school_background_url                  TEXT,
-  school_background_object_key           TEXT,
-  school_background_url_old              TEXT,
-  school_background_object_key_old       TEXT,
-  school_background_delete_pending_until TIMESTAMPTZ,
-
-  -- Default mode absensi: teacher_only / student_only / both
-  school_default_attendance_entry_mode attendance_entry_mode_enum
-    NOT NULL DEFAULT 'both',
-
-  -- Global settings sekolah
-  school_timezone VARCHAR(50),
-  school_default_min_passing_score INT,
-  school_settings JSONB NOT NULL DEFAULT '{}'::jsonb,
-
-  -- Audit
-  school_created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  school_updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  school_last_activity_at TIMESTAMPTZ,
-  school_deleted_at       TIMESTAMPTZ,
-
-  -- Checks
-  CONSTRAINT chk_school_levels_is_array
-    CHECK (school_levels IS NULL OR jsonb_typeof(school_levels) = 'array'),
-  CONSTRAINT chk_school_contact_phone
-    CHECK (school_contact_person_phone IS NULL OR school_contact_person_phone ~ '^\+?[0-9]{7,20}$'),
-  CONSTRAINT chk_school_slug_format
-    CHECK (school_slug ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$'),
-  CONSTRAINT chk_school_domain_format
-    CHECK (school_domain IS NULL OR school_domain ~* '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z]{2,})+$'),
-  CONSTRAINT chk_school_default_min_passing_score
-    CHECK (
-      school_default_min_passing_score IS NULL
-      OR school_default_min_passing_score BETWEEN 0 AND 100
-    ),
-  CONSTRAINT chk_school_settings_is_object
-    CHECK (
-      school_settings IS NULL
-      OR jsonb_typeof(school_settings) = 'object'
-    )
-);
-
--- =========================================================
--- SCHOOL NUMBER: sequence + default + pengisian existing
--- =========================================================
-
--- 1) Sequence untuk school_number
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -157,90 +54,137 @@ BEGIN
   END IF;
 END$$;
 
--- 2) Set default pakai sequence
-ALTER TABLE schools
-  ALTER COLUMN school_number SET DEFAULT nextval('schools_school_number_seq');
-
--- 3) Inisialisasi nilai untuk row yang sudah ada (hanya yang masih NULL)
-DO $$
-DECLARE
-  max_num BIGINT;
-BEGIN
-  SELECT COALESCE(MAX(school_number), 0) INTO max_num FROM schools;
-  PERFORM setval('schools_school_number_seq', max_num, true);
-
-  UPDATE schools
-     SET school_number = nextval('schools_school_number_seq')
-   WHERE school_number IS NULL;
-END$$;
-
--- 4) Unique index untuk memastikan tidak ada duplikasi number
-CREATE UNIQUE INDEX IF NOT EXISTS ux_schools_school_number
-  ON schools (school_number);
-
 -- =========================================================
--- PATCH: untuk schema lama (kalau kolom baru belum ada)
+-- TABLE: SCHOOLS
 -- =========================================================
-ALTER TABLE schools
-  ADD COLUMN IF NOT EXISTS school_timezone VARCHAR(50),
-  ADD COLUMN IF NOT EXISTS school_default_min_passing_score INT,
-  ADD COLUMN IF NOT EXISTS school_settings JSONB NOT NULL DEFAULT '{}'::jsonb;
+CREATE TABLE IF NOT EXISTS schools (
+  school_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conrelid = 'schools'::regclass
-      AND conname = 'chk_school_default_min_passing_score'
-  ) THEN
-    ALTER TABLE schools
-      ADD CONSTRAINT chk_school_default_min_passing_score
-      CHECK (
-        school_default_min_passing_score IS NULL
-        OR school_default_min_passing_score BETWEEN 0 AND 100
-      );
-  END IF;
-END$$;
+  -- Running number (auto-increment, global per table)
+  school_number BIGINT NOT NULL DEFAULT nextval('schools_school_number_seq'::regclass),
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conrelid = 'schools'::regclass
-      AND conname = 'chk_school_settings_is_object'
-  ) THEN
-    ALTER TABLE schools
-      ADD CONSTRAINT chk_school_settings_is_object
-      CHECK (
-        school_settings IS NULL
-        OR jsonb_typeof(school_settings) = 'object'
-      );
-  END IF;
-END$$;
+  -- Relations
+  school_yayasan_id       UUID REFERENCES yayasans (yayasan_id) ON UPDATE CASCADE ON DELETE SET NULL,
+  school_current_plan_id  UUID REFERENCES school_service_plans (school_service_plan_id) ON UPDATE CASCADE ON DELETE SET NULL,
 
--- (Opsional) pastikan default attendance mode sudah 'both'
-ALTER TABLE schools
-  ALTER COLUMN school_default_attendance_entry_mode SET DEFAULT 'both';
+  -- Identity & short location
+  school_name      VARCHAR(100) NOT NULL,
+  school_bio_short TEXT,
+  school_location  TEXT,
+  school_city      VARCHAR(80),
 
--- =========================================================
--- FK plan (idempotent, toleran delete)
--- =========================================================
-ALTER TABLE schools
-  DROP CONSTRAINT IF EXISTS schools_school_current_plan_id_fkey;
+  -- Domain & slug
+  school_domain VARCHAR(50),
+  school_slug   VARCHAR(100) NOT NULL,
 
-ALTER TABLE schools
-  ADD CONSTRAINT schools_school_current_plan_id_fkey
-  FOREIGN KEY (school_current_plan_id)
-  REFERENCES school_service_plans (school_service_plan_id)
-  ON UPDATE CASCADE ON DELETE SET NULL;
+  -- Status & verification
+  school_is_active           BOOLEAN NOT NULL DEFAULT TRUE,
+  school_is_verified         BOOLEAN NOT NULL DEFAULT FALSE,
+  school_verification_status verification_status_enum NOT NULL DEFAULT 'pending',
+  school_verified_at         TIMESTAMPTZ,
+  school_verification_notes  TEXT,
 
--- Bersih-bersih FTS lama (jika pernah ada)
-DROP INDEX IF EXISTS idx_schools_search;
-ALTER TABLE schools DROP COLUMN IF EXISTS school_search;
+  -- Contact & admin
+  school_contact_person_name  VARCHAR(100),
+  school_contact_person_phone VARCHAR(30),
+
+  -- Flag
+  school_is_islamic_school BOOLEAN NOT NULL DEFAULT FALSE,
+
+  -- Tenant profile
+  school_tenant_profile tenant_profile_enum NOT NULL DEFAULT 'school_basic',
+
+  -- Levels (tag array)
+  school_levels JSONB,
+
+  -- Teacher invite/join code
+  school_teacher_code_hash   BYTEA,
+  school_teacher_code_set_at TIMESTAMPTZ,
+
+  -- Media: icon (2-slot + retention)
+  school_icon_url                  TEXT,
+  school_icon_object_key           TEXT,
+  school_icon_url_old              TEXT,
+  school_icon_object_key_old       TEXT,
+  school_icon_delete_pending_until TIMESTAMPTZ,
+
+  -- Media: logo (2-slot + retention)
+  school_logo_url                  TEXT,
+  school_logo_object_key           TEXT,
+  school_logo_url_old              TEXT,
+  school_logo_object_key_old       TEXT,
+  school_logo_delete_pending_until TIMESTAMPTZ,
+
+  -- Media: background (2-slot + retention)
+  school_background_url                  TEXT,
+  school_background_object_key           TEXT,
+  school_background_url_old              TEXT,
+  school_background_object_key_old       TEXT,
+  school_background_delete_pending_until TIMESTAMPTZ,
+
+  -- Default attendance mode: teacher_only / student_only / both
+  school_default_attendance_entry_mode attendance_entry_mode_enum
+    NOT NULL DEFAULT 'both',
+
+  -- Global school settings
+  school_timezone                  VARCHAR(50),
+  school_default_min_passing_score INT,
+
+  -- 🆕 Default number of students per class (school-wide setting)
+  school_default_class_qouta       INT,
+
+  school_settings JSONB NOT NULL DEFAULT '{}'::jsonb,
+
+  -- Audit
+  school_created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  school_updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  school_last_activity_at TIMESTAMPTZ,
+  school_deleted_at       TIMESTAMPTZ,
+
+  -- Checks
+  CONSTRAINT chk_school_levels_is_array
+    CHECK (school_levels IS NULL OR jsonb_typeof(school_levels) = 'array'),
+
+  CONSTRAINT chk_school_contact_phone
+    CHECK (school_contact_person_phone IS NULL OR school_contact_person_phone ~ '^\+?[0-9]{7,20}$'),
+
+  CONSTRAINT chk_school_slug_format
+    CHECK (school_slug ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$'),
+
+  CONSTRAINT chk_school_domain_format
+    CHECK (
+      school_domain IS NULL
+      OR school_domain ~* '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z]{2,})+$'
+    ),
+
+  CONSTRAINT chk_school_default_min_passing_score
+    CHECK (
+      school_default_min_passing_score IS NULL
+      OR school_default_min_passing_score BETWEEN 0 AND 100
+    ),
+
+  -- 🆕 reasonable bound for default class quota
+  CONSTRAINT chk_school_default_class_qouta
+    CHECK (
+      school_default_class_qouta IS NULL
+      OR school_default_class_qouta BETWEEN 0 AND 1000
+    ),
+
+  CONSTRAINT chk_school_settings_is_object
+    CHECK (
+      school_settings IS NULL
+      OR jsonb_typeof(school_settings) = 'object'
+    )
+);
 
 -- =========================================================
 -- INDEXES: SCHOOLS
 -- =========================================================
+
+-- Running number unique
+CREATE UNIQUE INDEX IF NOT EXISTS ux_schools_school_number
+  ON schools (school_number);
+
 CREATE INDEX IF NOT EXISTS idx_schools_name_trgm
   ON schools USING gin (school_name gin_trgm_ops);
 
@@ -252,19 +196,6 @@ CREATE INDEX IF NOT EXISTS idx_schools_name_lower
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_schools_domain_ci
   ON schools (LOWER(school_domain));
-
--- Drop unique lama di kolom slug (jika ada)
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conrelid = 'schools'::regclass
-      AND contype = 'u'
-      AND conname = 'schools_school_slug_key'
-  ) THEN
-    EXECUTE 'ALTER TABLE schools DROP CONSTRAINT schools_school_slug_key';
-  END IF;
-END$$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_schools_slug_ci
   ON schools (LOWER(school_slug));
@@ -309,8 +240,9 @@ CREATE INDEX IF NOT EXISTS idx_schools_default_attendance_entry_mode_alive
   WHERE school_deleted_at IS NULL;
 
 -- =========================================================
--- TRIGGERS: updated_at sinkron dengan DB
+-- TRIGGERS: updated_at & is_verified sync
 -- =========================================================
+
 CREATE OR REPLACE FUNCTION set_school_updated_at()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN

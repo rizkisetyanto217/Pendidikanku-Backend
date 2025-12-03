@@ -60,23 +60,6 @@ func parseBool(s string) bool {
 	}
 }
 
-func clampInt(vs string, def, min, max int) int {
-	if vs == "" {
-		return def
-	}
-	v, err := strconv.Atoi(vs)
-	if err != nil {
-		return def
-	}
-	if v < min {
-		return min
-	}
-	if v > max {
-		return max
-	}
-	return v
-}
-
 func ptrStr(s string) *string {
 	ss := strings.TrimSpace(s)
 	if ss == "" {
@@ -116,21 +99,6 @@ func (mc *SchoolController) ensureOSS() error {
 	return nil
 }
 
-// splitCSV memecah "a,b, c , , d" -> []string{"a","b","c","d"}
-func splitCSV(s string) []string {
-	if strings.TrimSpace(s) == "" {
-		return nil
-	}
-	raw := strings.Split(s, ",")
-	out := make([]string, 0, len(raw))
-	for _, r := range raw {
-		if t := strings.TrimSpace(r); t != "" {
-			out = append(out, t)
-		}
-	}
-	return out
-}
-
 // ===== Helper: 2-char base36 & generator dari slug =====
 func randBase36(n int) (string, error) {
 	const alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
@@ -161,6 +129,11 @@ func makeTeacherCodeFromSlug(slug string) (plain string, hash []byte, setAt time
 		return "", nil, time.Time{}, err
 	}
 	return plain, hash, time.Now(), nil
+}
+
+type SchoolCreateWithCodeResp struct {
+	schoolDto.SchoolResp
+	TeacherCode *string `json:"school_teacher_code,omitempty"`
 }
 
 // =======================================================
@@ -376,7 +349,7 @@ func (mc *SchoolController) CreateSchoolDKM(c *fiber.Ctx) error {
 			}
 			m.SchoolTeacherCodeHash = hash
 			m.SchoolTeacherCodeSetAt = &now
-			c.Locals("teacher_code", manual) // kembalikan sekali via response
+			c.Locals("school_teacher_code", manual) // kembalikan sekali via response
 			lg("teacher code set (manual)")
 		} else {
 			plain, hash, setAt, err := makeTeacherCodeFromSlug(slug) // slug-xy
@@ -386,7 +359,7 @@ func (mc *SchoolController) CreateSchoolDKM(c *fiber.Ctx) error {
 			}
 			m.SchoolTeacherCodeHash = hash
 			m.SchoolTeacherCodeSetAt = &setAt
-			c.Locals("teacher_code", plain) // kembalikan sekali via response
+			c.Locals("school_teacher_code", plain) // kembalikan sekali via response
 			lg("teacher code set (auto)")
 		}
 		// ===============================
@@ -517,14 +490,18 @@ func (mc *SchoolController) CreateSchoolDKM(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Transaksi gagal")
 	}
 
-	// Sertakan plaintext teacher code SEKALI di response
-	if tc, _ := c.Locals("teacher_code").(string); tc != "" {
-		return helper.JsonCreated(c, "School berhasil dibuat", fiber.Map{
-			"item":         resp,
-			"teacher_code": tc,
-		})
+	// Build payload: embed SchoolResp + school_teacher_code (optional)
+	var tc *string
+	if v, ok := c.Locals("school_teacher_code").(string); ok && v != "" {
+		tc = &v
 	}
-	return helper.JsonCreated(c, "School berhasil dibuat", resp)
+
+	payload := SchoolCreateWithCodeResp{
+		SchoolResp:  resp,
+		TeacherCode: tc,
+	}
+
+	return helper.JsonCreated(c, "School berhasil dibuat", payload)
 }
 
 // normalize ke enum yang dipakai di package model

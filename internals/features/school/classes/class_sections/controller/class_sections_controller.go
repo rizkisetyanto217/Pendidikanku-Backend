@@ -27,11 +27,11 @@ import (
 	secModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 	classModel "madinahsalam_backend/internals/features/school/classes/classes/model"
 
-	// Snapshot (section room snapshot)
-	sectionroomsnap "madinahsalam_backend/internals/features/school/classes/class_sections/snapshot"
+	// Cache (section room snapshot)
+	sectionroomsnap "madinahsalam_backend/internals/features/school/classes/class_sections/service"
 
-	// ✅ Snapshot guru versi baru (school_teachers)
-	teachersnap "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/snapshot"
+	// ✅ Cache guru versi baru (school_teachers)
+	teachersnap "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/service"
 )
 
 /* =========================================================
@@ -62,10 +62,10 @@ func isValidEnrollmentMode(s string) bool {
 }
 
 /* =========================================================
-   Snapshot: Class → Parent & Term
+   Cache: Class → Parent & Term
 ========================================================= */
 
-type ClassParentAndTermSnapshot struct {
+type ClassParentAndTermCache struct {
 	SchoolID uuid.UUID
 
 	// class
@@ -87,7 +87,7 @@ type ClassParentAndTermSnapshot struct {
 	TermAngkatan *int
 }
 
-func snapshotClassParentAndTerm(tx *gorm.DB, schoolID, classID uuid.UUID) (*ClassParentAndTermSnapshot, error) {
+func snapshotClassParentAndTerm(tx *gorm.DB, schoolID, classID uuid.UUID) (*ClassParentAndTermCache, error) {
 	// deteksi tabel parent (class_parents vs class_parent)
 	parentTbl := "class_parents"
 	{
@@ -172,7 +172,7 @@ func snapshotClassParentAndTerm(tx *gorm.DB, schoolID, classID uuid.UUID) (*Clas
 		return &s
 	}
 
-	return &ClassParentAndTermSnapshot{
+	return &ClassParentAndTermCache{
 		SchoolID: r.SchoolID,
 
 		ClassID:   r.ClassID,
@@ -197,23 +197,23 @@ func snapshotClassParentAndTerm(tx *gorm.DB, schoolID, classID uuid.UUID) (*Clas
 	}, nil
 }
 
-func applyClassParentAndTermSnapshotToSection(mcs *secModel.ClassSectionModel, s *ClassParentAndTermSnapshot) {
+func applyClassParentAndTermCacheToSection(mcs *secModel.ClassSectionModel, s *ClassParentAndTermCache) {
 	// ---------- CLASS ----------
 	name := strings.TrimSpace(s.ClassName)
 	if name == "" {
 		name = strings.TrimSpace(s.ClassSlug)
 	}
 	if name != "" {
-		mcs.ClassSectionClassNameSnapshot = &name
+		mcs.ClassSectionClassNameCache = &name
 	} else {
-		mcs.ClassSectionClassNameSnapshot = nil
+		mcs.ClassSectionClassNameCache = nil
 	}
 
 	slug := strings.TrimSpace(s.ClassSlug)
 	if slug != "" {
-		mcs.ClassSectionClassSlugSnapshot = &slug
+		mcs.ClassSectionClassSlugCache = &slug
 	} else {
-		mcs.ClassSectionClassSlugSnapshot = nil
+		mcs.ClassSectionClassSlugCache = nil
 	}
 
 	// ---------- PARENT ----------
@@ -221,34 +221,31 @@ func applyClassParentAndTermSnapshotToSection(mcs *secModel.ClassSectionModel, s
 
 	pName := strings.TrimSpace(s.ParentName)
 	if pName != "" {
-		mcs.ClassSectionClassParentNameSnapshot = &pName
+		mcs.ClassSectionClassParentNameCache = &pName
 	} else {
-		mcs.ClassSectionClassParentNameSnapshot = nil
+		mcs.ClassSectionClassParentNameCache = nil
 	}
 
 	if s.ParentSlug != nil {
 		ps := strings.TrimSpace(*s.ParentSlug)
 		if ps != "" {
-			mcs.ClassSectionClassParentSlugSnapshot = &ps
+			mcs.ClassSectionClassParentSlugCache = &ps
 		} else {
-			mcs.ClassSectionClassParentSlugSnapshot = nil
+			mcs.ClassSectionClassParentSlugCache = nil
 		}
 	} else {
-		mcs.ClassSectionClassParentSlugSnapshot = nil
+		mcs.ClassSectionClassParentSlugCache = nil
 	}
 
-	mcs.ClassSectionClassParentLevelSnapshot = s.ParentLevel
+	mcs.ClassSectionClassParentLevelCache = s.ParentLevel
 
 	// ---------- TERM ----------
 	mcs.ClassSectionAcademicTermID = s.TermID
-	mcs.ClassSectionAcademicTermNameSnapshot = s.TermName
-	mcs.ClassSectionAcademicTermSlugSnapshot = s.TermSlug
-	mcs.ClassSectionAcademicTermAcademicYearSnapshot = s.TermYear
-	mcs.ClassSectionAcademicTermAngkatanSnapshot = s.TermAngkatan
+	mcs.ClassSectionAcademicTermNameCache = s.TermName
+	mcs.ClassSectionAcademicTermSlugCache = s.TermSlug
+	mcs.ClassSectionAcademicTermAcademicYearCache = s.TermYear
+	mcs.ClassSectionAcademicTermAngkatanCache = s.TermAngkatan
 
-	// ---------- housekeeping ----------
-	ts := time.Now()
-	mcs.ClassSectionSnapshotUpdatedAt = &ts
 }
 
 /* =========================================================
@@ -353,9 +350,18 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	if strings.TrimSpace(req.ClassSectionName) == "" {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Nama section wajib diisi")
 	}
-	if req.ClassSectionCapacity != nil && *req.ClassSectionCapacity < 0 {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Capacity tidak boleh negatif")
+	// Kuota: total & taken (mirror pola di classes)
+	if req.ClassSectionQuotaTotal != nil && *req.ClassSectionQuotaTotal < 0 {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Kuota total tidak boleh negatif")
 	}
+	if req.ClassSectionQuotaTaken != nil && *req.ClassSectionQuotaTaken < 0 {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Kuota terpakai tidak boleh negatif")
+	}
+	if req.ClassSectionQuotaTotal != nil && req.ClassSectionQuotaTaken != nil &&
+		*req.ClassSectionQuotaTaken > *req.ClassSectionQuotaTotal {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Kuota terpakai tidak boleh melebihi kuota total")
+	}
+
 	if req.ClassSectionSubjectTeachersMaxSubjectsPerStudent != nil && *req.ClassSectionSubjectTeachersMaxSubjectsPerStudent < 0 {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Batas maksimal mapel per siswa tidak boleh negatif")
 	}
@@ -401,9 +407,9 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 
 	// (stats & CSST totals default 0 dari DB / struct, jadi dibiarkan)
 
-	// ==== Snapshot GURU (opsional, via class_section_school_teacher_id) ====
+	// ==== Cache GURU (opsional, via class_section_school_teacher_id) ====
 	if m.ClassSectionSchoolTeacherID != nil {
-		ts, err := teachersnap.ValidateAndSnapshotTeacher(
+		ts, err := teachersnap.ValidateAndCacheTeacher(
 			tx,
 			schoolID,
 			*m.ClassSectionSchoolTeacherID,
@@ -416,12 +422,12 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 			}
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil snapshot guru: "+err.Error())
 		}
-		m.ClassSectionSchoolTeacherSnapshot = teachersnap.ToJSON(ts)
+		m.ClassSectionSchoolTeacherCache = teachersnap.ToJSON(ts)
 	}
 
-	// ==== Snapshot ASSISTANT GURU (opsional, via class_section_assistant_school_teacher_id) ====
+	// ==== Cache ASSISTANT GURU (opsional, via class_section_assistant_school_teacher_id) ====
 	if m.ClassSectionAssistantSchoolTeacherID != nil {
-		ts, err := teachersnap.ValidateAndSnapshotTeacher(
+		ts, err := teachersnap.ValidateAndCacheTeacher(
 			tx,
 			schoolID,
 			*m.ClassSectionAssistantSchoolTeacherID,
@@ -434,10 +440,10 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 			}
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil snapshot asisten guru: "+err.Error())
 		}
-		m.ClassSectionAssistantSchoolTeacherSnapshot = teachersnap.ToJSON(ts)
+		m.ClassSectionAssistantSchoolTeacherCache = teachersnap.ToJSON(ts)
 	}
 
-	// ---- Snapshot relasi (class→parent/term) ----
+	// ---- Cache relasi (class→parent/term) ----
 	if snap, err := snapshotClassParentAndTerm(tx, schoolID, req.ClassSectionClassID); err != nil {
 		_ = tx.Rollback()
 		var fe *fiber.Error
@@ -446,12 +452,12 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil snapshot class: "+err.Error())
 	} else {
-		applyClassParentAndTermSnapshotToSection(m, snap)
+		applyClassParentAndTermCacheToSection(m, snap)
 	}
 
-	// ==== Snapshot ROOM (opsional, via class_section_class_room_id) ====
+	// ==== Cache ROOM (opsional, via class_section_class_room_id) ====
 	if m.ClassSectionClassRoomID != nil {
-		rs, err := sectionroomsnap.ValidateAndSnapshotRoom(tx, schoolID, *m.ClassSectionClassRoomID)
+		rs, err := sectionroomsnap.ValidateAndCacheRoom(tx, schoolID, *m.ClassSectionClassRoomID)
 		if err != nil {
 			_ = tx.Rollback()
 			var fe *fiber.Error
@@ -460,7 +466,7 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 			}
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi ruang kelas")
 		}
-		sectionroomsnap.ApplyRoomSnapshotToSection(m, rs)
+		sectionroomsnap.ApplyRoomCacheToSection(m, rs)
 	}
 
 	// ---- Slug unik ----
@@ -621,10 +627,25 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusBadRequest, "Nama section wajib diisi")
 		}
 	}
-	if req.ClassSectionCapacity.Present && req.ClassSectionCapacity.Value != nil && *req.ClassSectionCapacity.Value < 0 {
+
+	// Kuota: total & taken
+	if req.ClassSectionQuotaTotal.Present && req.ClassSectionQuotaTotal.Value != nil &&
+		*req.ClassSectionQuotaTotal.Value < 0 {
 		_ = tx.Rollback()
-		return helper.JsonError(c, fiber.StatusBadRequest, "Capacity tidak boleh negatif")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Kuota total tidak boleh negatif")
 	}
+	if req.ClassSectionQuotaTaken.Present && req.ClassSectionQuotaTaken.Value != nil &&
+		*req.ClassSectionQuotaTaken.Value < 0 {
+		_ = tx.Rollback()
+		return helper.JsonError(c, fiber.StatusBadRequest, "Kuota terpakai tidak boleh negatif")
+	}
+	if req.ClassSectionQuotaTotal.Present && req.ClassSectionQuotaTotal.Value != nil &&
+		req.ClassSectionQuotaTaken.Present && req.ClassSectionQuotaTaken.Value != nil &&
+		*req.ClassSectionQuotaTaken.Value > *req.ClassSectionQuotaTotal.Value {
+		_ = tx.Rollback()
+		return helper.JsonError(c, fiber.StatusBadRequest, "Kuota terpakai tidak boleh melebihi kuota total")
+	}
+
 	if req.ClassSectionSubjectTeachersMaxSubjectsPerStudent.Present && req.ClassSectionSubjectTeachersMaxSubjectsPerStudent.Value != nil {
 		if *req.ClassSectionSubjectTeachersMaxSubjectsPerStudent.Value < 0 {
 			_ = tx.Rollback()
@@ -641,7 +662,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 	// Siapkan snapshot ROOM & GURU bila id dipatch
 	var (
 		roomSnapRequested bool
-		roomSnap          *sectionroomsnap.RoomSnapshot
+		roomSnap          *sectionroomsnap.RoomCache
 
 		teacherSnapRequested     bool
 		teacherSnapJSON          datatypes.JSON
@@ -652,7 +673,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 	if req.ClassSectionClassRoomID.Present {
 		roomSnapRequested = true
 		if req.ClassSectionClassRoomID.Value != nil {
-			rs, err := sectionroomsnap.ValidateAndSnapshotRoom(
+			rs, err := sectionroomsnap.ValidateAndCacheRoom(
 				tx,
 				schoolID,
 				*req.ClassSectionClassRoomID.Value,
@@ -672,12 +693,12 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		}
 	}
 
-	// Snapshot guru bila school_teacher_id dipatch
+	// Cache guru bila school_teacher_id dipatch
 	if req.ClassSectionSchoolTeacherID.Present {
 		teacherSnapRequested = true
 
 		if req.ClassSectionSchoolTeacherID.Value != nil {
-			ts, err := teachersnap.ValidateAndSnapshotTeacher(
+			ts, err := teachersnap.ValidateAndCacheTeacher(
 				tx,
 				schoolID,
 				*req.ClassSectionSchoolTeacherID.Value,
@@ -697,12 +718,12 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		}
 	}
 
-	// Snapshot assistant guru bila assistant_school_teacher_id dipatch
+	// Cache assistant guru bila assistant_school_teacher_id dipatch
 	if req.ClassSectionAssistantSchoolTeacherID.Present {
 		asstTeacherSnapRequested = true
 
 		if req.ClassSectionAssistantSchoolTeacherID.Value != nil {
-			ts, err := teachersnap.ValidateAndSnapshotTeacher(
+			ts, err := teachersnap.ValidateAndCacheTeacher(
 				tx,
 				schoolID,
 				*req.ClassSectionAssistantSchoolTeacherID.Value,
@@ -789,15 +810,15 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 
 	// Apply room snapshot jika field-nya dipatch (clear jika nil)
 	if roomSnapRequested {
-		sectionroomsnap.ApplyRoomSnapshotToSection(&existing, roomSnap)
+		sectionroomsnap.ApplyRoomCacheToSection(&existing, roomSnap)
 	}
 
 	// Apply teacher snapshot bila field-nya dipatch
 	if teacherSnapRequested {
-		existing.ClassSectionSchoolTeacherSnapshot = teacherSnapJSON
+		existing.ClassSectionSchoolTeacherCache = teacherSnapJSON
 	}
 	if asstTeacherSnapRequested {
-		existing.ClassSectionAssistantSchoolTeacherSnapshot = asstTeacherSnapJSON
+		existing.ClassSectionAssistantSchoolTeacherCache = asstTeacherSnapJSON
 	}
 
 	// Save

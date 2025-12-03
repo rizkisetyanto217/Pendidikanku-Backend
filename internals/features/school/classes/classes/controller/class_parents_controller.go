@@ -435,16 +435,16 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		if err := tx.Model(&classmodel{}).
 			Where("class_school_id = ? AND class_class_parent_id = ?", ent.ClassParentSchoolID, ent.ClassParentID).
 			Updates(map[string]any{
-				"class_class_parent_code_snapshot": func() any {
+				"class_class_parent_code_cache": func() any {
 					if ent.ClassParentCode == nil {
 						return gorm.Expr("NULL")
 					}
 					return *ent.ClassParentCode
 				}(),
-				"class_class_parent_name_snapshot":  newName,
-				"class_class_parent_slug_snapshot":  newSlug,
-				"class_class_parent_level_snapshot": newLevel,
-				"class_updated_at":                  time.Now(),
+				"class_class_parent_name_cache":  newName,
+				"class_class_parent_slug_cache":  newSlug,
+				"class_class_parent_level_cache": newLevel,
+				"class_updated_at":               time.Now(),
 			}).Error; err != nil {
 
 			_ = tx.Rollback()
@@ -456,10 +456,9 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 			UPDATE class_sections AS cs
 			SET
 				class_section_class_parent_id             = $1,
-				class_section_class_parent_name_snapshot  = $2,
-				class_section_class_parent_slug_snapshot  = $3,
-				class_section_class_parent_level_snapshot = $4,
-				class_section_snapshot_updated_at         = NOW(),
+				class_section_class_parent_name_cache  = $2,
+				class_section_class_parent_slug_cache  = $3,
+				class_section_class_parent_level_cache = $4,
 				class_section_updated_at                  = NOW()
 			FROM classes AS c
 			WHERE

@@ -68,12 +68,12 @@ CREATE TABLE IF NOT EXISTS school_teachers (
   school_teacher_notes       TEXT,
 
   -- Snapshot user_teachers
-  school_teacher_user_teacher_name_snapshot          VARCHAR(80),
-  school_teacher_user_teacher_avatar_url_snapshot    VARCHAR(255),
-  school_teacher_user_teacher_whatsapp_url_snapshot  VARCHAR(50),
-  school_teacher_user_teacher_title_prefix_snapshot  VARCHAR(20),
-  school_teacher_user_teacher_title_suffix_snapshot  VARCHAR(30),
-  school_teacher_user_teacher_gender_snapshot        VARCHAR(20),
+  school_teacher_user_teacher_full_name_cache          VARCHAR(80),
+  school_teacher_user_teacher_avatar_url_cache    VARCHAR(255),
+  school_teacher_user_teacher_whatsapp_url_cache  VARCHAR(50),
+  school_teacher_user_teacher_title_prefix_cache  VARCHAR(20),
+  school_teacher_user_teacher_title_suffix_cache  VARCHAR(30),
+  school_teacher_user_teacher_gender_cache        VARCHAR(20),
 
   -- JSONB: class sections (homeroom/assistant/teacher)
   school_teacher_sections JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -187,7 +187,7 @@ CREATE INDEX IF NOT EXISTS ix_mtj_total_csst_active
 
 -- Name search (trigram)
 CREATE INDEX IF NOT EXISTS gin_mtj_name_snap_trgm_alive
-  ON school_teachers USING GIN (lower(school_teacher_user_teacher_name_snapshot) gin_trgm_ops)
+  ON school_teachers USING GIN (lower(school_teacher_user_teacher_user_full_name_cache) gin_trgm_ops)
   WHERE school_teacher_deleted_at IS NULL;
 
 -- Listing cepat
@@ -208,7 +208,7 @@ COMMIT;
 BEGIN;
 
 -- =========================================================
--- TABLE: school_students (JSONB sections + csst + snapshots)
+-- TABLE: school_students (JSONB sections + csst + caches)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS school_students (
   school_student_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -234,12 +234,12 @@ CREATE TABLE IF NOT EXISTS school_students (
   school_student_note TEXT,
 
   -- Snapshots user_profiles
-  school_student_user_profile_name_snapshot                VARCHAR(80),
-  school_student_user_profile_avatar_url_snapshot          VARCHAR(255),
-  school_student_user_profile_whatsapp_url_snapshot        VARCHAR(50),
-  school_student_user_profile_parent_name_snapshot         VARCHAR(80),
-  school_student_user_profile_parent_whatsapp_url_snapshot VARCHAR(50),
-  school_student_user_profile_gender_snapshot              VARCHAR(20),
+  school_student_user_profile_name_cache                VARCHAR(80),
+  school_student_user_profile_avatar_url_cache          VARCHAR(255),
+  school_student_user_profile_whatsapp_url_cache        VARCHAR(50),
+  school_student_user_profile_parent_name_cache         VARCHAR(80),
+  school_student_user_profile_parent_whatsapp_url_cache VARCHAR(50),
+  school_student_user_profile_gender_cache              VARCHAR(20),
 
   -- JSONB CLASS SECTIONS
   school_student_class_sections JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -380,7 +380,7 @@ CREATE INDEX IF NOT EXISTS ix_ms_total_csst_active
 -- =========================================================
 
 CREATE INDEX IF NOT EXISTS gin_ms_name_snap_trgm_alive
-  ON school_students USING GIN (lower(school_student_user_profile_name_snapshot) gin_trgm_ops)
+  ON school_students USING GIN (lower(school_student_user_profile_name_cache) gin_trgm_ops)
   WHERE school_student_deleted_at IS NULL;
 
 

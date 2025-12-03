@@ -38,28 +38,28 @@ CREATE TABLE IF NOT EXISTS class_parents (
   class_parent_slug   VARCHAR(160),
 
   class_parent_description   TEXT,
-  class_parent_level         SMALLINT,  -- 0..100, opsional
+  class_parent_level         SMALLINT,
   class_parent_is_active     BOOLEAN NOT NULL DEFAULT TRUE,
 
   -- ============================
-  -- STATS (ALL)
+  -- STATS (ALL)  → COUNT
   -- ============================
-  class_parent_total_classes          INT NOT NULL DEFAULT 0,
-  class_parent_total_class_sections   INT NOT NULL DEFAULT 0,
-  class_parent_total_students         INT NOT NULL DEFAULT 0,
-  class_parent_total_male_students    INT NOT NULL DEFAULT 0,
-  class_parent_total_female_students  INT NOT NULL DEFAULT 0,
-  class_parent_total_teachers         INT NOT NULL DEFAULT 0,
+  class_parent_class_count              INT NOT NULL DEFAULT 0,
+  class_parent_class_section_count      INT NOT NULL DEFAULT 0,
+  class_parent_student_count            INT NOT NULL DEFAULT 0,
+  class_parent_student_male_count       INT NOT NULL DEFAULT 0,
+  class_parent_student_female_count     INT NOT NULL DEFAULT 0,
+  class_parent_teacher_count            INT NOT NULL DEFAULT 0,
 
   -- ============================
-  -- STATS (ACTIVE ONLY)
+  -- STATS (ACTIVE ONLY) → COUNT
   -- ============================
-  class_parent_total_classes_active          INT NOT NULL DEFAULT 0,
-  class_parent_total_class_sections_active   INT NOT NULL DEFAULT 0,
-  class_parent_total_students_active         INT NOT NULL DEFAULT 0,
-  class_parent_total_male_students_active    INT NOT NULL DEFAULT 0,
-  class_parent_total_female_students_active  INT NOT NULL DEFAULT 0,
-  class_parent_total_teachers_active         INT NOT NULL DEFAULT 0,
+  class_parent_class_active_count              INT NOT NULL DEFAULT 0,
+  class_parent_class_section_active_count      INT NOT NULL DEFAULT 0,
+  class_parent_student_active_count            INT NOT NULL DEFAULT 0,
+  class_parent_student_male_active_count       INT NOT NULL DEFAULT 0,
+  class_parent_student_female_active_count     INT NOT NULL DEFAULT 0,
+  class_parent_teacher_active_count            INT NOT NULL DEFAULT 0,
 
   -- Prasyarat/usia (fleksibel)
   class_parent_requirements  JSONB  NOT NULL DEFAULT '{}'::jsonb,
@@ -127,15 +127,15 @@ CREATE INDEX IF NOT EXISTS idx_cp_desc_trgm_alive
   ON class_parents USING GIN (class_parent_description gin_trgm_ops)
   WHERE class_parent_deleted_at IS NULL;
 
--- Index buat sorting/filter summary utama
-CREATE INDEX IF NOT EXISTS idx_cp_total_class_sections
-  ON class_parents (class_parent_total_class_sections);
+-- Index buat sorting/filter summary utama (pakai *_count)
+CREATE INDEX IF NOT EXISTS idx_cp_class_section_count
+  ON class_parents (class_parent_class_section_count);
 
-CREATE INDEX IF NOT EXISTS idx_cp_total_students
-  ON class_parents (class_parent_total_students);
+CREATE INDEX IF NOT EXISTS idx_cp_student_count
+  ON class_parents (class_parent_student_count);
 
-CREATE INDEX IF NOT EXISTS idx_cp_total_teachers
-  ON class_parents (class_parent_total_teachers);
+CREATE INDEX IF NOT EXISTS idx_cp_teacher_count
+  ON class_parents (class_parent_teacher_count);
 
 -- Pastikan academic_terms punya UNIQUE (id, school_id) untuk FK komposit
 DO $$
@@ -148,6 +148,8 @@ BEGIN
       UNIQUE (academic_term_id, academic_term_school_id);
   END IF;
 END$$;
+
+COMMIT;
 
 -- =========================================================
 -- TABLE: classes (versi refactor — tanpa pricing)
@@ -200,38 +202,38 @@ CREATE TABLE IF NOT EXISTS classes (
 
   -- Snapshot Class Parent (FIXED)
   class_class_parent_id UUID NOT NULL,
-  class_class_parent_code_snapshot   VARCHAR(40),
-  class_class_parent_name_snapshot   VARCHAR(80),
-  class_class_parent_slug_snapshot   VARCHAR(160),
-  class_class_parent_level_snapshot  SMALLINT,
-  class_class_parent_url_snapshot    VARCHAR(160),
+  class_class_parent_code_cache   VARCHAR(40),
+  class_class_parent_name_cache   VARCHAR(80),
+  class_class_parent_slug_cache   VARCHAR(160),
+  class_class_parent_level_cache  SMALLINT,
+  class_class_parent_url_cache    VARCHAR(160),
 
   -- Snapshot Class Term (FIXED)
   class_academic_term_id UUID,
-  class_academic_term_academic_year_snapshot VARCHAR(40),
-  class_academic_term_name_snapshot          VARCHAR(100),
-  class_academic_term_slug_snapshot          VARCHAR(160),
-  class_academic_term_angkatan_snapshot      VARCHAR(40),
+  class_academic_term_academic_year_cache VARCHAR(40),
+  class_academic_term_name_cache          VARCHAR(100),
+  class_academic_term_slug_cache          VARCHAR(160),
+  class_academic_term_angkatan_cache      VARCHAR(40),
 
   -- ============================
-  -- STATS (per class - ALL)
+  -- STATS (per class - ALL) → COUNT
   -- ============================
-  class_total_class_sections     INTEGER NOT NULL DEFAULT 0,
-  class_total_students           INTEGER NOT NULL DEFAULT 0,
-  class_total_students_male      INTEGER NOT NULL DEFAULT 0,
-  class_total_students_female    INTEGER NOT NULL DEFAULT 0,
-  class_total_teachers           INTEGER NOT NULL DEFAULT 0,
-  class_total_class_enrollments  INTEGER NOT NULL DEFAULT 0,
+  class_class_section_count      INTEGER NOT NULL DEFAULT 0,
+  class_student_count            INTEGER NOT NULL DEFAULT 0,
+  class_student_male_count       INTEGER NOT NULL DEFAULT 0,
+  class_student_female_count     INTEGER NOT NULL DEFAULT 0,
+  class_teacher_count            INTEGER NOT NULL DEFAULT 0,
+  class_class_enrollment_count   INTEGER NOT NULL DEFAULT 0,
 
   -- ============================
-  -- STATS (per class - ACTIVE ONLY)
+  -- STATS (per class - ACTIVE ONLY) → COUNT
   -- ============================
-  class_total_class_sections_active     INTEGER NOT NULL DEFAULT 0,
-  class_total_students_active           INTEGER NOT NULL DEFAULT 0,
-  class_total_students_male_active      INTEGER NOT NULL DEFAULT 0,
-  class_total_students_female_active    INTEGER NOT NULL DEFAULT 0,
-  class_total_teachers_active           INTEGER NOT NULL DEFAULT 0,
-  class_total_class_enrollments_active  INTEGER NOT NULL DEFAULT 0,
+  class_class_section_active_count      INTEGER NOT NULL DEFAULT 0,
+  class_student_active_count            INTEGER NOT NULL DEFAULT 0,
+  class_student_male_active_count       INTEGER NOT NULL DEFAULT 0,
+  class_student_female_active_count     INTEGER NOT NULL DEFAULT 0,
+  class_teacher_active_count            INTEGER NOT NULL DEFAULT 0,
+  class_class_enrollment_active_count   INTEGER NOT NULL DEFAULT 0,
 
   class_stats JSONB,
 
@@ -265,7 +267,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_classes_slug_per_school_alive
 CREATE INDEX IF NOT EXISTS idx_classes_school
   ON classes (class_school_id);
 
--- kolom parent yang benar
 CREATE INDEX IF NOT EXISTS idx_classes_class_parent
   ON classes (class_class_parent_id);
 
@@ -297,43 +298,40 @@ CREATE INDEX IF NOT EXISTS idx_classes_image_purge_due
   ON classes (class_image_delete_pending_until)
   WHERE class_image_object_key_old IS NOT NULL;
 
--- pasangan tenant + term dengan kolom yang benar
 CREATE INDEX IF NOT EXISTS idx_classes_tenant_academic_term
   ON classes (class_school_id, class_academic_term_id);
 
--- Unik “nama per school” untuk yang belum dihapus (opsional)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_classes_name_per_school_alive
   ON classes (class_school_id, LOWER(class_name))
   WHERE class_deleted_at IS NULL;
 
--- Trigram buat search nama (opsional)
 CREATE INDEX IF NOT EXISTS gin_classes_name_trgm_alive
   ON classes USING GIN (LOWER(class_name) gin_trgm_ops)
   WHERE class_deleted_at IS NULL;
 
 -- ===== Index untuk STATS (sorting/filter cepat) =====
-CREATE INDEX IF NOT EXISTS idx_classes_total_class_sections_alive
-  ON classes (class_total_class_sections)
+CREATE INDEX IF NOT EXISTS idx_classes_class_section_count_alive
+  ON classes (class_class_section_count)
   WHERE class_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_classes_total_students_alive
-  ON classes (class_total_students)
+CREATE INDEX IF NOT EXISTS idx_classes_student_count_alive
+  ON classes (class_student_count)
   WHERE class_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_classes_total_students_male_alive
-  ON classes (class_total_students_male)
+CREATE INDEX IF NOT EXISTS idx_classes_student_male_count_alive
+  ON classes (class_student_male_count)
   WHERE class_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_classes_total_students_female_alive
-  ON classes (class_total_students_female)
+CREATE INDEX IF NOT EXISTS idx_classes_student_female_count_alive
+  ON classes (class_student_female_count)
   WHERE class_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_classes_total_teachers_alive
-  ON classes (class_total_teachers)
+CREATE INDEX IF NOT EXISTS idx_classes_teacher_count_alive
+  ON classes (class_teacher_count)
   WHERE class_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_classes_total_enrollments_alive
-  ON classes (class_total_class_enrollments)
+CREATE INDEX IF NOT EXISTS idx_classes_class_enrollment_count_alive
+  ON classes (class_class_enrollment_count)
   WHERE class_deleted_at IS NULL;
 
 COMMIT;

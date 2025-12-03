@@ -155,7 +155,7 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 	}
 
 	// =====================================================
-	// 2B) include=books → join CLASS_SUBJECT_BOOK + BOOK
+	// 2B) include=books → link via SUBJECT (bukan class_subject lagi)
 	// =====================================================
 
 	// Kalau tidak ada data, langsung balikin kosong + pagination (tipe WithBooks)
@@ -163,10 +163,10 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 		return helper.JsonList(c, "ok", []classSubjectDTO.ClassSubjectWithBooksResponse{}, pg)
 	}
 
-	// Kumpulkan semua class_subject_id
-	classSubjectIDs := make([]uuid.UUID, 0, len(rows))
+	// Kumpulkan semua subject_id dari class_subjects
+	subjectIDs := make([]uuid.UUID, 0, len(rows))
 	for _, r := range rows {
-		classSubjectIDs = append(classSubjectIDs, r.ClassSubjectID)
+		subjectIDs = append(subjectIDs, r.ClassSubjectSubjectID)
 	}
 
 	// a) Ambil semua link class_subject_books untuk subject² di atas
@@ -175,20 +175,20 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 		Where(`
 			class_subject_book_school_id = ?
 			AND class_subject_book_deleted_at IS NULL
-			AND class_subject_book_class_subject_id IN (?)
-		`, schoolID, classSubjectIDs).
+			AND class_subject_book_subject_id IN (?)
+		`, schoolID, subjectIDs).
 		Find(&links).Error; err != nil {
 
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data buku mapel")
 	}
 
-	// Group link berdasarkan class_subject_id
-	linksByClassSubject := make(map[uuid.UUID][]bookModel.ClassSubjectBookModel)
+	// Group link berdasarkan subject_id
+	linksBySubject := make(map[uuid.UUID][]bookModel.ClassSubjectBookModel)
 	bookIDsSet := make(map[uuid.UUID]struct{})
 
 	for _, l := range links {
-		csID := l.ClassSubjectBookClassSubjectID
-		linksByClassSubject[csID] = append(linksByClassSubject[csID], l)
+		sid := l.ClassSubjectBookSubjectID
+		linksBySubject[sid] = append(linksBySubject[sid], l)
 		bookIDsSet[l.ClassSubjectBookBookID] = struct{}{}
 	}
 
@@ -224,8 +224,9 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 
 	out := make([]classSubjectDTO.ClassSubjectWithBooksResponse, 0, len(rows))
 	for _, cs := range rows {
-		linksForCS := linksByClassSubject[cs.ClassSubjectID]
-		out = append(out, classSubjectDTO.NewClassSubjectWithBooksResponse(cs, linksForCS, bookByID))
+		// sekarang kunci pakai subject_id, bukan class_subject_id
+		linksForSubject := linksBySubject[cs.ClassSubjectSubjectID]
+		out = append(out, classSubjectDTO.NewClassSubjectWithBooksResponse(cs, linksForSubject, bookByID))
 	}
 
 	// ===== Response =====
