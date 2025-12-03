@@ -58,8 +58,8 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 
 	var created csbModel.ClassSubjectBookModel
 	if err := h.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
-		// ✅ Validasi kepemilikan tenant SUBJECT & BOOK
-		if err := ensureSubjectTenantExists(tx, req.ClassSubjectBookSubjectID, schoolID); err != nil {
+		// ✅ Validasi kepemilikan tenant: CLASS_SUBJECT & BOOK
+		if err := ensureClassSubjectTenantExists(tx, req.ClassSubjectBookClassSubjectID, schoolID); err != nil {
 			return err
 		}
 		if err := ensureBookTenantExists(tx, req.ClassSubjectBookBookID, schoolID); err != nil {
@@ -72,8 +72,8 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusBadRequest, "Buku tidak ditemukan")
 		}
 
-		// 📸 Ambil cache SUBJECT langsung via subject_id
-		snapS, err := fetchSubjectCacheBySubjectID(tx, req.ClassSubjectBookSubjectID, schoolID)
+		// 📸 Ambil cache SUBJECT via class_subject_id
+		snapS, err := fetchSubjectCacheByClassSubjectID(tx, req.ClassSubjectBookClassSubjectID, schoolID)
 		if err != nil {
 			return err // sudah mengembalikan fiber.Error yang pas
 		}
@@ -129,8 +129,8 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 		m.ClassSubjectBookBookPublicationYearCache = snapB.PublicationYear
 		m.ClassSubjectBookBookImageURLCache = snapB.ImageURL
 
-		// 🧊 Isi cache SUBJECT
-		m.ClassSubjectBookSubjectID = snapS.SubjectID
+		// 🧊 Isi cache SUBJECT (pakai field baru)
+		m.ClassSubjectBookSubjectID = &snapS.SubjectID
 		if snapS.Code != nil {
 			m.ClassSubjectBookSubjectCodeCache = snapS.Code
 		}
@@ -156,7 +156,7 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 				(strings.Contains(msg, "class_subject_book_slug") && strings.Contains(msg, "unique")):
 				return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan pada tenant ini")
 			case strings.Contains(msg, "foreign"):
-				return fiber.NewError(fiber.StatusBadRequest, "FK gagal: pastikan subject & book valid dan satu tenant")
+				return fiber.NewError(fiber.StatusBadRequest, "FK gagal: pastikan class_subject & book valid dan satu tenant")
 			default:
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat relasi buku")
 			}
@@ -173,20 +173,20 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 
 /* ================= Helpers: EXISTS-based tenant checks ================= */
 
-func ensureSubjectTenantExists(db *gorm.DB, subjectID, schoolID uuid.UUID, args ...any) error {
+func ensureClassSubjectTenantExists(db *gorm.DB, classSubjectID, schoolID uuid.UUID) error {
 	var ok bool
 	if err := db.Raw(`
 		SELECT EXISTS (
 			SELECT 1
-			FROM subjects
-			WHERE subject_id = ?
-			  AND subject_school_id = ?
-			  AND subject_deleted_at IS NULL
-		)`, subjectID, schoolID).Scan(&ok).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi subject")
+			FROM class_subjects
+			WHERE class_subject_id = ?
+			  AND class_subject_school_id = ?
+			  AND class_subject_deleted_at IS NULL
+		)`, classSubjectID, schoolID).Scan(&ok).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi class_subject")
 	}
 	if !ok {
-		return fiber.NewError(fiber.StatusForbidden, "Subject tidak ditemukan / beda tenant")
+		return fiber.NewError(fiber.StatusForbidden, "Class subject tidak ditemukan / beda tenant")
 	}
 	return nil
 }
@@ -209,7 +209,7 @@ func ensureBookTenantExists(db *gorm.DB, bookID, schoolID uuid.UUID) error {
 	return nil
 }
 
-/* ================= Cache fetcher (SUBJECT via subject_id) ================= */
+/* ================= Cache fetcher (SUBJECT via class_subject_id) ================= */
 
 type subjectCache struct {
 	SubjectID uuid.UUID
@@ -218,7 +218,7 @@ type subjectCache struct {
 	Slug      *string
 }
 
-func fetchSubjectCacheBySubjectID(tx *gorm.DB, subjectID, schoolID uuid.UUID) (*subjectCache, error) {
+func fetchSubjectCacheByClassSubjectID(tx *gorm.DB, classSubjectID, schoolID uuid.UUID) (*subjectCache, error) {
 	var ss subjectCache
 	if err := tx.Raw(`
 		SELECT 
@@ -226,15 +226,18 @@ func fetchSubjectCacheBySubjectID(tx *gorm.DB, subjectID, schoolID uuid.UUID) (*
 			s.subject_code     AS code,
 			s.subject_name     AS name,
 			s.subject_slug     AS slug
-		FROM subjects s
-		WHERE s.subject_id = ?
-		  AND s.subject_school_id = ?
+		FROM class_subjects cs
+		JOIN subjects s 
+		  ON s.subject_id = cs.class_subject_subject_id
+		WHERE cs.class_subject_id = ?
+		  AND cs.class_subject_school_id = ?
+		  AND cs.class_subject_deleted_at IS NULL
 		  AND s.subject_deleted_at IS NULL
-	`, subjectID, schoolID).Scan(&ss).Error; err != nil {
+	`, classSubjectID, schoolID).Scan(&ss).Error; err != nil {
 		return nil, fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil cache subject")
 	}
 	if ss.SubjectID == uuid.Nil {
-		return nil, fiber.NewError(fiber.StatusBadRequest, "Subject tidak ditemukan")
+		return nil, fiber.NewError(fiber.StatusBadRequest, "Subject untuk class_subject tidak ditemukan")
 	}
 	return &ss, nil
 }
@@ -298,16 +301,16 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusBadRequest, err.Error())
 		}
 
-		// Jika subject_id diubah → validasi tenant + refresh SUBJECT cache
-		if req.ClassSubjectBookSubjectID != nil {
-			if err := ensureSubjectTenantExists(tx, *req.ClassSubjectBookSubjectID, schoolID); err != nil {
+		// Jika class_subject_id diubah → validasi tenant + refresh SUBJECT cache
+		if req.ClassSubjectBookClassSubjectID != nil {
+			if err := ensureClassSubjectTenantExists(tx, *req.ClassSubjectBookClassSubjectID, schoolID); err != nil {
 				return err
 			}
-			snapS, err := fetchSubjectCacheBySubjectID(tx, *req.ClassSubjectBookSubjectID, schoolID)
+			snapS, err := fetchSubjectCacheByClassSubjectID(tx, *req.ClassSubjectBookClassSubjectID, schoolID)
 			if err != nil {
 				return err
 			}
-			m.ClassSubjectBookSubjectID = snapS.SubjectID
+			m.ClassSubjectBookSubjectID = &snapS.SubjectID
 			m.ClassSubjectBookSubjectCodeCache = snapS.Code
 			m.ClassSubjectBookSubjectNameCache = snapS.Name
 			m.ClassSubjectBookSubjectSlugCache = snapS.Slug
@@ -410,7 +413,7 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 				(strings.Contains(msg, "class_subject_book_slug") && strings.Contains(msg, "unique")):
 				return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan pada tenant ini")
 			case strings.Contains(msg, "foreign"):
-				return fiber.NewError(fiber.StatusBadRequest, "FK gagal: pastikan subject & book valid dan satu tenant")
+				return fiber.NewError(fiber.StatusBadRequest, "FK gagal: pastikan class_subject & book valid dan satu tenant")
 			default:
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui data")
 			}

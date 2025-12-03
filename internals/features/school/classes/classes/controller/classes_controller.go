@@ -3,10 +3,12 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"mime/multipart"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,12 +27,17 @@ import (
 	classmodel "madinahsalam_backend/internals/features/school/classes/classes/model"
 
 	// class_sections & class_parent tetap di modul lama
+	classSectionDto "madinahsalam_backend/internals/features/school/classes/class_sections/dto"
 	classSectionModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 	classParentSnapshot "madinahsalam_backend/internals/features/school/classes/classes/service"
 
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 	helperOSS "madinahsalam_backend/internals/helpers/oss"
+
+	csModel "madinahsalam_backend/internals/features/school/academics/subjects/model"
+	csstDto "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/dto"
+	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 )
 
 /* ================= Controller & Constructor ================= */
@@ -197,6 +204,21 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	log.Printf("[CLASSES][CREATE] 📩 req: parent_id=%s term_id=%v delivery=%v status=%v slug_in='%s'",
 		req.ClassClassParentID, req.ClassAcademicTermID, req.ClassDeliveryMode, req.ClassStatus, req.ClassSlug)
 
+	// 🔽 Tambahan: baca class_sections dari form-data (string JSON)
+	if rawSections := strings.TrimSpace(c.FormValue("class_sections")); rawSections != "" {
+		log.Printf("[CLASSES][CREATE] 🧾 raw class_sections=%s", rawSections)
+
+		var sections []dto.CreateClassSectionInlineRequest
+		if err := json.Unmarshal([]byte(rawSections), &sections); err != nil {
+			log.Printf("[CLASSES][CREATE] ❌ parse class_sections JSON error: %v", err)
+			return helper.JsonError(c, fiber.StatusBadRequest, "Format class_sections tidak valid (harus JSON array)")
+		}
+		req.ClassSections = sections
+		log.Printf("[CLASSES][CREATE] ✅ parsed %d class_section(s) from form-data", len(req.ClassSections))
+	} else {
+		log.Printf("[CLASSES][CREATE] ℹ️ no class_sections in form-data")
+	}
+
 	/* ---- Validasi ---- */
 	if err := req.Validate(); err != nil {
 		log.Printf("[CLASSES][CREATE] ❌ req validate error: %v", err)
@@ -211,6 +233,11 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	m := req.ToModel()
 	log.Printf("[CLASSES][CREATE] 🔧 model init: parent_id=%s term_id=%v status=%s",
 		m.ClassClassParentID, m.ClassAcademicTermID, m.ClassStatus)
+
+	// 🔹 simpan section yang berhasil dibuat (untuk response)
+	createdSections := make([]classSectionModel.ClassSectionModel, 0)
+	// 🔹 simpan CSST yang berhasil dibuat (untuk response)
+	createdCSSTs := make([]csstModel.ClassSectionSubjectTeacherModel, 0)
 
 	/* ---- TX ---- */
 	tx := ctrl.DB.WithContext(c.Context()).Begin()
@@ -297,7 +324,368 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	}
 	log.Printf("[CLASSES][CREATE] 💾 created class_id=%s", m.ClassID)
 
-	/* ---- Optional upload image ---- */
+	/* ===================================================
+	   AUTO CREATE CLASS SECTIONS / CSST (via query ?auto)
+	   =================================================== */
+
+	autoParam := strings.ToLower(strings.TrimSpace(c.Query("auto", "")))
+	autoSection := autoParam == "class_section" || autoParam == "class_sections" || autoParam == "csst" || autoParam == "all"
+	autoCSST := autoParam == "csst" || autoParam == "class_section_subject_teachers" || autoParam == "all"
+	log.Printf("[CLASSES][CREATE] auto_param=%s | autoSection=%v autoCSST=%v | class_sections_len=%d",
+		autoParam, autoSection, autoCSST, len(req.ClassSections))
+
+	if autoSection && len(req.ClassSections) > 0 {
+		log.Printf("[CLASSES][CREATE] 🧩 auto create %d class_section(s)", len(req.ClassSections))
+
+		// parse angkatan term → int (kalau ada)
+		var termAngkatanPtr *int
+		if m.ClassAcademicTermAngkatanCache != nil {
+			s := strings.TrimSpace(*m.ClassAcademicTermAngkatanCache)
+			if s != "" {
+				if v, err := strconv.Atoi(s); err == nil {
+					tmp := v
+					termAngkatanPtr = &tmp
+				} else {
+					log.Printf("[CLASSES][CREATE] ⚠️ gagal parse ClassAcademicTermAngkatanCache='%s' ke int: %v", s, err)
+				}
+			}
+		}
+
+		for idx, secReq := range req.ClassSections {
+			name := strings.TrimSpace(secReq.Name)
+			if name == "" {
+				log.Printf("[CLASSES][CREATE] ⚠️ skip section idx=%d: empty name", idx)
+				continue
+			}
+
+			// slug dasar: class_slug + nama section yang dislugify sederhana
+			secSlugPart := strings.ToLower(name)
+			secSlugPart = strings.ReplaceAll(secSlugPart, " ", "-")
+			secSlugPart = strings.ReplaceAll(secSlugPart, "_", "-")
+
+			baseSectionSlug := m.ClassSlug + "-" + secSlugPart
+
+			uniqueSectionSlug, err := helper.EnsureUniqueSlugCI(
+				c.Context(), tx,
+				"class_sections", "class_section_slug",
+				baseSectionSlug,
+				func(q *gorm.DB) *gorm.DB {
+					return q.Where("class_section_school_id = ? AND class_section_deleted_at IS NULL", schoolID)
+				},
+				160,
+			)
+			if err != nil {
+				_ = tx.Rollback().Error
+				log.Printf("[CLASSES][CREATE] ❌ ensure unique section slug error (idx=%d): %v", idx, err)
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug section unik")
+			}
+
+			codePtr := secReq.Code
+			quotaPtr := secReq.QuotaTotal
+
+			// 🔹 walikelas & asisten dari request (opsional)
+			teacherID := secReq.SchoolTeacherID
+			assistantID := secReq.AssistantSchoolTeacherID
+
+			// ========= HANDLE IMAGE (URL atau multipart) =========
+			var imageURLPtr *string
+			var imageKeyPtr *string
+
+			// 1) kalau sudah ada ImageURL di JSON, pakai itu
+			if secReq.ImageURL != nil && strings.TrimSpace(*secReq.ImageURL) != "" {
+				url := strings.TrimSpace(*secReq.ImageURL)
+				imageURLPtr = &url
+
+				if k, e := helperOSS.ExtractKeyFromPublicURL(url); e == nil {
+					imageKeyPtr = &k
+				} else if k2, e2 := helperOSS.KeyFromPublicURL(url); e2 == nil {
+					imageKeyPtr = &k2
+				}
+			}
+
+			// 2) kalau ada image_field, coba baca file dari multipart dan upload
+			if secReq.ImageField != nil && strings.TrimSpace(*secReq.ImageField) != "" {
+				field := strings.TrimSpace(*secReq.ImageField)
+				if fh, err := c.FormFile(field); err == nil && fh != nil {
+					log.Printf("[CLASSES][CREATE] 📤 uploading section image field=%s filename=%s size=%d (idx=%d)",
+						field, fh.Filename, fh.Size, idx)
+
+					svc, er := helperOSS.NewOSSServiceFromEnv("")
+					if er == nil {
+						ctx, cancel := context.WithTimeout(c.Context(), 45*time.Second)
+						defer cancel()
+
+						keyPrefix := fmt.Sprintf("schools/%s/class_sections", schoolID.String())
+						if url, upErr := svc.UploadAsWebP(ctx, fh, keyPrefix); upErr == nil {
+							imageURLPtr = &url
+
+							if k, e := helperOSS.ExtractKeyFromPublicURL(url); e == nil {
+								imageKeyPtr = &k
+							} else if k2, e2 := helperOSS.KeyFromPublicURL(url); e2 == nil {
+								imageKeyPtr = &k2
+							}
+
+							log.Printf("[CLASSES][CREATE] ✅ section image uploaded url=%s (idx=%d)", url, idx)
+						} else {
+							log.Printf("[CLASSES][CREATE] ❌ upload section image error (idx=%d): %v", idx, upErr)
+						}
+					} else {
+						log.Printf("[CLASSES][CREATE] ❌ init OSS svc error for section image (idx=%d): %v", idx, er)
+					}
+				} else if err != nil {
+					log.Printf("[CLASSES][CREATE] ⚠️ read section image field=%s error (idx=%d): %v", field, idx, err)
+				}
+			}
+
+			sec := &classSectionModel.ClassSectionModel{
+				ClassSectionSchoolID: schoolID,
+				ClassSectionSlug:     uniqueSectionSlug,
+
+				ClassSectionName:           name,
+				ClassSectionCode:           codePtr,
+				ClassSectionQuotaTotal:     quotaPtr,
+				ClassSectionImageURL:       imageURLPtr,
+				ClassSectionImageObjectKey: imageKeyPtr,
+
+				// Link ke class
+				ClassSectionClassID:        &m.ClassID,
+				ClassSectionClassNameCache: m.ClassName,
+				ClassSectionClassSlugCache: &m.ClassSlug,
+
+				// Snapshot parent
+				ClassSectionClassParentID:         &m.ClassClassParentID,
+				ClassSectionClassParentNameCache:  m.ClassClassParentNameCache,
+				ClassSectionClassParentSlugCache:  m.ClassClassParentSlugCache,
+				ClassSectionClassParentLevelCache: m.ClassClassParentLevelCache,
+
+				// Snapshot term
+				ClassSectionAcademicTermID:                m.ClassAcademicTermID,
+				ClassSectionAcademicTermNameCache:         m.ClassAcademicTermNameCache,
+				ClassSectionAcademicTermSlugCache:         m.ClassAcademicTermSlugCache,
+				ClassSectionAcademicTermAcademicYearCache: m.ClassAcademicTermAcademicYearCache,
+				ClassSectionAcademicTermAngkatanCache:     termAngkatanPtr,
+
+				// 🔹 Wali kelas & asisten
+				ClassSectionSchoolTeacherID:          teacherID,
+				ClassSectionAssistantSchoolTeacherID: assistantID,
+
+				// Status aktif
+				ClassSectionIsActive: true,
+			}
+
+			if err := tx.Create(sec).Error; err != nil {
+				_ = tx.Rollback().Error
+				log.Printf("[CLASSES][CREATE] ❌ insert class_section error (idx=%d): %v", idx, err)
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat class_section default")
+			}
+			log.Printf("[CLASSES][CREATE] 💾 created class_section_id=%s slug=%s (idx=%d)", sec.ClassSectionID, sec.ClassSectionSlug, idx)
+
+			// simpan ke list untuk dikirim di response
+			createdSections = append(createdSections, *sec)
+		}
+
+	}
+
+	// ===================================================
+	//
+	//	AUTO CREATE CSST (ClassSectionSubjectTeachers)
+	//	- aktif kalau autoCSST == true
+	//	- sumber: class_subjects untuk class_parent ini
+	//
+	// ===================================================
+	if autoCSST && len(createdSections) > 0 {
+		log.Printf("[CLASSES][CREATE] 🧠 auto create CSST for %d section(s)", len(createdSections))
+
+		// 1) Ambil semua class_subjects untuk parent ini
+		var classSubjects []csModel.ClassSubjectModel
+		if err := tx.
+			Where("class_subject_school_id = ? AND class_subject_class_parent_id = ? AND class_subject_deleted_at IS NULL AND class_subject_is_active = TRUE",
+				schoolID, m.ClassClassParentID).
+			Find(&classSubjects).Error; err != nil {
+
+			_ = tx.Rollback().Error
+			log.Printf("[CLASSES][CREATE] ❌ load class_subjects error: %v", err)
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil daftar mapel untuk parent ini")
+		}
+
+		log.Printf("[CLASSES][CREATE] 📚 found %d class_subject(s) for parent=%s", len(classSubjects), m.ClassClassParentID)
+		if len(classSubjects) == 0 {
+			log.Printf("[CLASSES][CREATE] ⚠️ no class_subjects found, skip CSST auto create")
+		} else {
+			// parse angkatan term → int lagi (scope baru)
+			var termAngkatanPtr *int
+			if m.ClassAcademicTermAngkatanCache != nil {
+				s := strings.TrimSpace(*m.ClassAcademicTermAngkatanCache)
+				if s != "" {
+					if v, err := strconv.Atoi(s); err == nil {
+						tmp := v
+						termAngkatanPtr = &tmp
+					} else {
+						log.Printf("[CLASSES][CREATE] ⚠️ gagal parse ClassAcademicTermAngkatanCache='%s' ke int (for CSST): %v", s, err)
+					}
+				}
+			}
+
+			for _, sec := range createdSections {
+				// 🔹 Sekarang: walaupun belum ada wali kelas, tetap bikin CSST
+				var teacherID *uuid.UUID
+				if sec.ClassSectionSchoolTeacherID != nil && *sec.ClassSectionSchoolTeacherID != uuid.Nil {
+					teacherID = sec.ClassSectionSchoolTeacherID
+				}
+				assistantID := sec.ClassSectionAssistantSchoolTeacherID
+
+				for _, cs := range classSubjects {
+					// slug: section-slug + subject-slug
+					secSlug := strings.TrimSpace(sec.ClassSectionSlug)
+
+					subSlug := ""
+					if cs.ClassSubjectSubjectSlugCache != nil {
+						subSlug = strings.TrimSpace(*cs.ClassSubjectSubjectSlugCache)
+					}
+
+					if secSlug == "" {
+						secSlug = fmt.Sprintf("section-%s", sec.ClassSectionID.String())
+					}
+					if subSlug == "" {
+						subSlug = fmt.Sprintf("subject-%s", cs.ClassSubjectSubjectID.String())
+					}
+
+					rawSlug := strings.ToLower(secSlug + "-" + subSlug)
+					rawSlug = strings.ReplaceAll(rawSlug, " ", "-")
+					rawSlug = strings.ReplaceAll(rawSlug, "_", "-")
+
+					uniqueCSSTSlug, err := helper.EnsureUniqueSlugCI(
+						c.Context(), tx,
+						"class_section_subject_teachers", "class_section_subject_teacher_slug",
+						rawSlug,
+						func(q *gorm.DB) *gorm.DB {
+							return q.Where("class_section_subject_teacher_school_id = ? AND class_section_subject_teacher_deleted_at IS NULL", schoolID)
+						},
+						160,
+					)
+					if err != nil {
+						_ = tx.Rollback().Error
+						log.Printf("[CLASSES][CREATE] ❌ ensure unique csst slug error (section_id=%s subject_id=%s): %v",
+							sec.ClassSectionID, cs.ClassSubjectSubjectID, err)
+						return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug CSST unik")
+					}
+
+					// ambil beberapa cache dari section
+					secName := sec.ClassSectionName
+					secCode := sec.ClassSectionCode
+					secSlugCache := sec.ClassSectionSlug
+
+					secNamePtr := &secName
+					secCodePtr := secCode
+					secSlugPtr := &secSlugCache
+
+					// room cache (kalau kamu pakai)
+					roomID := sec.ClassSectionClassRoomID
+					roomSlug := sec.ClassSectionClassRoomSlugCache
+
+					// ================= DELIVERY MODE (from class) =================
+					deliveryMode := csstModel.DeliveryModeOffline // default
+					if m.ClassDeliveryMode != nil {
+						dm := strings.TrimSpace(*m.ClassDeliveryMode)
+						if dm != "" {
+							deliveryMode = csstModel.ClassDeliveryMode(dm)
+						}
+					}
+
+					// academic term caches (ambil dari class)
+					acTermID := m.ClassAcademicTermID
+					acTermName := m.ClassAcademicTermNameCache
+					acTermSlug := m.ClassAcademicTermSlugCache
+					acYear := m.ClassAcademicTermAcademicYearCache
+
+					// min passing score dari class_subject:
+					// - *_class_subject_cache  → nilai default dari mapel
+					// - *_min_passing_score    → override khusus per CSST (awal nil)
+					minPassing := cs.ClassSubjectMinPassingScore
+
+					csst := &csstModel.ClassSectionSubjectTeacherModel{
+						ClassSectionSubjectTeacherSchoolID: schoolID,
+						ClassSectionSubjectTeacherSlug:     &uniqueCSSTSlug,
+
+						// default kosong
+						ClassSectionSubjectTeacherDescription: nil,
+						ClassSectionSubjectTeacherGroupURL:    nil,
+
+						// agregat & kapasitas
+						ClassSectionSubjectTeacherTotalAttendance:          0,
+						ClassSectionSubjectTeacherTotalMeetingsTarget:      nil,
+						ClassSectionSubjectTeacherQuotaTotal:               nil, // quota khusus CSST (boleh nil)
+						ClassSectionSubjectTeacherQuotaTaken:               0,
+						ClassSectionSubjectTeacherTotalAssessments:         0,
+						ClassSectionSubjectTeacherTotalAssessmentsGraded:   0,
+						ClassSectionSubjectTeacherTotalAssessmentsUngraded: 0,
+						ClassSectionSubjectTeacherTotalStudentsPassed:      0,
+
+						// delivery dari class
+						ClassSectionSubjectTeacherDeliveryMode: deliveryMode,
+
+						ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache: nil,
+
+						// SECTION cache
+						ClassSectionSubjectTeacherClassSectionID:        sec.ClassSectionID,
+						ClassSectionSubjectTeacherClassSectionSlugCache: secSlugPtr,
+						ClassSectionSubjectTeacherClassSectionNameCache: secNamePtr,
+						ClassSectionSubjectTeacherClassSectionCodeCache: secCodePtr,
+						ClassSectionSubjectTeacherClassSectionURLCache:  nil,
+
+						// ROOM cache
+						ClassSectionSubjectTeacherClassRoomID:        roomID,
+						ClassSectionSubjectTeacherClassRoomSlugCache: roomSlug,
+						ClassSectionSubjectTeacherClassRoomCache:     nil,
+
+						// PEOPLE cache — teacher boleh kosong (nil)
+						ClassSectionSubjectTeacherSchoolTeacherID:                 teacherID,
+						ClassSectionSubjectTeacherSchoolTeacherSlugCache:          nil,
+						ClassSectionSubjectTeacherSchoolTeacherCache:              nil,
+						ClassSectionSubjectTeacherAssistantSchoolTeacherID:        assistantID,
+						ClassSectionSubjectTeacherAssistantSchoolTeacherSlugCache: nil,
+						ClassSectionSubjectTeacherAssistantSchoolTeacherCache:     nil,
+
+						// SUBJECT cache
+						ClassSectionSubjectTeacherTotalBooks:       0,
+						ClassSectionSubjectTeacherClassSubjectID:   cs.ClassSubjectID,
+						ClassSectionSubjectTeacherSubjectIDCache:   &cs.ClassSubjectSubjectID,
+						ClassSectionSubjectTeacherSubjectNameCache: cs.ClassSubjectSubjectNameCache,
+						ClassSectionSubjectTeacherSubjectCodeCache: cs.ClassSubjectSubjectCodeCache,
+						ClassSectionSubjectTeacherSubjectSlugCache: cs.ClassSubjectSubjectSlugCache,
+
+						// ACADEMIC TERM cache
+						ClassSectionSubjectTeacherAcademicTermID:            acTermID,
+						ClassSectionSubjectTeacherAcademicTermNameCache:     acTermName,
+						ClassSectionSubjectTeacherAcademicTermSlugCache:     acTermSlug,
+						ClassSectionSubjectTeacherAcademicYearCache:         acYear,
+						ClassSectionSubjectTeacherAcademicTermAngkatanCache: termAngkatanPtr,
+
+						// ✅ KKM: cache diisi dari class_subject, override dibiarkan nil
+						ClassSectionSubjectTeacherMinPassingScoreClassSubjectCache: minPassing,
+						ClassSectionSubjectTeacherMinPassingScore:                  nil,
+
+						// status
+						ClassSectionSubjectTeacherIsActive: true,
+					}
+
+					if err := tx.Create(csst).Error; err != nil {
+						_ = tx.Rollback().Error
+						log.Printf("[CLASSES][CREATE] ❌ insert CSST error (section_id=%s subject_id=%s): %v",
+							sec.ClassSectionID, cs.ClassSubjectSubjectID, err)
+						return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat pengajar mapel default (CSST)")
+					}
+
+					log.Printf("[CLASSES][CREATE] 💾 created CSST id=%s for section=%s subject=%s",
+						csst.ClassSectionSubjectTeacherID, sec.ClassSectionID, cs.ClassSubjectSubjectID)
+
+					createdCSSTs = append(createdCSSTs, *csst)
+				}
+			}
+		}
+	}
+
+	/* ---- Optional upload image (class) ---- */
 	uploadedURL := ""
 	if fh := pickImageFile(c, "image", "file", "class_image"); fh != nil {
 		log.Printf("[CLASSES][CREATE] 📤 uploading image filename=%s size=%d", fh.Filename, fh.Size)
@@ -361,8 +749,20 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 
 	log.Printf("[CLASSES][CREATE] ✅ done in %s", time.Since(start))
 
-	// ⬇️ balikin 1 object class (DTO terbaru)
-	return helper.JsonCreated(c, "Kelas berhasil dibuat", dto.FromModel(m))
+	// 🔚 Response:
+	// - Selalu kirim "class"
+	// - Tambahan "class_sections" & "class_section_subject_teachers" kalau ada yang otomatis dibuat
+	resp := fiber.Map{
+		"class": dto.FromModel(m),
+	}
+	if len(createdSections) > 0 {
+		resp["class_sections"] = classSectionDto.FromSectionModels(createdSections)
+	}
+	if len(createdCSSTs) > 0 {
+		resp["class_section_subject_teachers"] = csstDto.FromCSSTModels(createdCSSTs)
+	}
+
+	return helper.JsonCreated(c, "Kelas berhasil dibuat", resp)
 }
 
 /* =========================== PATCH =========================== */

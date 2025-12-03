@@ -12,7 +12,6 @@ import (
 	"github.com/google/uuid"
 
 	// models
-	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 	m "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 
 	"gorm.io/datatypes"
@@ -32,6 +31,7 @@ func trimLowerPtr(p *string) *string {
 	}
 	return &s
 }
+
 func trimPtr(p *string) *string {
 	if p == nil {
 		return nil
@@ -65,11 +65,13 @@ func (p *PatchFieldCS[T]) UnmarshalJSON(b []byte) error {
 	p.Value = &v
 	return nil
 }
+
 func (p PatchFieldCS[T]) Get() (*T, bool) { return p.Value, p.Present }
 
 /* =========================================================
    ==================  C L A S S   S E C T I O N  ==================
 ========================================================= */
+
 /* ----------------- CREATE REQUEST ----------------- */
 
 type ClassSectionCreateRequest struct {
@@ -528,11 +530,14 @@ func (r *ClassSectionPatchRequest) Apply(cs *m.ClassSectionModel) {
 			}
 		}
 	}
-	if r.ClassSectionSubjectTeachersSelfSelectRequiresApproval.Present && r.ClassSectionSubjectTeachersSelfSelectRequiresApproval.Value != nil {
-		cs.ClassSectionSubjectTeachersSelfSelectRequiresApproval = *r.ClassSectionSubjectTeachersSelfSelectRequiresApproval.Value
+	if r.ClassSectionSubjectTeachersSelfSelectRequiresApproval.Present &&
+		r.ClassSectionSubjectTeachersSelfSelectRequiresApproval.Value != nil {
+		cs.ClassSectionSubjectTeachersSelfSelectRequiresApproval =
+			*r.ClassSectionSubjectTeachersSelfSelectRequiresApproval.Value
 	}
 	if r.ClassSectionSubjectTeachersMaxSubjectsPerStudent.Present {
-		setIntPtr(r.ClassSectionSubjectTeachersMaxSubjectsPerStudent, &cs.ClassSectionSubjectTeachersMaxSubjectsPerStudent)
+		setIntPtr(r.ClassSectionSubjectTeachersMaxSubjectsPerStudent,
+			&cs.ClassSectionSubjectTeachersMaxSubjectsPerStudent)
 	}
 }
 
@@ -844,294 +849,7 @@ type ClassSectionJoinResponse struct {
 	ClassSectionID   string                   `json:"class_section_id"`
 }
 
-/* =========================================================
-   ==================  C S S T  (Section × Subject × Teacher)  ==================
-========================================================= */
 
-// Create
-type CreateClassSectionSubjectTeacherRequest struct {
-	ClassSectionSubjectTeacherSchoolID       *uuid.UUID `json:"class_section_subject_teacher_school_id"  validate:"omitempty,uuid"`
-	ClassSectionSubjectTeacherClassSectionID uuid.UUID  `json:"class_section_subject_teacher_class_section_id" validate:"required,uuid"`
-	// NEW: relasi ke CLASS_SUBJECT (bukan lagi class_subject_book)
-	ClassSectionSubjectTeacherClassSubjectID uuid.UUID `json:"class_section_subject_teacher_class_subject_id" validate:"required,uuid"`
-
-	// pakai school_teachers.school_teacher_id
-	ClassSectionSubjectTeacherSchoolTeacherID uuid.UUID `json:"class_section_subject_teacher_school_teacher_id" validate:"required,uuid"`
-
-	// opsional: asisten
-	ClassSectionSubjectTeacherAssistantSchoolTeacherID *uuid.UUID `json:"class_section_subject_teacher_assistant_school_teacher_id" validate:"omitempty,uuid"`
-
-	// SLUG (opsional)
-	ClassSectionSubjectTeacherSlug *string `json:"class_section_subject_teacher_slug" validate:"omitempty,max=160"`
-
-	// Deskripsi (opsional)
-	ClassSectionSubjectTeacherDescription *string `json:"class_section_subject_teacher_description" validate:"omitempty"`
-
-	// Override ruangan (opsional)
-	ClassSectionSubjectTeacherClassRoomID *uuid.UUID `json:"class_section_subject_teacher_class_room_id" validate:"omitempty,uuid"`
-
-	// Link grup (opsional)
-	ClassSectionSubjectTeacherGroupURL *string `json:"class_section_subject_teacher_group_url" validate:"omitempty,max=2000"`
-
-	// Status aktif (opsional, default: true)
-	ClassSectionSubjectTeacherIsActive *bool `json:"class_section_subject_teacher_is_active" validate:"omitempty"`
-}
-
-// Update (partial)
-type UpdateClassSectionSubjectTeacherRequest struct {
-	ClassSectionSubjectTeacherSchoolID       *uuid.UUID `json:"class_section_subject_teacher_school_id" validate:"omitempty,uuid"`
-	ClassSectionSubjectTeacherClassSectionID *uuid.UUID `json:"class_section_subject_teacher_class_section_id" validate:"omitempty,uuid"`
-	// NEW
-	ClassSectionSubjectTeacherClassSubjectID  *uuid.UUID `json:"class_section_subject_teacher_class_subject_id" validate:"omitempty,uuid"`
-	ClassSectionSubjectTeacherSchoolTeacherID *uuid.UUID `json:"class_section_subject_teacher_school_teacher_id" validate:"omitempty,uuid"`
-
-	ClassSectionSubjectTeacherAssistantSchoolTeacherID *uuid.UUID `json:"class_section_subject_teacher_assistant_school_teacher_id" validate:"omitempty,uuid"`
-
-	ClassSectionSubjectTeacherSlug        *string    `json:"class_section_subject_teacher_slug" validate:"omitempty,max=160"`
-	ClassSectionSubjectTeacherDescription *string    `json:"class_section_subject_teacher_description" validate:"omitempty"`
-	ClassSectionSubjectTeacherClassRoomID *uuid.UUID `json:"class_section_subject_teacher_class_room_id" validate:"omitempty,uuid"`
-	ClassSectionSubjectTeacherGroupURL    *string    `json:"class_section_subject_teacher_group_url" validate:"omitempty,max=2000"`
-
-	ClassSectionSubjectTeacherIsActive *bool `json:"class_section_subject_teacher_is_active" validate:"omitempty"`
-}
-
-/* ----------------- RESPONSE (CSST) ----------------- */
-
-type ClassSectionSubjectTeacherResponse struct {
-	ClassSectionSubjectTeacherID             uuid.UUID `json:"class_section_subject_teacher_id"`
-	ClassSectionSubjectTeacherSchoolID       uuid.UUID `json:"class_section_subject_teacher_school_id"`
-	ClassSectionSubjectTeacherClassSectionID uuid.UUID `json:"class_section_subject_teacher_class_section_id"`
-
-	// NEW: id CLASS_SUBJECT (kolom asli)
-	ClassSectionSubjectTeacherClassSubjectID uuid.UUID `json:"class_section_subject_teacher_class_subject_id"`
-
-	// Legacy alias untuk FE lama yang masih baca *_class_subject_book_id
-	// Isinya sama dengan ClassSectionSubjectTeacherClassSubjectID
-	ClassSectionSubjectTeacherClassSubjectBookID uuid.UUID `json:"class_section_subject_teacher_class_subject_book_id"`
-
-	// alias FE lama (teacher_id)
-	ClassSectionSubjectTeacherTeacherID                uuid.UUID  `json:"class_section_subject_teacher_teacher_id"`
-	ClassSectionSubjectTeacherSchoolTeacherID          uuid.UUID  `json:"class_section_subject_teacher_school_teacher_id"`
-	ClassSectionSubjectTeacherAssistantSchoolTeacherID *uuid.UUID `json:"class_section_subject_teacher_assistant_school_teacher_id,omitempty"`
-
-	// alias FE lama (room_id)
-	ClassSectionSubjectTeacherRoomID      *uuid.UUID `json:"class_section_subject_teacher_room_id,omitempty"`
-	ClassSectionSubjectTeacherClassRoomID *uuid.UUID `json:"class_section_subject_teacher_class_room_id,omitempty"`
-
-	// read-only (generated by DB)
-	ClassSectionSubjectTeacherTeacherNameSnap                 *string `json:"class_section_subject_teacher_teacher_name_snap,omitempty"`           // alias FE lama
-	ClassSectionSubjectTeacherAssistantTeacherNameSnap        *string `json:"class_section_subject_teacher_assistant_teacher_name_snap,omitempty"` // alias FE lama
-	ClassSectionSubjectTeacherSchoolTeacherNameCache          *string `json:"class_section_subject_teacher_school_teacher_name_cache,omitempty"`
-	ClassSectionSubjectTeacherAssistantSchoolTeacherNameCache *string `json:"class_section_subject_teacher_assistant_school_teacher_name_cache,omitempty"`
-
-	ClassSectionSubjectTeacherSlug        *string `json:"class_section_subject_teacher_slug,omitempty"`
-	ClassSectionSubjectTeacherDescription *string `json:"class_section_subject_teacher_description,omitempty"`
-	ClassSectionSubjectTeacherGroupURL    *string `json:"class_section_subject_teacher_group_url,omitempty"`
-
-	ClassSectionSubjectTeacherIsActive  bool       `json:"class_section_subject_teacher_is_active"`
-	ClassSectionSubjectTeacherCreatedAt time.Time  `json:"class_section_subject_teacher_created_at"`
-	ClassSectionSubjectTeacherUpdatedAt time.Time  `json:"class_section_subject_teacher_updated_at"`
-	ClassSectionSubjectTeacherDeletedAt *time.Time `json:"class_section_subject_teacher_deleted_at,omitempty"`
-}
-
-/* ----------------- MAPPERS (CSST) ----------------- */
-
-func (r CreateClassSectionSubjectTeacherRequest) ToModel() csstModel.ClassSectionSubjectTeacherModel {
-	row := csstModel.ClassSectionSubjectTeacherModel{
-		ClassSectionSubjectTeacherClassSectionID: r.ClassSectionSubjectTeacherClassSectionID,
-		// NEW: mapping ke field model terbaru
-		ClassSectionSubjectTeacherClassSubjectID:  r.ClassSectionSubjectTeacherClassSubjectID,
-		ClassSectionSubjectTeacherSchoolTeacherID: r.ClassSectionSubjectTeacherSchoolTeacherID,
-
-		ClassSectionSubjectTeacherSlug:        trimLowerPtr(r.ClassSectionSubjectTeacherSlug),
-		ClassSectionSubjectTeacherDescription: trimPtr(r.ClassSectionSubjectTeacherDescription),
-		ClassSectionSubjectTeacherClassRoomID: r.ClassSectionSubjectTeacherClassRoomID,
-		ClassSectionSubjectTeacherGroupURL:    trimPtr(r.ClassSectionSubjectTeacherGroupURL),
-	}
-
-	if r.ClassSectionSubjectTeacherAssistantSchoolTeacherID != nil {
-		row.ClassSectionSubjectTeacherAssistantSchoolTeacherID = r.ClassSectionSubjectTeacherAssistantSchoolTeacherID
-	}
-	if r.ClassSectionSubjectTeacherSchoolID != nil {
-		row.ClassSectionSubjectTeacherSchoolID = *r.ClassSectionSubjectTeacherSchoolID
-	}
-	if r.ClassSectionSubjectTeacherIsActive != nil {
-		row.ClassSectionSubjectTeacherIsActive = *r.ClassSectionSubjectTeacherIsActive
-	} else {
-		row.ClassSectionSubjectTeacherIsActive = true
-	}
-	return row
-}
-
-func (r UpdateClassSectionSubjectTeacherRequest) Apply(row *csstModel.ClassSectionSubjectTeacherModel) {
-	if r.ClassSectionSubjectTeacherSchoolID != nil {
-		row.ClassSectionSubjectTeacherSchoolID = *r.ClassSectionSubjectTeacherSchoolID
-	}
-	if r.ClassSectionSubjectTeacherClassSectionID != nil {
-		row.ClassSectionSubjectTeacherClassSectionID = *r.ClassSectionSubjectTeacherClassSectionID
-	}
-	if r.ClassSectionSubjectTeacherClassSubjectID != nil {
-		row.ClassSectionSubjectTeacherClassSubjectID = *r.ClassSectionSubjectTeacherClassSubjectID
-	}
-	if r.ClassSectionSubjectTeacherSchoolTeacherID != nil {
-		row.ClassSectionSubjectTeacherSchoolTeacherID = *r.ClassSectionSubjectTeacherSchoolTeacherID
-	}
-	if r.ClassSectionSubjectTeacherAssistantSchoolTeacherID != nil {
-		row.ClassSectionSubjectTeacherAssistantSchoolTeacherID = r.ClassSectionSubjectTeacherAssistantSchoolTeacherID
-	}
-	if r.ClassSectionSubjectTeacherSlug != nil {
-		row.ClassSectionSubjectTeacherSlug = trimLowerPtr(r.ClassSectionSubjectTeacherSlug)
-	}
-	if r.ClassSectionSubjectTeacherDescription != nil {
-		row.ClassSectionSubjectTeacherDescription = trimPtr(r.ClassSectionSubjectTeacherDescription)
-	}
-	if r.ClassSectionSubjectTeacherClassRoomID != nil {
-		row.ClassSectionSubjectTeacherClassRoomID = r.ClassSectionSubjectTeacherClassRoomID
-	}
-	if r.ClassSectionSubjectTeacherGroupURL != nil {
-		row.ClassSectionSubjectTeacherGroupURL = trimPtr(r.ClassSectionSubjectTeacherGroupURL)
-	}
-	if r.ClassSectionSubjectTeacherIsActive != nil {
-		row.ClassSectionSubjectTeacherIsActive = *r.ClassSectionSubjectTeacherIsActive
-	}
-}
-
-func FromClassSectionSubjectTeacherModel(row csstModel.ClassSectionSubjectTeacherModel) ClassSectionSubjectTeacherResponse {
-	var deletedAt *time.Time
-	if row.ClassSectionSubjectTeacherDeletedAt.Valid {
-		t := row.ClassSectionSubjectTeacherDeletedAt.Time
-		deletedAt = &t
-	}
-	resp := ClassSectionSubjectTeacherResponse{
-		ClassSectionSubjectTeacherID:             row.ClassSectionSubjectTeacherID,
-		ClassSectionSubjectTeacherSchoolID:       row.ClassSectionSubjectTeacherSchoolID,
-		ClassSectionSubjectTeacherClassSectionID: row.ClassSectionSubjectTeacherClassSectionID,
-
-		// id CLASS_SUBJECT (baru)
-		ClassSectionSubjectTeacherClassSubjectID: row.ClassSectionSubjectTeacherClassSubjectID,
-		// alias lama *_class_subject_book_id → isi sama
-		ClassSectionSubjectTeacherClassSubjectBookID: row.ClassSectionSubjectTeacherClassSubjectID,
-
-		ClassSectionSubjectTeacherSchoolTeacherID:          row.ClassSectionSubjectTeacherSchoolTeacherID,
-		ClassSectionSubjectTeacherAssistantSchoolTeacherID: row.ClassSectionSubjectTeacherAssistantSchoolTeacherID,
-
-		ClassSectionSubjectTeacherClassRoomID: row.ClassSectionSubjectTeacherClassRoomID,
-
-		ClassSectionSubjectTeacherSlug:        row.ClassSectionSubjectTeacherSlug,
-		ClassSectionSubjectTeacherDescription: row.ClassSectionSubjectTeacherDescription,
-		ClassSectionSubjectTeacherGroupURL:    row.ClassSectionSubjectTeacherGroupURL,
-
-		ClassSectionSubjectTeacherIsActive:  row.ClassSectionSubjectTeacherIsActive,
-		ClassSectionSubjectTeacherCreatedAt: row.ClassSectionSubjectTeacherCreatedAt,
-		ClassSectionSubjectTeacherUpdatedAt: row.ClassSectionSubjectTeacherUpdatedAt,
-		ClassSectionSubjectTeacherDeletedAt: deletedAt,
-	}
-
-	// Aliases untuk kompat FE lama
-	resp.ClassSectionSubjectTeacherTeacherID = row.ClassSectionSubjectTeacherSchoolTeacherID
-	resp.ClassSectionSubjectTeacherRoomID = row.ClassSectionSubjectTeacherClassRoomID
-
-	// Nama cache (lama & baru) — ini masih ikut model CSST yang lama
-	resp.ClassSectionSubjectTeacherTeacherNameSnap = row.ClassSectionSubjectTeacherSchoolTeacherNameCache
-	resp.ClassSectionSubjectTeacherAssistantTeacherNameSnap = row.ClassSectionSubjectTeacherAssistantSchoolTeacherNameCache
-	resp.ClassSectionSubjectTeacherSchoolTeacherNameCache = row.ClassSectionSubjectTeacherSchoolTeacherNameCache
-	resp.ClassSectionSubjectTeacherAssistantSchoolTeacherNameCache = row.ClassSectionSubjectTeacherAssistantSchoolTeacherNameCache
-
-	return resp
-}
-
-func FromClassSectionSubjectTeacherModels(rows []csstModel.ClassSectionSubjectTeacherModel) []ClassSectionSubjectTeacherResponse {
-	out := make([]ClassSectionSubjectTeacherResponse, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, FromClassSectionSubjectTeacherModel(r))
-	}
-	return out
-}
-
-// ===== (Opsional) CSST Lite map =====
-
-type CSSTItemLite struct {
-	ID       string `json:"id"`
-	IsActive bool   `json:"is_active"`
-
-	Teacher struct {
-		ID string `json:"id"`
-	} `json:"teacher"`
-
-	ClassSubject struct {
-		ID      string `json:"id"`
-		Subject struct {
-			ID   string  `json:"id"`
-			Name *string `json:"name,omitempty"`
-		} `json:"subject"`
-	} `json:"class_subject"`
-
-	Room *struct {
-		ID string `json:"id"`
-	} `json:"room,omitempty"`
-
-	GroupURL *string `json:"group_url,omitempty"`
-
-	Stats *struct {
-		TotalAttendance *int32 `json:"total_attendance,omitempty"`
-	} `json:"stats,omitempty"`
-}
-
-func CSSTLiteFromModel(row csstModel.ClassSectionSubjectTeacherModel) CSSTItemLite {
-	out := CSSTItemLite{
-		ID:       row.ClassSectionSubjectTeacherID.String(),
-		IsActive: row.ClassSectionSubjectTeacherIsActive,
-		Teacher: struct {
-			ID string `json:"id"`
-		}{
-			ID: row.ClassSectionSubjectTeacherSchoolTeacherID.String(),
-		},
-		ClassSubject: struct {
-			ID      string `json:"id"`
-			Subject struct {
-				ID   string  `json:"id"`
-				Name *string `json:"name,omitempty"`
-			} `json:"subject"`
-		}{
-			// pakai CLASS_SUBJECT ID (baru)
-			ID: row.ClassSectionSubjectTeacherClassSubjectID.String(),
-		},
-		GroupURL: nil,
-		Stats: &struct {
-			TotalAttendance *int32 `json:"total_attendance,omitempty"`
-		}{
-			TotalAttendance: func(v int) *int32 {
-				iv := int32(v)
-				return &iv
-			}(row.ClassSectionSubjectTeacherTotalAttendance),
-		},
-	}
-
-	if row.ClassSectionSubjectTeacherClassRoomID != nil {
-		out.Room = &struct {
-			ID string `json:"id"`
-		}{
-			ID: row.ClassSectionSubjectTeacherClassRoomID.String(),
-		}
-	}
-
-	if row.ClassSectionSubjectTeacherGroupURL != nil && strings.TrimSpace(*row.ClassSectionSubjectTeacherGroupURL) != "" {
-		g := strings.TrimSpace(*row.ClassSectionSubjectTeacherGroupURL)
-		out.GroupURL = &g
-	}
-
-	out.ClassSubject.Subject.Name = row.ClassSectionSubjectTeacherSubjectNameCache
-
-	return out
-}
-
-func CSSTLiteSliceFromModels(rows []csstModel.ClassSectionSubjectTeacherModel) []CSSTItemLite {
-	out := make([]CSSTItemLite, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, CSSTLiteFromModel(r))
-	}
-	return out
-}
 
 // ===== TEACHER LITE (untuk homeroom & assistant) =====
 
@@ -1180,4 +898,29 @@ func teacherLiteFromJSON(raw datatypes.JSON) *TeacherPersonLite {
 	}
 
 	return &t
+}
+
+// file: internals/features/school/classes/class_sections/dto/class_section_dto.go
+
+// ... setelah func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse { ... } tadi
+
+// Batch mapper: dari slice by-value
+func FromSectionModels(list []m.ClassSectionModel) []ClassSectionResponse {
+	out := make([]ClassSectionResponse, 0, len(list))
+	for i := range list {
+		out = append(out, FromModelClassSection(&list[i]))
+	}
+	return out
+}
+
+// (optional, kalau suatu saat kamu pakai []*m.ClassSectionModel)
+func FromSectionModelPtrs(list []*m.ClassSectionModel) []ClassSectionResponse {
+	out := make([]ClassSectionResponse, 0, len(list))
+	for _, cs := range list {
+		if cs == nil {
+			continue
+		}
+		out = append(out, FromModelClassSection(cs))
+	}
+	return out
 }

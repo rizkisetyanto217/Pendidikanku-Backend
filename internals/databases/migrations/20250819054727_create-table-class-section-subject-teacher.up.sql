@@ -1,4 +1,3 @@
--- +migrate Up
 /* =======================================================================
    MIGRATION: CSST (class_section_subject_teachers)
               + PREREQ tenant-safe uniques
@@ -413,8 +412,9 @@ CREATE INDEX IF NOT EXISTS gin_csst_subject_slug_cache_trgm_alive
     AND class_section_subject_teacher_subject_slug_cache IS NOT NULL;
 
 -- ======================================================================
--- ALTER UNTUK SKEMA LAMA (capacity/enrolled_count → quota_total/quota_taken)
--- + tambahkan kolom KKM cache kalau belum ada
+-- ALTER UNTUK SKEMA LAMA
+--  - rename capacity/enrolled_count → quota_total/quota_taken
+--  - pastikan kolom quota_* dan min_passing_* ADA di schema lama
 -- ======================================================================
 
 DO $$
@@ -442,6 +442,12 @@ BEGIN
   END IF;
 END$$;
 
+-- 🔁 Tambahan: kalau tabel sudah lama & tidak punya kolom-kolom baru, tambahkan
+ALTER TABLE class_section_subject_teachers
+  ADD COLUMN IF NOT EXISTS class_section_subject_teacher_quota_total INT,
+  ADD COLUMN IF NOT EXISTS class_section_subject_teacher_quota_taken INT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS class_section_subject_teacher_min_passing_score_class_subject_cache INT,
+  ADD COLUMN IF NOT EXISTS class_section_subject_teacher_min_passing_score INT;
 
 -- ======================================================================
 -- COMMENT biar jelas asal datanya

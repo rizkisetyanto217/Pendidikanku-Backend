@@ -19,20 +19,24 @@ import (
 ========================================================= */
 
 type CSSTIncluded struct {
-	ID                  uuid.UUID `json:"class_section_subject_teacher_id"`
-	Slug                *string   `json:"class_section_subject_teacher_slug,omitempty"`
-	SubjectName         *string   `json:"class_section_subject_teacher_subject_name_cache,omitempty"`
-	SubjectCode         *string   `json:"class_section_subject_teacher_subject_code_cache,omitempty"`
-	SubjectSlug         *string   `json:"class_section_subject_teacher_subject_slug_cache,omitempty"`
+	ID               uuid.UUID `json:"class_section_subject_teacher_id"`
+	Slug             *string   `json:"class_section_subject_teacher_slug,omitempty"`
+	SubjectName      *string   `json:"class_section_subject_teacher_subject_name_cache,omitempty"`
+	SubjectCode      *string   `json:"class_section_subject_teacher_subject_code_cache,omitempty"`
+	SubjectSlug      *string   `json:"class_section_subject_teacher_subject_slug_cache,omitempty"`
 	TeacherNameCache *string   `json:"class_section_subject_teacher_school_teacher_name_cache,omitempty"`
-	ClassSectionID      uuid.UUID `json:"class_section_subject_teacher_class_section_id"`
-	ClassSectionName    *string   `json:"class_section_subject_teacher_class_section_name_cache,omitempty"`
-	ClassSectionCode    *string   `json:"class_section_subject_teacher_class_section_code_cache,omitempty"`
-	ClassSectionSlug    *string   `json:"class_section_subject_teacher_class_section_slug_cache,omitempty"`
-	DeliveryMode        string    `json:"class_section_subject_teacher_delivery_mode"`
-	EnrolledCount       int       `json:"class_section_subject_teacher_enrolled_count"`
-	MinPassingScore     *int      `json:"class_section_subject_teacher_min_passing_score,omitempty"`
-	ClassRoomName       *string   `json:"class_section_subject_teacher_class_room_name_cache,omitempty"`
+	ClassSectionID   uuid.UUID `json:"class_section_subject_teacher_class_section_id"`
+	ClassSectionName *string   `json:"class_section_subject_teacher_class_section_name_cache,omitempty"`
+	ClassSectionCode *string   `json:"class_section_subject_teacher_class_section_code_cache,omitempty"`
+	ClassSectionSlug *string   `json:"class_section_subject_teacher_class_section_slug_cache,omitempty"`
+	DeliveryMode     string    `json:"class_section_subject_teacher_delivery_mode"`
+
+	// quota_total / quota_taken (sinkron SQL & model)
+	QuotaTotal *int `json:"class_section_subject_teacher_quota_total,omitempty"`
+	QuotaTaken int  `json:"class_section_subject_teacher_quota_taken"`
+
+	MinPassingScore *int    `json:"class_section_subject_teacher_min_passing_score,omitempty"`
+	ClassRoomName   *string `json:"class_section_subject_teacher_class_room_name_cache,omitempty"`
 
 	// Tambahan info CSST
 	TotalBooks int       `json:"class_section_subject_teacher_total_books"`
@@ -237,25 +241,28 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		for i := range csstRows {
 			cs := csstRows[i]
 			item := CSSTIncluded{
-				ID:                  cs.ClassSectionSubjectTeacherID,
-				Slug:                cs.ClassSectionSubjectTeacherSlug,
-				SubjectName:         cs.ClassSectionSubjectTeacherSubjectNameCache,
-				SubjectCode:         cs.ClassSectionSubjectTeacherSubjectCodeCache,
-				SubjectSlug:         cs.ClassSectionSubjectTeacherSubjectSlugCache,
+				ID:               cs.ClassSectionSubjectTeacherID,
+				Slug:             cs.ClassSectionSubjectTeacherSlug,
+				SubjectName:      cs.ClassSectionSubjectTeacherSubjectNameCache,
+				SubjectCode:      cs.ClassSectionSubjectTeacherSubjectCodeCache,
+				SubjectSlug:      cs.ClassSectionSubjectTeacherSubjectSlugCache,
 				TeacherNameCache: cs.ClassSectionSubjectTeacherSchoolTeacherNameCache,
-				ClassSectionID:      cs.ClassSectionSubjectTeacherClassSectionID,
-				ClassSectionName:    cs.ClassSectionSubjectTeacherClassSectionNameCache,
-				ClassSectionCode:    cs.ClassSectionSubjectTeacherClassSectionCodeCache,
-				ClassSectionSlug:    cs.ClassSectionSubjectTeacherClassSectionSlugCache,
-				DeliveryMode:        string(cs.ClassSectionSubjectTeacherDeliveryMode),
-				EnrolledCount:       cs.ClassSectionSubjectTeacherEnrolledCount,
-				MinPassingScore:     cs.ClassSectionSubjectTeacherMinPassingScore,
-				ClassRoomName:       cs.ClassSectionSubjectTeacherClassRoomNameCache,
-				IsActive:            cs.ClassSectionSubjectTeacherIsActive,
-				SchoolID:            cs.ClassSectionSubjectTeacherSchoolID,
-				CreatedAt:           cs.ClassSectionSubjectTeacherCreatedAt.Format(time.RFC3339),
-				UpdatedAt:           cs.ClassSectionSubjectTeacherUpdatedAt.Format(time.RFC3339),
-				TotalBooks:          cs.ClassSectionSubjectTeacherTotalBooks,
+				ClassSectionID:   cs.ClassSectionSubjectTeacherClassSectionID,
+				ClassSectionName: cs.ClassSectionSubjectTeacherClassSectionNameCache,
+				ClassSectionCode: cs.ClassSectionSubjectTeacherClassSectionCodeCache,
+				ClassSectionSlug: cs.ClassSectionSubjectTeacherClassSectionSlugCache,
+				DeliveryMode:     string(cs.ClassSectionSubjectTeacherDeliveryMode),
+
+				QuotaTotal: cs.ClassSectionSubjectTeacherQuotaTotal,
+				QuotaTaken: cs.ClassSectionSubjectTeacherQuotaTaken,
+
+				MinPassingScore: cs.ClassSectionSubjectTeacherMinPassingScore,
+				ClassRoomName:   cs.ClassSectionSubjectTeacherClassRoomNameCache,
+				IsActive:        cs.ClassSectionSubjectTeacherIsActive,
+				SchoolID:        cs.ClassSectionSubjectTeacherSchoolID,
+				CreatedAt:       cs.ClassSectionSubjectTeacherCreatedAt.Format(time.RFC3339),
+				UpdatedAt:       cs.ClassSectionSubjectTeacherUpdatedAt.Format(time.RFC3339),
+				TotalBooks:      cs.ClassSectionSubjectTeacherTotalBooks,
 			}
 			if cs.ClassSectionSubjectTeacherDeletedAt.Valid {
 				s := cs.ClassSectionSubjectTeacherDeletedAt.Time.Format(time.RFC3339)
@@ -263,10 +270,6 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 			}
 			items = append(items, item)
 		}
-
-		// (opsional) kalau mau, bisa override pagination ke jumlah CSST unik.
-		// totalCSST := int64(len(items))
-		// pagination = helper.BuildPaginationFromPage(totalCSST, q.Page, q.PageSize)
 
 		return helper.JsonList(c, "ok", items, pagination)
 	}
@@ -315,25 +318,28 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		for i := range csstRows {
 			cs := csstRows[i]
 			item := &CSSTIncluded{
-				ID:                  cs.ClassSectionSubjectTeacherID,
-				Slug:                cs.ClassSectionSubjectTeacherSlug,
-				SubjectName:         cs.ClassSectionSubjectTeacherSubjectNameCache,
-				SubjectCode:         cs.ClassSectionSubjectTeacherSubjectCodeCache,
-				SubjectSlug:         cs.ClassSectionSubjectTeacherSubjectSlugCache,
+				ID:               cs.ClassSectionSubjectTeacherID,
+				Slug:             cs.ClassSectionSubjectTeacherSlug,
+				SubjectName:      cs.ClassSectionSubjectTeacherSubjectNameCache,
+				SubjectCode:      cs.ClassSectionSubjectTeacherSubjectCodeCache,
+				SubjectSlug:      cs.ClassSectionSubjectTeacherSubjectSlugCache,
 				TeacherNameCache: cs.ClassSectionSubjectTeacherSchoolTeacherNameCache,
-				ClassSectionID:      cs.ClassSectionSubjectTeacherClassSectionID,
-				ClassSectionName:    cs.ClassSectionSubjectTeacherClassSectionNameCache,
-				ClassSectionCode:    cs.ClassSectionSubjectTeacherClassSectionCodeCache,
-				ClassSectionSlug:    cs.ClassSectionSubjectTeacherClassSectionSlugCache,
-				DeliveryMode:        string(cs.ClassSectionSubjectTeacherDeliveryMode),
-				EnrolledCount:       cs.ClassSectionSubjectTeacherEnrolledCount,
-				MinPassingScore:     cs.ClassSectionSubjectTeacherMinPassingScore,
-				ClassRoomName:       cs.ClassSectionSubjectTeacherClassRoomNameCache,
-				IsActive:            cs.ClassSectionSubjectTeacherIsActive,
-				SchoolID:            cs.ClassSectionSubjectTeacherSchoolID,
-				CreatedAt:           cs.ClassSectionSubjectTeacherCreatedAt.Format(time.RFC3339),
-				UpdatedAt:           cs.ClassSectionSubjectTeacherUpdatedAt.Format(time.RFC3339),
-				TotalBooks:          cs.ClassSectionSubjectTeacherTotalBooks,
+				ClassSectionID:   cs.ClassSectionSubjectTeacherClassSectionID,
+				ClassSectionName: cs.ClassSectionSubjectTeacherClassSectionNameCache,
+				ClassSectionCode: cs.ClassSectionSubjectTeacherClassSectionCodeCache,
+				ClassSectionSlug: cs.ClassSectionSubjectTeacherClassSectionSlugCache,
+				DeliveryMode:     string(cs.ClassSectionSubjectTeacherDeliveryMode),
+
+				QuotaTotal: cs.ClassSectionSubjectTeacherQuotaTotal,
+				QuotaTaken: cs.ClassSectionSubjectTeacherQuotaTaken,
+
+				MinPassingScore: cs.ClassSectionSubjectTeacherMinPassingScore,
+				ClassRoomName:   cs.ClassSectionSubjectTeacherClassRoomNameCache,
+				IsActive:        cs.ClassSectionSubjectTeacherIsActive,
+				SchoolID:        cs.ClassSectionSubjectTeacherSchoolID,
+				CreatedAt:       cs.ClassSectionSubjectTeacherCreatedAt.Format(time.RFC3339),
+				UpdatedAt:       cs.ClassSectionSubjectTeacherUpdatedAt.Format(time.RFC3339),
+				TotalBooks:      cs.ClassSectionSubjectTeacherTotalBooks,
 			}
 			if cs.ClassSectionSubjectTeacherDeletedAt.Valid {
 				s := cs.ClassSectionSubjectTeacherDeletedAt.Time.Format(time.RFC3339)

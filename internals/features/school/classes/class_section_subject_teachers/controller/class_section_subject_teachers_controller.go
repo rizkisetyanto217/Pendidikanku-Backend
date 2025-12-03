@@ -71,6 +71,17 @@ func trimAny(v interface{}) *string {
 	}
 }
 
+// helper compare pointer UUID
+func uuidPtrChanged(old *uuid.UUID, new *uuid.UUID) bool {
+	if old == nil && new == nil {
+		return false
+	}
+	if old == nil || new == nil {
+		return true
+	}
+	return *old != *new
+}
+
 /*
 =========================================================
 
@@ -78,7 +89,14 @@ func trimAny(v interface{}) *string {
 
 =========================================================
 */
-func getBaseForSlug(ctx context.Context, tx *gorm.DB, schoolID, sectionID, classSubjectID, schoolTeacherID uuid.UUID) string {
+func getBaseForSlug(
+	ctx context.Context,
+	tx *gorm.DB,
+	schoolID uuid.UUID,
+	sectionID uuid.UUID,
+	classSubjectID uuid.UUID,
+	schoolTeacherID *uuid.UUID,
+) string {
 	var sectionName, subjectName string
 
 	// section name
@@ -114,11 +132,15 @@ func getBaseForSlug(ctx context.Context, tx *gorm.DB, schoolID, sectionID, class
 	if len(parts) > 0 {
 		return strings.Join(parts, " ")
 	}
-	return fmt.Sprintf("csst-%s-%s-%s",
-		strings.Split(sectionID.String(), "-")[0],
-		strings.Split(classSubjectID.String(), "-")[0],
-		strings.Split(schoolTeacherID.String(), "-")[0],
-	)
+
+	secPart := strings.Split(sectionID.String(), "-")[0]
+	subjPart := strings.Split(classSubjectID.String(), "-")[0]
+	teacherPart := "no-teacher"
+	if schoolTeacherID != nil {
+		teacherPart = strings.Split(schoolTeacherID.String(), "-")[0]
+	}
+
+	return fmt.Sprintf("csst-%s-%s-%s", secPart, subjPart, teacherPart)
 }
 
 func ensureUniqueSlug(ctx context.Context, tx *gorm.DB, schoolID uuid.UUID, base string) (string, error) {
@@ -267,10 +289,10 @@ func fillAcademicTermCacheFromSection(
 ) {
 	// asumsi field di model ClassSectionModel:
 	//   ClassSectionAcademicTermID               *uuid.UUID
-	//   ClassSectionAcademicTermNameCache     *string
-	//   ClassSectionAcademicTermSlugCache     *string
+	//   ClassSectionAcademicTermNameCache        *string
+	//   ClassSectionAcademicTermSlugCache        *string
 	//   ClassSectionAcademicTermAcademicYearCache *string
-	//   ClassSectionAcademicTermAngkatanCache *int
+	//   ClassSectionAcademicTermAngkatanCache    *int
 
 	if sec.ClassSectionAcademicTermID != nil {
 		row.ClassSectionSubjectTeacherAcademicTermID = sec.ClassSectionAcademicTermID
@@ -352,7 +374,7 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 		}
 
-		// 3) TEACHER exists & same tenant
+		// 3) TEACHER exists & same tenant (manual CSST tetap wajib guru)
 		if err := tx.
 			Where("school_teacher_id = ? AND school_teacher_school_id = ? AND school_teacher_deleted_at IS NULL",
 				req.ClassSectionSubjectTeacherSchoolTeacherID, schoolID).
@@ -644,6 +666,7 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 				AND class_section_subject_teacher_deleted_at IS NULL
 			`, id, schoolID).
 			First(&row).Error; err != nil {
+
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return helper.JsonError(c, http.StatusNotFound, "Data tidak ditemukan")
 			}
@@ -674,8 +697,14 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 			*req.ClassSectionSubjectTeacherClassSectionID != row.ClassSectionSubjectTeacherClassSectionID
 		classSubjectChanged := req.ClassSectionSubjectTeacherClassSubjectID != nil &&
 			*req.ClassSectionSubjectTeacherClassSubjectID != row.ClassSectionSubjectTeacherClassSubjectID
-		teacherChanged := req.ClassSectionSubjectTeacherSchoolTeacherID != nil &&
-			*req.ClassSectionSubjectTeacherSchoolTeacherID != row.ClassSectionSubjectTeacherSchoolTeacherID
+
+		teacherChanged := false
+		if req.ClassSectionSubjectTeacherSchoolTeacherID != nil {
+			if row.ClassSectionSubjectTeacherSchoolTeacherID == nil ||
+				*req.ClassSectionSubjectTeacherSchoolTeacherID != *row.ClassSectionSubjectTeacherSchoolTeacherID {
+				teacherChanged = true
+			}
+		}
 
 		// Apply perubahan dasar ke row
 		req.Apply(&row)
@@ -725,6 +754,7 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 
 		// TODO (opsional): kalau teacherChanged, kamu bisa juga re-build cache guru di sini,
 		// mirip blok di Create() (ValidateAndCacheTeacher + ToJSON + name/slug).
+		_ = teacherChanged // biar nggak unused kalau belum dipakai
 
 		// SLUG handling (mirror create)
 		if req.ClassSectionSubjectTeacherSlug != nil {

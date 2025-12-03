@@ -11,6 +11,7 @@ import (
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
+	csstDTO "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/dto"
 	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 	csDTO "madinahsalam_backend/internals/features/school/classes/class_sections/dto"
 	csModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
@@ -355,7 +356,7 @@ func enrichEnrollmentClassSections(
 	// 3) Konversi ke DTO compact
 	compact := csDTO.FromModelsClassSectionCompact(secs)
 
-	// 4) Kalau diminta CSST, query CSST & group by section_id
+	// 4) Kalau diminta CSST, query CSST & group by section_id (pakai MODEL dulu)
 	var csstBySection map[uuid.UUID][]csstModel.ClassSectionSubjectTeacherModel
 	if withCSST {
 		csstBySection = make(map[uuid.UUID][]csstModel.ClassSectionSubjectTeacherModel)
@@ -391,9 +392,11 @@ func enrichEnrollmentClassSections(
 
 		// kalau withCSST → tempel dulu ke field SubjectTeachers di compact
 		if withCSST {
-			secModel := secs[i] // FromModelsClassSectionCompact preserve urutan
+			// diasumsikan urutan compact sama dengan urutan secs
+			secModel := secs[i]
 			if list, ok := csstBySection[secModel.ClassSectionID]; ok && len(list) > 0 {
-				s.SubjectTeachers = list
+				// 🔴 FIX: convert []Model → []CSSTItemLite sebelum assign
+				s.SubjectTeachers = csstDTO.CSSTLiteSliceFromModels(list)
 			}
 		}
 

@@ -300,18 +300,18 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 	log.Printf("[JoinSectionCSST] loaded %d CSST(s) for section_id=%s", len(cssts), sec.ClassSectionID)
 
 	for _, csst := range cssts {
-		log.Printf("[JoinSectionCSST] processing CSST id=%s enrolled_count=%d capacity=%v",
+		log.Printf("[JoinSectionCSST] processing CSST id=%s quota_taken=%d quota_total=%v",
 			csst.ClassSectionSubjectTeacherID,
-			csst.ClassSectionSubjectTeacherEnrolledCount,
-			csst.ClassSectionSubjectTeacherCapacity)
+			csst.ClassSectionSubjectTeacherQuotaTaken,
+			csst.ClassSectionSubjectTeacherQuotaTotal)
 
 		// Cek kapasitas CSST (kalau di-set & penuh → skip CSST ini saja)
-		if csst.ClassSectionSubjectTeacherCapacity != nil && *csst.ClassSectionSubjectTeacherCapacity > 0 {
-			if csst.ClassSectionSubjectTeacherEnrolledCount >= *csst.ClassSectionSubjectTeacherCapacity {
-				log.Printf("[JoinSectionCSST] skip CSST id=%s: full (enrolled=%d capacity=%d)",
+		if csst.ClassSectionSubjectTeacherQuotaTotal != nil && *csst.ClassSectionSubjectTeacherQuotaTotal > 0 {
+			if csst.ClassSectionSubjectTeacherQuotaTaken >= *csst.ClassSectionSubjectTeacherQuotaTotal {
+				log.Printf("[JoinSectionCSST] skip CSST id=%s: full (quota_taken=%d quota_total=%d)",
 					csst.ClassSectionSubjectTeacherID,
-					csst.ClassSectionSubjectTeacherEnrolledCount,
-					*csst.ClassSectionSubjectTeacherCapacity)
+					csst.ClassSectionSubjectTeacherQuotaTaken,
+					*csst.ClassSectionSubjectTeacherQuotaTotal)
 				continue
 			}
 		}
@@ -376,14 +376,14 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 			return helper.JsonError(c, fiber.StatusInternalServerError, "failed to create CSST enrollment")
 		}
 
-		// Increment enrolled_count di CSST
+		// Increment quota_taken di CSST
 		if err := tx.Model(&csstModel.ClassSectionSubjectTeacherModel{}).
 			Where("class_section_subject_teacher_id = ?", csst.ClassSectionSubjectTeacherID).
-			Update("class_section_subject_teacher_enrolled_count",
-				gorm.Expr("class_section_subject_teacher_enrolled_count + 1")).Error; err != nil {
+			Update("class_section_subject_teacher_quota_taken",
+				gorm.Expr("class_section_subject_teacher_quota_taken + 1")).Error; err != nil {
 
 			tx.Rollback()
-			log.Printf("[JoinSectionCSST] failed to increment csst_enrolled_count for csst_id=%s: err=%v",
+			log.Printf("[JoinSectionCSST] failed to increment csst_quota_taken for csst_id=%s: err=%v",
 				csst.ClassSectionSubjectTeacherID, err)
 			return helper.JsonError(c, fiber.StatusInternalServerError, "failed to update CSST counter")
 		}

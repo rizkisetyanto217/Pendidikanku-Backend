@@ -58,18 +58,21 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 
 	// ===== Parse query DTO (toleran) =====
 	var q classSubjectDTO.ListClassSubjectQuery
-	if err := c.QueryParser(&q); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
-	}
+	_ = c.QueryParser(&q)
 
-	// ===== Param include=books (boleh comma-separated) =====
+	// ===== Param include=... (boleh comma-separated) =====
 	includeRaw := c.Query("include", "")
+	includeCSB := false
 	includeBooks := false
+
 	if strings.TrimSpace(includeRaw) != "" {
 		for _, part := range strings.Split(includeRaw, ",") {
-			if strings.TrimSpace(strings.ToLower(part)) == "books" {
+			token := strings.TrimSpace(strings.ToLower(part))
+			switch token {
+			case "class_subject_books":
+				includeCSB = true
+			case "books", "book":
 				includeBooks = true
-				break
 			}
 		}
 	}
@@ -78,6 +81,20 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 	// default per_page = 20, max = 200 sesuai kebutuhan endpoint ini
 	p := helper.ResolvePaging(c, 20, 200)
 	limit, offset := p.Limit, p.Offset
+
+	// Override dari DTO kalau ada (dan masih dalam batas wajar)
+	if q.Limit != nil {
+		if *q.Limit < 1 {
+			limit = 1
+		} else if *q.Limit > 200 {
+			limit = 200
+		} else {
+			limit = *q.Limit
+		}
+	}
+	if q.Offset != nil && *q.Offset >= 0 {
+		offset = *q.Offset
+	}
 
 	// ===== Base query (tenant-safe) =====
 	tx := h.DB.Model(&csModel.ClassSubjectModel{}).
@@ -101,25 +118,49 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 	}
 	if q.Q != nil && strings.TrimSpace(*q.Q) != "" {
 		kw := "%" + strings.ToLower(strings.TrimSpace(*q.Q)) + "%"
+		// sementara cari di desc; kalau nanti mau diperluas (name cache, dst) bisa ditambah
 		tx = tx.Where("LOWER(COALESCE(class_subject_desc,'')) LIKE ?", kw)
 	}
 
 	// ===== Sorting whitelist =====
-	orderBy := "class_subject_created_at"
-	if q.OrderBy != nil {
-		switch strings.ToLower(strings.TrimSpace(*q.OrderBy)) {
-		case "order_index":
-			orderBy = "class_subject_order_index"
-		case "created_at":
-			orderBy = "class_subject_created_at"
-		case "updated_at":
-			orderBy = "class_subject_updated_at"
+	// Dukungan:
+	//   - DTO.Sort (enum): order_index_asc|order_index_desc|created_at_asc|created_at_desc|updated_at_asc|updated_at_desc
+	//   - Query: sort_by=order_index|created_at|updated_at + order=asc|desc
+	sortBy := strings.ToLower(strings.TrimSpace(c.Query("sort_by", "created_at")))
+	order := strings.ToLower(strings.TrimSpace(c.Query("order", "asc")))
+
+	// DTO.Sort (enum) override kalau diisi
+	if q.Sort != nil {
+		switch strings.ToLower(strings.TrimSpace(*q.Sort)) {
+		case "order_index_asc":
+			sortBy, order = "order_index", "asc"
+		case "order_index_desc":
+			sortBy, order = "order_index", "desc"
+		case "created_at_asc":
+			sortBy, order = "created_at", "asc"
+		case "created_at_desc":
+			sortBy, order = "created_at", "desc"
+		case "updated_at_asc":
+			sortBy, order = "updated_at", "asc"
+		case "updated_at_desc":
+			sortBy, order = "updated_at", "desc"
 		}
 	}
-	sort := "ASC"
-	if q.Sort != nil && strings.ToLower(strings.TrimSpace(*q.Sort)) == "desc" {
-		sort = "DESC"
+
+	if order != "asc" && order != "desc" {
+		order = "asc"
 	}
+
+	colMap := map[string]string{
+		"order_index": "class_subject_order_index",
+		"created_at":  "class_subject_created_at",
+		"updated_at":  "class_subject_updated_at",
+	}
+	col, ok := colMap[sortBy]
+	if !ok {
+		col = colMap["created_at"]
+	}
+	orderExpr := col + " " + strings.ToUpper(order)
 
 	// ===== Count sebelum limit/offset =====
 	var total int64
@@ -130,7 +171,7 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 	// ===== Data class_subject =====
 	var rows []csModel.ClassSubjectModel
 	if err := tx.
-		Order(orderBy + " " + sort).
+		Order(orderExpr).
 		Limit(limit).
 		Offset(offset).
 		Find(&rows).Error; err != nil {
@@ -141,94 +182,96 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 	pg := helper.BuildPaginationFromOffset(total, offset, limit)
 
 	// =====================================================
-	// 2A) TANPA include books → simple list
+	// 2A) TANPA include apapun → simple list
 	// =====================================================
-	if !includeBooks {
-		// Kalau kosong
+	if !includeCSB && !includeBooks {
 		if len(rows) == 0 {
 			return helper.JsonList(c, "ok", []classSubjectDTO.ClassSubjectResponse{}, pg)
 		}
-
-		// Mapping basic
 		out := classSubjectDTO.FromClassSubjectModels(rows)
 		return helper.JsonList(c, "ok", out, pg)
 	}
 
 	// =====================================================
-	// 2B) include=books → link via SUBJECT (bukan class_subject lagi)
+	// 2B) Ada include → pakai jsonresponse + include
 	// =====================================================
 
-	// Kalau tidak ada data, langsung balikin kosong + pagination (tipe WithBooks)
+	// Primary data tetap basic: ClassSubjectResponse
+	data := classSubjectDTO.FromClassSubjectModels(rows)
+
+	// Kalau tidak ada class_subject sama sekali, balikin include kosong sesuai yang diminta
 	if len(rows) == 0 {
-		return helper.JsonList(c, "ok", []classSubjectDTO.ClassSubjectWithBooksResponse{}, pg)
+		include := fiber.Map{}
+		if includeCSB {
+			include["class_subject_books"] = []bookModel.ClassSubjectBookModel{}
+		}
+		if includeBooks {
+			include["books"] = []bookModel.BookModel{}
+		}
+		return helper.JsonListWithInclude(c, "ok", data, include, pg)
 	}
 
-	// Kumpulkan semua subject_id dari class_subjects
-	subjectIDs := make([]uuid.UUID, 0, len(rows))
+	// Kumpulkan semua class_subject_id dari class_subjects
+	classSubjectIDs := make([]uuid.UUID, 0, len(rows))
 	for _, r := range rows {
-		subjectIDs = append(subjectIDs, r.ClassSubjectSubjectID)
+		classSubjectIDs = append(classSubjectIDs, r.ClassSubjectID)
 	}
 
-	// a) Ambil semua link class_subject_books untuk subject² di atas
+	// a) Ambil semua link class_subject_books (kalau butuh CSB atau books)
 	var links []bookModel.ClassSubjectBookModel
-	if err := h.DB.
-		Where(`
-			class_subject_book_school_id = ?
-			AND class_subject_book_deleted_at IS NULL
-			AND class_subject_book_subject_id IN (?)
-		`, schoolID, subjectIDs).
-		Find(&links).Error; err != nil {
-
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data buku mapel")
-	}
-
-	// Group link berdasarkan subject_id
-	linksBySubject := make(map[uuid.UUID][]bookModel.ClassSubjectBookModel)
-	bookIDsSet := make(map[uuid.UUID]struct{})
-
-	for _, l := range links {
-		sid := l.ClassSubjectBookSubjectID
-		linksBySubject[sid] = append(linksBySubject[sid], l)
-		bookIDsSet[l.ClassSubjectBookBookID] = struct{}{}
-	}
-
-	// b) Ambil semua books yang dipakai
-	bookIDs := make([]uuid.UUID, 0, len(bookIDsSet))
-	for id := range bookIDsSet {
-		bookIDs = append(bookIDs, id)
-	}
-
-	bookByID := make(map[uuid.UUID]bookModel.BookModel)
-
-	if len(bookIDs) > 0 {
-		var books []bookModel.BookModel
+	if includeCSB || includeBooks {
 		if err := h.DB.
-			Where(`
-				book_school_id = ?
-				AND book_deleted_at IS NULL
-				AND book_id IN (?)
-			`, schoolID, bookIDs).
-			Find(&books).Error; err != nil {
+			Where(
+				"class_subject_book_school_id = ? "+
+					"AND class_subject_book_deleted_at IS NULL "+
+					"AND class_subject_book_class_subject_id IN ?",
+				schoolID, classSubjectIDs,
+			).
+			Find(&links).Error; err != nil {
 
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data buku")
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data buku mapel")
+		}
+	}
+
+	// b) Ambil semua books yang dipakai (kalau diminta)
+	var books []bookModel.BookModel
+	if includeBooks && len(links) > 0 {
+		bookIDsSet := make(map[uuid.UUID]struct{})
+		for _, l := range links {
+			bookIDsSet[l.ClassSubjectBookBookID] = struct{}{}
 		}
 
-		for _, b := range books {
-			bookByID[b.BookID] = b
+		bookIDs := make([]uuid.UUID, 0, len(bookIDsSet))
+		for id := range bookIDsSet {
+			bookIDs = append(bookIDs, id)
+		}
+
+		if len(bookIDs) > 0 {
+			if err := h.DB.
+				Where(
+					"book_school_id = ? "+
+						"AND book_deleted_at IS NULL "+
+						"AND book_id IN ?",
+					schoolID, bookIDs,
+				).
+				Find(&books).Error; err != nil {
+
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data buku")
+			}
 		}
 	}
 
 	// =====================================================
-	// 3) Mapping ke DTO ClassSubjectWithBooksResponse
+	// 3) Build include payload (hanya yang diminta)
 	// =====================================================
 
-	out := make([]classSubjectDTO.ClassSubjectWithBooksResponse, 0, len(rows))
-	for _, cs := range rows {
-		// sekarang kunci pakai subject_id, bukan class_subject_id
-		linksForSubject := linksBySubject[cs.ClassSubjectSubjectID]
-		out = append(out, classSubjectDTO.NewClassSubjectWithBooksResponse(cs, linksForSubject, bookByID))
+	include := fiber.Map{}
+	if includeCSB {
+		include["class_subject_books"] = links
+	}
+	if includeBooks {
+		include["books"] = books
 	}
 
-	// ===== Response =====
-	return helper.JsonList(c, "ok", out, pg)
+	return helper.JsonListWithInclude(c, "ok", data, include, pg)
 }

@@ -32,17 +32,16 @@ Resolver school:
 3) Kalau tetap tidak ada → ErrSchoolContextMissing.
 
 Query:
-  - id / ids      : UUID atau comma-separated UUIDs
-  - subject_id    : UUID  (pivot subject-book)
-    (legacy alias: class_subject_id masih didukung di query string)
-  - book_id       : UUID
-  - is_active     : bool
-  - is_primary    : bool
-  - is_required   : bool
-  - with_deleted  : bool
-  - q             : cari di slug relasi, judul buku cache, nama/slug subject cache
-  - sort (legacy) : created_at_asc|created_at_desc|updated_at_asc|updated_at_desc
-  - sort_by/order : created_at|updated_at + asc|desc
+  - id / ids        : UUID atau comma-separated UUIDs
+  - class_subject_id: UUID (pivot ke class_subjects)
+  - book_id         : UUID
+  - is_active       : bool
+  - is_primary      : bool
+  - is_required     : bool
+  - with_deleted    : bool
+  - q               : cari di slug relasi, judul buku cache, nama/slug subject cache
+  - sort (legacy)   : created_at_asc|created_at_desc|updated_at_asc|updated_at_desc
+  - sort_by/order   : created_at|updated_at + asc|desc
   - limit/per_page, page/offset
 
 =========================================================
@@ -107,10 +106,18 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	p := helper.ResolvePaging(c, 20, 100) // default 20, max 100
 
 	// ===== Sorting whitelist (manual) =====
-	// Legacy 'sort' tetap didukung
+	// Legacy 'sort' (di DTO: Sort) tetap didukung
 	sortBy := strings.ToLower(strings.TrimSpace(c.Query("sort_by", "created_at")))
 	order := strings.ToLower(strings.TrimSpace(c.Query("order", "desc")))
-	if s := strings.ToLower(strings.TrimSpace(c.Query("sort"))); s != "" {
+
+	sortParam := ""
+	if q.Sort != nil {
+		sortParam = strings.TrimSpace(*q.Sort)
+	} else {
+		sortParam = strings.TrimSpace(c.Query("sort"))
+	}
+
+	if s := strings.ToLower(sortParam); s != "" {
 		switch s {
 		case "created_at_asc":
 			sortBy, order = "created_at", "asc"
@@ -154,18 +161,12 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		return err
 	}
 
-	// subject_id (baru) + alias legacy class_subject_id
-	if q.SubjectID != nil {
-		qBase = qBase.Where("csb.class_subject_book_subject_id = ?", *q.SubjectID)
-	} else if v := strings.TrimSpace(c.Query("subject_id")); v != "" {
+	// class_subject_id (pivot ke class_subjects)
+	if q.ClassSubjectID != nil {
+		qBase = qBase.Where("csb.class_subject_book_class_subject_id = ?", *q.ClassSubjectID)
+	} else if v := strings.TrimSpace(c.Query("class_subject_id")); v != "" {
 		if id, er := uuid.Parse(v); er == nil {
-			qBase = qBase.Where("csb.class_subject_book_subject_id = ?", id)
-		} else {
-			return helper.JsonError(c, fiber.StatusBadRequest, "subject_id tidak valid")
-		}
-	} else if v := strings.TrimSpace(c.Query("class_subject_id")); v != "" { // legacy support
-		if id, er := uuid.Parse(v); er == nil {
-			qBase = qBase.Where("csb.class_subject_book_subject_id = ?", id)
+			qBase = qBase.Where("csb.class_subject_book_class_subject_id = ?", id)
 		} else {
 			return helper.JsonError(c, fiber.StatusBadRequest, "class_subject_id tidak valid")
 		}
@@ -259,6 +260,7 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	selectCols := []string{
 		"csb.class_subject_book_id",
 		"csb.class_subject_book_school_id",
+		"csb.class_subject_book_class_subject_id",
 		"csb.class_subject_book_subject_id",
 		"csb.class_subject_book_book_id",
 		"csb.class_subject_book_slug",
@@ -286,19 +288,20 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	}
 
 	type row struct {
-		ClassSubjectBookID         uuid.UUID  `gorm:"column:class_subject_book_id"`
-		ClassSubjectBookSchoolID   uuid.UUID  `gorm:"column:class_subject_book_school_id"`
-		ClassSubjectBookSubjectID  uuid.UUID  `gorm:"column:class_subject_book_subject_id"`
-		ClassSubjectBookBookID     uuid.UUID  `gorm:"column:class_subject_book_book_id"`
-		ClassSubjectBookSlug       *string    `gorm:"column:class_subject_book_slug"`
-		ClassSubjectBookIsPrimary  bool       `gorm:"column:class_subject_book_is_primary"`
-		ClassSubjectBookIsRequired bool       `gorm:"column:class_subject_book_is_required"`
-		ClassSubjectBookOrder      *int       `gorm:"column:class_subject_book_order"`
-		ClassSubjectBookIsActive   bool       `gorm:"column:class_subject_book_is_active"`
-		ClassSubjectBookDesc       *string    `gorm:"column:class_subject_book_desc"`
-		ClassSubjectBookCreatedAt  time.Time  `gorm:"column:class_subject_book_created_at"`
-		ClassSubjectBookUpdatedAt  time.Time  `gorm:"column:class_subject_book_updated_at"`
-		ClassSubjectBookDeletedAt  *time.Time `gorm:"column:class_subject_book_deleted_at"`
+		ClassSubjectBookID             uuid.UUID  `gorm:"column:class_subject_book_id"`
+		ClassSubjectBookSchoolID       uuid.UUID  `gorm:"column:class_subject_book_school_id"`
+		ClassSubjectBookClassSubjectID uuid.UUID  `gorm:"column:class_subject_book_class_subject_id"`
+		ClassSubjectBookSubjectID      *uuid.UUID `gorm:"column:class_subject_book_subject_id"`
+		ClassSubjectBookBookID         uuid.UUID  `gorm:"column:class_subject_book_book_id"`
+		ClassSubjectBookSlug           *string    `gorm:"column:class_subject_book_slug"`
+		ClassSubjectBookIsPrimary      bool       `gorm:"column:class_subject_book_is_primary"`
+		ClassSubjectBookIsRequired     bool       `gorm:"column:class_subject_book_is_required"`
+		ClassSubjectBookOrder          *int       `gorm:"column:class_subject_book_order"`
+		ClassSubjectBookIsActive       bool       `gorm:"column:class_subject_book_is_active"`
+		ClassSubjectBookDesc           *string    `gorm:"column:class_subject_book_desc"`
+		ClassSubjectBookCreatedAt      time.Time  `gorm:"column:class_subject_book_created_at"`
+		ClassSubjectBookUpdatedAt      time.Time  `gorm:"column:class_subject_book_updated_at"`
+		ClassSubjectBookDeletedAt      *time.Time `gorm:"column:class_subject_book_deleted_at"`
 
 		// BOOK caches
 		ClassSubjectBookBookTitleCache           *string `gorm:"column:class_subject_book_book_title_cache"`
@@ -328,10 +331,10 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	items := make([]csbDTO.ClassSubjectBookResponse, 0, len(rows))
 	for _, r := range rows {
 		items = append(items, csbDTO.ClassSubjectBookResponse{
-			ClassSubjectBookID:        r.ClassSubjectBookID,
-			ClassSubjectBookSchoolID:  r.ClassSubjectBookSchoolID,
-			ClassSubjectBookSubjectID: r.ClassSubjectBookSubjectID,
-			ClassSubjectBookBookID:    r.ClassSubjectBookBookID,
+			ClassSubjectBookID:             r.ClassSubjectBookID,
+			ClassSubjectBookSchoolID:       r.ClassSubjectBookSchoolID,
+			ClassSubjectBookClassSubjectID: r.ClassSubjectBookClassSubjectID,
+			ClassSubjectBookBookID:         r.ClassSubjectBookBookID,
 
 			ClassSubjectBookSlug:       r.ClassSubjectBookSlug,
 			ClassSubjectBookIsPrimary:  r.ClassSubjectBookIsPrimary,
@@ -347,6 +350,7 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 			ClassSubjectBookBookPublicationYearCache: r.ClassSubjectBookBookPublicationYearCache,
 			ClassSubjectBookBookImageURLCache:        r.ClassSubjectBookBookImageURLCache,
 
+			ClassSubjectBookSubjectID:        r.ClassSubjectBookSubjectID,
 			ClassSubjectBookSubjectCodeCache: r.ClassSubjectBookSubjectCodeCache,
 			ClassSubjectBookSubjectNameCache: r.ClassSubjectBookSubjectNameCache,
 			ClassSubjectBookSubjectSlugCache: r.ClassSubjectBookSubjectSlugCache,

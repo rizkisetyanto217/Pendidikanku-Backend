@@ -228,8 +228,7 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	pagination := helper.BuildPaginationFromOffset(total, offset, size)
 
 	// =====================================================================
-	//  MODE VIEW=COMPACT → selalu balikin compact DTO,
-	//  abaikan include=class_sections,csst (biar ringan, konsisten kayak enrollment)
+	//  MODE VIEW=COMPACT
 	// =====================================================================
 	if viewCompact {
 		out := dto.FromModelsStudentClassSectionCompact(rows)
@@ -237,8 +236,7 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	}
 
 	// =====================================================================
-	//  MODE TANPA INCLUDE → balikkan seperti sebelumnya (full, tanpa nested)
-	//  (StudentClassSectionResp sekarang sudah include gender + student_code)
+	//  MODE TANPA INCLUDE
 	// =====================================================================
 	if !includeClassSections && !includeCSST {
 		out := make([]dto.StudentClassSectionResp, 0, len(rows))
@@ -271,8 +269,8 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		GroupURL                        *string                     `json:"class_section_subject_teacher_group_url,omitempty"`
 		TotalAttendance                 int                         `json:"class_section_subject_teacher_total_attendance"`
 		TotalMeetingsTarget             *int                        `json:"class_section_subject_teacher_total_meetings_target,omitempty"`
-		Capacity                        *int                        `json:"class_section_subject_teacher_capacity,omitempty"`
-		EnrolledCount                   int                         `json:"class_section_subject_teacher_enrolled_count"`
+		QuotaTotal                      *int                        `json:"class_section_subject_teacher_quota_total,omitempty"`
+		QuotaTaken                      int                         `json:"class_section_subject_teacher_quota_taken"`
 		TotalAssessments                int                         `json:"class_section_subject_teacher_total_assessments"`
 		TotalAssessmentsGraded          int                         `json:"class_section_subject_teacher_total_assessments_graded"`
 		TotalAssessmentsUngraded        int                         `json:"class_section_subject_teacher_total_assessments_ungraded"`
@@ -402,8 +400,8 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 				GroupURL:                        r.ClassSectionSubjectTeacherGroupURL,
 				TotalAttendance:                 r.ClassSectionSubjectTeacherTotalAttendance,
 				TotalMeetingsTarget:             r.ClassSectionSubjectTeacherTotalMeetingsTarget,
-				Capacity:                        r.ClassSectionSubjectTeacherCapacity,
-				EnrolledCount:                   r.ClassSectionSubjectTeacherEnrolledCount,
+				QuotaTotal:                      r.ClassSectionSubjectTeacherQuotaTotal,
+				QuotaTaken:                      r.ClassSectionSubjectTeacherQuotaTaken,
 				TotalAssessments:                r.ClassSectionSubjectTeacherTotalAssessments,
 				TotalAssessmentsGraded:          r.ClassSectionSubjectTeacherTotalAssessmentsGraded,
 				TotalAssessmentsUngraded:        r.ClassSectionSubjectTeacherTotalAssessmentsUngraded,

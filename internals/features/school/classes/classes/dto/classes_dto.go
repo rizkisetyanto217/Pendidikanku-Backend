@@ -111,6 +111,8 @@ type CreateClassRequest struct {
 	ClassImageURLOld             *string    `json:"class_image_url_old,omitempty"              form:"class_image_url_old"`
 	ClassImageObjectKeyOld       *string    `json:"class_image_object_key_old,omitempty"       form:"class_image_object_key_old"`
 	ClassImageDeletePendingUntil *time.Time `json:"class_image_delete_pending_until,omitempty" form:"class_image_delete_pending_until"`
+
+	ClassSections []CreateClassSectionInlineRequest `json:"class_sections,omitempty" validate:"omitempty,dive"`
 }
 
 func (r *CreateClassRequest) Normalize() {
@@ -880,3 +882,19 @@ func DecodePatchClassMultipart(c *fiber.Ctx, r *PatchClassRequest) error {
 
 	return nil
 }
+
+type CreateClassSectionInlineRequest struct {
+	Name       string  `json:"name" validate:"required,min=1,max=100"`
+	Code       *string `json:"code,omitempty"        validate:"omitempty,min=1,max=50"`
+	QuotaTotal *int    `json:"quota_total,omitempty" validate:"omitempty,gte=0"`
+
+	// kalau kirim multipart (file per section), isi ini dengan nama field file di form-data
+	ImageURL   *string `json:"image_url,omitempty"   validate:"omitempty,url"`
+	ImageField *string `json:"image_field,omitempty" validate:"omitempty,min=1,max=160"`
+
+	// 🔽🔽🔽 Wali kelas & asisten (opsional)
+	SchoolTeacherID          *uuid.UUID `json:"school_teacher_id,omitempty"              validate:"omitempty"`
+	AssistantSchoolTeacherID *uuid.UUID `json:"assistant_school_teacher_id,omitempty"    validate:"omitempty"`
+}
+
+

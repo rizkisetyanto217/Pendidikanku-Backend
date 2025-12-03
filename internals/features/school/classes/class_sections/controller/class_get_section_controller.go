@@ -10,6 +10,7 @@ import (
 	secModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
+	csstDTO "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/dto"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -252,7 +253,7 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 
 		// init field CSST kalau diminta
 		if withCSST {
-			m["class_sections_csst"] = []secDTO.CSSTItemLite{}
+			m["class_sections_csst"] = []csstDTO.CSSTItemLite{}
 			m["class_sections_csst_count"] = 0
 			m["class_sections_csst_active_count"] = 0
 		}
@@ -298,7 +299,7 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 			if !ok {
 				continue
 			}
-			lite := secDTO.CSSTLiteSliceFromModels(list)
+			lite := csstDTO.CSSTLiteSliceFromModels(list)
 			activeCnt := 0
 			for _, it := range list {
 				if it.ClassSectionSubjectTeacherIsActive {

@@ -3,8 +3,9 @@ package dto
 import (
 	"encoding/json"
 
-	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 	m "madinahsalam_backend/internals/features/school/classes/class_sections/model"
+
+	csstDTO "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/dto"
 
 	"github.com/google/uuid"
 )
@@ -74,7 +75,8 @@ type ClassSectionCompact struct {
 	ClassSectionAcademicTermAcademicYearCache *string    `json:"class_section_academic_term_academic_year_cache,omitempty"`
 	ClassSectionAcademicTermAngkatanCache     *int       `json:"class_section_academic_term_angkatan_cache,omitempty"`
 
-	SubjectTeachers []csstModel.ClassSectionSubjectTeacherModel `json:"class_section_subject_teachers,omitempty"`
+	// List pengampu mapel (optional, diisi manual dari controller kalau perlu)
+	SubjectTeachers []csstDTO.CSSTItemLite `json:"class_section_subject_teachers,omitempty"`
 }
 
 // FromModelsClassSectionCompact: mapping dari []ClassSectionModel → []ClassSectionCompact

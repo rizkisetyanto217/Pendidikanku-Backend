@@ -70,6 +70,8 @@ CREATE INDEX IF NOT EXISTS gin_books_author_trgm_alive
   WHERE book_deleted_at IS NULL;
 
 
+
+
 /* =========================================================
    TABLE: class_subject_books  (relasi ClassSubject ↔ Book per tenant)
    ========================================================= */
