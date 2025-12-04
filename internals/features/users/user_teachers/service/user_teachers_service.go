@@ -113,7 +113,7 @@ func EnsureUserTeacherFromUser(
 	newUT := userTeacherModel.UserTeacherModel{
 		UserTeacherID:            uuid.New(),
 		UserTeacherUserID:        user.ID,
-		UserTeacherFullNameCache: nameSnap,
+		UserTeacherUserFullNameCache: nameSnap,
 
 		// ringkas/bio dari profile
 		UserTeacherShortBio: copyPtrTrunc(prof.UserProfileBio, 300),

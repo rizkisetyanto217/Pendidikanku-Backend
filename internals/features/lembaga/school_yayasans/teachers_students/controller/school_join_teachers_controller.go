@@ -165,7 +165,7 @@ func (ctrl *SchoolTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 		}
 		if err := tx.Raw(`
 			SELECT
-				ut.user_teacher_full_name_cache      AS name,
+				ut.user_teacher_user_full_name_cache      AS name,
 				ut.user_teacher_avatar_url         AS avatar_url,
 				ut.user_teacher_whatsapp_url       AS whatsapp_url,
 				ut.user_teacher_title_prefix       AS title_prefix,

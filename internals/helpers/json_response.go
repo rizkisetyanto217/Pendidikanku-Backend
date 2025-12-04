@@ -393,10 +393,11 @@ func JsonListWithInclude(c *fiber.Ctx, message string, data any, include any, pa
 		body["pagination"] = p
 	}
 
-	// include (singular)
-	if include != nil {
-		body["include"] = include
+	// selalu ada "include", minimal {}
+	if include == nil {
+		include = fiber.Map{}
 	}
+	body["include"] = include
 
 	return c.Status(fiber.StatusOK).JSON(body)
 }

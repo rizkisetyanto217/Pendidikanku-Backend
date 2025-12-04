@@ -109,7 +109,7 @@ func isTeacherProfileCompleted(m *model.UserTeacherModel) bool {
 	// - Whatsapp
 	// - Gender
 	// - Field KEAHLIAN atau ShortBio
-	nameOK := strings.TrimSpace(m.UserTeacherFullNameCache) != ""
+	nameOK := strings.TrimSpace(m.UserTeacherUserFullNameCache) != ""
 	waOK := trim(m.UserTeacherWhatsappURL) != ""
 	genderOK := trim(m.UserTeacherGender) != ""
 	fieldOK := trim(m.UserTeacherField) != "" || trim(m.UserTeacherShortBio) != ""
@@ -146,7 +146,7 @@ func parseMultipartNoPayload(c *fiber.Ctx, rid string, req *userdto.CreateUserTe
 	get := func(k string) string { return strings.TrimSpace(c.FormValue(k)) }
 
 	// wajib
-	req.UserTeacherFullNameCache = get("user_teacher_full_name_cache")
+	req.UserTeacherUserFullNameCache = get("user_teacher_user_full_name_cache")
 
 	// profil ringkas
 	req.UserTeacherField = get("user_teacher_field")
@@ -280,7 +280,7 @@ func (uc *UserTeacherController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 	log.Printf("[user-teacher#create] reqid=%s validation OK name=%q field=%q expYears=%v",
-		rid, req.UserTeacherFullNameCache, req.UserTeacherField, req.UserTeacherExperienceYears)
+		rid, req.UserTeacherUserFullNameCache, req.UserTeacherField, req.UserTeacherExperienceYears)
 
 	// --- pastikan 1 user = 1 profile ---
 	var exist int64
@@ -484,7 +484,7 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 	}
 
 	// ringkas
-	applyIfChanged("user_teacher_full_name_cache", before.UserTeacherFullNameCache, m.UserTeacherFullNameCache)
+	applyIfChanged("user_teacher_user_full_name_cache", before.UserTeacherUserFullNameCache, m.UserTeacherUserFullNameCache)
 	applyIfChangedStr("user_teacher_field", before.UserTeacherField, m.UserTeacherField)
 	applyIfChangedStr("user_teacher_short_bio", before.UserTeacherShortBio, m.UserTeacherShortBio)
 	applyIfChangedStr("user_teacher_long_bio", before.UserTeacherLongBio, m.UserTeacherLongBio)
@@ -551,7 +551,7 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 
 	// === SNAPSHOT SYNC ke school_teachers ===
 	changedSnapshot :=
-		before.UserTeacherFullNameCache != m.UserTeacherFullNameCache ||
+		before.UserTeacherUserFullNameCache != m.UserTeacherUserFullNameCache ||
 			derefStr(before.UserTeacherAvatarURL) != derefStr(m.UserTeacherAvatarURL) ||
 			derefStr(before.UserTeacherWhatsappURL) != derefStr(m.UserTeacherWhatsappURL) ||
 			derefStr(before.UserTeacherTitlePrefix) != derefStr(m.UserTeacherTitlePrefix) ||
@@ -560,7 +560,7 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 	if changedSnapshot {
 
 		set := map[string]any{
-			"school_teacher_user_teacher_full_name_cache":    m.UserTeacherFullNameCache,
+			"school_teacher_user_teacher_full_name_cache":    m.UserTeacherUserFullNameCache,
 			"school_teacher_user_teacher_avatar_url_cache":   m.UserTeacherAvatarURL,
 			"school_teacher_user_teacher_whatsapp_url_cache": m.UserTeacherWhatsappURL,
 			"school_teacher_user_teacher_title_prefix_cache": m.UserTeacherTitlePrefix,
@@ -613,7 +613,7 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 				}
 				payload := smallTeacherSnap{
 					UserTeacherID: m.UserTeacherID,
-					Name:          m.UserTeacherFullNameCache,
+					Name:          m.UserTeacherUserFullNameCache,
 					AvatarURL:     m.UserTeacherAvatarURL,
 					WhatsappURL:   m.UserTeacherWhatsappURL,
 					TitlePrefix:   m.UserTeacherTitlePrefix,
@@ -686,7 +686,7 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 				}
 				minSnap := teacherMiniSnap{
 					UserTeacherID: m.UserTeacherID,
-					Name:          m.UserTeacherFullNameCache,
+					Name:          m.UserTeacherUserFullNameCache,
 					AvatarURL:     m.UserTeacherAvatarURL,
 					WhatsappURL:   m.UserTeacherWhatsappURL,
 					TitlePrefix:   m.UserTeacherTitlePrefix,

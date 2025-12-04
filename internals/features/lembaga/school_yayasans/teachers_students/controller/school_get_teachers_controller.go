@@ -242,7 +242,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 			var trows []struct {
 				UserTeacherID        uuid.UUID `gorm:"column:user_teacher_id"`
 				UserTeacherUserID    uuid.UUID `gorm:"column:user_teacher_user_id"`
-				UserTeacherFullName  string    `gorm:"column:user_teacher_full_name_cache"`
+				UserTeacherFullName  string    `gorm:"column:user_teacher_user_full_name_cache"`
 				UserTeacherWhatsapp  *string   `gorm:"column:user_teacher_whatsapp_url"`
 				UserTeacherAvatarURL *string   `gorm:"column:user_teacher_avatar_url"`
 				TitlePrefix          *string   `gorm:"column:user_teacher_title_prefix"`

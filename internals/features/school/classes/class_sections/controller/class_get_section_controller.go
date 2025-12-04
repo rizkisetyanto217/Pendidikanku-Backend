@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"strings"
 
+	csstDTO "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/dto"
 	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 	secDTO "madinahsalam_backend/internals/features/school/classes/class_sections/dto"
 	secModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
-	csstDTO "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/dto"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -158,8 +158,47 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		activeOnly = &v
 	}
 
-	withCSST := c.QueryBool("with_csst")
-	// lebih eksplisit: include student_class_sections
+	// ------------ INCLUDE / NESTED FLAGS ------------
+	// include=csst   -> include["csst"] (global pool, tanpa nested)
+	// nested=csst    -> nested per class_section: class_section_subject_teacher (tanpa include.csst)
+	// with_csst=1    -> legacy, dianggap nested=csst
+	includeRaw := strings.TrimSpace(c.Query("include"))
+	nestedRaw := strings.TrimSpace(c.Query("nested"))
+
+	var includeCSST bool
+	var nestedCSST bool
+
+	// parse include=...
+	if includeRaw != "" {
+		parts := strings.Split(includeRaw, ",")
+		for _, p := range parts {
+			switch strings.TrimSpace(p) {
+			case "csst", "cssts", "class_section_subject_teachers":
+				includeCSST = true
+			}
+		}
+	}
+
+	// parse nested=...
+	if nestedRaw != "" {
+		parts := strings.Split(nestedRaw, ",")
+		for _, p := range parts {
+			switch strings.TrimSpace(p) {
+			case "csst", "cssts", "class_section_subject_teachers":
+				nestedCSST = true
+			}
+		}
+	}
+
+	// legacy: with_csst=1 => nested=csst
+	if c.QueryBool("with_csst") {
+		nestedCSST = true
+	}
+
+	// apakah kita perlu query CSST sama sekali?
+	queryCSST := includeCSST || nestedCSST
+
+	// lebih eksplisit: include student_class_sections (masih boolean biasa)
 	withStudentSections := c.QueryBool("with_student_class_sections")
 
 	// ---------- Query base ----------
@@ -217,7 +256,7 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// ---------- Build compact DTO (pakai snapshot guru baru) ----------
+	// ---------- Build compact DTO ----------
 	compacts := secDTO.FromModelsClassSectionCompact(rows)
 
 	idsInPage := make([]uuid.UUID, 0, len(compacts))
@@ -227,9 +266,13 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 
 	pagination := helper.BuildPaginationFromOffset(total, pg.Offset, pg.Limit)
 
-	// Kalau nggak minta include CSST / student sections → langsung balikin compact DTO
-	if !withCSST && !withStudentSections {
-		return helper.JsonList(c, "ok", compacts, pagination)
+	// includePayload: selalu ada "include": {} di response (bisa kosong)
+	includePayload := fiber.Map{}
+
+	// Kalau nggak perlu CSST sama sekali dan nggak perlu student sections
+	// → langsung balikin compact DTO + include (kosong)
+	if !queryCSST && !withStudentSections {
+		return helper.JsonListWithInclude(c, "ok", compacts, includePayload, pagination)
 	}
 
 	// =========================================================
@@ -248,14 +291,16 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 
 	for i := range compacts {
 		b, _ := json.Marshal(compacts[i])
-		var m fiber.Map
+
+		// ✅ pastikan map-nya selalu non-nil
+		m := fiber.Map{}
 		_ = json.Unmarshal(b, &m)
 
-		// init field CSST kalau diminta
-		if withCSST {
-			m["class_sections_csst"] = []csstDTO.CSSTItemLite{}
-			m["class_sections_csst_count"] = 0
-			m["class_sections_csst_active_count"] = 0
+		// init field CSST kalau diminta nested
+		if nestedCSST {
+			m["class_section_subject_teacher"] = []csstDTO.CSSTItemLite{}
+			m["class_section_subject_teacher_count"] = 0
+			m["class_section_subject_teacher_active_count"] = 0
 		}
 
 		// init field student_class_sections kalau diminta
@@ -270,7 +315,7 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 	}
 
 	// ---------- Inject CSST ----------
-	if withCSST && len(targetIDs) > 0 {
+	if queryCSST && len(targetIDs) > 0 {
 		var csstRows []csstModel.ClassSectionSubjectTeacherModel
 		csstQ := ctrl.DB.
 			Model(&csstModel.ClassSectionSubjectTeacherModel{}).
@@ -286,29 +331,41 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil CSST")
 		}
 
-		// group by class_section_id
-		bySection := make(map[uuid.UUID][]csstModel.ClassSectionSubjectTeacherModel, len(targetIDs))
-		for i := range csstRows {
-			r := csstRows[i]
-			bySection[r.ClassSectionSubjectTeacherClassSectionID] =
-				append(bySection[r.ClassSectionSubjectTeacherClassSectionID], r)
+		// nested=csst → inject per class_section
+		if nestedCSST {
+			// group by class_section_id
+			bySection := make(map[uuid.UUID][]csstModel.ClassSectionSubjectTeacherModel, len(targetIDs))
+			for i := range csstRows {
+				r := csstRows[i]
+				bySection[r.ClassSectionSubjectTeacherClassSectionID] =
+					append(bySection[r.ClassSectionSubjectTeacherClassSectionID], r)
+			}
+
+			for secID, list := range bySection {
+				idx, ok := indexBySection[secID]
+				if !ok {
+					continue
+				}
+				lite := csstDTO.CSSTLiteSliceFromModels(list)
+				activeCnt := 0
+				for _, it := range list {
+					if it.ClassSectionSubjectTeacherIsActive {
+						activeCnt++
+					}
+				}
+				out[idx]["class_section_subject_teacher"] = lite
+				out[idx]["class_section_subject_teacher_count"] = len(lite)
+				out[idx]["class_section_subject_teacher_active_count"] = activeCnt
+			}
 		}
 
-		for secID, list := range bySection {
-			idx, ok := indexBySection[secID]
-			if !ok {
-				continue
+		// include=csst → top-level include.csst (semua csst di page ini)
+		if includeCSST {
+			if len(csstRows) > 0 {
+				includePayload["csst"] = csstDTO.CSSTLiteSliceFromModels(csstRows)
+			} else {
+				includePayload["csst"] = []csstDTO.CSSTItemLite{}
 			}
-			lite := csstDTO.CSSTLiteSliceFromModels(list)
-			activeCnt := 0
-			for _, it := range list {
-				if it.ClassSectionSubjectTeacherIsActive {
-					activeCnt++
-				}
-			}
-			out[idx]["class_sections_csst"] = lite
-			out[idx]["class_sections_csst_count"] = len(lite)
-			out[idx]["class_sections_csst_active_count"] = activeCnt
 		}
 	}
 
@@ -361,5 +418,5 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	return helper.JsonList(c, "ok", out, pagination)
+	return helper.JsonListWithInclude(c, "ok", out, includePayload, pagination)
 }

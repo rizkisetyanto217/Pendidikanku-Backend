@@ -173,7 +173,7 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		status = s
 	}
 
-	// pagination
+	// pagination (masih pakai getPageSize kamu)
 	page, size := getPageSize(c)
 	offset := (page - 1) * size
 	if offset < 0 {
@@ -232,18 +232,19 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	// =====================================================================
 	if viewCompact {
 		out := dto.FromModelsStudentClassSectionCompact(rows)
-		return helper.JsonList(c, "OK", out, pagination)
+		// include selalu ada, minimal {}
+		return helper.JsonListWithInclude(c, "OK", out, nil, pagination)
 	}
 
 	// =====================================================================
-	//  MODE TANPA INCLUDE
+	//  MODE TANPA INCLUDE PARAM (tidak butuh class_sections/csst)
 	// =====================================================================
 	if !includeClassSections && !includeCSST {
 		out := make([]dto.StudentClassSectionResp, 0, len(rows))
 		for i := range rows {
 			out = append(out, dto.FromModel(&rows[i]))
 		}
-		return helper.JsonList(c, "OK", out, pagination)
+		return helper.JsonListWithInclude(c, "OK", out, nil, pagination)
 	}
 
 	// =====================================================================
@@ -263,30 +264,54 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 
 	// ---- Tipe nested untuk CSST ----
 	type CSSTIncluded struct {
-		ID                              uuid.UUID                   `json:"class_section_subject_teacher_id"`
-		Slug                            *string                     `json:"class_section_subject_teacher_slug,omitempty"`
-		Description                     *string                     `json:"class_section_subject_teacher_description,omitempty"`
-		GroupURL                        *string                     `json:"class_section_subject_teacher_group_url,omitempty"`
-		TotalAttendance                 int                         `json:"class_section_subject_teacher_total_attendance"`
-		TotalMeetingsTarget             *int                        `json:"class_section_subject_teacher_total_meetings_target,omitempty"`
-		QuotaTotal                      *int                        `json:"class_section_subject_teacher_quota_total,omitempty"`
-		QuotaTaken                      int                         `json:"class_section_subject_teacher_quota_taken"`
-		TotalAssessments                int                         `json:"class_section_subject_teacher_total_assessments"`
-		TotalAssessmentsGraded          int                         `json:"class_section_subject_teacher_total_assessments_graded"`
-		TotalAssessmentsUngraded        int                         `json:"class_section_subject_teacher_total_assessments_ungraded"`
-		TotalStudentsPassed             int                         `json:"class_section_subject_teacher_total_students_passed"`
-		DeliveryMode                    csstModel.ClassDeliveryMode `json:"class_section_subject_teacher_delivery_mode"`
-		ClassSectionID                  uuid.UUID                   `json:"class_section_subject_teacher_class_section_id"`
-		ClassRoomNameCache              *string                     `json:"class_section_subject_teacher_class_room_name_cache,omitempty"`
-		SchoolTeacherNameCache          *string                     `json:"class_section_subject_teacher_school_teacher_name_cache,omitempty"`
-		AssistantSchoolTeacherNameCache *string                     `json:"class_section_subject_teacher_assistant_school_teacher_name_cache,omitempty"`
-		SubjectNameCache                *string                     `json:"class_section_subject_teacher_subject_name_cache,omitempty"`
-		SubjectCodeCache                *string                     `json:"class_section_subject_teacher_subject_code_cache,omitempty"`
-		SubjectSlugCache                *string                     `json:"class_section_subject_teacher_subject_slug_cache,omitempty"`
-		MinPassingScore                 *int                        `json:"class_section_subject_teacher_min_passing_score,omitempty"`
-		IsActive                        bool                        `json:"class_section_subject_teacher_is_active"`
-		CreatedAt                       time.Time                   `json:"class_section_subject_teacher_created_at"`
-		UpdatedAt                       time.Time                   `json:"class_section_subject_teacher_updated_at"`
+		ID       uuid.UUID `json:"class_section_subject_teacher_id"`
+		SchoolID uuid.UUID `json:"class_section_subject_teacher_school_id"`
+
+		ClassSectionID  uuid.UUID                   `json:"class_section_subject_teacher_class_section_id"`
+		ClassSubjectID  uuid.UUID                   `json:"class_section_subject_teacher_class_subject_id"`
+		Slug            *string                     `json:"class_section_subject_teacher_slug,omitempty"`
+		Description     *string                     `json:"class_section_subject_teacher_description,omitempty"`
+		GroupURL        *string                     `json:"class_section_subject_teacher_group_url,omitempty"`
+		DeliveryMode    csstModel.ClassDeliveryMode `json:"class_section_subject_teacher_delivery_mode"`
+		TotalAttendance int                         `json:"class_section_subject_teacher_total_attendance"`
+		QuotaTaken      int                         `json:"class_section_subject_teacher_quota_taken"`
+
+		TotalAssessments         int `json:"class_section_subject_teacher_total_assessments"`
+		TotalAssessmentsGraded   int `json:"class_section_subject_teacher_total_assessments_graded"`
+		TotalAssessmentsUngraded int `json:"class_section_subject_teacher_total_assessments_ungraded"`
+		TotalStudentsPassed      int `json:"class_section_subject_teacher_total_students_passed"`
+		TotalBooks               int `json:"class_section_subject_teacher_total_books"`
+
+		TotalMeetingsTarget *int `json:"class_section_subject_teacher_total_meetings_target,omitempty"`
+		QuotaTotal          *int `json:"class_section_subject_teacher_quota_total,omitempty"`
+
+		// Cache class_section
+		ClassSectionSlugCache *string `json:"class_section_subject_teacher_class_section_slug_cache,omitempty"`
+		ClassSectionNameCache *string `json:"class_section_subject_teacher_class_section_name_cache,omitempty"`
+		ClassSectionCodeCache *string `json:"class_section_subject_teacher_class_section_code_cache,omitempty"`
+
+		// Cache subject
+		SubjectIDCache   *uuid.UUID `json:"class_section_subject_teacher_subject_id_cache,omitempty"`
+		SubjectNameCache *string    `json:"class_section_subject_teacher_subject_name_cache,omitempty"`
+		SubjectCodeCache *string    `json:"class_section_subject_teacher_subject_code_cache,omitempty"`
+		SubjectSlugCache *string    `json:"class_section_subject_teacher_subject_slug_cache,omitempty"`
+
+		// Cache room & teacher
+		ClassRoomNameCache              *string `json:"class_section_subject_teacher_class_room_name_cache,omitempty"`
+		SchoolTeacherNameCache          *string `json:"class_section_subject_teacher_school_teacher_name_cache,omitempty"`
+		AssistantSchoolTeacherNameCache *string `json:"class_section_subject_teacher_assistant_school_teacher_name_cache,omitempty"`
+
+		// Cache academic term
+		AcademicTermID            *uuid.UUID `json:"class_section_subject_teacher_academic_term_id,omitempty"`
+		AcademicTermNameCache     *string    `json:"class_section_subject_teacher_academic_term_name_cache,omitempty"`
+		AcademicTermSlugCache     *string    `json:"class_section_subject_teacher_academic_term_slug_cache,omitempty"`
+		AcademicYearCache         *string    `json:"class_section_subject_teacher_academic_year_cache,omitempty"`
+		AcademicTermAngkatanCache *int       `json:"class_section_subject_teacher_academic_term_angkatan_cache,omitempty"`
+
+		MinPassingScore *int      `json:"class_section_subject_teacher_min_passing_score,omitempty"`
+		IsActive        bool      `json:"class_section_subject_teacher_is_active"`
+		CreatedAt       time.Time `json:"class_section_subject_teacher_created_at"`
+		UpdatedAt       time.Time `json:"class_section_subject_teacher_updated_at"`
 	}
 
 	// 2) Tipe nested untuk ClassSection + CSST list
@@ -394,30 +419,50 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 			r := csstRows[i]
 
 			ci := &CSSTIncluded{
-				ID:                              r.ClassSectionSubjectTeacherID,
-				Slug:                            r.ClassSectionSubjectTeacherSlug,
-				Description:                     r.ClassSectionSubjectTeacherDescription,
-				GroupURL:                        r.ClassSectionSubjectTeacherGroupURL,
-				TotalAttendance:                 r.ClassSectionSubjectTeacherTotalAttendance,
-				TotalMeetingsTarget:             r.ClassSectionSubjectTeacherTotalMeetingsTarget,
-				QuotaTotal:                      r.ClassSectionSubjectTeacherQuotaTotal,
-				QuotaTaken:                      r.ClassSectionSubjectTeacherQuotaTaken,
-				TotalAssessments:                r.ClassSectionSubjectTeacherTotalAssessments,
-				TotalAssessmentsGraded:          r.ClassSectionSubjectTeacherTotalAssessmentsGraded,
-				TotalAssessmentsUngraded:        r.ClassSectionSubjectTeacherTotalAssessmentsUngraded,
-				TotalStudentsPassed:             r.ClassSectionSubjectTeacherTotalStudentsPassed,
-				DeliveryMode:                    r.ClassSectionSubjectTeacherDeliveryMode,
-				ClassSectionID:                  r.ClassSectionSubjectTeacherClassSectionID,
+				ID:       r.ClassSectionSubjectTeacherID,
+				SchoolID: r.ClassSectionSubjectTeacherSchoolID,
+
+				ClassSectionID: r.ClassSectionSubjectTeacherClassSectionID,
+				ClassSubjectID: r.ClassSectionSubjectTeacherClassSubjectID,
+				Slug:           r.ClassSectionSubjectTeacherSlug,
+				Description:    r.ClassSectionSubjectTeacherDescription,
+				GroupURL:       r.ClassSectionSubjectTeacherGroupURL,
+				DeliveryMode:   r.ClassSectionSubjectTeacherDeliveryMode,
+
+				TotalAttendance:          r.ClassSectionSubjectTeacherTotalAttendance,
+				QuotaTaken:               r.ClassSectionSubjectTeacherQuotaTaken,
+				TotalAssessments:         r.ClassSectionSubjectTeacherTotalAssessments,
+				TotalAssessmentsGraded:   r.ClassSectionSubjectTeacherTotalAssessmentsGraded,
+				TotalAssessmentsUngraded: r.ClassSectionSubjectTeacherTotalAssessmentsUngraded,
+				TotalStudentsPassed:      r.ClassSectionSubjectTeacherTotalStudentsPassed,
+				TotalBooks:               r.ClassSectionSubjectTeacherTotalBooks,
+
+				TotalMeetingsTarget: r.ClassSectionSubjectTeacherTotalMeetingsTarget,
+				QuotaTotal:          r.ClassSectionSubjectTeacherQuotaTotal,
+
+				ClassSectionSlugCache: r.ClassSectionSubjectTeacherClassSectionSlugCache,
+				ClassSectionNameCache: r.ClassSectionSubjectTeacherClassSectionNameCache,
+				ClassSectionCodeCache: r.ClassSectionSubjectTeacherClassSectionCodeCache,
+
+				SubjectIDCache:   r.ClassSectionSubjectTeacherSubjectIDCache,
+				SubjectNameCache: r.ClassSectionSubjectTeacherSubjectNameCache,
+				SubjectCodeCache: r.ClassSectionSubjectTeacherSubjectCodeCache,
+				SubjectSlugCache: r.ClassSectionSubjectTeacherSubjectSlugCache,
+
 				ClassRoomNameCache:              r.ClassSectionSubjectTeacherClassRoomNameCache,
 				SchoolTeacherNameCache:          r.ClassSectionSubjectTeacherSchoolTeacherNameCache,
 				AssistantSchoolTeacherNameCache: r.ClassSectionSubjectTeacherAssistantSchoolTeacherNameCache,
-				SubjectNameCache:                r.ClassSectionSubjectTeacherSubjectNameCache,
-				SubjectCodeCache:                r.ClassSectionSubjectTeacherSubjectCodeCache,
-				SubjectSlugCache:                r.ClassSectionSubjectTeacherSubjectSlugCache,
-				MinPassingScore:                 r.ClassSectionSubjectTeacherMinPassingScore,
-				IsActive:                        r.ClassSectionSubjectTeacherIsActive,
-				CreatedAt:                       r.ClassSectionSubjectTeacherCreatedAt,
-				UpdatedAt:                       r.ClassSectionSubjectTeacherUpdatedAt,
+
+				AcademicTermID:            r.ClassSectionSubjectTeacherAcademicTermID,
+				AcademicTermNameCache:     r.ClassSectionSubjectTeacherAcademicTermNameCache,
+				AcademicTermSlugCache:     r.ClassSectionSubjectTeacherAcademicTermSlugCache,
+				AcademicYearCache:         r.ClassSectionSubjectTeacherAcademicYearCache,
+				AcademicTermAngkatanCache: r.ClassSectionSubjectTeacherAcademicTermAngkatanCache,
+
+				MinPassingScore: r.ClassSectionSubjectTeacherMinPassingScore,
+				IsActive:        r.ClassSectionSubjectTeacherIsActive,
+				CreatedAt:       r.ClassSectionSubjectTeacherCreatedAt,
+				UpdatedAt:       r.ClassSectionSubjectTeacherUpdatedAt,
 			}
 
 			if sec, ok := classSectionMap[r.ClassSectionSubjectTeacherClassSectionID]; ok {
@@ -426,13 +471,36 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 5) MODE view=class_sections → balikin hanya daftar class_section (+ CSST kalau includeCSST)
+	// siapkan includePayload (selalu ada di response)
+	includePayload := fiber.Map{}
+
+	// kalau diminta includeClassSections → flatten list ke include.class_sections
+	if includeClassSections && len(classSectionMap) > 0 {
+		classSectionList := make([]*ClassSectionIncluded, 0, len(classSectionMap))
+		for _, cs := range classSectionMap {
+			classSectionList = append(classSectionList, cs)
+		}
+		includePayload["class_sections"] = classSectionList
+	}
+
+	// kalau diminta includeCSST → flatten semua csst ke include.csst
+	if includeCSST && len(classSectionMap) > 0 {
+		csstList := make([]*CSSTIncluded, 0)
+		for _, cs := range classSectionMap {
+			if cs.SubjectTeachers != nil {
+				csstList = append(csstList, cs.SubjectTeachers...)
+			}
+		}
+		includePayload["csst"] = csstList
+	}
+
+	// 5) MODE view=class_sections → balikin hanya daftar class_section (+ include di atas)
 	if viewClassSections {
 		list := make([]*ClassSectionIncluded, 0, len(classSectionMap))
 		for _, cs := range classSectionMap {
 			list = append(list, cs)
 		}
-		return helper.JsonList(c, "OK", list, pagination)
+		return helper.JsonListWithInclude(c, "OK", list, includePayload, pagination)
 	}
 
 	// 6) MODE default nested: per-enrollment + nested class_section (+ csst)
@@ -456,5 +524,5 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		})
 	}
 
-	return helper.JsonList(c, "OK", out, pagination)
+	return helper.JsonListWithInclude(c, "OK", out, includePayload, pagination)
 }

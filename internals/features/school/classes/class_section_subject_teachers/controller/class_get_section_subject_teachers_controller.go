@@ -57,19 +57,15 @@ func parseUUIDList(s string) ([]uuid.UUID, error) {
 	return out, nil
 }
 
-/* ================================ Handler (NO-JOIN) ================================ */
-
 // GET /api/u/class-section-subject-teachers/list
 func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	// === School context ===
 	var schoolID uuid.UUID
 
-	// 1) Prioritas: token / middleware UseSchoolScope (active_school_id)
 	if sid, err := helperAuth.ResolveSchoolIDFromContext(c); err == nil && sid != uuid.Nil {
 		schoolID = sid
 	}
 
-	// fallback: :school_id
 	if schoolID == uuid.Nil {
 		if raw := strings.TrimSpace(c.Params("school_id")); raw != "" {
 			id, err := uuid.Parse(raw)
@@ -79,7 +75,6 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 			schoolID = id
 		}
 	}
-	// fallback: :school_slug
 	if schoolID == uuid.Nil {
 		if slug := strings.TrimSpace(c.Params("school_slug")); slug != "" {
 			id, er := helperAuth.GetSchoolIDBySlug(c, slug)
@@ -101,13 +96,13 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		)
 	}
 
-	// query params umum (limit/offset/order_by/sort/is_active/with_deleted)
+	// ============ Query params umum ============
 	var q listQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
 	}
 
-	// ===== Paging (standar jsonresponse) =====
+	// Paging
 	p := helper.ResolvePaging(c, 20, 200)
 	if q.Offset != nil && *q.Offset >= 0 {
 		p.Offset = *q.Offset
@@ -117,15 +112,45 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	}
 	limit, offset := p.Limit, p.Offset
 
-	// ==== Query params khusus ====
+	// ============ Query params khusus ============
 	rawSectionID := strings.TrimSpace(c.Query("section_id"))
 	rawClassSectionID := strings.TrimSpace(c.Query("class_section_id"))
 
 	teacherIDStr := strings.TrimSpace(c.Query("teacher_id"))
 	subjectIDStr := strings.TrimSpace(c.Query("subject_id"))
-	academicTermIDStr := strings.TrimSpace(c.Query("academic_term_id"))
+
+	// 🆕 multi academic_term_id (comma separated)
+	rawAcademicTermID := strings.TrimSpace(c.Query("academic_term_id"))
 
 	qtext := strings.TrimSpace(strings.ToLower(c.Query("q")))
+
+	// =============== INCLUDE & NESTED TOKENS ===============
+	includeRaw := strings.TrimSpace(c.Query("include"))
+	includeTokens := map[string]bool{}
+	if includeRaw != "" {
+		for _, tok := range strings.Split(includeRaw, ",") {
+			t := strings.TrimSpace(strings.ToLower(tok))
+			if t != "" {
+				includeTokens[t] = true
+			}
+		}
+	}
+
+	// nested=academic_term → nested di tiap item
+	nestedRaw := strings.TrimSpace(c.Query("nested"))
+	nestedTokens := map[string]bool{}
+	if nestedRaw != "" {
+		for _, tok := range strings.Split(nestedRaw, ",") {
+			t := strings.TrimSpace(strings.ToLower(tok))
+			if t != "" {
+				nestedTokens[t] = true
+			}
+		}
+	}
+
+	// include=academic_term → list unik di include.academic_terms
+	includeAcademicTermList := includeTokens["academic_term"] || includeTokens["academic_terms"]
+	nestedAcademicTerm := nestedTokens["academic_term"]
 
 	// filter by id via query param (bisa multi)
 	var filterIDs []uuid.UUID
@@ -172,14 +197,14 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 🆕 parse academic_term_id
-	var academicTermID *uuid.UUID
-	if academicTermIDStr != "" {
-		if id, err := uuid.Parse(academicTermIDStr); err == nil {
-			academicTermID = &id
-		} else {
-			return helper.JsonError(c, fiber.StatusBadRequest, "academic_term_id tidak valid")
+	// 🆕 parse academic_term_id as list
+	var academicTermIDs []uuid.UUID
+	if rawAcademicTermID != "" {
+		ids, err := parseUUIDList(rawAcademicTermID)
+		if err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "academic_term_id tidak valid: "+err.Error())
 		}
+		academicTermIDs = ids
 	}
 
 	// ===== Sorting =====
@@ -212,7 +237,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	}
 	orderExpr := fmt.Sprintf("%s %s", orderCol, sortDir)
 
-	// ===== BASE QUERY (pakai model, tanpa join) =====
+	// ================= BASE QUERY =================
 	tx := ctl.DB.
 		Model(&modelCSST.ClassSectionSubjectTeacherModel{}).
 		Where("class_section_subject_teacher_school_id = ?", schoolID)
@@ -234,12 +259,10 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		tx = tx.Where("class_section_subject_teacher_school_teacher_id = ?", *teacherID)
 	}
 	if subjectID != nil {
-		// pakai snapshot subject_id (master subject)
 		tx = tx.Where("class_section_subject_teacher_subject_id_snapshot = ?", *subjectID)
 	}
-	// 🆕 filter academic_term_id
-	if academicTermID != nil {
-		tx = tx.Where("class_section_subject_teacher_academic_term_id = ?", *academicTermID)
+	if len(academicTermIDs) > 0 {
+		tx = tx.Where("class_section_subject_teacher_academic_term_id IN ?", academicTermIDs)
 	}
 
 	if qtext != "" {
@@ -255,7 +278,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		)
 	}
 
-	// COUNT (pakai kondisi yang sama)
+	// ================= COUNT QUERY =================
 	countTx := ctl.DB.
 		Model(&modelCSST.ClassSectionSubjectTeacherModel{}).
 		Where("class_section_subject_teacher_school_id = ?", schoolID)
@@ -278,8 +301,8 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	if subjectID != nil {
 		countTx = countTx.Where("class_section_subject_teacher_subject_id_snapshot = ?", *subjectID)
 	}
-	if academicTermID != nil {
-		countTx = countTx.Where("class_section_subject_teacher_academic_term_id = ?", *academicTermID)
+	if len(academicTermIDs) > 0 {
+		countTx = countTx.Where("class_section_subject_teacher_academic_term_id IN ?", academicTermIDs)
 	}
 	if qtext != "" {
 		like := "%" + qtext + "%"
@@ -309,9 +332,73 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Map ke DTO (decode teacher snapshot JSONB → TeacherCache struct)
-	resp := csstDTO.FromClassSectionSubjectTeacherModels(rows)
+	// ================= DTO MAPPING =================
+	resp := csstDTO.FromClassSectionSubjectTeacherModelsWithOptions(
+		rows,
+		csstDTO.FromCSSTOptions{
+			// ❌ DULU: IncludeAcademicTerm: nestedAcademicTerm || includeAcademicTermList,
+			// ✅ SEKARANG: nested academic_term HANYA kalau query ?nested=academic_term
+			IncludeAcademicTerm: nestedAcademicTerm,
+		},
+	)
 
 	pg := helper.BuildPaginationFromOffset(total, offset, limit)
-	return helper.JsonList(c, "ok", resp, pg)
+
+	// ================= BUILD INCLUDE PAYLOAD =================
+	includePayload := fiber.Map{}
+
+	if includeAcademicTermList {
+		// map academic_term_id → lite
+		type AcademicTermLite struct {
+			ID       uuid.UUID `json:"id"`
+			Name     *string   `json:"name,omitempty"`
+			Slug     *string   `json:"slug,omitempty"`
+			Year     *string   `json:"year,omitempty"`
+			Angkatan *int      `json:"angkatan,omitempty"`
+		}
+
+		byTerm := make(map[uuid.UUID]AcademicTermLite)
+
+		for i := range rows {
+			r := rows[i]
+			// field ID pointer → cek nil dulu
+			if r.ClassSectionSubjectTeacherAcademicTermID == nil {
+				continue
+			}
+			termUUID := *r.ClassSectionSubjectTeacherAcademicTermID
+			if termUUID == uuid.Nil {
+				continue
+			}
+
+			item, ok := byTerm[termUUID]
+			if !ok {
+				item.ID = termUUID
+			}
+			// isi hanya kalau masih kosong, biar nggak sering override
+			if item.Name == nil {
+				item.Name = r.ClassSectionSubjectTeacherAcademicTermNameCache
+			}
+			if item.Slug == nil {
+				item.Slug = r.ClassSectionSubjectTeacherAcademicTermSlugCache
+			}
+			if item.Year == nil {
+				item.Year = r.ClassSectionSubjectTeacherAcademicYearCache
+			}
+			if item.Angkatan == nil {
+				item.Angkatan = r.ClassSectionSubjectTeacherAcademicTermAngkatanCache
+			}
+
+			byTerm[termUUID] = item
+		}
+
+		terms := make([]AcademicTermLite, 0, len(byTerm))
+		for _, v := range byTerm {
+			terms = append(terms, v)
+		}
+
+		includePayload["academic_terms"] = terms
+	}
+
+	// pakai JsonListWithInclude supaya selalu ada "include": {...}
+	return helper.JsonListWithInclude(c, "ok", resp, includePayload, pg)
 }

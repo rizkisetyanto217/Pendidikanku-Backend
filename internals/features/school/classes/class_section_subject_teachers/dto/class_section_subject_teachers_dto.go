@@ -1,4 +1,3 @@
-// file: internals/features/lembaga/class_section_subject_teachers/dto/csst_dto.go
 package dto
 
 import (
@@ -12,6 +11,25 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 )
+
+/* =========================================================
+   OPTIONS & NESTED TYPES
+========================================================= */
+
+// Options untuk mapping CSST → response
+type FromCSSTOptions struct {
+	// kalau true, isi field nested AcademicTerm di response
+	IncludeAcademicTerm bool
+}
+
+// Nested academic term (dipakai kalau include=academic_term)
+type AcademicTermLite struct {
+	ID       *uuid.UUID `json:"id,omitempty"`
+	Name     *string    `json:"name,omitempty"`
+	Slug     *string    `json:"slug,omitempty"`
+	Year     *string    `json:"year,omitempty"`
+	Angkatan *int       `json:"angkatan,omitempty"`
+}
 
 /* =========================================================
    Helpers
@@ -168,9 +186,9 @@ type UpdateClassSectionSubjectTeacherRequest struct {
 /*
 =========================================================
  2. RESPONSE DTO — sinkron SQL/model terbaru
-
 =========================================================
 */
+
 type ClassSectionSubjectTeacherResponse struct {
 	/* ===== IDs & Relations ===== */
 	ClassSectionSubjectTeacherID                       uuid.UUID  `json:"class_section_subject_teacher_id"`
@@ -248,6 +266,9 @@ type ClassSectionSubjectTeacherResponse struct {
 	ClassSectionSubjectTeacherCreatedAt time.Time  `json:"class_section_subject_teacher_created_at"`
 	ClassSectionSubjectTeacherUpdatedAt time.Time  `json:"class_section_subject_teacher_updated_at"`
 	ClassSectionSubjectTeacherDeletedAt *time.Time `json:"class_section_subject_teacher_deleted_at,omitempty"`
+
+	// nested academic_term (optional, pakai include)
+	AcademicTerm *AcademicTermLite `json:"academic_term,omitempty"`
 }
 
 /* =========================================================
@@ -357,7 +378,11 @@ func (r UpdateClassSectionSubjectTeacherRequest) Apply(m *csstModel.ClassSection
 	}
 }
 
-func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherModel) ClassSectionSubjectTeacherResponse {
+// internal: mapper dengan options (dipakai semua)
+func fromClassSectionSubjectTeacherModelWithOptions(
+	m csstModel.ClassSectionSubjectTeacherModel,
+	opt FromCSSTOptions,
+) ClassSectionSubjectTeacherResponse {
 	var deletedAt *time.Time
 	if m.ClassSectionSubjectTeacherDeletedAt.Valid {
 		t := m.ClassSectionSubjectTeacherDeletedAt.Time
@@ -371,7 +396,7 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 		attendanceCache = &v
 	}
 
-	return ClassSectionSubjectTeacherResponse{
+	resp := ClassSectionSubjectTeacherResponse{
 		// IDs & Relations
 		ClassSectionSubjectTeacherID:                       m.ClassSectionSubjectTeacherID,
 		ClassSectionSubjectTeacherSchoolID:                 m.ClassSectionSubjectTeacherSchoolID,
@@ -445,14 +470,41 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 		ClassSectionSubjectTeacherUpdatedAt: m.ClassSectionSubjectTeacherUpdatedAt,
 		ClassSectionSubjectTeacherDeletedAt: deletedAt,
 	}
+
+	// isi nested AcademicTerm kalau diminta
+	if opt.IncludeAcademicTerm && m.ClassSectionSubjectTeacherAcademicTermID != nil {
+		resp.AcademicTerm = &AcademicTermLite{
+			ID:       m.ClassSectionSubjectTeacherAcademicTermID,
+			Name:     m.ClassSectionSubjectTeacherAcademicTermNameCache,
+			Slug:     m.ClassSectionSubjectTeacherAcademicTermSlugCache,
+			Year:     m.ClassSectionSubjectTeacherAcademicYearCache,
+			Angkatan: m.ClassSectionSubjectTeacherAcademicTermAngkatanCache,
+		}
+	}
+
+	return resp
 }
 
-func FromClassSectionSubjectTeacherModels(rows []csstModel.ClassSectionSubjectTeacherModel) []ClassSectionSubjectTeacherResponse {
+// API lama: single model → response (tanpa include extra)
+func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherModel) ClassSectionSubjectTeacherResponse {
+	return fromClassSectionSubjectTeacherModelWithOptions(m, FromCSSTOptions{})
+}
+
+// Baru: versi dengan options (dipakai controller untuk include=...)
+func FromClassSectionSubjectTeacherModelsWithOptions(
+	rows []csstModel.ClassSectionSubjectTeacherModel,
+	opt FromCSSTOptions,
+) []ClassSectionSubjectTeacherResponse {
 	out := make([]ClassSectionSubjectTeacherResponse, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, FromClassSectionSubjectTeacherModel(r))
+		out = append(out, fromClassSectionSubjectTeacherModelWithOptions(r, opt))
 	}
 	return out
+}
+
+// Lama: masih ada, tapi delegasi ke WithOptions tanpa include extra
+func FromClassSectionSubjectTeacherModels(rows []csstModel.ClassSectionSubjectTeacherModel) []ClassSectionSubjectTeacherResponse {
+	return FromClassSectionSubjectTeacherModelsWithOptions(rows, FromCSSTOptions{})
 }
 
 // Alias helper supaya konsisten dengan pemanggilan di controller:
@@ -460,6 +512,10 @@ func FromClassSectionSubjectTeacherModels(rows []csstModel.ClassSectionSubjectTe
 func FromCSSTModels(rows []csstModel.ClassSectionSubjectTeacherModel) []ClassSectionSubjectTeacherResponse {
 	return FromClassSectionSubjectTeacherModels(rows)
 }
+
+/* =========================================================
+   4) LITE DTO
+========================================================= */
 
 type CSSTItemLite struct {
 	ID       string `json:"id"`
@@ -495,7 +551,12 @@ func CSSTLiteFromModel(row csstModel.ClassSectionSubjectTeacherModel) CSSTItemLi
 		Teacher: struct {
 			ID string `json:"id"`
 		}{
-			ID: row.ClassSectionSubjectTeacherSchoolTeacherID.String(),
+			ID: func() string {
+				if row.ClassSectionSubjectTeacherSchoolTeacherID != nil {
+					return row.ClassSectionSubjectTeacherSchoolTeacherID.String()
+				}
+				return ""
+			}(),
 		},
 		ClassSubject: struct {
 			ID      string `json:"id"`

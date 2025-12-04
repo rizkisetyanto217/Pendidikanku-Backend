@@ -19,7 +19,7 @@ type CreateUserTeacherRequest struct {
 	UserTeacherUserID uuid.UUID `json:"user_teacher_user_id" form:"user_teacher_user_id"`
 
 	// Profil ringkas
-	UserTeacherFullNameCache   string `json:"user_teacher_full_name_cache" form:"user_teacher_full_name_cache" validate:"required,max=100"`
+	UserTeacherUserFullNameCache   string `json:"user_teacher_user_full_name_cache" form:"user_teacher_user_full_name_cache" validate:"required,max=100"`
 	UserTeacherField           string `json:"user_teacher_field" form:"user_teacher_field" validate:"omitempty,max=80"`
 	UserTeacherShortBio        string `json:"user_teacher_short_bio" form:"user_teacher_short_bio" validate:"omitempty,max=300"`
 	UserTeacherLongBio         string `json:"user_teacher_long_bio" form:"user_teacher_long_bio" validate:"omitempty"`
@@ -65,7 +65,7 @@ type CreateUserTeacherRequest struct {
 func (r CreateUserTeacherRequest) ToModel() model.UserTeacherModel {
 	m := model.UserTeacherModel{
 		UserTeacherUserID:        r.UserTeacherUserID,
-		UserTeacherFullNameCache: r.UserTeacherFullNameCache,
+		UserTeacherUserFullNameCache: r.UserTeacherUserFullNameCache,
 		UserTeacherIsVerified:    false,
 		UserTeacherIsActive:      true,
 		// UserTeacherIsCompleted: false, // default zero value di DB & Go
@@ -169,7 +169,7 @@ func (r CreateUserTeacherRequest) ToModel() model.UserTeacherModel {
 
 type UpdateUserTeacherRequest struct {
 	// Profil ringkas
-	UserTeacherFullNameCache   *string `json:"user_teacher_full_name_cache" form:"user_teacher_full_name_cache" validate:"omitempty,max=100"`
+	UserTeacherUserFullNameCache   *string `json:"user_teacher_user_full_name_cache" form:"user_teacher_user_full_name_cache" validate:"omitempty,max=100"`
 	UserTeacherField           *string `json:"user_teacher_field" form:"user_teacher_field" validate:"omitempty,max=80"`
 	UserTeacherShortBio        *string `json:"user_teacher_short_bio" form:"user_teacher_short_bio" validate:"omitempty,max=300"`
 	UserTeacherLongBio         *string `json:"user_teacher_long_bio" form:"user_teacher_long_bio" validate:"omitempty"`
@@ -218,8 +218,8 @@ type UpdateUserTeacherRequest struct {
 // ApplyPatch: terapkan update parsial ke model.
 func (r UpdateUserTeacherRequest) ApplyPatch(m *model.UserTeacherModel) {
 	// 1) Setter biasa (tanpa NULL implisit)
-	if r.UserTeacherFullNameCache != nil {
-		m.UserTeacherFullNameCache = *r.UserTeacherFullNameCache
+	if r.UserTeacherUserFullNameCache != nil {
+		m.UserTeacherUserFullNameCache = *r.UserTeacherUserFullNameCache
 	}
 	if r.UserTeacherField != nil {
 		m.UserTeacherField = r.UserTeacherField
@@ -451,7 +451,7 @@ func ToUserTeacherResponse(m model.UserTeacherModel) UserTeacherResponse {
 		UserTeacherID:     m.UserTeacherID,
 		UserTeacherUserID: m.UserTeacherUserID,
 
-		UserTeacherNameSnapshot:    m.UserTeacherFullNameCache,
+		UserTeacherNameSnapshot:    m.UserTeacherUserFullNameCache,
 		UserTeacherField:           deref(m.UserTeacherField),
 		UserTeacherShortBio:        deref(m.UserTeacherShortBio),
 		UserTeacherLongBio:         deref(m.UserTeacherLongBio),
