@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS payments (
   -- Tenant & actor
   payment_school_id                UUID REFERENCES schools(school_id) ON DELETE SET NULL,
   payment_user_id                  UUID REFERENCES users(id)          ON DELETE SET NULL,
+  payment_number BIGINT,
 
   -- Target (salah satu wajib)
   payment_student_bill_id          UUID REFERENCES student_bills(student_bill_id)               ON DELETE SET NULL,
@@ -286,6 +287,12 @@ CREATE INDEX IF NOT EXISTS ix_payments_fee_rule_option_code_snapshot_live
 CREATE INDEX IF NOT EXISTS ix_payments_user_name_snapshot_live
   ON payments (LOWER(payment_user_name_snapshot))
   WHERE payment_deleted_at IS NULL;
+
+  -- Unique per sekolah (hanya untuk row yang masih live)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_school_number_live
+  ON payments (payment_school_id, payment_number)
+  WHERE payment_deleted_at IS NULL
+    AND payment_number IS NOT NULL;
 
 -- =========================================
 -- TABLE: payment_gateway_events

@@ -3,9 +3,8 @@ package controller
 
 import (
 	"fmt"
-	"net/http"
 	"strings"
-	"time" // ⬅️ NEW
+	"time"
 
 	"madinahsalam_backend/internals/features/finance/billings/dto"
 	model "madinahsalam_backend/internals/features/finance/billings/model"
@@ -16,7 +15,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// lite-term untuk include opsional
+// lite-term untuk include/nested opsional
 type termLite struct {
 	ID           uuid.UUID `json:"academic_term_id"                 gorm:"column:academic_term_id"`
 	Name         string    `json:"academic_term_name"               gorm:"column:academic_term_name"`
@@ -42,11 +41,11 @@ func (h *Handler) ListFeeRules(c *fiber.Ctx) error {
 		// 2) Fallback: path param :school_id (kompatibel versi lama)
 		raw := strings.TrimSpace(c.Params("school_id"))
 		if raw == "" {
-			return helper.JsonError(c, http.StatusBadRequest, "school_id tidak ditemukan di token maupun path")
+			return helper.JsonError(c, fiber.StatusBadRequest, "school_id tidak ditemukan di token maupun path")
 		}
 		id, err := uuid.Parse(raw)
 		if err != nil {
-			return helper.JsonError(c, http.StatusBadRequest, "invalid school_id")
+			return helper.JsonError(c, fiber.StatusBadRequest, "invalid school_id")
 		}
 		schoolID = id
 	}
@@ -62,14 +61,26 @@ func (h *Handler) ListFeeRules(c *fiber.Ctx) error {
 	allMode := perPageRaw == "all"
 	offset := (pg.Page - 1) * pg.PerPage
 
-	// === Include flags (opsional) ===
+	// === Include & Nested flags (opsional) ===
 	includeRaw := strings.TrimSpace(c.Query("include"))
-	includeTerm := false
+	nestedRaw := strings.TrimSpace(c.Query("nested"))
+
+	includeTerm := false // academic_terms di top-level "include"
+	nestedTerm := false  // academic_terms nested di tiap item "data"
+
 	if includeRaw != "" {
 		for _, part := range strings.Split(includeRaw, ",") {
 			switch strings.ToLower(strings.TrimSpace(part)) {
 			case "term", "academic_term", "academic_terms":
 				includeTerm = true
+			}
+		}
+	}
+	if nestedRaw != "" {
+		for _, part := range strings.Split(nestedRaw, ",") {
+			switch strings.ToLower(strings.TrimSpace(part)) {
+			case "term", "academic_term", "academic_terms":
+				nestedTerm = true
 			}
 		}
 	}
@@ -118,7 +129,7 @@ func (h *Handler) ListFeeRules(c *fiber.Ctx) error {
 	// === Count ===
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
-		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	// === Fetch (respect per_page=all) ===
@@ -128,15 +139,15 @@ func (h *Handler) ListFeeRules(c *fiber.Ctx) error {
 	}
 	var list []model.FeeRule
 	if err := listQ.Find(&list).Error; err != nil {
-		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	// ============================
-	// Prefetch academic_terms (OPSIONAL)
+	// Prefetch academic_terms (dipakai untuk include / nested)
 	// ============================
 	termMap := map[uuid.UUID]termLite{}
 
-	if includeTerm && len(list) > 0 {
+	if (includeTerm || nestedTerm) && len(list) > 0 {
 		termSet := map[uuid.UUID]struct{}{}
 		for _, fr := range list {
 			// asumsi field di model: FeeRuleTermID *uuid.UUID
@@ -165,7 +176,7 @@ func (h *Handler) ListFeeRules(c *fiber.Ctx) error {
 				`).
 				Where("academic_term_id IN ? AND academic_term_deleted_at IS NULL", ids).
 				Scan(&trs).Error; err != nil {
-				return helper.JsonError(c, http.StatusInternalServerError, "gagal mengambil academic_terms: "+err.Error())
+				return helper.JsonError(c, fiber.StatusInternalServerError, "gagal mengambil academic_terms: "+err.Error())
 			}
 			for _, t := range trs {
 				termMap[t.ID] = t
@@ -174,7 +185,7 @@ func (h *Handler) ListFeeRules(c *fiber.Ctx) error {
 	}
 
 	// ============================
-	// Compose response (+ academic_terms opsional)
+	// Compose DATA (plain / nested)
 	// ============================
 	base := dto.ToFeeRuleResponses(list)
 
@@ -185,8 +196,8 @@ func (h *Handler) ListFeeRules(c *fiber.Ctx) error {
 	}
 
 	var data any
-
-	if includeTerm {
+	if nestedTerm {
+		// mode: NESTED → academic_terms nempel di tiap item data[]
 		out := make([]FeeRuleWithTerm, 0, len(base))
 		for i, fr := range list {
 			item := FeeRuleWithTerm{
@@ -202,11 +213,33 @@ func (h *Handler) ListFeeRules(c *fiber.Ctx) error {
 		}
 		data = out
 	} else {
-		// default: tanpa academic_terms
+		// default: tanpa academic_terms nested
 		data = base
 	}
 
-	// === Pagination payload untuk JsonList ===
+	// ============================
+	// Compose INCLUDE (top-level)
+	// ============================
+	type FeeRuleInclude struct {
+		AcademicTerms []termLite `json:"academic_terms,omitempty"`
+		// next:
+		// Classes       []ClassLite          `json:"classes,omitempty"`
+		// ClassSections []ClassSectionLite   `json:"class_sections,omitempty"`
+		// FeeRules      []dto.FeeRuleResponse `json:"fee_rules,omitempty"`
+	}
+
+	var include any
+	if includeTerm && len(termMap) > 0 {
+		terms := make([]termLite, 0, len(termMap))
+		for _, t := range termMap {
+			terms = append(terms, t)
+		}
+		include = FeeRuleInclude{
+			AcademicTerms: terms,
+		}
+	}
+
+	// === Pagination payload ===
 	var pagination helper.Pagination
 	if allMode {
 		pagination = helper.BuildPaginationFromPage(total, 1, int(total))
@@ -214,5 +247,8 @@ func (h *Handler) ListFeeRules(c *fiber.Ctx) error {
 		pagination = helper.BuildPaginationFromPage(total, pg.Page, pg.PerPage)
 	}
 
-	return helper.JsonList(c, "OK", data, pagination)
+	// ============================
+	// Final JSON response (pakai helper)
+	// ============================
+	return helper.JsonListWithInclude(c, "OK", data, include, pagination)
 }

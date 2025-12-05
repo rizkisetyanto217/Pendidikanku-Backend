@@ -1,11 +1,11 @@
+// file: internals/features/school/classes/class_sections/dto/class_section_compact.go (atau nama sejenis)
 package dto
 
 import (
 	"encoding/json"
 
-	m "madinahsalam_backend/internals/features/school/classes/class_sections/model"
-
 	csstDTO "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/dto"
+	m "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 
 	"github.com/google/uuid"
 )
@@ -77,6 +77,9 @@ type ClassSectionCompact struct {
 
 	// List pengampu mapel (optional, diisi manual dari controller kalau perlu)
 	SubjectTeachers []csstDTO.CSSTItemLite `json:"class_section_subject_teachers,omitempty"`
+
+	// 🆕 flag apakah siswa yang sedang dilihat terdaftar di section ini
+	IsStudent bool `json:"is_student,omitempty"`
 }
 
 // FromModelsClassSectionCompact: mapping dari []ClassSectionModel → []ClassSectionCompact

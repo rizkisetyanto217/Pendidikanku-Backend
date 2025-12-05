@@ -16,7 +16,7 @@ import (
 	// ==== Import yang benar ====
 	dto "madinahsalam_backend/internals/features/finance/billings/dto"
 	model "madinahsalam_backend/internals/features/finance/billings/model"
-	"madinahsalam_backend/internals/features/finance/general_billings/snapshot"
+	"madinahsalam_backend/internals/features/finance/general_billings/service"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )

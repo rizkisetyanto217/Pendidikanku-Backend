@@ -14,6 +14,7 @@ import (
 // Response ringkas: fokus untuk UI list
 type PaymentCompactResponse struct {
 	PaymentID        uuid.UUID       `json:"payment_id"`
+	PaymentNumber    *int64          `json:"payment_number,omitempty"` // ⬅️ nomor per sekolah
 	PaymentStatus    m.PaymentStatus `json:"payment_status"`
 	PaymentAmountIDR int             `json:"payment_amount_idr"` // ⬅️ samakan dengan model (int)
 
@@ -73,6 +74,7 @@ func FromModelCompact(src *m.Payment) *PaymentCompactResponse {
 
 	return &PaymentCompactResponse{
 		PaymentID:        src.PaymentID,
+		PaymentNumber:    src.PaymentNumber,
 		PaymentStatus:    src.PaymentStatus,
 		PaymentAmountIDR: src.PaymentAmountIDR,
 

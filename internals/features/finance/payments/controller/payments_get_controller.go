@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 
 	dto "madinahsalam_backend/internals/features/finance/payments/dto"
 	model "madinahsalam_backend/internals/features/finance/payments/model"
@@ -14,10 +15,13 @@ import (
 )
 
 /* =========================================================
-   Admin/DKM — List payments by School
+   Admin/DKM — List payments by School (+ filter by me)
+
    GET /api/a/payments/list    (school_id dari token/context)
+
    Query:
      - view=compact|full (default: full)
+     - student_school_id=UUID | me
 ========================================================= */
 
 func (h *PaymentController) ListPaymentsBySchoolAdmin(c *fiber.Ctx) error {
@@ -27,12 +31,34 @@ func (h *PaymentController) ListPaymentsBySchoolAdmin(c *fiber.Ctx) error {
 		return err
 	}
 
-	// --- 1) Guard: hanya DKM/Admin untuk school ini
-	if aerr := helperAuth.EnsureDKMSchool(c, sid); aerr != nil {
-		return aerr
+	// --- 0.1) Baca query student_school_id (bisa "me" atau UUID)
+	studentSchoolIDRaw := strings.TrimSpace(c.Query("student_school_id"))
+	isMe := studentSchoolIDRaw == "me"
+
+	var specificStudentID *uuid.UUID
+	if studentSchoolIDRaw != "" && !isMe {
+		if id, e := uuid.Parse(studentSchoolIDRaw); e == nil {
+			specificStudentID = &id
+		}
 	}
 
-	// --- 2) Filters
+	// --- 1) Guard:
+	//     - kalau filter "me" → pakai ResolveStudentIDFromContext (sekalian check murid + membership)
+	//     - kalau filter siswa lain / tanpa filter → harus DKM/Admin
+	var meStudentID *uuid.UUID
+	if isMe {
+		stuID, e := helperAuth.ResolveStudentIDFromContext(c, sid)
+		if e != nil {
+			return e
+		}
+		meStudentID = &stuID
+	} else {
+		if aerr := helperAuth.EnsureDKMSchool(c, sid); aerr != nil {
+			return aerr
+		}
+	}
+
+	// --- 2) Filters umum
 	q := strings.TrimSpace(c.Query("q"))
 	statuses := splitCSV(c.Query("status"))
 	methods := splitCSV(c.Query("method"))
@@ -78,6 +104,15 @@ func (h *PaymentController) ListPaymentsBySchoolAdmin(c *fiber.Ctx) error {
 	db := h.DB.WithContext(c.Context()).Model(&model.Payment{}).
 		Where("payment_deleted_at IS NULL").
 		Where("payment_school_id = ?", sid)
+
+	// --- 3.1) Filter "by me" / by student_school_id
+	if meStudentID != nil {
+		// mode student_school_id=me → dari token
+		db = db.Where("payment_school_student_id = ?", *meStudentID)
+	} else if specificStudentID != nil {
+		// admin filtering siswa tertentu
+		db = db.Where("payment_school_student_id = ?", *specificStudentID)
+	}
 
 	if fromPtr != nil {
 		db = db.Where("payment_created_at >= ?", *fromPtr)

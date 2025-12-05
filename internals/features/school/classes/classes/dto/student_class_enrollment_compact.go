@@ -8,7 +8,6 @@ import (
 	m "madinahsalam_backend/internals/features/school/classes/classes/model"
 
 	"github.com/google/uuid"
-	"gorm.io/datatypes"
 )
 
 // Response ringkas: fokus untuk UI list
@@ -54,6 +53,13 @@ type StudentClassEnrollmentCompactResponse struct {
 
 	// jejak penting
 	AppliedAt time.Time `json:"student_class_enrollments_applied_at"`
+
+	// 🆕 Convenience internal (tidak di-JSON-kan)
+	// dipakai kalau suatu saat kita mau include/nested class_sections di compact view
+	ClassID        uuid.UUID  `json:"-"`
+	ClassSectionID *uuid.UUID `json:"-"`
+	// 🆕 flag apakah siswa yang sedang dilihat terdaftar di section ini
+	IsStudent bool `json:"is_student,omitempty"`
 }
 
 func strFromJSON(b []byte, key string) *string {
@@ -109,6 +115,11 @@ func FromModelsCompact(src []m.StudentClassEnrollmentModel) []StudentClassEnroll
 			StudentClassEnrollmentTermAngkatanSnapshot:     r.StudentClassEnrollmentsTermAngkatanCache,
 
 			AppliedAt: r.StudentClassEnrollmentsAppliedAt,
+
+			// 🆕 internal convenience
+			ClassID:        r.StudentClassEnrollmentsClassID,
+			ClassSectionID: r.StudentClassEnrollmentsClassSectionID,
+			
 		}
 
 		// derive fields dari payment snapshot (jsonb)
@@ -139,54 +150,4 @@ func makePaymentSnapshot(status, checkoutURL *string) []byte {
 }
 
 // ToModelCompact mengisi field yang tersedia di compact DTO ke dalam model.
-// Catatan: ini tidak mengisi kolom lain yang tidak ada di compact DTO.
-func (r StudentClassEnrollmentCompactResponse) ToModelCompact() m.StudentClassEnrollmentModel {
-	return m.StudentClassEnrollmentModel{
-		StudentClassEnrollmentsID:          r.StudentClassEnrollmentID,
-		StudentClassEnrollmentsStatus:      r.StudentClassEnrollmentStatus,
-		StudentClassEnrollmentsTotalDueIDR: r.StudentClassEnrollmentTotalDueIDR,
-
-		// IDs
-		StudentClassEnrollmentsSchoolStudentID: r.StudentClassEnrollmentSchoolStudentID,
-
-		// murid (cache)
-		StudentClassEnrollmentsUserProfileNameCache:              r.StudentClassEnrollmentStudentName,
-		StudentClassEnrollmentsUserProfileAvatarURLCache:         r.StudentClassEnrollmentStudentAvatarURL,
-		StudentClassEnrollmentsUserProfileWhatsappURLCache:       r.StudentClassEnrollmentStudentWhatsappURL,
-		StudentClassEnrollmentsUserProfileParentNameCache:        r.StudentClassEnrollmentParentName,
-		StudentClassEnrollmentsUserProfileParentWhatsappURLCache: r.StudentClassEnrollmentParentWhatsappURL,
-		StudentClassEnrollmentsUserProfileGenderCache:            r.StudentClassEnrollmentStudentGender,
-		StudentClassEnrollmentsStudentCodeCache:                  r.StudentClassEnrollmentStudentCode,
-		StudentClassEnrollmentsStudentSlugCache:                  r.StudentClassEnrollmentStudentSlug,
-
-		// class (cache)
-		StudentClassEnrollmentsClassID:        r.StudentClassEnrollmentClassID,
-		StudentClassEnrollmentsClassNameCache: r.StudentClassEnrollmentClassName,
-
-		// class section (cache)
-		StudentClassEnrollmentsClassSectionID:        r.StudentClassEnrollmentClassSectionID,
-		StudentClassEnrollmentsClassSectionNameCache: r.StudentClassEnrollmentClassSectionNameSnapshot,
-		StudentClassEnrollmentsClassSectionSlugCache: r.StudentClassEnrollmentClassSectionSlugSnapshot,
-
-		// term (cache)
-		StudentClassEnrollmentsTermID:                r.StudentClassEnrollmentTermID,
-		StudentClassEnrollmentsTermNameCache:         r.StudentClassEnrollmentTermNameSnapshot,
-		StudentClassEnrollmentsTermAcademicYearCache: r.StudentClassEnrollmentTermAcademicYearSnapshot,
-		StudentClassEnrollmentsTermAngkatanCache:     r.StudentClassEnrollmentTermAngkatanSnapshot,
-
-		// payment snapshot (optional)
-		StudentClassEnrollmentsPaymentSnapshot: datatypes.JSON(makePaymentSnapshot(r.PaymentStatus, r.PaymentCheckoutURL)),
-
-		// jejak waktu
-		StudentClassEnrollmentsAppliedAt: r.AppliedAt,
-	}
-}
-
-// ToModelsCompact untuk batch convert slice DTO → slice Model.
-func ToModelsCompact(in []StudentClassEnrollmentCompactResponse) []m.StudentClassEnrollmentModel {
-	out := make([]m.StudentClassEnrollmentModel, 0, len(in))
-	for _, r := range in {
-		out = append(out, r.ToModelCompact())
-	}
-	return out
-}
+// Catatan: ini tidak mengisi kolom lain yang

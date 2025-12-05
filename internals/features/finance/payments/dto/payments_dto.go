@@ -64,6 +64,8 @@ func applyVal[T any](dst *T, f PatchField[T]) {
 type CreatePaymentRequest struct {
 	PaymentSchoolID *uuid.UUID `json:"payment_school_id" validate:"required"`
 	PaymentUserID   *uuid.UUID `json:"payment_user_id"`
+	// Nomor pembayaran per sekolah (biasanya server yang isi)
+	PaymentNumber *int64 `json:"payment_number"`
 
 	// Target (minimal salah satu WAJIB)
 	PaymentStudentBillID        *uuid.UUID `json:"payment_student_bill_id"`
@@ -180,6 +182,7 @@ func (r *CreatePaymentRequest) ToModel() *model.Payment {
 	out := &model.Payment{
 		PaymentSchoolID: r.PaymentSchoolID,
 		PaymentUserID:   r.PaymentUserID,
+		PaymentNumber:   r.PaymentNumber,
 
 		PaymentStudentBillID:        r.PaymentStudentBillID,
 		PaymentGeneralBillingID:     r.PaymentGeneralBillingID,
@@ -268,6 +271,8 @@ func (r *CreatePaymentRequest) ToModel() *model.Payment {
 type UpdatePaymentRequest struct {
 	PaymentSchoolID PatchField[uuid.UUID] `json:"payment_school_id"`
 	PaymentUserID   PatchField[uuid.UUID] `json:"payment_user_id"`
+	// Nomor pembayaran per sekolah
+	PaymentNumber PatchField[int64] `json:"payment_number"`
 
 	PaymentStudentBillID        PatchField[uuid.UUID] `json:"payment_student_bill_id"`
 	PaymentGeneralBillingID     PatchField[uuid.UUID] `json:"payment_general_billing_id"`
@@ -335,6 +340,9 @@ func (p *UpdatePaymentRequest) Apply(m *model.Payment) error {
 	// pointers
 	applyPtr(&m.PaymentSchoolID, p.PaymentSchoolID)
 	applyPtr(&m.PaymentUserID, p.PaymentUserID)
+
+	// payment_number (boleh null / di-set / di-clear)
+	applyPtr(&m.PaymentNumber, p.PaymentNumber)
 
 	applyPtr(&m.PaymentStudentBillID, p.PaymentStudentBillID)
 	applyPtr(&m.PaymentGeneralBillingID, p.PaymentGeneralBillingID)
@@ -463,6 +471,8 @@ type PaymentResponse struct {
 
 	PaymentSchoolID *uuid.UUID `json:"payment_school_id"`
 	PaymentUserID   *uuid.UUID `json:"payment_user_id"`
+	// Nomor pembayaran per sekolah
+	PaymentNumber *int64 `json:"payment_number"`
 
 	PaymentStudentBillID        *uuid.UUID `json:"payment_student_bill_id"`
 	PaymentGeneralBillingID     *uuid.UUID `json:"payment_general_billing_id"`
@@ -538,6 +548,7 @@ func FromModel(m *model.Payment) *PaymentResponse {
 
 		PaymentSchoolID: m.PaymentSchoolID,
 		PaymentUserID:   m.PaymentUserID,
+		PaymentNumber:   m.PaymentNumber,
 
 		PaymentStudentBillID:        m.PaymentStudentBillID,
 		PaymentGeneralBillingID:     m.PaymentGeneralBillingID,

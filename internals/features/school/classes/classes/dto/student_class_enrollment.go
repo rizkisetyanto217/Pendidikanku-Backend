@@ -28,7 +28,6 @@ type CreateStudentClassEnrollmentRequest struct {
 }
 
 // Update mutable fields except status (PATCH /:id)
-// Update mutable fields except status (PATCH /:id)
 type UpdateStudentClassEnrollmentRequest struct {
 	TotalDueIDR *int64                 `json:"student_class_enrollments_total_due_idr"`
 	Preferences map[string]interface{} `json:"student_class_enrollments_preferences"`
@@ -147,6 +146,10 @@ type StudentClassEnrollmentResponse struct {
 	StudentClassEnrollmentClassSectionNameCache *string    `json:"student_class_enrollments_class_section_name_cache"`
 	StudentClassEnrollmentClassSectionSlugCache *string    `json:"student_class_enrollments_class_section_slug_cache"`
 
+	// 🆕 Convenience field internal untuk section yang sedang diikuti siswa
+	// dipakai di enrichEnrollmentClassSections (scope & is_student)
+	ClassSectionID *uuid.UUID `json:"-"`
+
 	// Jejak waktu (audit)
 	StudentClassEnrollmentAppliedAt    time.Time  `json:"student_class_enrollments_applied_at"`
 	StudentClassEnrollmentReviewedAt   *time.Time `json:"student_class_enrollments_reviewed_at"`
@@ -225,6 +228,9 @@ func FromModelStudentClassEnrollment(mo *m.StudentClassEnrollmentModel) StudentC
 	resp.StudentClassEnrollmentClassSectionID = mo.StudentClassEnrollmentsClassSectionID
 	resp.StudentClassEnrollmentClassSectionNameCache = mo.StudentClassEnrollmentsClassSectionNameCache
 	resp.StudentClassEnrollmentClassSectionSlugCache = mo.StudentClassEnrollmentsClassSectionSlugCache
+
+	// 🆕 convenience: mirror ke ClassSectionID (internal)
+	resp.ClassSectionID = mo.StudentClassEnrollmentsClassSectionID
 
 	// Payment
 	resp.StudentClassEnrollmentPaymentID = mo.StudentClassEnrollmentsPaymentID

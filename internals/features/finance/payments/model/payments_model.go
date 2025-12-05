@@ -77,6 +77,9 @@ type Payment struct {
 	PaymentSchoolID *uuid.UUID `json:"payment_school_id" gorm:"column:payment_school_id;type:uuid"`
 	PaymentUserID   *uuid.UUID `json:"payment_user_id"   gorm:"column:payment_user_id;type:uuid"`
 
+	// Nomor pembayaran per sekolah (BIGINT, optional, unik per school)
+	PaymentNumber *int64 `json:"payment_number" gorm:"column:payment_number;type:bigint"`
+
 	// Target (salah satu wajib)
 	PaymentStudentBillID        *uuid.UUID `json:"payment_student_bill_id"          gorm:"column:payment_student_bill_id;type:uuid"`
 	PaymentGeneralBillingID     *uuid.UUID `json:"payment_general_billing_id"       gorm:"column:payment_general_billing_id;type:uuid"`

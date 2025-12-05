@@ -21,6 +21,10 @@ import (
 	"gorm.io/gorm"
 )
 
+/* ======================================================
+   List controller
+====================================================== */
+
 func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 	// ========== tenant dari TOKEN (bukan dari path) ==========
 	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
@@ -86,23 +90,46 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 	// view mode
 	view := strings.ToLower(strings.TrimSpace(c.Query("view"))) // "", "compact", "summary", "full"
 
-	// include mode (?include=class_sections,csst)
+	// =====================================================
+	// include vs nested (TERPISAH)
+	//   - nested=class_sections → nempel di tiap enrollment: data[i].class_sections
+	//   - include=class_sections → side-loaded di top-level: include.class_sections
+	// =====================================================
+
 	includeRaw := strings.ToLower(strings.TrimSpace(c.Query("include")))
-	wantClassSections := false
-	wantCSST := false
+	nestedRaw := strings.ToLower(strings.TrimSpace(c.Query("nested")))
+
+	includeClassSections := false
+	nestedClassSections := false
+	wantCSSTNested := false
+
 	if includeRaw != "" {
 		for _, p := range strings.Split(includeRaw, ",") {
 			switch strings.TrimSpace(p) {
 			case "class_sections":
-				wantClassSections = true
-			case "csst", "cssts", "class_section_subject_teachers":
-				wantCSST = true
+				includeClassSections = true
+				// ke depan bisa tambahin "classes", "fee_rules", dll
 			}
 		}
 	}
-	// kalau minta CSST otomatis butuh class_sections juga
-	if wantCSST {
-		wantClassSections = true
+
+	if nestedRaw != "" {
+		for _, p := range strings.Split(nestedRaw, ",") {
+			switch strings.TrimSpace(p) {
+			case "class_sections":
+				nestedClassSections = true
+			case "csst", "cssts", "class_section_subject_teachers":
+				// CSST selalu nested di bawah class_sections
+				wantCSSTNested = true
+				nestedClassSections = true
+			}
+		}
+	}
+
+	// scope untuk class_sections NESTED: "all" | "student_only" (default student_only)
+	classSectionScope := strings.ToLower(strings.TrimSpace(c.Query("class_section_scope")))
+	if classSectionScope != "all" {
+		classSectionScope = "student_only"
 	}
 
 	// paging (masih pakai helper page/per_page)
@@ -184,7 +211,6 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 
 	// ===== PAYMENT STATUS filter (JSONB) =====
 	if paymentStatus != "" {
-		// contoh: ?payment_status=paid → hanya yang payment_status = 'paid' di snapshot
 		base = base.Where(`
 			LOWER(student_class_enrollments_payment_snapshot->>'payment_status') = ?
 		`, paymentStatus)
@@ -268,7 +294,7 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 	// ========== mapping sesuai view ==========
 	if view == "compact" || view == "summary" {
 		compact := dto.FromModelsCompact(rows)
-		// NOTE: include=class_sections/csst saat ini hanya dipakai di view=full
+		// untuk sekarang, include/nested hanya dipakai di view=full
 		return helper.JsonList(c, "ok", compact, pagination)
 	}
 
@@ -278,24 +304,153 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 	// (opsional) enrich convenience fields tambahan (Username, dll.)
 	enrichEnrollmentExtras(c.Context(), ctl.DB, schoolID, resp)
 
-	// (opsional) include class_sections (+csst)
-	if wantClassSections {
-		if err := enrichEnrollmentClassSections(c.Context(), ctl.DB, schoolID, resp, wantCSST); err != nil {
+	// ===== NESTED MODE (nempel class_sections di tiap enrollment) =====
+	if nestedClassSections {
+		if err := enrichEnrollmentClassSections(
+			c.Context(),
+			ctl.DB,
+			schoolID,
+			resp,
+			wantCSSTNested,
+			classSectionScope,
+		); err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "failed to load class sections")
 		}
 	}
+	// ===== INCLUDE MODE (side-loaded ke top-level.include) =====
+	if includeClassSections {
+		inc, err := buildEnrollmentInclude(
+			c.Context(),
+			ctl.DB,
+			schoolID,
+			resp,
+			includeClassSections,
+			classSectionScope, // 👈 sekarang scope juga dipakai di include
+		)
+		if err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "failed to build include payload")
+		}
 
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{
+			"success":    true,
+			"message":    "ok",
+			"data":       resp,
+			"include":    inc,
+			"pagination": pagination,
+		})
+	}
+
+	// ===== DEFAULT: tanpa include, tanpa nested =====
 	return helper.JsonList(c, "ok", resp, pagination)
 }
 
+/* ======================================================
+   INCLUDE payload (side-loaded)
+====================================================== */
+
+type EnrollmentIncludePayload struct {
+	ClassSections []csDTO.ClassSectionCompact `json:"class_sections,omitempty"`
+	// nanti bisa tambah:
+	// Classes   []classesDTO.ClassCompact `json:"classes,omitempty"`
+	// FeeRules  []feeDTO.FeeRuleCompact   `json:"fee_rules,omitempty"`
+}
+
+// buildEnrollmentInclude: ngumpulin entitas yang di-include (side-loaded)
+// buildEnrollmentInclude: ngumpulin entitas yang di-include (side-loaded)
+func buildEnrollmentInclude(
+	ctx context.Context,
+	db *gorm.DB,
+	schoolID uuid.UUID,
+	enrollments []dto.StudentClassEnrollmentResponse,
+	wantClassSections bool,
+	scope string, // "all" | "student_only"
+) (EnrollmentIncludePayload, error) {
+	out := EnrollmentIncludePayload{}
+
+	if !wantClassSections {
+		return out, nil
+	}
+
+	// Kumpulkan class_id dan (kalau perlu) section_id yang benar-benar diikuti siswa
+	classSet := make(map[uuid.UUID]struct{})
+	studentSectionSet := make(map[uuid.UUID]struct{})
+
+	for _, e := range enrollments {
+		if e.ClassID != uuid.Nil {
+			classSet[e.ClassID] = struct{}{}
+		}
+		// 👇 Kalau scope=student_only, kumpulkan section yg memang diikuti siswa
+		if scope == "student_only" && e.ClassSectionID != nil && *e.ClassSectionID != uuid.Nil {
+			studentSectionSet[*e.ClassSectionID] = struct{}{}
+		}
+	}
+
+	if len(classSet) == 0 {
+		return out, nil
+	}
+
+	classIDs := make([]uuid.UUID, 0, len(classSet))
+	for id := range classSet {
+		classIDs = append(classIDs, id)
+	}
+
+	var secs []csModel.ClassSectionModel
+	if err := db.WithContext(ctx).
+		Model(&csModel.ClassSectionModel{}).
+		Where("class_section_school_id = ?", schoolID).
+		Where("class_section_class_id IN ?", classIDs).
+		Where("class_section_deleted_at IS NULL").
+		Order("class_section_name ASC").
+		Find(&secs).Error; err != nil {
+		return out, err
+	}
+	if len(secs) == 0 {
+		return out, nil
+	}
+
+	compact := csDTO.FromModelsClassSectionCompact(secs)
+
+	// Kalau scope = all → kirim semua section (default include)
+	if scope == "all" || len(studentSectionSet) == 0 {
+		// kalau studentSectionSet kosong dan scope=student_only,
+		// berarti murid belum join ke section manapun → hasilnya [] (bawah)
+		if scope == "all" {
+			out.ClassSections = compact
+			return out, nil
+		}
+	}
+
+	// scope = student_only → filter hanya section yg ada di studentSectionSet
+	if scope == "student_only" {
+		filtered := make([]csDTO.ClassSectionCompact, 0, len(compact))
+		for _, cs := range compact {
+			if _, ok := studentSectionSet[cs.ClassSectionID]; ok {
+				filtered = append(filtered, cs)
+			}
+		}
+		out.ClassSections = filtered
+		return out, nil
+	}
+
+	// fallback (harusnya nggak kesini)
+	out.ClassSections = compact
+	return out, nil
+}
+
+/* ======================================================
+   NESTED helper: tempel class_sections ke tiap enrollment
+====================================================== */
+
 // include: class_sections (group by class_id)
 // kalau withCSST = true → sekalian tempel array CSST per section
+// scope: "all" | "student_only"
 func enrichEnrollmentClassSections(
 	ctx context.Context,
 	db *gorm.DB,
 	schoolID uuid.UUID,
 	items any, // biar nggak tergantung nama tipe DTO
 	withCSST bool,
+	scope string,
 ) error {
 	v := reflect.ValueOf(items)
 	if v.Kind() != reflect.Slice {
@@ -392,10 +547,8 @@ func enrichEnrollmentClassSections(
 
 		// kalau withCSST → tempel dulu ke field SubjectTeachers di compact
 		if withCSST {
-			// diasumsikan urutan compact sama dengan urutan secs
 			secModel := secs[i]
 			if list, ok := csstBySection[secModel.ClassSectionID]; ok && len(list) > 0 {
-				// 🔴 FIX: convert []Model → []CSSTItemLite sebelum assign
 				s.SubjectTeachers = csstDTO.CSSTLiteSliceFromModels(list)
 			}
 		}
@@ -418,6 +571,7 @@ func enrichEnrollmentClassSections(
 			continue
 		}
 
+		// --- ambil ClassID ---
 		fID := elem.FieldByName("ClassID")
 		if !fID.IsValid() || !fID.CanInterface() {
 			continue
@@ -427,9 +581,48 @@ func enrichEnrollmentClassSections(
 			continue
 		}
 
-		list, ok := byClass[cid]
+		baseList, ok := byClass[cid]
 		if !ok {
 			continue
+		}
+
+		// --- ambil ClassSectionID (section yang diikuti student, kalau ada) ---
+		var studentSectionID uuid.UUID
+		hasStudentSection := false
+
+		if fSecID := elem.FieldByName("ClassSectionID"); fSecID.IsValid() && fSecID.CanInterface() {
+			switch v := fSecID.Interface().(type) {
+			case uuid.UUID:
+				if v != uuid.Nil {
+					studentSectionID = v
+					hasStudentSection = true
+				}
+			case *uuid.UUID:
+				if v != nil && *v != uuid.Nil {
+					studentSectionID = *v
+					hasStudentSection = true
+				}
+			}
+		}
+
+		// --- build slice per-enrollment, set IsStudent + filter scope ---
+		perEnrollmentList := make([]csDTO.ClassSectionCompact, 0, len(baseList))
+		for _, sec := range baseList {
+			secCopy := sec // copy by value
+
+			// default false
+			secCopy.IsStudent = false
+
+			if hasStudentSection && secCopy.ClassSectionID == studentSectionID {
+				secCopy.IsStudent = true
+			}
+
+			// scope: student_only → simpan hanya yang IsStudent=true
+			if scope == "student_only" && !secCopy.IsStudent {
+				continue
+			}
+
+			perEnrollmentList = append(perEnrollmentList, secCopy)
 		}
 
 		fSec := elem.FieldByName("ClassSections")
@@ -441,7 +634,7 @@ func enrichEnrollmentClassSections(
 			continue
 		}
 
-		fSec.Set(reflect.ValueOf(list))
+		fSec.Set(reflect.ValueOf(perEnrollmentList))
 	}
 
 	return nil

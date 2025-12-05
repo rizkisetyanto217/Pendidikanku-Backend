@@ -231,6 +231,30 @@ func (h *PaymentController) CreatePayment(c *fiber.Ctx) error {
 		m.PaymentAmountIDR = *ti.AmountSuggestion
 	}
 
+	// 🆕 Default invoice due date kalau belum diisi dari request
+	if m.PaymentInvoiceDueDate == nil {
+		// kalau suatu saat kamu isi PaymentExpiresAt, bisa pakai ini:
+		if m.PaymentExpiresAt != nil {
+			d := m.PaymentExpiresAt.In(time.Local)
+			dateOnly := time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, d.Location())
+			m.PaymentInvoiceDueDate = &dateOnly
+		} else {
+			today := time.Now().In(time.Local)
+			due := today.AddDate(0, 0, 2) // +2 hari
+			dateOnly := time.Date(due.Year(), due.Month(), due.Day(), 0, 0, 0, 0, due.Location())
+			m.PaymentInvoiceDueDate = &dateOnly
+		}
+	}
+
+	// 🆕 generate payment_number per sekolah (kalau ada school_id)
+	if m.PaymentSchoolID != nil && *m.PaymentSchoolID != uuid.Nil {
+		if num, er := h.nextPaymentNumber(c.Context(), h.DB, *m.PaymentSchoolID); er == nil {
+			m.PaymentNumber = num
+		} else {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal generate payment_number: "+er.Error())
+		}
+	}
+
 	// Auto-hydrate user snapshots (jika ada PaymentUserID)
 	if m.PaymentUserID != nil {
 		if un, fn, em, dn, er := h.hydrateUserSnapshots(c.Context(), h.DB, *m.PaymentUserID); er == nil {
@@ -646,18 +670,37 @@ func parseRegistrationMeta(j datatypes.JSON) registrationMeta {
 
 // Build patch JSON untuk enrollment.preferences
 func buildEnrollmentPrefPatch(payer *uuid.UUID, meta registrationMeta) datatypes.JSON {
-	payload := map[string]interface{}{
-		"registration": map[string]interface{}{
-			"fee_rule_id":            meta.FeeRuleID,
-			"fee_rule_option_code":   meta.FeeRuleOptionCode,
-			"fee_rule_option_label":  meta.FeeRuleOptionLabel,
-			"fee_rule_option_amount": meta.FeeRuleOptionAmount,
-			"category_snapshot":      meta.FeeRuleGBKCategory,
-		},
+	payload := map[string]interface{}{}
+
+	// Bangun object registration hanya kalau ada data fee_rule yang meaningful
+	reg := map[string]interface{}{}
+
+	if meta.FeeRuleID != nil {
+		reg["fee_rule_id"] = meta.FeeRuleID
 	}
+	if meta.FeeRuleOptionCode != nil {
+		reg["fee_rule_option_code"] = meta.FeeRuleOptionCode
+	}
+	if meta.FeeRuleOptionLabel != nil {
+		reg["fee_rule_option_label"] = meta.FeeRuleOptionLabel
+	}
+	if meta.FeeRuleOptionAmount != nil {
+		reg["fee_rule_option_amount"] = meta.FeeRuleOptionAmount
+	}
+
+	// Hanya kalau ada minimal satu field di atas yang keisi → kita tambahkan category + registration
+	if len(reg) > 0 {
+		if strings.TrimSpace(meta.FeeRuleGBKCategory) != "" {
+			reg["category_snapshot"] = meta.FeeRuleGBKCategory
+		}
+		payload["registration"] = reg
+	}
+
+	// payer_user_id tetap boleh dipatch sendiri, tanpa menyentuh registration
 	if payer != nil {
 		payload["payer_user_id"] = payer
 	}
+
 	b, _ := json.Marshal(payload)
 	return datatypes.JSON(b)
 }
@@ -665,6 +708,31 @@ func buildEnrollmentPrefPatch(payer *uuid.UUID, meta registrationMeta) datatypes
 // letakkan dekat tipe/DTO meta
 type bundleMeta struct {
 	EnrollmentIDs []uuid.UUID `json:"enrollment_ids"`
+}
+
+// =======================================================================
+// Helper: generate payment_number per school (increment per sekolah)
+// =======================================================================
+
+func (h *PaymentController) nextPaymentNumber(
+	ctx context.Context,
+	db *gorm.DB,
+	schoolID uuid.UUID,
+) (*int64, error) {
+	if schoolID == uuid.Nil {
+		return nil, nil
+	}
+
+	var next int64
+	if err := db.WithContext(ctx).Raw(`
+		SELECT COALESCE(MAX(payment_number), 0) + 1
+		FROM payments
+		WHERE payment_school_id = ?
+	`, schoolID).Scan(&next).Error; err != nil {
+		return nil, err
+	}
+
+	return &next, nil
 }
 
 func extractEnrollmentIDs(j datatypes.JSON) []uuid.UUID {
@@ -806,75 +874,11 @@ func (h *PaymentController) applyEnrollmentSideEffects(ctx context.Context, db *
 
 // ================= DTO & helpers (request bundle) =================
 
-type BundleItem struct {
-	ClassID           uuid.UUID `json:"class_id" validate:"required"`
-	FeeRuleOptionCode *string   `json:"fee_rule_option_code,omitempty"` // pilih kode option untuk kelas ini
-	CustomAmountIDR   *int64    `json:"custom_amount_idr,omitempty"`    // nominal custom utk kelas ini (≥ min option)
-	CustomLabel       *string   `json:"custom_label,omitempty"`         // label custom (opsional)
-}
-
-type CreateRegistrationAndPaymentRequest struct {
-	// Rekomendasi baru (per-kelas):
-	Items []BundleItem `json:"items" validate:"omitempty,min=1,dive"`
-
-	// Backward-compat:
-	ClassIDs          []uuid.UUID `json:"class_ids" validate:"omitempty,min=1,dive,required"`
-	ClassID           uuid.UUID   `json:"class_id"  validate:"-"`
-	FeeRuleID         uuid.UUID   `json:"fee_rule_id" validate:"required"`
-	FeeRuleOptionCode *string     `json:"fee_rule_option_code,omitempty"` // fallback untuk semua kelas
-	CustomAmountIDR   *int64      `json:"custom_amount_idr,omitempty"`    // TOTAL fallback → dibagi rata
-	CustomLabel       *string     `json:"custom_label,omitempty"`
-
-	// Pembayaran
-	PaymentMethod          *model.PaymentMethod          `json:"payment_method"`
-	PaymentGatewayProvider *model.PaymentGatewayProvider `json:"payment_gateway_provider"`
-	PaymentExternalID      *string                       `json:"payment_external_id"`
-
-	Customer *svc.CustomerInput `json:"customer,omitempty"`
-	Notes    string             `json:"notes,omitempty"`
-}
-
 type CreateRegistrationAndPaymentResponse struct {
 	Enrollments []cendto.StudentClassEnrollmentResponse `json:"enrollments"`
 	Payment     any                                     `json:"payment"`
 }
 
-type optRow struct {
-	Code    string `json:"code"`
-	Label   string `json:"label"`
-	Amount  int64  `json:"amount"`
-	Default *bool  `json:"default,omitempty"`
-}
-
-func findByCode(opts []optRow, code string) *optRow {
-	c := strings.ToUpper(strings.TrimSpace(code))
-	for i := range opts {
-		if strings.ToUpper(opts[i].Code) == c {
-			return &opts[i]
-		}
-	}
-	return nil
-}
-func firstDefault(opts []optRow) *optRow {
-	for i := range opts {
-		if opts[i].Default != nil && *opts[i].Default {
-			return &opts[i]
-		}
-	}
-	return nil
-}
-func minAmount(opts []optRow) int64 {
-	if len(opts) == 0 {
-		return 0
-	}
-	m := opts[0].Amount
-	for i := 1; i < len(opts); i++ {
-		if opts[i].Amount < m {
-			m = opts[i].Amount
-		}
-	}
-	return m
-}
 func genOrderID(prefix string) string {
 	now := time.Now().In(time.Local).Format("20060102-150405")
 	u := uuid.New().String()
@@ -996,6 +1000,7 @@ func (h *PaymentController) generateStudentCodeForClass(
 }
 
 // ================= HANDLER: POST /payments/registration-enroll =================
+// ================= HANDLER: POST /payments/registration-enroll =================
 func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 	// ✅ penting: supaya GetSchoolIDBySlug & helper lain bisa akses DB (kalau kepake di tempat lain)
 	c.Locals("DB", h.DB)
@@ -1019,29 +1024,13 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 	}
 	c.Locals("__school_guard_ok", schoolID.String())
 
-	// 1) Body + normalisasi items
-	var req CreateRegistrationAndPaymentRequest
+	// 1) Body + normalisasi items (pakai DTO)
+	var req dto.CreateRegistrationAndPaymentRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid json: "+err.Error())
 	}
-	if len(req.Items) == 0 {
-		ids := req.ClassIDs
-		if len(ids) == 0 && req.ClassID != uuid.Nil {
-			ids = []uuid.UUID{req.ClassID}
-		}
-		for _, cid := range ids {
-			b := BundleItem{ClassID: cid}
-			if req.CustomAmountIDR != nil {
-				b.CustomAmountIDR = req.CustomAmountIDR
-				b.CustomLabel = req.CustomLabel
-			} else if req.FeeRuleOptionCode != nil {
-				b.FeeRuleOptionCode = req.FeeRuleOptionCode
-			}
-			req.Items = append(req.Items, b)
-		}
-	}
-	if len(req.Items) == 0 {
-		return helper.JsonError(c, fiber.StatusBadRequest, "items / class_ids wajib")
+	if err := req.NormalizeItems(); err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	// Defaults
@@ -1061,6 +1050,20 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 			_ = tx.Rollback()
 		}
 	}()
+
+	// 🔹 Ambil slug sekolah (dipakai untuk invoice & redirect Midtrans)
+	var schoolSlug string
+	if err := tx.Raw(`
+    SELECT school_slug
+      FROM schools
+     WHERE school_id = ?
+       AND school_deleted_at IS NULL
+     LIMIT 1
+`, schoolID).Scan(&schoolSlug).Error; err != nil || strings.TrimSpace(schoolSlug) == "" {
+		_ = tx.Rollback()
+		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil slug sekolah")
+	}
+	schoolSlug = strings.TrimSpace(schoolSlug)
 
 	// 2) user → user_profile_id
 	var profileID uuid.UUID
@@ -1098,9 +1101,9 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 	}
 	if err := tx.Raw(`
 		SELECT 
-			up.user_profile_user_id            AS user_id,
-			u.full_name                        AS full_name,
-			u.email                            AS email,
+			up.user_profile_user_id        AS user_id,
+			u.full_name                    AS full_name,
+			u.email                        AS email,
 			up.user_profile_full_name_cache AS snap_name
 		FROM user_profiles up
 		JOIN users u ON u.id = up.user_profile_user_id
@@ -1179,7 +1182,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 
 				if err := tx.Exec(`
                 UPDATE school_students
-                   SET school_student_code      = ?,
+                   SET school_student_code       = ?,
                        school_student_updated_at = NOW()
                  WHERE school_student_id        = ?
             `, code, schoolStudentID).Error; err != nil {
@@ -1314,19 +1317,28 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		GBKID         uuid.UUID      `gorm:"column:fee_rule_general_billing_kind_id"`
 		GBKCategory   string         `gorm:"column:fee_rule_gbk_category_snapshot"`
 		AmountOptions datatypes.JSON `gorm:"column:fee_rule_amount_options"`
+
+		// 🆕 snapshot tambahan
+		Scope   *string `gorm:"column:fee_rule_scope"`
+		Note    *string `gorm:"column:fee_rule_note"`
+		GBKCode *string `gorm:"column:fee_rule_gbk_code_snapshot"`
 	}
+
 	var fr feeRuleHeader
 	if err := tx.Raw(`
-		SELECT fee_rule_id,
-		       fee_rule_school_id,
-		       fee_rule_general_billing_kind_id,
-		       fee_rule_gbk_category_snapshot,
-		       fee_rule_amount_options
-		  FROM fee_rules
-		 WHERE fee_rule_id = ?
-		   AND fee_rule_deleted_at IS NULL
-		 LIMIT 1
-	`, req.FeeRuleID).Scan(&fr).Error; err != nil || fr.ID == uuid.Nil {
+    SELECT fee_rule_id,
+           fee_rule_school_id,
+           fee_rule_general_billing_kind_id,
+           fee_rule_gbk_category_snapshot,
+           fee_rule_amount_options,
+           fee_rule_scope,
+           fee_rule_note,
+           fee_rule_gbk_code_snapshot
+      FROM fee_rules
+     WHERE fee_rule_id = ?
+       AND fee_rule_deleted_at IS NULL
+     LIMIT 1
+`, req.FeeRuleID).Scan(&fr).Error; err != nil || fr.ID == uuid.Nil {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusNotFound, "fee_rule tidak ditemukan")
 	}
@@ -1338,7 +1350,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusBadRequest, "fee_rule tidak untuk sekolah ini")
 	}
-	var opts []optRow
+	var opts []dto.FeeRuleAmountOption
 	if len(fr.AmountOptions) > 0 {
 		_ = json.Unmarshal(fr.AmountOptions, &opts)
 	}
@@ -1346,7 +1358,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusBadRequest, "fee_rule tidak memiliki amount_options")
 	}
-	minOpt := minAmount(opts)
+	minOpt := dto.MinAmountOption(opts)
 
 	// 4) Validasi semua kelas + hitung nominal per item
 	type itemResolved struct {
@@ -1412,32 +1424,36 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 				Label:       lbl,
 				CustomLabel: it.CustomLabel,
 			})
+
 		default:
-			var chosen *optRow
+			var chosen *dto.FeeRuleAmountOption
+
+			// per-item override
 			if it.FeeRuleOptionCode != nil && strings.TrimSpace(*it.FeeRuleOptionCode) != "" {
-				chosen = findByCode(opts, *it.FeeRuleOptionCode)
+				chosen = dto.FindAmountOptionByCode(opts, *it.FeeRuleOptionCode)
 				if chosen == nil {
 					_ = tx.Rollback()
 					return helper.JsonError(c, fiber.StatusBadRequest, "fee_rule_option_code tidak valid untuk kelas "+it.ClassID.String())
 				}
+			} else if req.FeeRuleOptionCode != nil && strings.TrimSpace(*req.FeeRuleOptionCode) != "" {
+				// global override
+				chosen = dto.FindAmountOptionByCode(opts, *req.FeeRuleOptionCode)
+				if chosen == nil {
+					_ = tx.Rollback()
+					return helper.JsonError(c, fiber.StatusBadRequest, "fee_rule_option_code global tidak valid")
+				}
 			} else {
-				if req.FeeRuleOptionCode != nil && strings.TrimSpace(*req.FeeRuleOptionCode) != "" {
-					chosen = findByCode(opts, *req.FeeRuleOptionCode)
-					if chosen == nil {
-						_ = tx.Rollback()
-						return helper.JsonError(c, fiber.StatusBadRequest, "fee_rule_option_code global tidak valid")
-					}
-				} else {
-					chosen = firstDefault(opts)
-					if chosen == nil && len(opts) > 1 {
-						_ = tx.Rollback()
-						return helper.JsonError(c, fiber.StatusBadRequest, "fee_rule punya banyak pilihan; berikan fee_rule_option_code di item")
-					}
-					if chosen == nil {
-						chosen = &opts[0]
-					}
+				// default dari fee_rule
+				chosen = dto.FirstDefaultAmountOption(opts)
+				if chosen == nil && len(opts) > 1 {
+					_ = tx.Rollback()
+					return helper.JsonError(c, fiber.StatusBadRequest, "fee_rule punya banyak pilihan; berikan fee_rule_option_code di item")
+				}
+				if chosen == nil {
+					chosen = &opts[0]
 				}
 			}
+
 			items = append(items, itemResolved{
 				ClassID:   it.ClassID,
 				AmountIDR: chosen.Amount,
@@ -1446,6 +1462,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 				Label:     chosen.Label,
 			})
 		}
+
 	}
 
 	// ---------------------------
@@ -1465,19 +1482,19 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 	if err := tx.Raw(`
 	SELECT 
 		NULLIF(ss.school_student_user_profile_name_cache,'')              AS name,
-		NULLIF(ss.school_student_user_profile_avatar_url_snapshot,'')       AS avatar,
-		NULLIF(ss.school_student_user_profile_whatsapp_url_snapshot,'')     AS wa,
-		NULLIF(ss.school_student_user_profile_parent_name_snapshot,'')      AS parent_name,
-		NULLIF(ss.school_student_user_profile_parent_whatsapp_url_snapshot,'') AS parent_wa,
-		NULLIF(ss.school_student_user_profile_gender_snapshot,'')           AS gender,
-		NULLIF(ss.school_student_code,'')                                   AS code,
-		NULLIF(ss.school_student_slug,'')                                   AS slug
+		NULLIF(ss.school_student_user_profile_avatar_url_cache,'')       AS avatar,
+		NULLIF(ss.school_student_user_profile_whatsapp_url_cache,'')     AS wa,
+		NULLIF(ss.school_student_user_profile_parent_name_cache,'')      AS parent_name,
+		NULLIF(ss.school_student_user_profile_parent_whatsapp_url_cache,'') AS parent_wa,
+		NULLIF(ss.school_student_user_profile_gender_cache,'')           AS gender,
+		NULLIF(ss.school_student_code,'')                                AS code,
+		NULLIF(ss.school_student_slug,'')                                AS slug
 	FROM school_students ss
 	WHERE ss.school_student_id = ? AND ss.school_student_school_id = ?
 	LIMIT 1
 `, schoolStudentID, schoolID).Scan(&stuSnap).Error; err != nil {
 		_ = tx.Rollback()
-		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal baca snapshot siswa: "+err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal baca cache siswa: "+err.Error())
 	}
 
 	// Fallback name bila kosong → pickProfileName
@@ -1677,9 +1694,47 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		}
 		enrollIDs = append(enrollIDs, eid)
 		perShares = append(perShares, it.AmountIDR)
+
+		// ==================== KUOTA KELAS ====================
+		// - Selalu increment class_quota_taken
+		// - Kalau class_quota_total TIDAK NULL → pastikan belum penuh
+		// - Kalau penuh → rollback & tolak pendaftaran
+		classNameForErr := it.ClassID.String()
+		if cs, ok := clsMap[it.ClassID]; ok && strings.TrimSpace(cs.Name) != "" {
+			classNameForErr = strings.TrimSpace(cs.Name)
+		}
+
+		res := tx.Exec(`
+			UPDATE classes
+			   SET class_quota_taken = COALESCE(class_quota_taken, 0) + 1,
+			       class_updated_at  = NOW()
+			 WHERE class_id = ?
+			   AND class_deleted_at IS NULL
+			   AND (
+			        class_quota_total IS NULL
+			        OR COALESCE(class_quota_taken, 0) < class_quota_total
+			   )
+		`, it.ClassID)
+
+		if res.Error != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal update kuota kelas: "+res.Error.Error())
+		}
+		if res.RowsAffected == 0 {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusBadRequest, fmt.Sprintf("kuota kelas %s sudah penuh", classNameForErr))
+		}
+		// ================== END KUOTA KELAS ==================
 	}
 
 	// 6) Buat 1 payment (total)
+	// 🔍 pilih satu item untuk dijadikan snapshot option (kalau cocok)
+	// aturan: cuma kalau 1 kelas dan sumbernya dari opsi (bukan custom)
+	var snapItem *itemResolved
+	if len(items) == 1 && items[0].Source == "option" {
+		snapItem = &items[0]
+	}
+
 	var totalAmount int64
 	for _, s := range perShares {
 		totalAmount += s
@@ -1691,9 +1746,10 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 	}
 
 	meta := map[string]any{
-		"fee_rule_gbk_category_snapshot": "registration",
-		"fee_rule_id":                    fr.ID,
-		"payer_user_id":                  userID,
+		"fee_rule_gbk_category_snapshot": "registration", // dipakai applyEnrollmentSideEffects
+		// "fee_rule_id": fr.ID, // sengaja tidak dipakai lagi di meta
+
+		"payer_user_id": userID,
 		"bundle": map[string]any{
 			"class_ids": func() []uuid.UUID {
 				arr := make([]uuid.UUID, 0, len(items))
@@ -1721,10 +1777,20 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 			}(),
 		},
 	}
+
 	if req.Customer != nil {
 		meta["customer"] = req.Customer
 	}
 	metaJSON, _ := json.Marshal(meta)
+
+	// 🆕 generate payment_number per sekolah (pakai TX)
+	var payNum *int64
+	if num, er := h.nextPaymentNumber(c.Context(), tx, schoolID); er == nil {
+		payNum = num
+	} else {
+		_ = tx.Rollback()
+		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal generate payment_number: "+er.Error())
+	}
 
 	pm := &model.Payment{
 		PaymentSchoolID:             &schoolID,
@@ -1735,7 +1801,41 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		PaymentAmountIDR:            int(totalAmount),
 		PaymentGeneralBillingKindID: &fr.GBKID,
 		PaymentMeta:                 datatypes.JSON(metaJSON),
+		PaymentNumber:               payNum, // 🆕 nomor per sekolah
+
+		// 🆕 snapshot fee_rule
+		PaymentFeeRuleID:            &fr.ID,
+		PaymentFeeRuleGBKIDSnapshot: &fr.GBKID,
 	}
+
+	// 🆕 Default invoice due date untuk bundle registration
+	if pm.PaymentInvoiceDueDate == nil {
+		// kalau nanti kamu pakai PaymentExpiresAt, bisa pakai tanggal itu
+		if pm.PaymentExpiresAt != nil {
+			d := pm.PaymentExpiresAt.In(time.Local)
+			dateOnly := time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, d.Location())
+			pm.PaymentInvoiceDueDate = &dateOnly
+		} else {
+			today := time.Now().In(time.Local)
+			due := today.AddDate(0, 0, 2) // +2 hari
+			dateOnly := time.Date(due.Year(), due.Month(), due.Day(), 0, 0, 0, 0, due.Location())
+			pm.PaymentInvoiceDueDate = &dateOnly
+		}
+	}
+
+	// 🆕 isi option snapshot hanya kalau snapItem ada (1 kelas, source=option)
+	if snapItem != nil {
+		code := snapItem.Code
+		amt := int(snapItem.AmountIDR)
+
+		pm.PaymentFeeRuleOptionCodeSnapshot = &code
+		pm.PaymentFeeRuleAmountSnapshot = &amt
+
+		// Index 1-based (biar lolos CHECK ck_payment_fee_rule_option_index_snapshot)
+		idx := int16(1)
+		pm.PaymentFeeRuleOptionIndexSnapshot = &idx
+	}
+
 	if un, fn, em, dn, er := h.hydrateUserSnapshots(c.Context(), tx, userID); er == nil {
 		pm.PaymentUserNameSnapshot = un
 		if fn != nil {
@@ -1753,6 +1853,76 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 	if err := tx.Create(pm).Error; err != nil {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal membuat payment: "+err.Error())
+	}
+
+	// ======================
+	// 🧾 Invoice title & number
+	// ======================
+
+	// 1) Siapkan nama siswa
+	studentName := "Siswa"
+	if stuSnap.Name != nil && strings.TrimSpace(*stuSnap.Name) != "" {
+		studentName = strings.TrimSpace(*stuSnap.Name)
+	}
+
+	// 2) Ambil satu kelas pertama
+	var firstClass *clsSnap
+	if len(items) > 0 {
+		if cs, ok := clsMap[items[0].ClassID]; ok {
+			firstClass = &cs
+		}
+	}
+
+	// 3) Bangun invoice title: "Pendaftaran {Nama Kelas} - {Nama Siswa}"
+	title := "Pendaftaran Siswa Baru"
+	if firstClass != nil {
+		className := strings.TrimSpace(firstClass.Name)
+		if className != "" {
+			title = fmt.Sprintf("Pendaftaran %s - %s", className, studentName)
+		} else {
+			title = fmt.Sprintf("Pendaftaran - %s", studentName)
+		}
+	} else {
+		title = fmt.Sprintf("Pendaftaran - %s", studentName)
+	}
+
+	//  4. Build invoice number
+	//     INV/{school-slug}/{YYYYMMDD-HHMMSS}/{payment_number}/{gbk_code}
+	t := pm.PaymentCreatedAt
+	if t.IsZero() {
+		t = time.Now()
+	}
+	timePart := t.In(time.Local).Format("20060102-150405")
+
+	// payment_number → asumsi sudah ada kolom & diisi via DB (kamu sudah kirim di JSON)
+	var paymentSeq int64 = 0
+	// kalau di model kamu field-nya beda (misal int), sesuaikan di sini
+	if v, ok := any(pm.PaymentNumber).(int64); ok {
+		paymentSeq = v
+	} else if v, ok := any(pm.PaymentNumber).(int); ok {
+		paymentSeq = int64(v)
+	}
+
+	// gbk_code snapshot (misal "REG", "SPP", dll)
+	gbkCode := "GBK"
+	if fr.GBKCode != nil && strings.TrimSpace(*fr.GBKCode) != "" {
+		gbkCode = strings.TrimSpace(*fr.GBKCode)
+	}
+
+	invoiceNumber := fmt.Sprintf(
+		"INV/%s/%s/%d/%s",
+		schoolSlug,
+		timePart,
+		paymentSeq,
+		gbkCode,
+	)
+
+	pm.PaymentInvoiceTitle = &title
+	pm.PaymentInvoiceNumber = &invoiceNumber
+
+	if err := tx.Save(pm).Error; err != nil {
+		_ = tx.Rollback()
+		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal update invoice payment: "+err.Error())
 	}
 
 	// Link payment → semua enrollment
