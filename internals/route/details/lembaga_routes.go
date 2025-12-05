@@ -6,7 +6,7 @@ import (
 
 	// CertificateRoutes "madinahsalam_backend/internals/features/school/academics/certificates/route"
 
-	ScheduleRoutes "madinahsalam_backend/internals/features/school/classes/class_schedules/route"
+	ScheduleRoutes "madinahsalam_backend/internals/features/school/class_others/class_schedules/route"
 
 	LembagaRoutes "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/route"
 

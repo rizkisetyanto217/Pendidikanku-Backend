@@ -43,6 +43,75 @@ func parseUUIDList(s string) ([]uuid.UUID, error) {
 	return out, nil
 }
 
+/* =================== ACADEMIC TERM LITE (local di controller) =================== */
+
+// bentuk lite yang dipakai untuk nested & include
+type AcademicTermLite struct {
+	ID       *uuid.UUID `json:"id,omitempty"`
+	Name     *string    `json:"name,omitempty"`
+	Slug     *string    `json:"slug,omitempty"`
+	Year     *string    `json:"year,omitempty"`
+	Angkatan *int       `json:"angkatan,omitempty"`
+}
+
+// dari satu ClassSectionModel → AcademicTermLite (pakai cache di model)
+func academicTermLiteFromSectionModel(cs *secModel.ClassSectionModel) *AcademicTermLite {
+	if cs == nil {
+		return nil
+	}
+
+	// kalau benar-benar nggak ada jejak term sama sekali, skip
+	if cs.ClassSectionAcademicTermID == nil &&
+		(cs.ClassSectionAcademicTermNameCache == nil || strings.TrimSpace(*cs.ClassSectionAcademicTermNameCache) == "") &&
+		(cs.ClassSectionAcademicTermSlugCache == nil || strings.TrimSpace(*cs.ClassSectionAcademicTermSlugCache) == "") &&
+		(cs.ClassSectionAcademicTermAcademicYearCache == nil || strings.TrimSpace(*cs.ClassSectionAcademicTermAcademicYearCache) == "") &&
+		cs.ClassSectionAcademicTermAngkatanCache == nil {
+		return nil
+	}
+
+	return &AcademicTermLite{
+		ID:       cs.ClassSectionAcademicTermID,
+		Name:     cs.ClassSectionAcademicTermNameCache,
+		Slug:     cs.ClassSectionAcademicTermSlugCache,
+		Year:     cs.ClassSectionAcademicTermAcademicYearCache,
+		Angkatan: cs.ClassSectionAcademicTermAngkatanCache,
+	}
+}
+
+// dari slice ClassSectionModel → unique list AcademicTermLite (buat include["academic_term"])
+func buildAcademicTermInclude(list []secModel.ClassSectionModel) []AcademicTermLite {
+	out := make([]AcademicTermLite, 0, len(list))
+	seen := make(map[string]struct{}, len(list))
+
+	for i := range list {
+		at := academicTermLiteFromSectionModel(&list[i])
+		if at == nil {
+			continue
+		}
+
+		// kunci keunikan: utamakan ID, lalu slug, lalu name
+		var key string
+		switch {
+		case at.ID != nil:
+			key = "id:" + at.ID.String()
+		case at.Slug != nil && strings.TrimSpace(*at.Slug) != "":
+			key = "slug:" + strings.TrimSpace(*at.Slug)
+		case at.Name != nil && strings.TrimSpace(*at.Name) != "":
+			key = "name:" + strings.TrimSpace(*at.Name)
+		default:
+			continue
+		}
+
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, *at)
+	}
+
+	return out
+}
+
 // GET /api/{a|u}/:school_id/class-sections/list
 func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 	// ---------- School context: token > slug/id ----------
@@ -115,10 +184,14 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 	orderExpr := col + " " + strings.ToUpper(order)
 
 	// ---------- Filters ----------
+	// ---------- Filters ----------
 	var (
 		sectionIDs []uuid.UUID
 		classIDs   []uuid.UUID
+		parentIDs  []uuid.UUID // 🆕 filter by class_parent
 		teacherIDs []uuid.UUID // filter by school_teacher (wali / asisten)
+		termIDs    []uuid.UUID // 🆕 filter by academic_term
+		roomIDs    []uuid.UUID // 🆕 filter by class_room
 		activeOnly *bool
 	)
 
@@ -140,6 +213,32 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		classIDs = ids
 	}
 
+	// 🆕 filter by academic_term_id / term_id (mendukung multi)
+	rawTerm := strings.TrimSpace(c.Query("academic_term_id"))
+	if rawTerm == "" {
+		rawTerm = strings.TrimSpace(c.Query("term_id"))
+	}
+	if rawTerm != "" {
+		ids, e := parseUUIDList(rawTerm)
+		if e != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "academic_term_id/term_id tidak valid: "+e.Error())
+		}
+		termIDs = ids
+	}
+
+	// 🆕 filter by class_room_id / room_id (mendukung multi)
+	rawRoom := strings.TrimSpace(c.Query("class_room_id"))
+	if rawRoom == "" {
+		rawRoom = strings.TrimSpace(c.Query("room_id"))
+	}
+	if rawRoom != "" {
+		ids, e := parseUUIDList(rawRoom)
+		if e != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "class_room_id/room_id tidak valid: "+e.Error())
+		}
+		roomIDs = ids
+	}
+
 	// filter by school_teacher_id (alias: teacher_id), mendukung multi
 	rawTeacher := strings.TrimSpace(c.Query("school_teacher_id"))
 	if rawTeacher == "" {
@@ -153,20 +252,38 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		teacherIDs = ids
 	}
 
+	// 🆕 filter by class_parent_id / parent_id (mendukung multi) via tabel classes
+	rawParent := strings.TrimSpace(c.Query("class_parent_id"))
+	if rawParent == "" {
+		rawParent = strings.TrimSpace(c.Query("parent_id"))
+	}
+	if rawParent != "" {
+		ids, e := parseUUIDList(rawParent)
+		if e != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "class_parent_id/parent_id tidak valid: "+e.Error())
+		}
+		parentIDs = ids
+	}
+
 	if s := strings.TrimSpace(c.Query("is_active")); s != "" {
 		v := c.QueryBool("is_active")
 		activeOnly = &v
 	}
 
 	// ------------ INCLUDE / NESTED FLAGS ------------
-	// include=csst   -> include["csst"] (global pool, tanpa nested)
-	// nested=csst    -> nested per class_section: class_section_subject_teacher (tanpa include.csst)
-	// with_csst=1    -> legacy, dianggap nested=csst
+	// include=csst           -> include["csst"] (global pool, tanpa nested)
+	// nested=csst            -> nested per class_section: class_section_subject_teacher (tanpa include.csst)
+	// with_csst=1            -> legacy, dianggap nested=csst
+	// include=academic_term  -> include["academic_term"] (unique list dari cache)
+	// nested=academic_term   -> nested per class_section: class_section_academic_term = {id,name,slug,year,angkatan}
 	includeRaw := strings.TrimSpace(c.Query("include"))
 	nestedRaw := strings.TrimSpace(c.Query("nested"))
 
 	var includeCSST bool
 	var nestedCSST bool
+
+	var includeAcademicTerm bool
+	var nestedAcademicTerm bool
 
 	// parse include=...
 	if includeRaw != "" {
@@ -175,6 +292,8 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 			switch strings.TrimSpace(p) {
 			case "csst", "cssts", "class_section_subject_teachers":
 				includeCSST = true
+			case "academic_term", "academic_terms", "term", "terms":
+				includeAcademicTerm = true
 			}
 		}
 	}
@@ -186,6 +305,8 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 			switch strings.TrimSpace(p) {
 			case "csst", "cssts", "class_section_subject_teachers":
 				nestedCSST = true
+			case "academic_term", "academic_terms", "term", "terms":
+				nestedAcademicTerm = true
 			}
 		}
 	}
@@ -201,6 +322,42 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 	// lebih eksplisit: include student_class_sections (masih boolean biasa)
 	withStudentSections := c.QueryBool("with_student_class_sections")
 
+	// Kalau filter parent dipakai → turunkan ke class_id via tabel classes
+	if len(parentIDs) > 0 {
+		type classRow struct {
+			ID uuid.UUID `gorm:"column:class_id"`
+		}
+
+		classQ := ctrl.DB.
+			Table("classes").
+			Select("class_id").
+			Where("class_deleted_at IS NULL").
+			Where("class_school_id = ?", schoolID).
+			Where("class_class_parent_id IN ?", parentIDs)
+
+		// kalau sebelumnya sudah ada filter class_id → jadikan irisan
+		if len(classIDs) > 0 {
+			classQ = classQ.Where("class_id IN ?", classIDs)
+		}
+
+		var cls []classRow
+		if err := classQ.Scan(&cls).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memproses filter class_parent_id")
+		}
+
+		// kalau nggak ada class yang match → langsung balikin kosong
+		if len(cls) == 0 {
+			pagination := helper.BuildPaginationFromOffset(0, pg.Offset, pg.Limit)
+			return helper.JsonListWithInclude(c, "ok", []any{}, fiber.Map{}, pagination)
+		}
+
+		// override classIDs dengan hasil dari filter parent
+		classIDs = make([]uuid.UUID, 0, len(cls))
+		for _, r := range cls {
+			classIDs = append(classIDs, r.ID)
+		}
+	}
+
 	// ---------- Query base ----------
 	tx := ctrl.DB.
 		Model(&secModel.ClassSectionModel{}).
@@ -213,6 +370,16 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 
 	if len(classIDs) > 0 {
 		tx = tx.Where("class_section_class_id IN ?", classIDs)
+	}
+
+	// 🆕 filter by academic_term
+	if len(termIDs) > 0 {
+		tx = tx.Where("class_section_academic_term_id IN ?", termIDs)
+	}
+
+	// 🆕 filter by class_room
+	if len(roomIDs) > 0 {
+		tx = tx.Where("class_section_class_room_id IN ?", roomIDs)
 	}
 
 	// filter wali / assistant teacher ke dua kolom FK
@@ -269,20 +436,33 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 	// includePayload: selalu ada "include": {} di response (bisa kosong)
 	includePayload := fiber.Map{}
 
-	// Kalau nggak perlu CSST sama sekali dan nggak perlu student sections
-	// → langsung balikin compact DTO + include (kosong)
-	if !queryCSST && !withStudentSections {
+	// top-level include: academic_term
+	if includeAcademicTerm {
+		includePayload["academic_term"] = buildAcademicTermInclude(rows)
+	}
+
+	// Kalau nggak perlu CSST sama sekali, nggak perlu student sections,
+	// dan nggak perlu nested academic_term → langsung balikin compact DTO + include
+	if !queryCSST && !withStudentSections && !nestedAcademicTerm {
 		return helper.JsonListWithInclude(c, "ok", compacts, includePayload, pagination)
 	}
 
 	// =========================================================
 	//  INCLUDE: CSST & STUDENT_CLASS_SECTIONS (bisa keduanya)
+	//  + nested academic_term
 	// =========================================================
 
 	// Target section IDs untuk query relasi
 	targetIDs := sectionIDs
 	if len(targetIDs) == 0 {
 		targetIDs = idsInPage
+	}
+
+	// Map: section_id -> *model (dipakai nested academic_term)
+	modelBySection := make(map[uuid.UUID]*secModel.ClassSectionModel, len(rows))
+	for i := range rows {
+		cs := &rows[i]
+		modelBySection[cs.ClassSectionID] = cs
 	}
 
 	// Base: konversi item ke map + index by section_id
@@ -308,6 +488,11 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 			m["class_sections_student_class_sections"] = []secDTO.StudentClassSectionResp{}
 			m["class_sections_student_class_sections_count"] = 0
 			m["class_sections_student_class_sections_active_count"] = 0
+		}
+
+		// init field academic_term kalau nested diminta
+		if nestedAcademicTerm {
+			m["class_section_academic_term"] = nil
 		}
 
 		out = append(out, m)
@@ -415,6 +600,19 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 			out[idx]["class_sections_student_class_sections"] = dtos
 			out[idx]["class_sections_student_class_sections_count"] = len(dtos)
 			out[idx]["class_sections_student_class_sections_active_count"] = activeCnt
+		}
+	}
+
+	// ---------- Inject academic_term (nested) ----------
+	if nestedAcademicTerm {
+		for secID, idx := range indexBySection {
+			cs, ok := modelBySection[secID]
+			if !ok {
+				continue
+			}
+			if at := academicTermLiteFromSectionModel(cs); at != nil {
+				out[idx]["class_section_academic_term"] = at
+			}
 		}
 	}
 

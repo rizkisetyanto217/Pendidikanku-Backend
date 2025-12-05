@@ -12,7 +12,6 @@ import (
 func ClassUserRoutes(r fiber.Router, db *gorm.DB) {
 	// ===== Controllers =====
 	classHandler := classCtrl.NewClassController(db)
-	parentHandler := classCtrl.NewClassParentController(db, nil)
 	enrollHandler := classCtrl.NewStudentClassEnrollmentController(db)
 
 	// ================================
@@ -23,16 +22,6 @@ func ClassUserRoutes(r fiber.Router, db *gorm.DB) {
 	{
 		// GET /api/u/classes/list
 		classes.Get("/list", classHandler.ListClasses)
-	}
-
-	// ================================
-	// Class Parents (READ-ONLY untuk user)
-	// ================================
-	// Mirror admin: /class-parents
-	classParents := r.Group("/class-parents")
-	{
-		// GET /api/u/class-parents/list
-		classParents.Get("/list", parentHandler.List)
 	}
 
 	// ================================

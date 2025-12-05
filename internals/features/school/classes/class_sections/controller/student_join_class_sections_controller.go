@@ -138,7 +138,7 @@ func getOrCreateSchoolStudentWithCaches(
 		}
 		if profileSnap != nil {
 			if name := strings.TrimSpace(profileSnap.Name); name != "" {
-				updates["school_student_user_profile_name_snapshot"] = name
+				updates["school_student_user_profile_name_cache"] = name
 			}
 			if v := nzTrim(profileSnap.AvatarURL); v != nil {
 				updates["school_student_user_profile_avatar_url_snapshot"] = *v
@@ -197,7 +197,7 @@ func getOrCreateSchoolStudentWithCaches(
 	}
 	if profileSnap != nil {
 		if name := strings.TrimSpace(profileSnap.Name); name != "" {
-			values["school_student_user_profile_name_snapshot"] = name
+			values["school_student_user_profile_name_cache"] = name
 		}
 		if v := nzTrim(profileSnap.AvatarURL); v != nil {
 			values["school_student_user_profile_avatar_url_snapshot"] = *v
@@ -400,15 +400,15 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoSchool(c *fiber.Ctx) err
 	}
 
 	scs := &model.StudentClassSection{
-		StudentClassSectionID:                  uuid.New(),
-		StudentClassSectionSchoolID:            schoolID,
-		StudentClassSectionSchoolStudentID:     schoolStudentID,
-		StudentClassSectionSectionID:           sec.ClassSectionID,
+		StudentClassSectionID:               uuid.New(),
+		StudentClassSectionSchoolID:         schoolID,
+		StudentClassSectionSchoolStudentID:  schoolStudentID,
+		StudentClassSectionSectionID:        sec.ClassSectionID,
 		StudentClassSectionSectionSlugCache: slug,
-		StudentClassSectionStatus:              model.StudentClassSectionActive,
-		StudentClassSectionAssignedAt:          now,
-		StudentClassSectionCreatedAt:           now,
-		StudentClassSectionUpdatedAt:           now,
+		StudentClassSectionStatus:           model.StudentClassSectionActive,
+		StudentClassSectionAssignedAt:       now,
+		StudentClassSectionCreatedAt:        now,
+		StudentClassSectionUpdatedAt:        now,
 	}
 
 	if profileSnap != nil {
@@ -443,12 +443,12 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoSchool(c *fiber.Ctx) err
 	// --- 6) INCREMENT ATOMIC dengan guard kapasitas ---
 	res := tx.Exec(`
 		UPDATE class_sections
-		SET class_section_total_students = class_section_total_students + 1,
+		SET class_section_total_students_active = class_section_total_students_active + 1,
 		    class_section_updated_at = NOW()
 		WHERE class_section_id = ?
 		  AND class_section_deleted_at IS NULL
 		  AND class_section_is_active = TRUE
-		  AND (class_section_capacity IS NULL OR class_section_total_students < class_section_capacity)
+		  AND (class_section_quota_total IS NULL OR class_section_total_students_active < class_section_quota_total)
 	`, sec.ClassSectionID)
 	if res.Error != nil {
 		// kompensasi: hapus enrollment yang baru dibuat

@@ -21,7 +21,6 @@ type TeacherCache struct {
 	TitlePrefix   *string `json:"title_prefix,omitempty"`   // contoh: "Ustadz"
 	TitleSuffix   *string `json:"title_suffix,omitempty"`   // contoh: "Lc"
 	Gender        *string `json:"gender,omitempty"`         // jenis kelamin
-	TeacherNumber *string `json:"teacher_number,omitempty"` // nomor induk / NIP / kode guru
 	TeacherCode   *string `json:"teacher_code,omitempty"`   // kode guru (raw dari school_teacher_code)
 }
 
@@ -47,7 +46,7 @@ func ValidateAndCacheTeacher(
 	const q = `
 SELECT
   mt.school_teacher_school_id::text                                           AS school_id,
-  COALESCE(mt.school_teacher_user_teacher_user_full_name_cache,
+  COALESCE(mt.school_teacher_user_teacher_full_name_cache,
            ut.user_teacher_user_full_name_cache)                                     AS teacher_name,
   COALESCE(mt.school_teacher_user_teacher_whatsapp_url_cache,
            ut.user_teacher_whatsapp_url)                                      AS whatsapp_url,
@@ -95,7 +94,7 @@ LIMIT 1`
 		return &v
 	}
 
-	// Sementara: teacher_number & teacher_code sama-sama ambil dari school_teacher_code
+	// Sementara:  teacher_code sama-sama ambil dari school_teacher_code
 	code := trimPtr(row.TeacherCode)
 
 	snap := &TeacherCache{
@@ -106,7 +105,6 @@ LIMIT 1`
 		TitlePrefix:   trimPtr(row.TitlePre),
 		TitleSuffix:   trimPtr(row.TitleSuf),
 		Gender:        trimPtr(row.Gender),
-		TeacherNumber: code,
 		TeacherCode:   code,
 	}
 
@@ -155,9 +153,7 @@ func ToJSON(ts *TeacherCache) datatypes.JSON {
 	if v, ok := trim(ts.Gender); ok {
 		m["gender"] = v
 	}
-	if v, ok := trim(ts.TeacherNumber); ok {
-		m["teacher_number"] = v
-	}
+
 	if v, ok := trim(ts.TeacherCode); ok {
 		m["teacher_code"] = v
 	}

@@ -12,9 +12,9 @@ import (
 	// CertificateRoutes "madinahsalam_backend/internals/features/school/academics/certificates/route"
 	RoomsRoutes "madinahsalam_backend/internals/features/school/academics/rooms/route"
 	SubjectRoutes "madinahsalam_backend/internals/features/school/academics/subjects/route"
-	ClassAttendanceSessionsRoutes "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/route"
-	EventRoutes "madinahsalam_backend/internals/features/school/classes/class_events/route"
-	ScheduleRoutes "madinahsalam_backend/internals/features/school/classes/class_schedules/route"
+	ClassAttendanceSessionsRoutes "madinahsalam_backend/internals/features/school/class_others/class_attendance_sessions/route"
+	EventRoutes "madinahsalam_backend/internals/features/school/class_others/class_events/route"
+	ScheduleRoutes "madinahsalam_backend/internals/features/school/class_others/class_schedules/route"
 	ClassSectionsRoutes "madinahsalam_backend/internals/features/school/classes/class_sections/route"
 	ClassesRoutes "madinahsalam_backend/internals/features/school/classes/classes/route"
 	AttendanceSettingsRoute "madinahsalam_backend/internals/features/school/others/assesments_settings/route"
@@ -23,6 +23,8 @@ import (
 	SubmissionsRoutes "madinahsalam_backend/internals/features/school/submissions_assesments/submissions/route"
 
 	CSSTRoutes "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/route"
+
+	ClassParentRoutes "madinahsalam_backend/internals/features/school/classes/class_parents/route"
 
 	// Tambahkan import route lain di sini saat modul siap:
 	// SectionRoutes "madinahsalam_backend/internals/features/lembaga/sections/main/route"
@@ -49,7 +51,9 @@ func SchoolPublicRoutes(r fiber.Router, db *gorm.DB) {
 	SubjectRoutes.AllSubjectRoutes(r, db)
 	ClassSectionsRoutes.AllClassSectionRoutes(r, db)
 	CSSTRoutes.AllCSSTRoutes(r, db)
+	ClassParentRoutes.AllClassParentRoutes(r, db)
 	ScheduleRoutes.AllScheduleRoutes(r, db)
+
 }
 
 /* ===================== USER (PRIVATE) ===================== */
@@ -74,6 +78,8 @@ func SchoolUserRoutes(r fiber.Router, db *gorm.DB) {
 	SubjectRoutes.SubjectUserRoutes(r, db)
 	RoomsRoutes.RoomsUserRoutes(r, db)
 	CSSTRoutes.CSSTUserRoutes(r, db)
+
+	ClassParentRoutes.ClassParentUserRoutes(r, db)
 }
 
 /* ===================== ADMIN ===================== */
@@ -98,6 +104,8 @@ func SchoolAdminRoutes(r fiber.Router, db *gorm.DB) {
 	QuizzesRoutes.QuizzesAdminRoutes(r, db)
 	EventRoutes.EventAdminRoutes(r, db)
 	CSSTRoutes.CSSTAdminRoutes(r, db)
+
+	ClassParentRoutes.ClassParentAdminRoutes(r, db)
 }
 
 /* ===================== SUPER ADMIN ===================== */

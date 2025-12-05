@@ -280,6 +280,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		}
 	}
 
+	// ===== INCLUDE & NESTED TOKENS =====
 	includeStr := strings.ToLower(strings.TrimSpace(c.Query("include")))
 	includeAll := includeStr == "all"
 	includes := map[string]bool{}
@@ -289,10 +290,26 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		}
 	}
 
+	// nested=...
+	nestedStr := strings.ToLower(strings.TrimSpace(c.Query("nested")))
+	nestedTokens := map[string]bool{}
+	for _, part := range strings.Split(nestedStr, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			nestedTokens[p] = true
+		}
+	}
+
 	wantSubjects := includeAll || includes["subject"] || includes["subjects"]
 	wantSections := includeAll || includes["class_sections"]
 	// subject_books selalu ikut kalau subjects diminta dan user minta "books/subject_books"
 	wantSubjectBooks := wantSubjects && (includeAll || includes["books"] || includes["subject_books"] || includes["class_subject_books"])
+
+	// 🆕 academic_terms flags
+	wantTermInclude := includeAll || includes["academic_term"] || includes["academic_terms"]
+	wantTermNested := nestedTokens["academic_term"] || nestedTokens["academic_terms"]
+
+	// 🆕 class_parents nested optional (default: off — kecuali include=all)
+	wantParents := includeAll || includes["class_parent"] || includes["class_parents"]
 
 	sectionsOnlyActive := strings.EqualFold(strings.TrimSpace(c.Query("sections_active")), "true")
 
@@ -308,11 +325,6 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 
 	parentName := strings.ToLower(strings.TrimSpace(c.Query("parent_name")))
 	parentLike := "%" + parentName + "%"
-
-	// bonus: kalau filter pakai class_parent → otomatis include subjects
-	if q.ClassParentID != nil {
-		wantSubjects = true
-	}
 
 	// 3) Pagination & Sorting
 	pg := helper.ResolvePaging(c, 20, 200) // default 20, max 200
@@ -541,8 +553,13 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 			}
 			for _, r := range ts {
 				termMap[r.ID] = termLite{
-					ID: r.ID, Name: r.Name, AcademicYear: r.AcademicYear,
-					StartDate: r.Start, EndDate: r.End, IsActive: r.IsActive, Angkatan: r.Angkatan,
+					ID:           r.ID,
+					Name:         r.Name,
+					AcademicYear: r.AcademicYear,
+					StartDate:    r.Start,
+					EndDate:      r.End,
+					IsActive:     r.IsActive,
+					Angkatan:     r.Angkatan,
 				}
 			}
 		}
@@ -759,22 +776,25 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		Slug                string    `json:"class_section_slug" gorm:"column:class_section_slug"`
 		Name                string    `json:"class_section_name" gorm:"column:class_section_name"`
 		Code                *string   `json:"class_section_code,omitempty" gorm:"column:class_section_code"`
-		Capacity            *int      `json:"class_section_capacity,omitempty" gorm:"column:class_section_capacity"`
-		TotalStudents       int       `json:"class_section_total_students" gorm:"column:class_section_total_students"`
-		IsActive            bool      `json:"class_section_is_active" gorm:"column:class_section_is_active"`
 
-		// kolom cache
-		TeacherNameSnap      *string `json:"class_section_teacher_name_cache,omitempty" gorm:"column:class_section_school_teacher_name_cache"`
-		AssistantTeacherName *string `json:"class_section_assistant_teacher_name_cache,omitempty" gorm:"column:class_section_assistant_school_teacher_name_cache"`
-		RoomNameSnap         *string `json:"class_section_room_name_cache,omitempty" gorm:"column:class_section_class_room_name_cache"`
+		// pakai quota total sebagai capacity
+		Capacity *int `json:"class_section_capacity,omitempty" gorm:"column:class_section_quota_total"`
+
+		// total siswa aktif (kolom baru di model)
+		TotalStudents int  `json:"class_section_total_students" gorm:"column:class_section_total_students_active"`
+		IsActive      bool `json:"class_section_is_active" gorm:"column:class_section_is_active"`
+
+		// room name masih ada sebagai cache kolom biasa
+		RoomNameSnap *string `json:"class_section_room_name_cache,omitempty" gorm:"column:class_section_class_room_name_cache"`
 
 		// term id section
 		TermID *uuid.UUID `json:"class_section_term_id,omitempty" gorm:"column:class_section_academic_term_id"`
 
-		// counter kolom yang benar
-		CSSTCount       int `json:"class_sections_subject_teachers_count" gorm:"column:class_section_subject_teachers_count"`
-		CSSTActiveCount int `json:"class_sections_subject_teachers_active_count" gorm:"column:class_section_subject_teachers_active_count"`
+		// counter CSST → mapping ke kolom panjang di schema baru
+		CSSTCount       int `json:"class_sections_subject_teachers_count" gorm:"column:class_section_total_class_class_section_subject_teachers"`
+		CSSTActiveCount int `json:"class_sections_subject_teachers_active_count" gorm:"column:class_section_total_class_class_section_subject_teachers_active"`
 	}
+
 	sectionsMap := map[uuid.UUID][]SectionLite{}
 
 	if wantSections && len(rows) > 0 {
@@ -786,22 +806,20 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		txSec := ctrl.DB.
 			Table("class_sections").
 			Select(`
-				class_section_id,
-				class_section_school_id,
-				class_section_class_id,
-				class_section_slug,
-				class_section_name,
-				class_section_code,
-				class_section_capacity,
-				class_section_total_students,
-				class_section_is_active,
-				class_section_school_teacher_name_cache,
-				class_section_assistant_school_teacher_name_cache,
-				class_section_class_room_name_cache,
-				class_section_academic_term_id,
-				class_section_subject_teachers_count,
-				class_section_subject_teachers_active_count
-			`).
+			class_section_id,
+			class_section_school_id,
+			class_section_class_id,
+			class_section_slug,
+			class_section_name,
+			class_section_code,
+			class_section_quota_total,
+			class_section_total_students_active,
+			class_section_is_active,
+			class_section_class_room_name_cache,
+			class_section_academic_term_id,
+			class_section_total_class_class_section_subject_teachers,
+			class_section_total_class_class_section_subject_teachers_active
+		`).
 			Where("class_section_deleted_at IS NULL").
 			Where("class_section_school_id IN ?", schoolIDs).
 			Where("class_section_class_id IN ?", classIDs2)
@@ -844,16 +862,22 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		base := dto.FromModel(r)
 		item := &classWithExpand{ClassResponse: &base}
 
-		if r.ClassAcademicTermID != nil {
+		// nested academic_terms (opsional)
+		if wantTermNested && r.ClassAcademicTermID != nil {
 			if t, ok := termMap[*r.ClassAcademicTermID]; ok {
 				tCopy := t
 				item.AcademicTerms = &tCopy
 			}
 		}
-		if pLite, ok := parentMap[r.ClassClassParentID]; ok {
-			pCopy := pLite
-			item.ClassParents = &pCopy
+
+		// nested class_parents (opsional) — tidak otomatis lagi, hanya kalau diminta
+		if wantParents {
+			if pLite, ok := parentMap[r.ClassClassParentID]; ok {
+				pCopy := pLite
+				item.ClassParents = &pCopy
+			}
 		}
+
 		if wantSubjects {
 			item.Subjects = subjectsMap[r.ClassID]
 		}
@@ -863,7 +887,48 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		out = append(out, item)
 	}
 
+	// 9) Include payload: mengikuti pola
+	// {
+	//   "data": [ ...classes... ],
+	//   "include": {
+	//       "classes":        [ ... ],
+	//       "class_sections": [ ... ],
+	//       "academic_terms": [ ... ]
+	//   }
+	// }
+
+	includePayload := fiber.Map{}
+
+	// ⬇️ classes hanya dimasukkan ke include kalau explicitly diminta
+	if (includeAll || includes["classes"]) && len(out) > 0 {
+		includePayload["classes"] = out
+	}
+
+	// ⬇️ class_sections ikut include kalau diminta via ?include=class_sections / all
+	if wantSections && len(sectionsMap) > 0 {
+		allSections := make([]SectionLite, 0)
+		for _, list := range sectionsMap {
+			allSections = append(allSections, list...)
+		}
+		includePayload["class_sections"] = allSections
+	}
+
+	// ⬇️ academic_terms unik → ikut include kalau diminta via ?include=academic_term(s) / all
+	if wantTermInclude && len(termMap) > 0 {
+		terms := make([]termLite, 0, len(termMap))
+		for _, t := range termMap {
+			tCopy := t
+			terms = append(terms, tCopy)
+		}
+		includePayload["academic_terms"] = terms
+	}
+
 	// ✅ Pagination
 	pagination := helper.BuildPaginationFromOffset(total, pg.Offset, pg.Limit)
+
+	if len(includePayload) > 0 {
+		return helper.JsonListWithInclude(c, "ok", out, includePayload, pagination)
+	}
 	return helper.JsonList(c, "ok", out, pagination)
+
 }

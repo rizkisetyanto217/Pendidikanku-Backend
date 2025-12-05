@@ -23,17 +23,6 @@ func ClassAdminRoutes(admin fiber.Router, db *gorm.DB) {
 		grp.Delete("/:id", classHandler.DeleteClass)
 	}
 
-	// Controller class parents
-	parentHandler := classctrl.NewClassParentController(db, nil)
-
-	// Prefix school_id biar ResolveSchoolContext dapat konteks langsung
-	classParents := admin.Group("/class-parents", schoolkuMiddleware.IsSchoolAdmin())
-	{
-		classParents.Post("/", parentHandler.Create)
-		classParents.Patch("/:id", parentHandler.Patch)
-		classParents.Delete("/:id", parentHandler.Delete)
-	}
-
 	// ================================
 	// Student Class Enrollments
 	// ================================

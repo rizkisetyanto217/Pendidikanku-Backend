@@ -136,7 +136,7 @@ CREATE TABLE IF NOT EXISTS classes (
 
   -- Relasi
   class_parent_id UUID NOT NULL,
-  class_term_id   UUID,
+  class_academic_term_id   UUID,
 
   -- Identitas & konten
   class_slug           VARCHAR(160) NOT NULL,
@@ -248,7 +248,7 @@ CREATE TABLE IF NOT EXISTS classes (
     ON DELETE CASCADE,
 
   CONSTRAINT fk_classes_term_school_pair
-    FOREIGN KEY (class_term_id, class_school_id)
+    FOREIGN KEY (class_academic_term_id, class_school_id)
     REFERENCES academic_terms (academic_terms_id, academic_terms_school_id)
     ON UPDATE CASCADE ON DELETE RESTRICT
 );
@@ -276,7 +276,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_classes_external_ref_per_school
 -- Lookup umum
 CREATE INDEX IF NOT EXISTS idx_classes_school      ON classes (class_school_id);
 CREATE INDEX IF NOT EXISTS idx_classes_parent      ON classes (class_parent_id);
-CREATE INDEX IF NOT EXISTS idx_classes_term        ON classes (class_term_id);
+CREATE INDEX IF NOT EXISTS idx_classes_term        ON classes (class_academic_term_id);
 
 -- Filter status/visibility (alive only)
 CREATE INDEX IF NOT EXISTS idx_classes_status_alive
@@ -308,7 +308,7 @@ CREATE INDEX IF NOT EXISTS idx_classes_display_order_alive
 
 -- Window pendaftaran & kombinasi tenant/term
 CREATE INDEX IF NOT EXISTS ix_classes_tenant_term_open_live
-  ON classes (class_school_id, class_term_id, class_is_open)
+  ON classes (class_school_id, class_academic_term_id, class_is_open)
   WHERE class_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_classes_reg_window_live
@@ -359,7 +359,7 @@ CREATE INDEX IF NOT EXISTS ix_classes_feed
   WHERE class_deleted_at IS NULL AND class_is_public = TRUE;
 
 CREATE INDEX IF NOT EXISTS ix_classes_term_status
-  ON classes (class_school_id, class_term_id, class_status, class_created_at DESC)
+  ON classes (class_school_id, class_academic_term_id, class_status, class_created_at DESC)
   WHERE class_deleted_at IS NULL;
 
 -- Trigram search helpers

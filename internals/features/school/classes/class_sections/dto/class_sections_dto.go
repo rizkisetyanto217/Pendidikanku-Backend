@@ -111,6 +111,9 @@ type ClassSectionCreateRequest struct {
 	ClassSectionSubjectTeachersEnrollmentMode             *string `json:"class_section_subject_teachers_enrollment_mode" form:"class_section_subject_teachers_enrollment_mode"`
 	ClassSectionSubjectTeachersSelfSelectRequiresApproval *bool   `json:"class_section_subject_teachers_self_select_requires_approval" form:"class_section_subject_teachers_self_select_requires_approval"`
 	ClassSectionSubjectTeachersMaxSubjectsPerStudent      *int    `json:"class_section_subject_teachers_max_subjects_per_student" form:"class_section_subject_teachers_max_subjects_per_student"`
+
+	// 🔥 NEW: kalau true, room dari section dipush ke semua CSST terkait
+	ClassSectionPropagateRoomToCSST *bool `json:"class_section_propagate_room_to_csst" form:"class_section_propagate_room_to_csst"`
 }
 
 func (r *ClassSectionCreateRequest) Normalize() {
@@ -400,6 +403,27 @@ func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 
 /* ----------------- PATCH REQUEST ----------------- */
 
+// contoh OptionalBool, kira-kira sudah ada tipe serupa
+type OptionalBool struct {
+	Present bool
+	Value   *bool
+}
+
+// biar bisa diparse dari JSON biasa (true/false/null)
+func (o *OptionalBool) UnmarshalJSON(b []byte) error {
+	o.Present = true
+	if string(b) == "null" {
+		o.Value = nil
+		return nil
+	}
+	var v bool
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	o.Value = &v
+	return nil
+}
+
 type ClassSectionPatchRequest struct {
 	// Relasi IDs (live)
 	ClassSectionSchoolTeacherID          PatchFieldCS[uuid.UUID] `json:"class_section_school_teacher_id"`
@@ -433,6 +457,9 @@ type ClassSectionPatchRequest struct {
 	ClassSectionSubjectTeachersEnrollmentMode             PatchFieldCS[string] `json:"class_section_subject_teachers_enrollment_mode"`               // "self_select"|"assigned"|"hybrid"
 	ClassSectionSubjectTeachersSelfSelectRequiresApproval PatchFieldCS[bool]   `json:"class_section_subject_teachers_self_select_requires_approval"` // true/false
 	ClassSectionSubjectTeachersMaxSubjectsPerStudent      PatchFieldCS[int]    `json:"class_section_subject_teachers_max_subjects_per_student"`
+
+	// 🔥 NEW: flag propagate room → CSST (kontrol di controller)
+	ClassSectionPropagateRoomToCSST OptionalBool `json:"class_section_propagate_room_to_csst" form:"class_section_propagate_room_to_csst"`
 }
 
 /* ----------------- Apply PATCH ----------------- */
@@ -539,6 +566,9 @@ func (r *ClassSectionPatchRequest) Apply(cs *m.ClassSectionModel) {
 		setIntPtr(r.ClassSectionSubjectTeachersMaxSubjectsPerStudent,
 			&cs.ClassSectionSubjectTeachersMaxSubjectsPerStudent)
 	}
+
+	// NOTE: flag ClassSectionPropagateRoomToCSST
+	// nggak di-apply ke model; dipakai di controller sebagai kontrol behaviour.
 }
 
 /* ----------------- Decoder PATCH ----------------- */
@@ -581,11 +611,11 @@ var (
 	// Kuota: alias baru + kompat nama lama (capacity / total_students)
 	aliasQuotaTotal = []string{
 		"class_section_quota_total", "quota_total", "classSectionQuotaTotal",
-		"class_section_capacity", "capacity", "classSectionCapacity",
+		"class_section_quota_total", "capacity", "classSectionCapacity",
 	}
 	aliasQuotaTaken = []string{
 		"class_section_quota_taken", "quota_taken", "classSectionQuotaTaken",
-		"class_section_total_students", "total_students", "classSectionTotalStudents",
+		"class_section_total_students_active", "total_students", "classSectionTotalStudents",
 	}
 	aliasGroupURL = []string{
 		"class_section_group_url", "group_url", "classSectionGroupUrl",
@@ -608,6 +638,11 @@ var (
 	}
 	aliasSTMaxSubj = []string{
 		"class_section_subject_teachers_max_subjects_per_student", "subject_teachers_max_subjects_per_student", "classSectionSubjectTeachersMaxSubjectsPerStudent",
+	}
+
+	// 🔥 NEW: alias propagate room → CSST
+	aliasPropagateRoomToCSST = []string{
+		"class_section_propagate_room_to_csst", "propagate_room_to_csst", "classSectionPropagateRoomToCsst",
 	}
 )
 
@@ -666,6 +701,9 @@ func DecodePatchClassSectionFromRequest(c *fiber.Ctx, dst *ClassSectionPatchRequ
 		setCanon(raw, "class_section_subject_teachers_enrollment_mode", aliasSTMode)
 		setCanon(raw, "class_section_subject_teachers_self_select_requires_approval", aliasSTReqApproval)
 		setCanon(raw, "class_section_subject_teachers_max_subjects_per_student", aliasSTMaxSubj)
+
+		// 🔥 NEW: propagate room → CSST
+		setCanon(raw, "class_section_propagate_room_to_csst", aliasPropagateRoomToCSST)
 
 		buf, _ := json.Marshal(raw)
 		if err := json.Unmarshal(buf, dst); err != nil {
@@ -761,6 +799,23 @@ func DecodePatchClassSectionFromRequest(c *fiber.Ctx, dst *ClassSectionPatchRequ
 			}
 		}
 
+		// 🔥 NEW: OptionalBool untuk propagate_room_to_csst
+		markOptionalBoolAliases := func(keys []string, ob *OptionalBool) {
+			for _, key := range keys {
+				if v := c.FormValue(key); v != "" || formHasKey(c, key) {
+					ob.Present = true
+					if strings.EqualFold(strings.TrimSpace(v), "null") || strings.TrimSpace(v) == "" {
+						ob.Value = nil
+						return
+					}
+					lv := strings.ToLower(strings.TrimSpace(v))
+					b := lv == "1" || lv == "true" || lv == "on" || lv == "yes" || lv == "y"
+					ob.Value = &b
+					return
+				}
+			}
+		}
+
 		// Map form fields (pakai alias)
 		markUUIDAliases(aliasTeacherID, &dst.ClassSectionSchoolTeacherID)
 		markUUIDAliases(aliasAsstTeacherID, &dst.ClassSectionAssistantSchoolTeacherID)
@@ -786,6 +841,9 @@ func DecodePatchClassSectionFromRequest(c *fiber.Ctx, dst *ClassSectionPatchRequ
 		markStrAliases(aliasSTMode, &dst.ClassSectionSubjectTeachersEnrollmentMode)
 		markBoolAliases(aliasSTReqApproval, &dst.ClassSectionSubjectTeachersSelfSelectRequiresApproval)
 		markIntAliases(aliasSTMaxSubj, &dst.ClassSectionSubjectTeachersMaxSubjectsPerStudent)
+
+		// 🔥 NEW: propagate room → CSST
+		markOptionalBoolAliases(aliasPropagateRoomToCSST, &dst.ClassSectionPropagateRoomToCSST)
 
 		return nil
 
@@ -849,8 +907,6 @@ type ClassSectionJoinResponse struct {
 	ClassSectionID   string                   `json:"class_section_id"`
 }
 
-
-
 // ===== TEACHER LITE (untuk homeroom & assistant) =====
 
 type TeacherPersonLite struct {
@@ -861,7 +917,7 @@ type TeacherPersonLite struct {
 	TitleSuffix   *string `json:"title_suffix,omitempty"`
 	WhatsappURL   *string `json:"whatsapp_url,omitempty"`
 	Gender        *string `json:"gender,omitempty"`
-	TeacherNumber *string `json:"teacher_number,omitempty"` // nomor induk / kode guru di sekolah
+	TeacherNumber *string `json:"teacher_code,omitempty"` // nomor induk / kode guru di sekolah
 }
 
 func teacherLiteFromJSON(raw datatypes.JSON) *TeacherPersonLite {
@@ -879,7 +935,7 @@ func teacherLiteFromJSON(raw datatypes.JSON) *TeacherPersonLite {
 
 	t.Name = strings.TrimSpace(t.Name)
 
-	// Normalisasi gender & teacher_number kalau ada
+	// Normalisasi gender & teacher_code kalau ada
 	if t.TeacherNumber != nil {
 		v := strings.TrimSpace(*t.TeacherNumber)
 		if v == "" {
@@ -899,10 +955,6 @@ func teacherLiteFromJSON(raw datatypes.JSON) *TeacherPersonLite {
 
 	return &t
 }
-
-// file: internals/features/school/classes/class_sections/dto/class_section_dto.go
-
-// ... setelah func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse { ... } tadi
 
 // Batch mapper: dari slice by-value
 func FromSectionModels(list []m.ClassSectionModel) []ClassSectionResponse {

@@ -227,7 +227,7 @@ type BookUsageSectionLite struct {
 	ClassSectionName     string    `json:"class_section_name"`
 	ClassSectionSlug     string    `json:"class_section_slug"`
 	ClassSectionCode     *string   `json:"class_section_code,omitempty"`
-	ClassSectionCapacity *int      `json:"class_section_capacity,omitempty"`
+	ClassSectionCapacity *int      `json:"class_section_quota_total,omitempty"`
 	ClassSectionIsActive bool      `json:"class_section_is_active"`
 }
 

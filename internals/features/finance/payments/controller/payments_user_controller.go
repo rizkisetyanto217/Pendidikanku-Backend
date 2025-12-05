@@ -1252,7 +1252,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
             school_student_slug,
             school_student_status,
             school_student_class_sections,
-            school_student_user_profile_name_snapshot,
+            school_student_user_profile_name_cache,
             school_student_code,
             school_student_joined_at
         ) VALUES (?, ?, ?, 'active', '[]'::jsonb, ?, ?, NOW())
@@ -1464,7 +1464,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 
 	if err := tx.Raw(`
 	SELECT 
-		NULLIF(ss.school_student_user_profile_name_snapshot,'')              AS name,
+		NULLIF(ss.school_student_user_profile_name_cache,'')              AS name,
 		NULLIF(ss.school_student_user_profile_avatar_url_snapshot,'')       AS avatar,
 		NULLIF(ss.school_student_user_profile_whatsapp_url_snapshot,'')     AS wa,
 		NULLIF(ss.school_student_user_profile_parent_name_snapshot,'')      AS parent_name,

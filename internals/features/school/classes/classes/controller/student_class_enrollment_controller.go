@@ -129,7 +129,7 @@ func enrichEnrollmentExtras(
 	type stuRow struct {
 		ID            uuid.UUID `gorm:"column:school_student_id"`
 		UserProfileID uuid.UUID `gorm:"column:school_student_user_profile_id"`
-		NameSnapshot  *string   `gorm:"column:school_student_user_profile_name_snapshot"`
+		NameSnapshot  *string   `gorm:"column:school_student_user_profile_name_cache"`
 	}
 
 	stuMap := make(map[uuid.UUID]stuRow, len(stuIDs))
@@ -140,7 +140,7 @@ func enrichEnrollmentExtras(
 			Select(`
 				school_student_id,
 				school_student_user_profile_id,
-				school_student_user_profile_name_snapshot
+				school_student_user_profile_name_cache
 			`).
 			Where("school_student_school_id = ? AND school_student_id IN ?", schoolID, stuIDs).
 			Find(&stus).Error
@@ -288,7 +288,7 @@ func (ctl *StudentClassEnrollmentController) Create(c *fiber.Ctx) error {
 		ID           uuid.UUID `gorm:"column:school_student_id"`
 		Slug         string    `gorm:"column:school_student_slug"`
 		Code         *string   `gorm:"column:school_student_code"`
-		NameSnapshot *string   `gorm:"column:school_student_user_profile_name_snapshot"`
+		NameSnapshot *string   `gorm:"column:school_student_user_profile_name_cache"`
 	}
 
 	if err := ctl.DB.WithContext(c.Context()).
@@ -297,7 +297,7 @@ func (ctl *StudentClassEnrollmentController) Create(c *fiber.Ctx) error {
 			school_student_id,
 			school_student_slug,
 			school_student_code,
-			school_student_user_profile_name_snapshot
+			school_student_user_profile_name_cache
 		`).
 		Where("school_student_id = ? AND school_student_school_id = ?", body.SchoolStudentID, schoolID).
 		Take(&stu).Error; err != nil {

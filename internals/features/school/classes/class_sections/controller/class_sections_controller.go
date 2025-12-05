@@ -346,6 +346,12 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	req.ClassSectionSchoolID = schoolID
 	req.Normalize()
 
+	// 🔥 flag untuk propagate room ke CSST
+	propagateRoomToCSST := false
+	if req.ClassSectionPropagateRoomToCSST != nil && *req.ClassSectionPropagateRoomToCSST {
+		propagateRoomToCSST = true
+	}
+
 	// ---- Validasi ringan ----
 	if strings.TrimSpace(req.ClassSectionName) == "" {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Nama section wajib diisi")
@@ -455,20 +461,6 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		applyClassParentAndTermCacheToSection(m, snap)
 	}
 
-	// ==== Cache ROOM (opsional, via class_section_class_room_id) ====
-	if m.ClassSectionClassRoomID != nil {
-		rs, err := sectionroomsnap.ValidateAndCacheRoom(tx, schoolID, *m.ClassSectionClassRoomID)
-		if err != nil {
-			_ = tx.Rollback()
-			var fe *fiber.Error
-			if errors.As(err, &fe) {
-				return helper.JsonError(c, fe.Code, fe.Message)
-			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi ruang kelas")
-		}
-		sectionroomsnap.ApplyRoomCacheToSection(m, rs)
-	}
-
 	// ---- Slug unik ----
 	var baseSlug string
 	if s := strings.TrimSpace(req.ClassSectionSlug); s != "" {
@@ -520,6 +512,75 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	} else {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal meng-hash teacher join code")
+	}
+
+	// ==== Cache ROOM (opsional, via class_section_class_room_id) + propagate ke CSST ====
+	if m.ClassSectionClassRoomID != nil {
+		rs, err := sectionroomsnap.ValidateAndCacheRoom(tx, schoolID, *m.ClassSectionClassRoomID)
+		if err != nil {
+			_ = tx.Rollback()
+			var fe *fiber.Error
+			if errors.As(err, &fe) {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi ruang kelas")
+		}
+		sectionroomsnap.ApplyRoomCacheToSection(m, rs)
+
+		if propagateRoomToCSST {
+			if err := tx.Model(&csstModel.ClassSectionSubjectTeacherModel{}).
+				Where(`
+					class_section_subject_teacher_school_id = ?
+					AND class_section_subject_teacher_class_section_id = ?
+					AND class_section_subject_teacher_deleted_at IS NULL
+				`, schoolID, m.ClassSectionID).
+				Updates(map[string]any{
+					"class_section_subject_teacher_class_room_id": func() any {
+						if m.ClassSectionClassRoomID == nil {
+							return gorm.Expr("NULL")
+						}
+						return *m.ClassSectionClassRoomID
+					}(),
+					"class_section_subject_teacher_class_room_slug_cache": func() any {
+						if m.ClassSectionClassRoomSlugCache == nil {
+							return gorm.Expr("NULL")
+						}
+						return *m.ClassSectionClassRoomSlugCache
+					}(),
+					// 🆕 propagate JSON cache
+					"class_section_subject_teacher_class_room_cache": func() any {
+						if len(m.ClassSectionClassRoomCache) == 0 {
+							return gorm.Expr("NULL")
+						}
+						return m.ClassSectionClassRoomCache
+					}(),
+
+					// 🆕 propagate name cache
+					"class_section_subject_teacher_class_room_name_cache": func() any {
+						if m.ClassSectionClassRoomNameCache == nil {
+							return gorm.Expr("NULL")
+						}
+						return *m.ClassSectionClassRoomNameCache
+					}(),
+					// 🆕 propagate location cache
+					"class_section_subject_teacher_class_room_location_cache": func() any {
+						if m.ClassSectionClassRoomLocationCache == nil {
+							return gorm.Expr("NULL")
+						}
+						return *m.ClassSectionClassRoomLocationCache
+					}(),
+					// 🆕 isi juga slug_cache_gen biar konsisten dengan Create CSST
+					"class_section_subject_teacher_class_room_slug_cache_gen": func() any {
+						if m.ClassSectionClassRoomSlugCache == nil {
+							return gorm.Expr("NULL")
+						}
+						return *m.ClassSectionClassRoomSlugCache
+					}(),
+				}).Error; err != nil {
+				_ = tx.Rollback()
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal propagate class room ke subject teachers")
+			}
+		}
 	}
 
 	// ==========================
@@ -581,6 +642,12 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 	var req secDTO.ClassSectionPatchRequest
 	if err := secDTO.DecodePatchClassSectionFromRequest(c, &req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
+
+	// 🔥 flag propagate room ke CSST
+	propagateRoomToCSST := false
+	if req.ClassSectionPropagateRoomToCSST.Present && req.ClassSectionPropagateRoomToCSST.Value != nil {
+		propagateRoomToCSST = *req.ClassSectionPropagateRoomToCSST.Value
 	}
 
 	// TX
@@ -811,6 +878,62 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 	// Apply room snapshot jika field-nya dipatch (clear jika nil)
 	if roomSnapRequested {
 		sectionroomsnap.ApplyRoomCacheToSection(&existing, roomSnap)
+
+		// 🔥 propagate ke CSST kalau diminta frontend
+		if propagateRoomToCSST {
+			if err := tx.Model(&csstModel.ClassSectionSubjectTeacherModel{}).
+				Where(`
+					class_section_subject_teacher_school_id = ?
+					AND class_section_subject_teacher_class_section_id = ?
+					AND class_section_subject_teacher_deleted_at IS NULL
+				`, schoolID, existing.ClassSectionID).
+				Updates(map[string]any{
+					"class_section_subject_teacher_class_room_id": func() any {
+						if existing.ClassSectionClassRoomID == nil {
+							return gorm.Expr("NULL")
+						}
+						return *existing.ClassSectionClassRoomID
+					}(),
+					"class_section_subject_teacher_class_room_slug_cache": func() any {
+						if existing.ClassSectionClassRoomSlugCache == nil {
+							return gorm.Expr("NULL")
+						}
+						return *existing.ClassSectionClassRoomSlugCache
+					}(),
+					// 🆕 propagate JSON cache
+					"class_section_subject_teacher_class_room_cache": func() any {
+						if len(existing.ClassSectionClassRoomCache) == 0 {
+							return gorm.Expr("NULL")
+						}
+						return existing.ClassSectionClassRoomCache
+					}(),
+
+					// 🆕 propagate name cache
+					"class_section_subject_teacher_class_room_name_cache": func() any {
+						if existing.ClassSectionClassRoomNameCache == nil {
+							return gorm.Expr("NULL")
+						}
+						return *existing.ClassSectionClassRoomNameCache
+					}(),
+					// 🆕 propagate location cache
+					"class_section_subject_teacher_class_room_location_cache": func() any {
+						if existing.ClassSectionClassRoomLocationCache == nil {
+							return gorm.Expr("NULL")
+						}
+						return *existing.ClassSectionClassRoomLocationCache
+					}(),
+					// 🆕 slug_cache_gen
+					"class_section_subject_teacher_class_room_slug_cache_gen": func() any {
+						if existing.ClassSectionClassRoomSlugCache == nil {
+							return gorm.Expr("NULL")
+						}
+						return *existing.ClassSectionClassRoomSlugCache
+					}(),
+				}).Error; err != nil {
+				_ = tx.Rollback()
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal propagate class room ke subject teachers")
+			}
+		}
 	}
 
 	// Apply teacher snapshot bila field-nya dipatch

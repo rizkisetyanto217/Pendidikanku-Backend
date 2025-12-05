@@ -94,7 +94,6 @@ func TeacherCacheFromJSON(j *datatypes.JSON) *teacherSnap.TeacherCache {
 	ts.TitlePrefix = trim(ts.TitlePrefix)
 	ts.TitleSuffix = trim(ts.TitleSuffix)
 	ts.Gender = trim(ts.Gender)
-	ts.TeacherNumber = trim(ts.TeacherNumber)
 	ts.TeacherCode = trim(ts.TeacherCode)
 
 	ts.ID = strings.TrimSpace(ts.ID)
@@ -106,7 +105,6 @@ func TeacherCacheFromJSON(j *datatypes.JSON) *teacherSnap.TeacherCache {
 		ts.TitlePrefix == nil &&
 		ts.TitleSuffix == nil &&
 		ts.Gender == nil &&
-		ts.TeacherNumber == nil &&
 		ts.TeacherCode == nil {
 		return nil
 	}

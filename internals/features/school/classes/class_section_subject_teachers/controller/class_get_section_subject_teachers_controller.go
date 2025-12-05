@@ -122,6 +122,28 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	// 🆕 multi academic_term_id (comma separated)
 	rawAcademicTermID := strings.TrimSpace(c.Query("academic_term_id"))
 
+	// 🆕 multi class_room_id / room_id (comma separated)
+	rawClassRoomID := strings.TrimSpace(c.Query("class_room_id"))
+	rawRoomID := strings.TrimSpace(c.Query("room_id"))
+	if rawClassRoomID == "" {
+		rawClassRoomID = rawRoomID
+	}
+
+	// 🆕 multi class_parent_id / parent_id (comma separated)
+	rawClassParentID := strings.TrimSpace(c.Query("class_parent_id"))
+	if rawClassParentID == "" {
+		rawClassParentID = strings.TrimSpace(c.Query("parent_id"))
+	}
+
+	var classParentIDs []uuid.UUID
+	if rawClassParentID != "" {
+		ids, err := parseUUIDList(rawClassParentID)
+		if err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "class_parent_id/parent_id tidak valid: "+err.Error())
+		}
+		classParentIDs = ids
+	}
+
 	qtext := strings.TrimSpace(strings.ToLower(c.Query("q")))
 
 	// =============== INCLUDE & NESTED TOKENS ===============
@@ -207,6 +229,16 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		academicTermIDs = ids
 	}
 
+	// 🆕 parse class_room_id / room_id as list
+	var classRoomIDs []uuid.UUID
+	if rawClassRoomID != "" {
+		ids, err := parseUUIDList(rawClassRoomID)
+		if err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "class_room_id/room_id tidak valid: "+err.Error())
+		}
+		classRoomIDs = ids
+	}
+
 	// ===== Sorting =====
 	orderCol := "class_section_subject_teacher_created_at"
 	if q.OrderBy != nil {
@@ -265,6 +297,30 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		tx = tx.Where("class_section_subject_teacher_academic_term_id IN ?", academicTermIDs)
 	}
 
+	// 🆕 filter by class_parent_id / parent_id via class_sections (pakai cache di section)
+	if len(classParentIDs) > 0 {
+		subq := ctl.DB.
+			Table("class_sections").
+			Select("class_section_id").
+			Where("class_section_school_id = ?", schoolID).
+			Where("class_section_deleted_at IS NULL").
+			Where("class_section_class_parent_id IN ?", classParentIDs)
+
+		tx = tx.Where("class_section_subject_teacher_class_section_id IN (?)", subq)
+	}
+
+	// 🆕 filter by class_room_id / room_id via subquery ke class_sections
+	if len(classRoomIDs) > 0 {
+		subq := ctl.DB.
+			Table("class_sections").
+			Select("class_section_id").
+			Where("class_section_school_id = ?", schoolID).
+			Where("class_section_deleted_at IS NULL").
+			Where("class_section_class_room_id IN ?", classRoomIDs)
+
+		tx = tx.Where("class_section_subject_teacher_class_section_id IN (?)", subq)
+	}
+
 	if qtext != "" {
 		like := "%" + qtext + "%"
 		tx = tx.Where(`
@@ -304,6 +360,31 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	if len(academicTermIDs) > 0 {
 		countTx = countTx.Where("class_section_subject_teacher_academic_term_id IN ?", academicTermIDs)
 	}
+
+	// 🆕 filter by class_room_id di COUNT juga (harus sama dengan tx)
+	if len(classRoomIDs) > 0 {
+		subq := ctl.DB.
+			Table("class_sections").
+			Select("class_section_id").
+			Where("class_section_school_id = ?", schoolID).
+			Where("class_section_deleted_at IS NULL").
+			Where("class_section_class_room_id IN ?", classRoomIDs)
+
+		countTx = countTx.Where("class_section_subject_teacher_class_section_id IN (?)", subq)
+	}
+
+	// 🆕 filter by class_parent_id di COUNT juga (pakai cache di section)
+	if len(classParentIDs) > 0 {
+		subq := ctl.DB.
+			Table("class_sections").
+			Select("class_section_id").
+			Where("class_section_school_id = ?", schoolID).
+			Where("class_section_deleted_at IS NULL").
+			Where("class_section_class_parent_id IN ?", classParentIDs)
+
+		countTx = countTx.Where("class_section_subject_teacher_class_section_id IN (?)", subq)
+	}
+
 	if qtext != "" {
 		like := "%" + qtext + "%"
 		countTx = countTx.Where(`

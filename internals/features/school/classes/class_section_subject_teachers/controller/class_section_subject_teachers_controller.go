@@ -18,7 +18,7 @@ import (
 	modelSchoolTeacher "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
 	modelClassSection "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 
-	attendanceModel "madinahsalam_backend/internals/features/school/classes/class_attendance_sessions/model"
+	attendanceModel "madinahsalam_backend/internals/features/school/class_others/class_attendance_sessions/model"
 	assessmentModel "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/model"
 
 	// DTO & Model (✅ pakai DTO lembaga)
@@ -720,7 +720,7 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 			}
 		}
 
-		// 🆕 Jika SECTION berubah → refresh SECTION cache + ACADEMIC_TERM cache dari section baru
+		// Jika SECTION berubah → refresh SECTION cache + ACADEMIC_TERM cache dari section baru
 		if sectionChanged {
 			var sec modelClassSection.ClassSectionModel
 			if err := tx.
@@ -748,13 +748,70 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 				row.ClassSectionSubjectTeacherClassSectionURLCache = p
 			}
 
-			// 🆕 ACADEMIC_TERM cache dari section baru
+			// ACADEMIC_TERM cache dari section baru
 			fillAcademicTermCacheFromSection(&sec, &row)
 		}
 
-		// TODO (opsional): kalau teacherChanged, kamu bisa juga re-build cache guru di sini,
-		// mirip blok di Create() (ValidateAndCacheTeacher + ToJSON + name/slug).
-		_ = teacherChanged // biar nggak unused kalau belum dipakai
+		// 🔁 Kalau request bawa teacher_id → pastikan valid + rebuild cache guru
+		if req.ClassSectionSubjectTeacherSchoolTeacherID != nil {
+			// Pastikan field di row sudah nilai terbaru
+			row.ClassSectionSubjectTeacherSchoolTeacherID = req.ClassSectionSubjectTeacherSchoolTeacherID
+
+			// 1) Validasi guru & tenant
+			if err := tx.
+				Where("school_teacher_id = ? AND school_teacher_school_id = ? AND school_teacher_deleted_at IS NULL",
+					row.ClassSectionSubjectTeacherSchoolTeacherID, schoolID).
+				First(&modelSchoolTeacher.SchoolTeacherModel{}).Error; err != nil {
+
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return helper.JsonError(c, http.StatusBadRequest, "Guru baru tidak ditemukan / bukan guru school ini")
+				}
+				return helper.JsonError(c, http.StatusInternalServerError, "Gagal cek guru baru")
+			}
+
+			// 2) Snapshot guru (JSON kaya) + flattened (mirip Create)
+			var mainTeacherSnap *teacherCache.TeacherCache
+			if ts, err := teacherCache.ValidateAndCacheTeacher(tx, schoolID, *row.ClassSectionSubjectTeacherSchoolTeacherID); err != nil {
+				var fe *fiber.Error
+				if errors.As(err, &fe) {
+					return helper.JsonError(c, fe.Code, fe.Message)
+				}
+				return helper.JsonError(c, http.StatusInternalServerError, "Gagal membuat cache guru")
+			} else if ts != nil {
+				mainTeacherSnap = ts
+				jb := teacherCache.ToJSON(ts)
+				row.ClassSectionSubjectTeacherSchoolTeacherCache = &jb
+			}
+
+			if mainTeacherSnap != nil {
+				if p := trimAny(mainTeacherSnap.Name); p != nil {
+					row.ClassSectionSubjectTeacherSchoolTeacherNameCache = p
+				}
+			}
+
+			// 3) Slug + snapshot name dari tabel guru (fallback)
+			{
+				var t struct {
+					Slug     *string `gorm:"column:school_teacher_slug"`
+					NameSnap *string `gorm:"column:school_teacher_user_teacher_full_name_cache"`
+				}
+				_ = tx.
+					Table("school_teachers").
+					Select("school_teacher_slug, school_teacher_user_teacher_full_name_cache").
+					Where("school_teacher_id = ? AND school_teacher_school_id = ? AND school_teacher_deleted_at IS NULL",
+						row.ClassSectionSubjectTeacherSchoolTeacherID, schoolID).
+					Take(&t).Error
+
+				if t.Slug != nil && strings.TrimSpace(*t.Slug) != "" {
+					row.ClassSectionSubjectTeacherSchoolTeacherSlugCache = t.Slug
+				}
+				if row.ClassSectionSubjectTeacherSchoolTeacherNameCache == nil {
+					if p := trimPtr(t.NameSnap); p != nil {
+						row.ClassSectionSubjectTeacherSchoolTeacherNameCache = p
+					}
+				}
+			}
+		}
 
 		// SLUG handling (mirror create)
 		if req.ClassSectionSubjectTeacherSlug != nil {
