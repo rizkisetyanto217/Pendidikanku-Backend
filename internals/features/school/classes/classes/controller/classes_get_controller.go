@@ -187,6 +187,12 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		if q.Slug != nil && strings.TrimSpace(*q.Slug) != "" {
 			tx = tx.Where("LOWER("+aliasClass+".class_slug) = LOWER(?)", strings.TrimSpace(*q.Slug))
 		}
+		// 🔍 filter spesifik by class name: ?name=
+		if q.Name != nil && strings.TrimSpace(*q.Name) != "" {
+			s := "%" + strings.ToLower(strings.TrimSpace(*q.Name)) + "%"
+			// asumsi nama kolom di DB: class_name
+			tx = tx.Where("LOWER("+aliasClass+".class_name) LIKE ?", s)
+		}
 		if q.Search != nil && strings.TrimSpace(*q.Search) != "" {
 			s := "%" + strings.ToLower(strings.TrimSpace(*q.Search)) + "%"
 			tx = tx.Where(

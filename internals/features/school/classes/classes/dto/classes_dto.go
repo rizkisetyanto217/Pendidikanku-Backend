@@ -609,6 +609,7 @@ type ListClassQuery struct {
 	Offset int     `query:"offset" validate:"omitempty,min=0"`
 	SortBy *string `query:"sort_by"` // created_at|slug|start_date|status|delivery_mode
 	Order  *string `query:"order"`   // asc|desc
+	Name   *string `query:"name" validate:"omitempty,max=160"`
 }
 
 func (q *ListClassQuery) Normalize() {
@@ -896,5 +897,3 @@ type CreateClassSectionInlineRequest struct {
 	SchoolTeacherID          *uuid.UUID `json:"school_teacher_id,omitempty"              validate:"omitempty"`
 	AssistantSchoolTeacherID *uuid.UUID `json:"assistant_school_teacher_id,omitempty"    validate:"omitempty"`
 }
-
-

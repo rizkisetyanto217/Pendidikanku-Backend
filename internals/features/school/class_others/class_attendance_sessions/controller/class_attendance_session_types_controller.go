@@ -137,16 +137,18 @@ type classAttendanceSessionTypeUpsertRequest struct {
 	ClassAttendanceSessionTypeMeta map[string]any `json:"class_attendance_session_type_meta"`
 }
 
-/* ======================================================
-   List
-   GET /api/.../class-attendance-session-types
-   Query:
-     - q          : optional, search by name / slug
-     - is_active  : optional, true/false
-     - page       : default 1
-     - per_page   : default 20, max 100
-====================================================== */
+/*
+	======================================================
+	  List
+	  GET /api/.../class-attendance-session-types
+	  Query:
+	    - q          : optional, search by name / slug
+	    - is_active  : optional, true/false
+	    - page       : default 1
+	    - per_page   : default 20, max 100
 
+======================================================
+*/
 func (ctl *ClassAttendanceSessionTypeController) List(c *fiber.Ctx) error {
 	schoolID, err := getSchoolIDFromCtx(c)
 	if err != nil {
@@ -162,6 +164,7 @@ func (ctl *ClassAttendanceSessionTypeController) List(c *fiber.Ctx) error {
 	paging := helper.ResolvePaging(c, 20, 100)
 
 	q := strings.TrimSpace(c.Query("q"))
+	name := strings.TrimSpace(c.Query("name")) // 🔍 filter khusus by name
 
 	dbq := ctl.DB.
 		Model(&model.ClassAttendanceSessionTypeModel{}).
@@ -171,11 +174,21 @@ func (ctl *ClassAttendanceSessionTypeController) List(c *fiber.Ctx) error {
 		dbq = dbq.Where("class_attendance_session_type_is_active = ?", *isActive)
 	}
 
+	// 🔍 full-text sederhana: q → name + slug
 	if q != "" {
-		pattern := "%" + q + "%"
+		pattern := "%" + strings.ToLower(q) + "%"
 		dbq = dbq.Where(
-			"(class_attendance_session_type_name ILIKE ? OR class_attendance_session_type_slug ILIKE ?)",
+			"(LOWER(class_attendance_session_type_name) LIKE ? OR LOWER(class_attendance_session_type_slug) LIKE ?)",
 			pattern, pattern,
+		)
+	}
+
+	// 🔍 filter spesifik by name: ?name=
+	if name != "" {
+		pattern := "%" + strings.ToLower(name) + "%"
+		dbq = dbq.Where(
+			"LOWER(class_attendance_session_type_name) LIKE ?",
+			pattern,
 		)
 	}
 

@@ -105,6 +105,11 @@ func (h *SubjectsController) List(c *fiber.Ctx) error {
 		kw := "%" + strings.ToLower(strings.TrimSpace(*q.Q)) + "%"
 		tx = tx.Where("(LOWER(subject_code) LIKE ? OR LOWER(subject_name) LIKE ?)", kw, kw)
 	}
+	// 🔍 filter spesifik by subject_name: ?name=
+	if q.Name != nil && strings.TrimSpace(*q.Name) != "" {
+		kw := "%" + strings.ToLower(strings.TrimSpace(*q.Name)) + "%"
+		tx = tx.Where("LOWER(subject_name) LIKE ?", kw)
+	}
 
 	// order by whitelist
 	orderBy := "subject_created_at"
@@ -163,7 +168,6 @@ func (h *SubjectsController) List(c *fiber.Ctx) error {
 	// --- response standar ---
 	return helper.JsonList(c, "ok", subjectDTO.FromSubjectModels(rows), meta)
 }
-
 
 /* ================= Helpers lokal ================= */
 

@@ -119,6 +119,9 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	teacherIDStr := strings.TrimSpace(c.Query("teacher_id"))
 	subjectIDStr := strings.TrimSpace(c.Query("subject_id"))
 
+	// 🆕 filter by subject_name (LIKE, case-insensitive)
+	subjectName := strings.TrimSpace(strings.ToLower(c.Query("subject_name")))
+
 	// 🆕 multi academic_term_id (comma separated)
 	rawAcademicTermID := strings.TrimSpace(c.Query("academic_term_id"))
 
@@ -248,7 +251,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		case "updated_at":
 			orderCol = "class_section_subject_teacher_updated_at"
 		case "subject_name":
-			orderCol = "class_section_subject_teacher_subject_name_snapshot"
+			orderCol = "class_section_subject_teacher_subject_name_cache"
 		case "section_name":
 			orderCol = "class_section_subject_teacher_class_section_name_snapshot"
 		case "teacher_name":
@@ -290,6 +293,11 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	if teacherID != nil {
 		tx = tx.Where("class_section_subject_teacher_school_teacher_id = ?", *teacherID)
 	}
+	// 🆕 filter by subject_name (LIKE)
+	if subjectName != "" {
+		like := "%" + subjectName + "%"
+		tx = tx.Where("LOWER(class_section_subject_teacher_subject_name_cache) LIKE ?", like)
+	}
 	if subjectID != nil {
 		tx = tx.Where("class_section_subject_teacher_subject_id_snapshot = ?", *subjectID)
 	}
@@ -326,7 +334,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		tx = tx.Where(`
 			LOWER(class_section_subject_teacher_slug) LIKE ? OR
 			LOWER(class_section_subject_teacher_class_section_name_snapshot) LIKE ? OR
-			LOWER(class_section_subject_teacher_subject_name_snapshot) LIKE ? OR
+			LOWER(class_section_subject_teacher_subject_name_cache) LIKE ? OR
 			LOWER(class_section_subject_teacher_school_teacher_name_snapshot) LIKE ? OR
 			LOWER(class_section_subject_teacher_academic_term_name_snapshot) LIKE ? OR
 			LOWER(class_section_subject_teacher_academic_year_snapshot) LIKE ?`,
@@ -357,6 +365,12 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	if subjectID != nil {
 		countTx = countTx.Where("class_section_subject_teacher_subject_id_snapshot = ?", *subjectID)
 	}
+	// 🆕 filter by subject_name (LIKE)
+	if subjectName != "" {
+		like := "%" + subjectName + "%"
+		countTx = countTx.Where("LOWER(class_section_subject_teacher_subject_name_cache) LIKE ?", like)
+	}
+
 	if len(academicTermIDs) > 0 {
 		countTx = countTx.Where("class_section_subject_teacher_academic_term_id IN ?", academicTermIDs)
 	}
@@ -390,7 +404,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		countTx = countTx.Where(`
 			LOWER(class_section_subject_teacher_slug) LIKE ? OR
 			LOWER(class_section_subject_teacher_class_section_name_snapshot) LIKE ? OR
-			LOWER(class_section_subject_teacher_subject_name_snapshot) LIKE ? OR
+			LOWER(class_section_subject_teacher_subject_name_cache) LIKE ? OR
 			LOWER(class_section_subject_teacher_school_teacher_name_snapshot) LIKE ? OR
 			LOWER(class_section_subject_teacher_academic_term_name_snapshot) LIKE ? OR
 			LOWER(class_section_subject_teacher_academic_year_snapshot) LIKE ?`,

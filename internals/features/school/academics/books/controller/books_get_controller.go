@@ -80,6 +80,7 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 	// ===== Query params dasar =====
 	q := strings.TrimSpace(c.Query("q"))
 	author := strings.TrimSpace(c.Query("author"))
+	name := strings.TrimSpace(c.Query("name")) // 🔍 filter spesifik judul buku
 	withDeleted := strings.EqualFold(strings.TrimSpace(c.Query("with_deleted")), "true")
 
 	// ===== Pagination & sorting =====
@@ -182,8 +183,17 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 				Or("b.book_desc ILIKE ?", needle),
 		)
 	}
+
+	// 🔍 filter spesifik by author: ?author= (sekalian aku buat contain-search)
 	if author != "" {
-		base = base.Where("b.book_author ILIKE ?", author)
+		needle := "%" + author + "%"
+		base = base.Where("b.book_author ILIKE ?", needle)
+	}
+
+	// 🔍 filter spesifik by book title: ?name=
+	if name != "" {
+		needle := "%" + name + "%"
+		base = base.Where("b.book_title ILIKE ?", needle)
 	}
 
 	// ===== Count total (distinct book_id) =====

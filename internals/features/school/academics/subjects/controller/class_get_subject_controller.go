@@ -116,11 +116,31 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 	if q.SubjectID != nil {
 		tx = tx.Where("class_subject_subject_id = ?", *q.SubjectID)
 	}
+
+	// 🔍 Full-text sederhana: q → desc + subject_name_cache
 	if q.Q != nil && strings.TrimSpace(*q.Q) != "" {
 		kw := "%" + strings.ToLower(strings.TrimSpace(*q.Q)) + "%"
-		// sementara cari di desc; kalau nanti mau diperluas (name cache, dst) bisa ditambah
-		tx = tx.Where("LOWER(COALESCE(class_subject_desc,'')) LIKE ?", kw)
+		tx = tx.Where(`
+		LOWER(COALESCE(class_subject_desc, '')) LIKE ? OR
+		LOWER(COALESCE(class_subject_subject_name_cache, '')) LIKE ?
+	`, kw, kw)
 	}
+
+	// 🔍 Filter spesifik by subject name: ?name=
+	if q.Name != nil && strings.TrimSpace(*q.Name) != "" {
+		kw := "%" + strings.ToLower(strings.TrimSpace(*q.Name)) + "%"
+		tx = tx.Where("LOWER(COALESCE(class_subject_subject_name_cache,'')) LIKE ?", kw)
+	}
+
+	// (opsional) Kalau di DTO kamu nanti ada field khusus untuk nama mapel, misalnya:
+	//   SubjectName *string `query:"subject_name"`
+	// bisa tambahin blok terpisah seperti ini:
+	/*
+		if q.SubjectName != nil && strings.TrimSpace(*q.SubjectName) != "" {
+			kw := "%" + strings.ToLower(strings.TrimSpace(*q.SubjectName)) + "%"
+			tx = tx.Where("LOWER(COALESCE(class_subject_subject_name_cache,'')) LIKE ?", kw)
+		}
+	*/
 
 	// ===== Sorting whitelist =====
 	// Dukungan:

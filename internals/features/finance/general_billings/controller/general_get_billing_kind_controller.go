@@ -14,8 +14,6 @@ import (
 )
 
 // GET /api/a/:school_id/general-billing-kinds
-
-// GET /api/a/:school_id/general-billing-kinds
 func (ctl *GeneralBillingKindController) List(c *fiber.Ctx) error {
 	// 1) Resolve school context:
 	//    - Prioritas: dari token (teacher dulu, lalu active-school)
@@ -47,6 +45,9 @@ func (ctl *GeneralBillingKindController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid query params")
 	}
 	q.Search = strings.TrimSpace(q.Search)
+
+	// 🔹 Tambahan: name khusus untuk search by name
+	nameQuery := strings.TrimSpace(c.Query("name"))
 
 	// 2a) Fallback tanggal (dukungan "YYYY-MM-DD" selain RFC3339)
 	if q.CreatedFrom == nil {
@@ -85,6 +86,17 @@ func (ctl *GeneralBillingKindController) List(c *fiber.Ctx) error {
 		Model(&m.GeneralBillingKind{}).
 		Where("general_billing_kind_school_id = ? AND general_billing_kind_deleted_at IS NULL", schoolID)
 
+	// 🔹 Filter by id (id / general_billing_kind_id)
+	if s := strings.TrimSpace(c.Query("id")); s != "" {
+		if id, err := uuid.Parse(s); err == nil && id != uuid.Nil {
+			tx = tx.Where("general_billing_kind_id = ?", id)
+		}
+	} else if s := strings.TrimSpace(c.Query("general_billing_kind_id")); s != "" {
+		if id, err := uuid.Parse(s); err == nil && id != uuid.Nil {
+			tx = tx.Where("general_billing_kind_id = ?", id)
+		}
+	}
+
 	// 6) Filters tambahan
 	if q.IsActive != nil {
 		tx = tx.Where("general_billing_kind_is_active = ?", *q.IsActive)
@@ -114,10 +126,18 @@ func (ctl *GeneralBillingKindController) List(c *fiber.Ctx) error {
 		tx = tx.Where("general_billing_kind_requires_option_code = ?", *q.RequiresOptionCode)
 	}
 
-	// Search (code/name)
-	if q.Search != "" {
+	// 🔍 Search:
+	// - kalau ada ?name= → spesifik ke kolom name
+	// - else kalau ada q.Search → ke code OR name (seperti sebelumnya)
+	if nameQuery != "" {
+		needle := "%" + strings.ToLower(nameQuery) + "%"
+		tx = tx.Where("LOWER(general_billing_kind_name) LIKE ?", needle)
+	} else if q.Search != "" {
 		needle := "%" + strings.ToLower(q.Search) + "%"
-		tx = tx.Where("(LOWER(general_billing_kind_code) LIKE ? OR LOWER(general_billing_kind_name) LIKE ?)", needle, needle)
+		tx = tx.Where(
+			"(LOWER(general_billing_kind_code) LIKE ? OR LOWER(general_billing_kind_name) LIKE ?)",
+			needle, needle,
+		)
 	}
 
 	// 7) Hitung total

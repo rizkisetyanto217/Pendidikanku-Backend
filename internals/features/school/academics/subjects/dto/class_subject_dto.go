@@ -117,6 +117,7 @@ type ListClassSubjectQuery struct {
 	SchoolID      *uuid.UUID `query:"school_id"         validate:"omitempty"`
 	ClassParentID *uuid.UUID `query:"class_parent_id"   validate:"omitempty"`
 	SubjectID     *uuid.UUID `query:"subject_id"        validate:"omitempty"`
+	Name          *string    `query:"name"`
 }
 
 /* =========================================================

@@ -304,6 +304,7 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		idsStr = strings.TrimSpace(c.Query("ids"))
 
 		qStr     = strings.TrimSpace(c.Query("q"))
+		titleStr = strings.TrimSpace(c.Query("title")) // 🔍 filter khusus by title
 		isPubStr = strings.TrimSpace(c.Query("is_published"))
 		limit    = atoiOr(20, c.Query("limit"))
 		offset   = atoiOr(0, c.Query("offset"))
@@ -499,6 +500,11 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 			"(LOWER(assessment_title) LIKE ? OR LOWER(COALESCE(assessment_description, '')) LIKE ?)",
 			q, q,
 		)
+	}
+	// 🔍 filter khusus by title: ?title=...
+	if titleStr != "" {
+		t := "%" + strings.ToLower(titleStr) + "%"
+		qry = qry.Where("LOWER(assessment_title) LIKE ?", t)
 	}
 
 	// total

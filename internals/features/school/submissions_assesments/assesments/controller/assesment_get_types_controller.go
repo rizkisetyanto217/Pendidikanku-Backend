@@ -114,6 +114,11 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 			like, like,
 		)
 	}
+	// 🔍 filter khusus by name: ?name=...
+	if nameParam := strings.TrimSpace(c.Query("name")); nameParam != "" {
+		like := "%" + strings.ToLower(nameParam) + "%"
+		qry = qry.Where("LOWER(assessment_type_name) LIKE ?", like)
+	}
 
 	var total int64
 	if err := qry.Count(&total).Error; err != nil {

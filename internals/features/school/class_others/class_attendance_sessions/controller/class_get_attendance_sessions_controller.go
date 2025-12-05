@@ -221,6 +221,9 @@ func (ctrl *ClassAttendanceSessionController) listStudentTimeline(
 	// 3) Filter participant (state/type/is_passed)
 	state := strings.ToLower(strings.TrimSpace(c.Query("participant_state")))
 
+	// 🔍 optional: filter by session title
+	titleFilter := strings.TrimSpace(c.Query("title"))
+
 	typeIDPtr, err := parseUUIDPtr(c.Query("participant_type_id"), "participant_type_id")
 	if err != nil {
 		return err
@@ -297,6 +300,16 @@ func (ctrl *ClassAttendanceSessionController) listStudentTimeline(
 		q = q.Where("cas.class_attendance_session_date >= ?", *df)
 	} else if dt != nil {
 		q = q.Where("cas.class_attendance_session_date <= ?", *dt)
+	}
+
+	// 🔍 filter spesifik by title / display_title
+	if titleFilter != "" {
+		pat := "%" + strings.ToLower(titleFilter) + "%"
+		q = q.Where(`
+			LOWER(cas.class_attendance_session_title) LIKE ?
+			OR LOWER(cas.class_attendance_session_display_title) LIKE ?`,
+			pat, pat,
+		)
 	}
 
 	// 🔹 Filter CSST (opsional)
@@ -474,6 +487,8 @@ func (ctrl *ClassAttendanceSessionController) listTeacherTimeline(
 
 	// 3) Filter participant (state/type/is_passed)
 	state := strings.ToLower(strings.TrimSpace(c.Query("participant_state")))
+	// 🔍 optional: filter by session title
+	titleFilter := strings.TrimSpace(c.Query("title"))
 
 	typeIDPtr, err := parseUUIDPtr(c.Query("participant_type_id"), "participant_type_id")
 	if err != nil {
@@ -550,6 +565,16 @@ func (ctrl *ClassAttendanceSessionController) listTeacherTimeline(
 	// 🔹 Filter CSST (opsional)
 	if csstIDPtr != nil {
 		q = q.Where("cas.class_attendance_session_csst_id = ?", *csstIDPtr)
+	}
+
+	// 🔍 filter spesifik by title / display_title
+	if titleFilter != "" {
+		pat := "%" + strings.ToLower(titleFilter) + "%"
+		q = q.Where(`
+			LOWER(cas.class_attendance_session_title) LIKE ?
+			OR LOWER(cas.class_attendance_session_display_title) LIKE ?`,
+			pat, pat,
+		)
 	}
 
 	// LEFT JOIN participants khusus guru ini
@@ -934,6 +959,9 @@ func (ctrl *ClassAttendanceSessionController) listSessionsDefault(
 		like = &pat
 	}
 
+	// 🔍 filter khusus by title / display_title
+	titleFilter := strings.TrimSpace(c.Query("title"))
+
 	// filter by id(s)
 	var sessionIDs []uuid.UUID
 	if ids, err := parseUUIDList(c.Query("id")); err != nil {
@@ -1048,11 +1076,23 @@ func (ctrl *ClassAttendanceSessionController) listSessionsDefault(
 	if len(sessionIDs) > 0 {
 		qBase = qBase.Where("cas.class_attendance_session_id IN ?", sessionIDs)
 	}
+
+	// 🔍 full-text sederhana (q) → title + general_info + display_title
 	if like != nil {
 		qBase = qBase.Where(`
 			(cas.class_attendance_session_title ILIKE ?
 			 OR cas.class_attendance_session_general_info ILIKE ?
              OR cas.class_attendance_session_display_title ILIKE ?)`, *like, *like, *like)
+	}
+
+	// 🔍 filter spesifik by title / display_title: ?title=
+	if titleFilter != "" {
+		pat := "%" + strings.ToLower(titleFilter) + "%"
+		qBase = qBase.Where(`
+			LOWER(cas.class_attendance_session_title) LIKE ?
+			OR LOWER(cas.class_attendance_session_display_title) LIKE ?`,
+			pat, pat,
+		)
 	}
 
 	// Types untuk hasil query utama & participants

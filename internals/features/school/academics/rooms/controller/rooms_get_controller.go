@@ -43,6 +43,7 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 
 	// ===== Parse query params =====
 	search := strings.TrimSpace(c.Query("q"))
+	name := strings.TrimSpace(c.Query("name")) // 🔍 filter khusus by room name
 	sortParam := strings.ToLower(strings.TrimSpace(c.Query("sort")))
 	isActivePtr := parseBoolPtr(c.Query("is_active"))
 	isVirtualPtr := parseBoolPtr(c.Query("is_virtual"))
@@ -129,13 +130,20 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	if search != "" {
 		s := "%" + strings.ToLower(search) + "%"
 		db = db.Where(`
-			LOWER(class_room_name) LIKE ?
-			OR LOWER(COALESCE(class_room_code,'')) LIKE ?
-			OR LOWER(COALESCE(class_room_slug,'')) LIKE ?
-			OR LOWER(COALESCE(class_room_location,'')) LIKE ?
-			OR LOWER(COALESCE(class_room_description,'')) LIKE ?
-		`, s, s, s, s, s)
+		LOWER(class_room_name) LIKE ?
+		OR LOWER(COALESCE(class_room_code,'')) LIKE ?
+		OR LOWER(COALESCE(class_room_slug,'')) LIKE ?
+		OR LOWER(COALESCE(class_room_location,'')) LIKE ?
+		OR LOWER(COALESCE(class_room_description,'')) LIKE ?
+	`, s, s, s, s, s)
 	}
+
+	// 🔍 filter spesifik by room name: ?name=
+	if name != "" {
+		s := "%" + strings.ToLower(name) + "%"
+		db = db.Where("LOWER(class_room_name) LIKE ?", s)
+	}
+
 	if isActivePtr != nil {
 		db = db.Where("class_room_is_active = ?", *isActivePtr)
 	}

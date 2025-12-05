@@ -54,10 +54,40 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 	}
 
 	// 5) Optional filters
-	// ?assessment_id=<uuid>
+
+	// 🔹 Filter by submission_id / id (single UUID)
+	if s := strings.TrimSpace(c.Query("id")); s != "" {
+		if sid, er := uuid.Parse(s); er == nil && sid != uuid.Nil {
+			tx = tx.Where("submission_id = ?", sid)
+		}
+	} else if s := strings.TrimSpace(c.Query("submission_id")); s != "" {
+		if sid, er := uuid.Parse(s); er == nil && sid != uuid.Nil {
+			tx = tx.Where("submission_id = ?", sid)
+		}
+	}
+
+	// 🔹 Filter by assessment_id (single UUID)
 	if s := strings.TrimSpace(c.Query("assessment_id")); s != "" {
 		if aid, er := uuid.Parse(s); er == nil && aid != uuid.Nil {
 			tx = tx.Where("submission_assessment_id = ?", aid)
+		}
+	}
+
+	// 🔹 (opsional) multiple assessment_ids=uuid1,uuid2,...
+	if s := strings.TrimSpace(c.Query("assessment_ids")); s != "" {
+		parts := strings.Split(s, ",")
+		var ids []uuid.UUID
+		for _, p := range parts {
+			ps := strings.TrimSpace(p)
+			if ps == "" {
+				continue
+			}
+			if aid, er := uuid.Parse(ps); er == nil && aid != uuid.Nil {
+				ids = append(ids, aid)
+			}
+		}
+		if len(ids) > 0 {
+			tx = tx.Where("submission_assessment_id IN ?", ids)
 		}
 	}
 

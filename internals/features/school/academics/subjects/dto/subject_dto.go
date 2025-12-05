@@ -492,11 +492,11 @@ func parseBoolLoose(s string) (bool, error) {
 func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
 
 /* ================= Queries & Responses ================= */
-
 type ListSubjectQuery struct {
 	Limit       *int    `query:"limit"`
 	Offset      *int    `query:"offset"`
 	Q           *string `query:"q"`
+	Name        *string `query:"name" validate:"omitempty,max=120"`
 	IsActive    *bool   `query:"is_active"`
 	WithDeleted *bool   `query:"with_deleted"`
 	OrderBy     *string `query:"order_by"` // code|name|created_at|updated_at
