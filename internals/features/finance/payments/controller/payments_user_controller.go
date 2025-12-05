@@ -1631,6 +1631,53 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 			sSlug = &s
 		}
 
+		// =========================================
+		// 5a) LOCK kelas + cek kuota (FOR UPDATE)
+		// =========================================
+		var quotaRow struct {
+			Total *int64 `gorm:"column:class_quota_total"`
+			Taken *int64 `gorm:"column:class_quota_taken"`
+		}
+
+		if err := tx.Raw(`
+			SELECT class_quota_total, class_quota_taken
+			  FROM classes
+			 WHERE class_id = ?
+			   AND class_deleted_at IS NULL
+			 FOR UPDATE
+		`, it.ClassID).Scan(&quotaRow).Error; err != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal baca kuota kelas: "+err.Error())
+		}
+
+		// Nama kelas buat pesan error
+		classNameForErr := it.ClassID.String()
+		if cs, ok := clsMap[it.ClassID]; ok && strings.TrimSpace(cs.Name) != "" {
+			classNameForErr = strings.TrimSpace(cs.Name)
+		}
+
+		// Kalau punya kuota (Total != nil) → cek penuh atau belum
+		if quotaRow.Total != nil {
+			total := *quotaRow.Total
+			taken := int64(0)
+			if quotaRow.Taken != nil {
+				taken = *quotaRow.Taken
+			}
+
+			if taken >= total {
+				_ = tx.Rollback()
+				return helper.JsonError(
+					c,
+					fiber.StatusBadRequest,
+					fmt.Sprintf("kuota kelas %s sudah penuh", classNameForErr),
+				)
+			}
+		}
+		// Kalau Total == nil → unlimited, tapi kita tetap increment nanti
+
+		// =========================================
+		// 5b) INSERT enrollment
+		// =========================================
 		var eidStr string
 		if err := tx.Raw(`
 	INSERT INTO student_class_enrollments
@@ -1695,36 +1742,19 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		enrollIDs = append(enrollIDs, eid)
 		perShares = append(perShares, it.AmountIDR)
 
-		// ==================== KUOTA KELAS ====================
-		// - Selalu increment class_quota_taken
-		// - Kalau class_quota_total TIDAK NULL → pastikan belum penuh
-		// - Kalau penuh → rollback & tolak pendaftaran
-		classNameForErr := it.ClassID.String()
-		if cs, ok := clsMap[it.ClassID]; ok && strings.TrimSpace(cs.Name) != "" {
-			classNameForErr = strings.TrimSpace(cs.Name)
-		}
-
-		res := tx.Exec(`
+		// =========================================
+		// 5c) Increment kuota_taken (selalu naik)
+		// =========================================
+		if err := tx.Exec(`
 			UPDATE classes
 			   SET class_quota_taken = COALESCE(class_quota_taken, 0) + 1,
 			       class_updated_at  = NOW()
 			 WHERE class_id = ?
 			   AND class_deleted_at IS NULL
-			   AND (
-			        class_quota_total IS NULL
-			        OR COALESCE(class_quota_taken, 0) < class_quota_total
-			   )
-		`, it.ClassID)
-
-		if res.Error != nil {
+		`, it.ClassID).Error; err != nil {
 			_ = tx.Rollback()
-			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal update kuota kelas: "+res.Error.Error())
+			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal update kuota kelas: "+err.Error())
 		}
-		if res.RowsAffected == 0 {
-			_ = tx.Rollback()
-			return helper.JsonError(c, fiber.StatusBadRequest, fmt.Sprintf("kuota kelas %s sudah penuh", classNameForErr))
-		}
-		// ================== END KUOTA KELAS ==================
 	}
 
 	// 6) Buat 1 payment (total)
