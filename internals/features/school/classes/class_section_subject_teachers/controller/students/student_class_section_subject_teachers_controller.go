@@ -17,7 +17,7 @@ import (
 
 /* =========================================================
    Controller
-   ========================================================= */
+========================================================= */
 
 type StudentCSSTController struct {
 	DB        *gorm.DB
@@ -30,65 +30,69 @@ func NewStudentCSSTController(db *gorm.DB, v interface{ Struct(any) error }) *St
 
 /* =========================================================
    Mapper: Model → DTO (1:1 dengan model)
-   ========================================================= */
+========================================================= */
 
-func toStudentCSSTItem(m *model.StudentClassSectionSubjectTeacher) dto.StudentCSSTItem {
+func toStudentCSSTItem(m *model.StudentClassSectionSubjectTeacherModel) dto.StudentCSSTItem {
 	var deletedAt *time.Time
-	if m.StudentClassSectionSubjectTeacherDeletedAt.Valid {
-		t := m.StudentClassSectionSubjectTeacherDeletedAt.Time
+	if m.StudentCSSTDeletedAt.Valid {
+		t := m.StudentCSSTDeletedAt.Time
 		deletedAt = &t
 	}
 
 	return dto.StudentCSSTItem{
-		StudentClassSectionSubjectTeacherID:       m.StudentClassSectionSubjectTeacherID,
-		StudentClassSectionSubjectTeacherSchoolID: m.StudentClassSectionSubjectTeacherSchoolID,
+		StudentCSSTID:       m.StudentCSSTID,
+		StudentCSSTSchoolID: m.StudentCSSTSchoolID,
 
-		StudentClassSectionSubjectTeacherStudentID: m.StudentClassSectionSubjectTeacherStudentID,
-		StudentClassSectionSubjectTeacherCSSTID:    m.StudentClassSectionSubjectTeacherCSSTID,
+		StudentCSSTStudentID: m.StudentCSSTStudentID,
+		StudentCSSTCSSTID:    m.StudentCSSTCSSTID,
 
-		StudentClassSectionSubjectTeacherIsActive: m.StudentClassSectionSubjectTeacherIsActive,
-		StudentClassSectionSubjectTeacherFrom:     m.StudentClassSectionSubjectTeacherFrom,
-		StudentClassSectionSubjectTeacherTo:       m.StudentClassSectionSubjectTeacherTo,
+		StudentCSSTIsActive: m.StudentCSSTIsActive,
+		StudentCSSTFrom:     m.StudentCSSTFrom,
+		StudentCSSTTo:       m.StudentCSSTTo,
 
-		StudentClassSectionSubjectTeacherScoreTotal:    m.StudentClassSectionSubjectTeacherScoreTotal,
-		StudentClassSectionSubjectTeacherScoreMaxTotal: m.StudentClassSectionSubjectTeacherScoreMaxTotal,
-		StudentClassSectionSubjectTeacherScorePercent:  m.StudentClassSectionSubjectTeacherScorePercent,
-		StudentClassSectionSubjectTeacherGradeLetter:   m.StudentClassSectionSubjectTeacherGradeLetter,
-		StudentClassSectionSubjectTeacherGradePoint:    m.StudentClassSectionSubjectTeacherGradePoint,
-		StudentClassSectionSubjectTeacherIsPassed:      m.StudentClassSectionSubjectTeacherIsPassed,
+		StudentCSSTScoreTotal:    m.StudentCSSTScoreTotal,
+		StudentCSSTScoreMaxTotal: m.StudentCSSTScoreMaxTotal,
+		StudentCSSTScorePercent:  m.StudentCSSTScorePercent,
+		StudentCSSTGradeLetter:   m.StudentCSSTGradeLetter,
+		StudentCSSTGradePoint:    m.StudentCSSTGradePoint,
+		StudentCSSTIsPassed:      m.StudentCSSTIsPassed,
 
-		StudentClassSectionSubjectTeacherUserProfileNameCache:              m.StudentClassSectionSubjectTeacherUserProfileNameCache,
-		StudentClassSectionSubjectTeacherUserProfileAvatarURLCache:         m.StudentClassSectionSubjectTeacherUserProfileAvatarURLCache,
-		StudentClassSectionSubjectTeacherUserProfileWhatsappURLCache:       m.StudentClassSectionSubjectTeacherUserProfileWhatsappURLCache,
-		StudentClassSectionSubjectTeacherUserProfileParentNameCache:        m.StudentClassSectionSubjectTeacherUserProfileParentNameCache,
-		StudentClassSectionSubjectTeacherUserProfileParentWhatsappURLCache: m.StudentClassSectionSubjectTeacherUserProfileParentWhatsappURLCache,
-		StudentClassSectionSubjectTeacherUserProfileGenderCache:            m.StudentClassSectionSubjectTeacherUserProfileGenderCache,
-		StudentClassSectionSubjectTeacherStudentCodeCache:                  m.StudentClassSectionSubjectTeacherStudentCodeCache,
+		StudentCSSTNameCache:        m.StudentCSSTNameCache,
+		StudentCSSTAvatarURLCache:   m.StudentCSSTAvatarURLCache,
+		StudentCSSTWAURLCache:       m.StudentCSSTWAURLCache,
+		StudentCSSTParentNameCache:  m.StudentCSSTParentNameCache,
+		StudentCSSTParentWAURLCache: m.StudentCSSTParentWAURLCache,
+		StudentCSSTGenderCache:      m.StudentCSSTGenderCache,
+		StudentCSSTStudentCodeCache: m.StudentCSSTStudentCodeCache,
 
-		StudentClassSectionSubjectTeacherEditsHistory: m.StudentClassSectionSubjectTeacherEditsHistory,
+		StudentCSSTEditsHistory: m.StudentCSSTEditsHistory,
 
 		// NOTES
-		StudentClassSectionSubjectTeacherStudentNotes:                 m.StudentClassSectionSubjectTeacherStudentNotes,
-		StudentClassSectionSubjectTeacherStudentNotesUpdatedAt:        m.StudentClassSectionSubjectTeacherStudentNotesUpdatedAt,
-		StudentClassSectionSubjectTeacherHomeroomNotes:                m.StudentClassSectionSubjectTeacherHomeroomNotes,
-		StudentClassSectionSubjectTeacherHomeroomNotesUpdatedAt:       m.StudentClassSectionSubjectTeacherHomeroomNotesUpdatedAt,
-		StudentClassSectionSubjectTeacherSubjectTeacherNotes:          m.StudentClassSectionSubjectTeacherSubjectTeacherNotes,
-		StudentClassSectionSubjectTeacherSubjectTeacherNotesUpdatedAt: m.StudentClassSectionSubjectTeacherSubjectTeacherNotesUpdatedAt,
+		StudentCSSTStudentNotes:                 m.StudentCSSTStudentNotes,
+		StudentCSSTStudentNotesUpdatedAt:        m.StudentCSSTStudentNotesUpdatedAt,
+		StudentCSSTHomeroomNotes:                m.StudentCSSTHomeroomNotes,
+		StudentCSSTHomeroomNotesUpdatedAt:       m.StudentCSSTHomeroomNotesUpdatedAt,
+		StudentCSSTSubjectTeacherNotes:          m.StudentCSSTSubjectTeacherNotes,
+		StudentCSSTSubjectTeacherNotesUpdatedAt: m.StudentCSSTSubjectTeacherNotesUpdatedAt,
 
-		StudentClassSectionSubjectTeacherSlug: m.StudentClassSectionSubjectTeacherSlug,
-		StudentClassSectionSubjectTeacherMeta: m.StudentClassSectionSubjectTeacherMeta,
+		StudentCSSTSlug: m.StudentCSSTSlug,
+		StudentCSSTMeta: m.StudentCSSTMeta,
 
-		StudentClassSectionSubjectTeacherCreatedAt: m.StudentClassSectionSubjectTeacherCreatedAt,
-		StudentClassSectionSubjectTeacherUpdatedAt: m.StudentClassSectionSubjectTeacherUpdatedAt,
-		StudentClassSectionSubjectTeacherDeletedAt: deletedAt,
+		StudentCSSTCreatedAt: m.StudentCSSTCreatedAt,
+		StudentCSSTUpdatedAt: m.StudentCSSTUpdatedAt,
+		StudentCSSTDeletedAt: deletedAt,
 
 		// Expanded relasi (Student/Section/ClassSubject/Teacher) sementara kosong.
+		Student:      nil,
+		Section:      nil,
+		ClassSubject: nil,
+		Teacher:      nil,
 	}
 }
 
 /* =========================================================
    CREATE
-   ========================================================= */
+========================================================= */
 
 // POST /api/a/student-csst
 func (ctl *StudentCSSTController) Create(c *fiber.Ctx) error {
@@ -123,34 +127,34 @@ func (ctl *StudentCSSTController) Create(c *fiber.Ctx) error {
 
 	now := time.Now()
 
-	m := model.StudentClassSectionSubjectTeacher{
-		StudentClassSectionSubjectTeacherSchoolID:  schoolID,
-		StudentClassSectionSubjectTeacherStudentID: req.StudentID,
-		StudentClassSectionSubjectTeacherCSSTID:    req.CSSTID,
+	m := model.StudentClassSectionSubjectTeacherModel{
+		StudentCSSTSchoolID:  schoolID,
+		StudentCSSTStudentID: req.StudentID,
+		StudentCSSTCSSTID:    req.CSSTID,
 	}
 
 	if req.IsActive != nil {
-		m.StudentClassSectionSubjectTeacherIsActive = *req.IsActive
+		m.StudentCSSTIsActive = *req.IsActive
 	}
 	if req.From != nil {
-		m.StudentClassSectionSubjectTeacherFrom = req.From
+		m.StudentCSSTFrom = req.From
 	}
 	if req.To != nil {
-		m.StudentClassSectionSubjectTeacherTo = req.To
+		m.StudentCSSTTo = req.To
 	}
 
 	// Notes (opsional) + updated_at
 	if req.StudentNotes != nil {
-		m.StudentClassSectionSubjectTeacherStudentNotes = req.StudentNotes
-		m.StudentClassSectionSubjectTeacherStudentNotesUpdatedAt = &now
+		m.StudentCSSTStudentNotes = req.StudentNotes
+		m.StudentCSSTStudentNotesUpdatedAt = &now
 	}
 	if req.HomeroomNotes != nil {
-		m.StudentClassSectionSubjectTeacherHomeroomNotes = req.HomeroomNotes
-		m.StudentClassSectionSubjectTeacherHomeroomNotesUpdatedAt = &now
+		m.StudentCSSTHomeroomNotes = req.HomeroomNotes
+		m.StudentCSSTHomeroomNotesUpdatedAt = &now
 	}
 	if req.SubjectTeacherNotes != nil {
-		m.StudentClassSectionSubjectTeacherSubjectTeacherNotes = req.SubjectTeacherNotes
-		m.StudentClassSectionSubjectTeacherSubjectTeacherNotesUpdatedAt = &now
+		m.StudentCSSTSubjectTeacherNotes = req.SubjectTeacherNotes
+		m.StudentCSSTSubjectTeacherNotesUpdatedAt = &now
 	}
 
 	if err := tx.Create(&m).Error; err != nil {
@@ -169,7 +173,7 @@ func (ctl *StudentCSSTController) Create(c *fiber.Ctx) error {
 
 /* =========================================================
    BULK CREATE
-   ========================================================= */
+========================================================= */
 
 // POST /api/a/student-csst/bulk
 func (ctl *StudentCSSTController) BulkCreate(c *fiber.Ctx) error {
@@ -209,12 +213,12 @@ func (ctl *StudentCSSTController) BulkCreate(c *fiber.Ctx) error {
 
 	for _, it := range req.Items {
 		// cek duplikat by (school_id, student_id, csst_id)
-		var existing model.StudentClassSectionSubjectTeacher
+		var existing model.StudentClassSectionSubjectTeacherModel
 		err := tx.
-			Where("student_class_section_subject_teacher_school_id = ?", schoolID).
-			Where("student_class_section_subject_teacher_student_id = ?", it.StudentID).
-			Where("student_class_section_subject_teacher_csst_id = ?", it.CSSTID).
-			Where("student_class_section_subject_teacher_deleted_at IS NULL").
+			Where("student_csst_school_id = ?", schoolID).
+			Where("student_csst_student_id = ?", it.StudentID).
+			Where("student_csst_csst_id = ?", it.CSSTID).
+			Where("student_csst_deleted_at IS NULL").
 			First(&existing).Error
 
 		if err == nil {
@@ -240,33 +244,33 @@ func (ctl *StudentCSSTController) BulkCreate(c *fiber.Ctx) error {
 
 		now := time.Now()
 
-		m := model.StudentClassSectionSubjectTeacher{
-			StudentClassSectionSubjectTeacherSchoolID:  schoolID,
-			StudentClassSectionSubjectTeacherStudentID: it.StudentID,
-			StudentClassSectionSubjectTeacherCSSTID:    it.CSSTID,
+		m := model.StudentClassSectionSubjectTeacherModel{
+			StudentCSSTSchoolID:  schoolID,
+			StudentCSSTStudentID: it.StudentID,
+			StudentCSSTCSSTID:    it.CSSTID,
 		}
 		if it.IsActive != nil {
-			m.StudentClassSectionSubjectTeacherIsActive = *it.IsActive
+			m.StudentCSSTIsActive = *it.IsActive
 		}
 		if it.From != nil {
-			m.StudentClassSectionSubjectTeacherFrom = it.From
+			m.StudentCSSTFrom = it.From
 		}
 		if it.To != nil {
-			m.StudentClassSectionSubjectTeacherTo = it.To
+			m.StudentCSSTTo = it.To
 		}
 
 		// Notes (opsional) + updated_at
 		if it.StudentNotes != nil {
-			m.StudentClassSectionSubjectTeacherStudentNotes = it.StudentNotes
-			m.StudentClassSectionSubjectTeacherStudentNotesUpdatedAt = &now
+			m.StudentCSSTStudentNotes = it.StudentNotes
+			m.StudentCSSTStudentNotesUpdatedAt = &now
 		}
 		if it.HomeroomNotes != nil {
-			m.StudentClassSectionSubjectTeacherHomeroomNotes = it.HomeroomNotes
-			m.StudentClassSectionSubjectTeacherHomeroomNotesUpdatedAt = &now
+			m.StudentCSSTHomeroomNotes = it.HomeroomNotes
+			m.StudentCSSTHomeroomNotesUpdatedAt = &now
 		}
 		if it.SubjectTeacherNotes != nil {
-			m.StudentClassSectionSubjectTeacherSubjectTeacherNotes = it.SubjectTeacherNotes
-			m.StudentClassSectionSubjectTeacherSubjectTeacherNotesUpdatedAt = &now
+			m.StudentCSSTSubjectTeacherNotes = it.SubjectTeacherNotes
+			m.StudentCSSTSubjectTeacherNotesUpdatedAt = &now
 		}
 
 		if err := tx.Create(&m).Error; err != nil {
@@ -298,7 +302,7 @@ func (ctl *StudentCSSTController) BulkCreate(c *fiber.Ctx) error {
 
 /* =========================================================
    UPSERT (by school_id + csst_id + student_id)
-   ========================================================= */
+========================================================= */
 
 // POST /api/a/student-csst/upsert
 func (ctl *StudentCSSTController) Upsert(c *fiber.Ctx) error {
@@ -333,43 +337,43 @@ func (ctl *StudentCSSTController) Upsert(c *fiber.Ctx) error {
 
 	now := time.Now()
 
-	var m model.StudentClassSectionSubjectTeacher
+	var m model.StudentClassSectionSubjectTeacherModel
 	err = tx.
 		Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("student_class_section_subject_teacher_school_id = ?", schoolID).
-		Where("student_class_section_subject_teacher_student_id = ?", req.StudentID).
-		Where("student_class_section_subject_teacher_csst_id = ?", req.CSSTID).
+		Where("student_csst_school_id = ?", schoolID).
+		Where("student_csst_student_id = ?", req.StudentID).
+		Where("student_csst_csst_id = ?", req.CSSTID).
 		First(&m).Error
 
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		// create baru
-		m = model.StudentClassSectionSubjectTeacher{
-			StudentClassSectionSubjectTeacherSchoolID:  schoolID,
-			StudentClassSectionSubjectTeacherStudentID: req.StudentID,
-			StudentClassSectionSubjectTeacherCSSTID:    req.CSSTID,
+		m = model.StudentClassSectionSubjectTeacherModel{
+			StudentCSSTSchoolID:  schoolID,
+			StudentCSSTStudentID: req.StudentID,
+			StudentCSSTCSSTID:    req.CSSTID,
 		}
 		if req.IsActive != nil {
-			m.StudentClassSectionSubjectTeacherIsActive = *req.IsActive
+			m.StudentCSSTIsActive = *req.IsActive
 		}
 		if req.From != nil {
-			m.StudentClassSectionSubjectTeacherFrom = req.From
+			m.StudentCSSTFrom = req.From
 		}
 		if req.To != nil {
-			m.StudentClassSectionSubjectTeacherTo = req.To
+			m.StudentCSSTTo = req.To
 		}
 
 		// Notes (opsional) + updated_at
 		if req.StudentNotes != nil {
-			m.StudentClassSectionSubjectTeacherStudentNotes = req.StudentNotes
-			m.StudentClassSectionSubjectTeacherStudentNotesUpdatedAt = &now
+			m.StudentCSSTStudentNotes = req.StudentNotes
+			m.StudentCSSTStudentNotesUpdatedAt = &now
 		}
 		if req.HomeroomNotes != nil {
-			m.StudentClassSectionSubjectTeacherHomeroomNotes = req.HomeroomNotes
-			m.StudentClassSectionSubjectTeacherHomeroomNotesUpdatedAt = &now
+			m.StudentCSSTHomeroomNotes = req.HomeroomNotes
+			m.StudentCSSTHomeroomNotesUpdatedAt = &now
 		}
 		if req.SubjectTeacherNotes != nil {
-			m.StudentClassSectionSubjectTeacherSubjectTeacherNotes = req.SubjectTeacherNotes
-			m.StudentClassSectionSubjectTeacherSubjectTeacherNotesUpdatedAt = &now
+			m.StudentCSSTSubjectTeacherNotes = req.SubjectTeacherNotes
+			m.StudentCSSTSubjectTeacherNotesUpdatedAt = &now
 		}
 
 		if err := tx.Create(&m).Error; err != nil {
@@ -382,27 +386,27 @@ func (ctl *StudentCSSTController) Upsert(c *fiber.Ctx) error {
 	} else {
 		// update existing
 		if req.IsActive != nil {
-			m.StudentClassSectionSubjectTeacherIsActive = *req.IsActive
+			m.StudentCSSTIsActive = *req.IsActive
 		}
 		if req.From != nil {
-			m.StudentClassSectionSubjectTeacherFrom = req.From
+			m.StudentCSSTFrom = req.From
 		}
 		if req.To != nil {
-			m.StudentClassSectionSubjectTeacherTo = req.To
+			m.StudentCSSTTo = req.To
 		}
 
 		// Notes: di-upsert hanya kalau dikirim (non-nil)
 		if req.StudentNotes != nil {
-			m.StudentClassSectionSubjectTeacherStudentNotes = req.StudentNotes
-			m.StudentClassSectionSubjectTeacherStudentNotesUpdatedAt = &now
+			m.StudentCSSTStudentNotes = req.StudentNotes
+			m.StudentCSSTStudentNotesUpdatedAt = &now
 		}
 		if req.HomeroomNotes != nil {
-			m.StudentClassSectionSubjectTeacherHomeroomNotes = req.HomeroomNotes
-			m.StudentClassSectionSubjectTeacherHomeroomNotesUpdatedAt = &now
+			m.StudentCSSTHomeroomNotes = req.HomeroomNotes
+			m.StudentCSSTHomeroomNotesUpdatedAt = &now
 		}
 		if req.SubjectTeacherNotes != nil {
-			m.StudentClassSectionSubjectTeacherSubjectTeacherNotes = req.SubjectTeacherNotes
-			m.StudentClassSectionSubjectTeacherSubjectTeacherNotesUpdatedAt = &now
+			m.StudentCSSTSubjectTeacherNotes = req.SubjectTeacherNotes
+			m.StudentCSSTSubjectTeacherNotesUpdatedAt = &now
 		}
 
 		if err := tx.Save(&m).Error; err != nil {
@@ -422,7 +426,7 @@ func (ctl *StudentCSSTController) Upsert(c *fiber.Ctx) error {
 
 /* =========================================================
    TOGGLE ACTIVE (single)
-   ========================================================= */
+========================================================= */
 
 // POST /api/a/student-csst/:id/toggle-active
 func (ctl *StudentCSSTController) ToggleActive(c *fiber.Ctx) error {
@@ -460,11 +464,11 @@ func (ctl *StudentCSSTController) ToggleActive(c *fiber.Ctx) error {
 		}
 	}()
 
-	var m model.StudentClassSectionSubjectTeacher
+	var m model.StudentClassSectionSubjectTeacherModel
 	if err := tx.
 		Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("student_class_section_subject_teacher_id = ?", path.ID).
-		Where("student_class_section_subject_teacher_school_id = ?", schoolID).
+		Where("student_csst_id = ?", path.ID).
+		Where("student_csst_school_id = ?", schoolID).
 		First(&m).Error; err != nil {
 
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -475,7 +479,7 @@ func (ctl *StudentCSSTController) ToggleActive(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal mengambil data")
 	}
 
-	m.StudentClassSectionSubjectTeacherIsActive = req.IsActive
+	m.StudentCSSTIsActive = req.IsActive
 
 	if err := tx.Save(&m).Error; err != nil {
 		tx.Rollback()
@@ -493,7 +497,7 @@ func (ctl *StudentCSSTController) ToggleActive(c *fiber.Ctx) error {
 
 /* =========================================================
    BULK TOGGLE ACTIVE
-   ========================================================= */
+========================================================= */
 
 // POST /api/a/student-csst/bulk/toggle-active
 func (ctl *StudentCSSTController) BulkToggleActive(c *fiber.Ctx) error {
@@ -527,11 +531,11 @@ func (ctl *StudentCSSTController) BulkToggleActive(c *fiber.Ctx) error {
 	}()
 
 	res := tx.
-		Model(&model.StudentClassSectionSubjectTeacher{}).
-		Where("student_class_section_subject_teacher_school_id = ?", schoolID).
-		Where("student_class_section_subject_teacher_id IN ?", req.IDs).
+		Model(&model.StudentClassSectionSubjectTeacherModel{}).
+		Where("student_csst_school_id = ?", schoolID).
+		Where("student_csst_id IN ?", req.IDs).
 		Updates(map[string]any{
-			"student_class_section_subject_teacher_is_active": req.IsActive,
+			"student_csst_is_active": req.IsActive,
 		})
 	if res.Error != nil {
 		tx.Rollback()
@@ -549,7 +553,7 @@ func (ctl *StudentCSSTController) BulkToggleActive(c *fiber.Ctx) error {
 
 /* =========================================================
    DELETE (soft / hard)
-   ========================================================= */
+========================================================= */
 
 // DELETE /api/a/student-csst/:id
 func (ctl *StudentCSSTController) Delete(c *fiber.Ctx) error {
@@ -584,9 +588,9 @@ func (ctl *StudentCSSTController) Delete(c *fiber.Ctx) error {
 		// hard delete
 		if err := tx.
 			Unscoped().
-			Where("student_class_section_subject_teacher_id = ?", path.ID).
-			Where("student_class_section_subject_teacher_school_id = ?", schoolID).
-			Delete(&model.StudentClassSectionSubjectTeacher{}).Error; err != nil {
+			Where("student_csst_id = ?", path.ID).
+			Where("student_csst_school_id = ?", schoolID).
+			Delete(&model.StudentClassSectionSubjectTeacherModel{}).Error; err != nil {
 
 			tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal hard delete data")
@@ -594,9 +598,9 @@ func (ctl *StudentCSSTController) Delete(c *fiber.Ctx) error {
 	} else {
 		// soft delete
 		if err := tx.
-			Where("student_class_section_subject_teacher_id = ?", path.ID).
-			Where("student_class_section_subject_teacher_school_id = ?", schoolID).
-			Delete(&model.StudentClassSectionSubjectTeacher{}).Error; err != nil {
+			Where("student_csst_id = ?", path.ID).
+			Where("student_csst_school_id = ?", schoolID).
+			Delete(&model.StudentClassSectionSubjectTeacherModel{}).Error; err != nil {
 
 			tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal delete data")

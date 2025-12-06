@@ -13,8 +13,9 @@ import (
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
 	studentModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
-	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 	snapsvc "madinahsalam_backend/internals/features/users/users/service"
+
+	studentCSSTModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -283,7 +284,7 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 	}
 
 	// 4b) AUTO JOIN ke semua ClassSectionSubjectTeacher (CSST) di section ini
-	var cssts []csstModel.ClassSectionSubjectTeacherModel
+	var cssts []studentCSSTModel.ClassSectionSubjectTeacherModel
 	if err := tx.
 		Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("class_section_subject_teacher_school_id = ?", schoolID).
@@ -316,13 +317,13 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 			}
 		}
 
-		// Cek apakah sudah ada mapping student ↔ CSST
-		var link csstModel.StudentClassSectionSubjectTeacher
+		// Cek apakah sudah ada mapping student ↔ CSST (pakai kolom BARU student_csst_*)
+		var link studentCSSTModel.StudentClassSectionSubjectTeacherModel
 		err := tx.
-			Where("student_class_section_subject_teacher_school_id = ?", schoolID).
-			Where("student_class_section_subject_teacher_student_id = ?", studentID).
-			Where("student_class_section_subject_teacher_csst_id = ?", csst.ClassSectionSubjectTeacherID).
-			Where("student_class_section_subject_teacher_deleted_at IS NULL").
+			Where("student_csst_school_id = ?", schoolID).
+			Where("student_csst_student_id = ?", studentID).
+			Where("student_csst_csst_id = ?", csst.ClassSectionSubjectTeacherID).
+			Where("student_csst_deleted_at IS NULL").
 			First(&link).Error
 
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -335,7 +336,7 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 		// Kalau sudah ada mapping → skip
 		if err == nil {
 			log.Printf("[JoinSectionCSST] mapping already exists for student_id=%s csst_id=%s (mapping_id=%s)",
-				studentID, csst.ClassSectionSubjectTeacherID, link.StudentClassSectionSubjectTeacherID)
+				studentID, csst.ClassSectionSubjectTeacherID, link.StudentCSSTID)
 			continue
 		}
 
@@ -343,29 +344,29 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 		log.Printf("[JoinSectionCSST] creating CSST mapping: student_id=%s csst_id=%s",
 			studentID, csst.ClassSectionSubjectTeacherID)
 
-		newLink := csstModel.StudentClassSectionSubjectTeacher{
-			StudentClassSectionSubjectTeacherSchoolID:  schoolID,
-			StudentClassSectionSubjectTeacherStudentID: studentID,
-			StudentClassSectionSubjectTeacherCSSTID:    csst.ClassSectionSubjectTeacherID,
-			// is_active + created_at pakai default DB
+		newLink := studentCSSTModel.StudentClassSectionSubjectTeacherModel{
+			StudentCSSTSchoolID:  schoolID,
+			StudentCSSTStudentID: studentID,
+			StudentCSSTCSSTID:    csst.ClassSectionSubjectTeacherID,
+			// is_active, created_at, dll pakai default DB
 		}
 
 		// Isi cache user_profile ke student_class_section_subject_teachers (kalau ada)
 		if userProfileSnap != nil {
 			name := userProfileSnap.Name
-			newLink.StudentClassSectionSubjectTeacherUserProfileNameCache = &name
-			newLink.StudentClassSectionSubjectTeacherUserProfileAvatarURLCache = userProfileSnap.AvatarURL
-			newLink.StudentClassSectionSubjectTeacherUserProfileWhatsappURLCache = userProfileSnap.WhatsappURL
-			newLink.StudentClassSectionSubjectTeacherUserProfileParentNameCache = userProfileSnap.ParentName
-			newLink.StudentClassSectionSubjectTeacherUserProfileParentWhatsappURLCache = userProfileSnap.ParentWhatsappURL
-			newLink.StudentClassSectionSubjectTeacherUserProfileGenderCache = userProfileSnap.Gender
+			newLink.StudentCSSTNameCache = &name
+			newLink.StudentCSSTAvatarURLCache = userProfileSnap.AvatarURL
+			newLink.StudentCSSTWAURLCache = userProfileSnap.WhatsappURL
+			newLink.StudentCSSTParentNameCache = userProfileSnap.ParentName
+			newLink.StudentCSSTParentWAURLCache = userProfileSnap.ParentWhatsappURL
+			newLink.StudentCSSTGenderCache = userProfileSnap.Gender
 
 			log.Printf("[JoinSectionCSST] filled CSST mapping user_profile cache: name=%s", name)
 		}
 
 		// Isi student_code cache kalau ada
 		if studentCode != nil {
-			newLink.StudentClassSectionSubjectTeacherStudentCodeCache = studentCode
+			newLink.StudentCSSTStudentCodeCache = studentCode
 			log.Printf("[JoinSectionCSST] filled CSST mapping student_code_cache: code=%s", *studentCode)
 		}
 
@@ -377,7 +378,7 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 		}
 
 		// Increment quota_taken di CSST
-		if err := tx.Model(&csstModel.ClassSectionSubjectTeacherModel{}).
+		if err := tx.Model(&studentCSSTModel.ClassSectionSubjectTeacherModel{}).
 			Where("class_section_subject_teacher_id = ?", csst.ClassSectionSubjectTeacherID).
 			Update("class_section_subject_teacher_quota_taken",
 				gorm.Expr("class_section_subject_teacher_quota_taken + 1")).Error; err != nil {

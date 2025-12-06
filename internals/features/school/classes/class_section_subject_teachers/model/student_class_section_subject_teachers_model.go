@@ -9,61 +9,62 @@ import (
 	"gorm.io/gorm"
 )
 
-// Selaras dengan tabel: student_class_section_subject_teachers
-type StudentClassSectionSubjectTeacher struct {
+// Masih pakai nama type lama biar nggak rusak import di tempat lain,
+// tapi field-field disesuaikan ke kolom student_csst_* di DB.
+type StudentClassSectionSubjectTeacherModel struct {
 	// PK
-	StudentClassSectionSubjectTeacherID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:student_class_section_subject_teacher_id" json:"student_class_section_subject_teacher_id"`
+	StudentCSSTID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:student_csst_id" json:"student_csst_id"`
 
 	// Tenant
-	StudentClassSectionSubjectTeacherSchoolID uuid.UUID `gorm:"type:uuid;not null;column:student_class_section_subject_teacher_school_id" json:"student_class_section_subject_teacher_school_id"`
+	StudentCSSTSchoolID uuid.UUID `gorm:"type:uuid;not null;column:student_csst_school_id" json:"student_csst_school_id"`
 
 	// Anchor relations
-	StudentClassSectionSubjectTeacherStudentID uuid.UUID `gorm:"type:uuid;not null;column:student_class_section_subject_teacher_student_id" json:"student_class_section_subject_teacher_student_id"`
-	StudentClassSectionSubjectTeacherCSSTID    uuid.UUID `gorm:"type:uuid;not null;column:student_class_section_subject_teacher_csst_id" json:"student_class_section_subject_teacher_csst_id"`
+	StudentCSSTStudentID uuid.UUID `gorm:"type:uuid;not null;column:student_csst_student_id" json:"student_csst_student_id"`
+	StudentCSSTCSSTID    uuid.UUID `gorm:"type:uuid;not null;column:student_csst_csst_id" json:"student_csst_csst_id"`
 
 	// Status mapping
-	StudentClassSectionSubjectTeacherIsActive bool       `gorm:"not null;default:true;column:student_class_section_subject_teacher_is_active" json:"student_class_section_subject_teacher_is_active"`
-	StudentClassSectionSubjectTeacherFrom     *time.Time `gorm:"type:date;column:student_class_section_subject_teacher_from" json:"student_class_section_subject_teacher_from,omitempty"`
-	StudentClassSectionSubjectTeacherTo       *time.Time `gorm:"type:date;column:student_class_section_subject_teacher_to" json:"student_class_section_subject_teacher_to,omitempty"`
+	StudentCSSTIsActive bool       `gorm:"not null;default:true;column:student_csst_is_active" json:"student_csst_is_active"`
+	StudentCSSTFrom     *time.Time `gorm:"type:date;column:student_csst_from" json:"student_csst_from,omitempty"`
+	StudentCSSTTo       *time.Time `gorm:"type:date;column:student_csst_to" json:"student_csst_to,omitempty"`
 
 	// Nilai terbaru (opsional; percent di-generate di DB)
-	StudentClassSectionSubjectTeacherScoreTotal    *float64 `gorm:"type:numeric(6,2);column:student_class_section_subject_teacher_score_total" json:"student_class_section_subject_teacher_score_total,omitempty"`
-	StudentClassSectionSubjectTeacherScoreMaxTotal *float64 `gorm:"type:numeric(6,2);default:100;column:student_class_section_subject_teacher_score_max_total" json:"student_class_section_subject_teacher_score_max_total,omitempty"`
-	StudentClassSectionSubjectTeacherScorePercent  *float64 `gorm:"type:numeric(5,2);column:student_class_section_subject_teacher_score_percent;->" json:"student_class_section_subject_teacher_score_percent,omitempty"` // read-only (generated always as)
-	StudentClassSectionSubjectTeacherGradeLetter   *string  `gorm:"type:varchar(8);column:student_class_section_subject_teacher_grade_letter" json:"student_class_section_subject_teacher_grade_letter,omitempty"`
-	StudentClassSectionSubjectTeacherGradePoint    *float64 `gorm:"type:numeric(3,2);column:student_class_section_subject_teacher_grade_point" json:"student_class_section_subject_teacher_grade_point,omitempty"`
-	StudentClassSectionSubjectTeacherIsPassed      *bool    `gorm:"column:student_class_section_subject_teacher_is_passed" json:"student_class_section_subject_teacher_is_passed,omitempty"`
+	StudentCSSTScoreTotal    *float64 `gorm:"type:numeric(6,2);column:student_csst_score_total" json:"student_csst_score_total,omitempty"`
+	StudentCSSTScoreMaxTotal *float64 `gorm:"type:numeric(6,2);default:100;column:student_csst_score_max_total" json:"student_csst_score_max_total,omitempty"`
+	StudentCSSTScorePercent  *float64 `gorm:"type:numeric(5,2);column:student_csst_score_percent;->" json:"student_csst_score_percent,omitempty"` // generated always as
+	StudentCSSTGradeLetter   *string  `gorm:"type:varchar(8);column:student_csst_grade_letter" json:"student_csst_grade_letter,omitempty"`
+	StudentCSSTGradePoint    *float64 `gorm:"type:numeric(3,2);column:student_csst_grade_point" json:"student_csst_grade_point,omitempty"`
+	StudentCSSTIsPassed      *bool    `gorm:"column:student_csst_is_passed" json:"student_csst_is_passed,omitempty"`
 
 	// Cache users_profile & siswa (saat enrol)
-	StudentClassSectionSubjectTeacherUserProfileNameCache              *string `gorm:"type:varchar(80);column:student_class_section_subject_teacher_user_profile_name_cache" json:"student_class_section_subject_teacher_user_profile_name_cache,omitempty"`
-	StudentClassSectionSubjectTeacherUserProfileAvatarURLCache         *string `gorm:"type:varchar(255);column:student_class_section_subject_teacher_user_profile_avatar_url_cache" json:"student_class_section_subject_teacher_user_profile_avatar_url_cache,omitempty"`
-	StudentClassSectionSubjectTeacherUserProfileWhatsappURLCache       *string `gorm:"type:varchar(50);column:student_class_section_subject_teacher_user_profile_whatsapp_url_cache" json:"student_class_section_subject_teacher_user_profile_whatsapp_url_cache,omitempty"`
-	StudentClassSectionSubjectTeacherUserProfileParentNameCache        *string `gorm:"type:varchar(80);column:student_class_section_subject_teacher_user_profile_parent_name_cache" json:"student_class_section_subject_teacher_user_profile_parent_name_cache,omitempty"`
-	StudentClassSectionSubjectTeacherUserProfileParentWhatsappURLCache *string `gorm:"type:varchar(50);column:student_class_section_subject_teacher_user_profile_parent_whatsapp_url_cache" json:"student_class_section_subject_teacher_user_profile_parent_whatsapp_url_cache,omitempty"`
-	StudentClassSectionSubjectTeacherUserProfileGenderCache            *string `gorm:"type:varchar(20);column:student_class_section_subject_teacher_user_profile_gender_cache" json:"student_class_section_subject_teacher_user_profile_gender_cache,omitempty"`
-	StudentClassSectionSubjectTeacherStudentCodeCache                  *string `gorm:"type:varchar(50);column:student_class_section_subject_teacher_student_code_cache" json:"student_class_section_subject_teacher_student_code_cache,omitempty"`
+	StudentCSSTNameCache        *string `gorm:"type:varchar(80);column:student_csst_name_cache" json:"student_csst_name_cache,omitempty"`
+	StudentCSSTAvatarURLCache   *string `gorm:"type:varchar(255);column:student_csst_avatar_url_cache" json:"student_csst_avatar_url_cache,omitempty"`
+	StudentCSSTWAURLCache       *string `gorm:"type:varchar(50);column:student_csst_wa_url_cache" json:"student_csst_wa_url_cache,omitempty"`
+	StudentCSSTParentNameCache  *string `gorm:"type:varchar(80);column:student_csst_parent_name_cache" json:"student_csst_parent_name_cache,omitempty"`
+	StudentCSSTParentWAURLCache *string `gorm:"type:varchar(50);column:student_csst_parent_wa_url_cache" json:"student_csst_parent_wa_url_cache,omitempty"`
+	StudentCSSTGenderCache      *string `gorm:"type:varchar(20);column:student_csst_gender_cache" json:"student_csst_gender_cache,omitempty"`
+	StudentCSSTStudentCodeCache *string `gorm:"type:varchar(50);column:student_csst_student_code_cache" json:"student_csst_student_code_cache,omitempty"`
 
 	// Riwayat intervensi/remedial (append-only JSONB)
-	StudentClassSectionSubjectTeacherEditsHistory datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'::jsonb;column:student_class_section_subject_teacher_edits_history" json:"student_class_section_subject_teacher_edits_history"`
+	StudentCSSTEditsHistory datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'::jsonb;column:student_csst_edits_history" json:"student_csst_edits_history"`
 
 	// NOTES
-	StudentClassSectionSubjectTeacherStudentNotes                 *string    `gorm:"type:text;column:student_class_section_subject_teacher_student_notes" json:"student_class_section_subject_teacher_student_notes,omitempty"`
-	StudentClassSectionSubjectTeacherStudentNotesUpdatedAt        *time.Time `gorm:"type:timestamptz;column:student_class_section_subject_teacher_student_notes_updated_at" json:"student_class_section_subject_teacher_student_notes_updated_at,omitempty"`
-	StudentClassSectionSubjectTeacherHomeroomNotes                *string    `gorm:"type:text;column:student_class_section_subject_teacher_homeroom_notes" json:"student_class_section_subject_teacher_homeroom_notes,omitempty"`
-	StudentClassSectionSubjectTeacherHomeroomNotesUpdatedAt       *time.Time `gorm:"type:timestamptz;column:student_class_section_subject_teacher_homeroom_notes_updated_at" json:"student_class_section_subject_teacher_homeroom_notes_updated_at,omitempty"`
-	StudentClassSectionSubjectTeacherSubjectTeacherNotes          *string    `gorm:"type:text;column:student_class_section_subject_teacher_subject_teacher_notes" json:"student_class_section_subject_teacher_subject_teacher_notes,omitempty"`
-	StudentClassSectionSubjectTeacherSubjectTeacherNotesUpdatedAt *time.Time `gorm:"type:timestamptz;column:student_class_section_subject_teacher_subject_teacher_notes_updated_at" json:"student_class_section_subject_teacher_subject_teacher_notes_updated_at,omitempty"`
+	StudentCSSTStudentNotes                 *string    `gorm:"type:text;column:student_csst_student_notes" json:"student_csst_student_notes,omitempty"`
+	StudentCSSTStudentNotesUpdatedAt        *time.Time `gorm:"type:timestamptz;column:student_csst_student_notes_updated_at" json:"student_csst_student_notes_updated_at,omitempty"`
+	StudentCSSTHomeroomNotes                *string    `gorm:"type:text;column:student_csst_homeroom_notes" json:"student_csst_homeroom_notes,omitempty"`
+	StudentCSSTHomeroomNotesUpdatedAt       *time.Time `gorm:"type:timestamptz;column:student_csst_homeroom_notes_updated_at" json:"student_csst_homeroom_notes_updated_at,omitempty"`
+	StudentCSSTSubjectTeacherNotes          *string    `gorm:"type:text;column:student_csst_subject_teacher_notes" json:"student_csst_subject_teacher_notes,omitempty"`
+	StudentCSSTSubjectTeacherNotesUpdatedAt *time.Time `gorm:"type:timestamptz;column:student_csst_subject_teacher_notes_updated_at" json:"student_csst_subject_teacher_notes_updated_at,omitempty"`
 
 	// Admin & meta
-	StudentClassSectionSubjectTeacherSlug *string        `gorm:"type:varchar(160);column:student_class_section_subject_teacher_slug" json:"student_class_section_subject_teacher_slug,omitempty"`
-	StudentClassSectionSubjectTeacherMeta datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'::jsonb;column:student_class_section_subject_teacher_meta" json:"student_class_section_subject_teacher_meta"`
+	StudentCSSTSlug *string        `gorm:"type:varchar(160);column:student_csst_slug" json:"student_csst_slug,omitempty"`
+	StudentCSSTMeta datatypes.JSON `gorm:"type:jsonb;not null;default:'{}'::jsonb;column:student_csst_meta" json:"student_csst_meta"`
 
 	// Audit & soft delete
-	StudentClassSectionSubjectTeacherCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:student_class_section_subject_teacher_created_at" json:"student_class_section_subject_teacher_created_at"`
-	StudentClassSectionSubjectTeacherUpdatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:student_class_section_subject_teacher_updated_at" json:"student_class_section_subject_teacher_updated_at"`
-	StudentClassSectionSubjectTeacherDeletedAt gorm.DeletedAt `gorm:"column:student_class_section_subject_teacher_deleted_at;index" json:"student_class_section_subject_teacher_deleted_at,omitempty"`
+	StudentCSSTCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:student_csst_created_at" json:"student_csst_created_at"`
+	StudentCSSTUpdatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:student_csst_updated_at" json:"student_csst_updated_at"`
+	StudentCSSTDeletedAt gorm.DeletedAt `gorm:"column:student_csst_deleted_at;index" json:"student_csst_deleted_at,omitempty"`
 }
 
-func (StudentClassSectionSubjectTeacher) TableName() string {
+func (StudentClassSectionSubjectTeacherModel) TableName() string {
 	return "student_class_section_subject_teachers"
 }

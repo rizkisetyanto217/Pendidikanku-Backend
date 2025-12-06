@@ -282,45 +282,6 @@ func (h *PaymentItemController) PatchPaymentItem(c *fiber.Ctx) error {
 	return helper.JsonUpdated(c, "payment_item updated", dto.FromPaymentItemModel(&item))
 }
 
-/* =========================================================
-   GET /payments/:payment_id/items
-   - list items per payment (tanpa pagination dulu)
-========================================================= */
-
-func (h *PaymentItemController) ListPaymentItems(c *fiber.Ctx) error {
-	paymentID, err := parseUUIDParam(c, "payment_id")
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "invalid payment_id")
-	}
-
-	// cek payment + school
-	var pay model.PaymentModel
-	if err := h.DB.WithContext(c.Context()).
-		First(&pay, "payment_id = ? AND payment_deleted_at IS NULL", paymentID).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "payment tidak ditemukan")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
-	if pay.PaymentSchoolID == nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "payment tidak memiliki school_id")
-	}
-	schoolID := *pay.PaymentSchoolID
-	if er := helperAuth.EnsureMemberSchool(c, schoolID); er != nil {
-		return er
-	}
-
-	// ambil items
-	var items []model.PaymentItemModel
-	if err := h.DB.WithContext(c.Context()).
-		Where("payment_item_payment_id = ? AND payment_item_deleted_at IS NULL", paymentID).
-		Order("payment_item_index ASC").
-		Find(&items).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal baca payment_items: "+err.Error())
-	}
-
-	return helper.JsonOK(c, "ok", dto.FromPaymentItemModels(items))
-}
 
 /* =========================================================
    DELETE /payment-items/:id

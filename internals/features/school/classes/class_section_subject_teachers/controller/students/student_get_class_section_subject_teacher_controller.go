@@ -6,7 +6,8 @@ import (
 	"time"
 
 	dto "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/dto"
-	model "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
+
+	studentCSSTModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
@@ -134,29 +135,29 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		q.PageSize = 20
 	}
 
-	// 4) Base query (join table)
+	// 4) Base query (mapping student_csst_*)
 	tx := ctl.DB.WithContext(c.Context()).
-		Model(&model.StudentClassSectionSubjectTeacher{}).
-		Where("student_class_section_subject_teacher_school_id = ?", schoolID)
+		Model(&studentCSSTModel.StudentClassSectionSubjectTeacherModel{}).
+		Where("student_csst_school_id = ?", schoolID)
 
 	// Filters
 	if q.StudentID != nil {
-		tx = tx.Where("student_class_section_subject_teacher_student_id = ?", *q.StudentID)
+		tx = tx.Where("student_csst_student_id = ?", *q.StudentID)
 	}
 	if q.CSSTID != nil {
-		tx = tx.Where("student_class_section_subject_teacher_csst_id = ?", *q.CSSTID)
+		tx = tx.Where("student_csst_csst_id = ?", *q.CSSTID)
 	}
 	if q.IsActive != nil {
-		tx = tx.Where("student_class_section_subject_teacher_is_active = ?", *q.IsActive)
+		tx = tx.Where("student_csst_is_active = ?", *q.IsActive)
 	}
 	if !q.IncludeDeleted {
-		tx = tx.Where("student_class_section_subject_teacher_deleted_at IS NULL")
+		tx = tx.Where("student_csst_deleted_at IS NULL")
 	}
 
 	// Pencarian ringan (sementara by slug)
 	if q.Q != nil && strings.TrimSpace(*q.Q) != "" {
 		like := "%" + strings.TrimSpace(*q.Q) + "%"
-		tx = tx.Where("student_class_section_subject_teacher_slug ILIKE ?", like)
+		tx = tx.Where("student_csst_slug ILIKE ?", like)
 	}
 
 	// Sorting
@@ -168,13 +169,13 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 
 	switch sortBy {
 	case dto.StudentCSSTSortUpdatedAt:
-		tx = tx.Order("student_class_section_subject_teacher_updated_at " + order)
+		tx = tx.Order("student_csst_updated_at " + order)
 	case dto.StudentCSSTSortStudent:
-		tx = tx.Order("student_class_section_subject_teacher_student_id " + order)
+		tx = tx.Order("student_csst_student_id " + order)
 	case dto.StudentCSSTSortCSST:
-		tx = tx.Order("student_class_section_subject_teacher_csst_id " + order)
+		tx = tx.Order("student_csst_csst_id " + order)
 	default:
-		tx = tx.Order("student_class_section_subject_teacher_created_at " + order)
+		tx = tx.Order("student_csst_created_at " + order)
 	}
 
 	// 5) Hitung total
@@ -197,7 +198,7 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 	}
 
 	// 6) Ambil page
-	var rows []model.StudentClassSectionSubjectTeacher
+	var rows []studentCSSTModel.StudentClassSectionSubjectTeacherModel
 	if err := tx.
 		Offset((q.Page - 1) * q.PageSize).
 		Limit(q.PageSize).
@@ -212,8 +213,8 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		// 1) kumpulkan csst_id unik dari rows
 		csstSet := make(map[uuid.UUID]struct{})
 		for i := range rows {
-			if rows[i].StudentClassSectionSubjectTeacherCSSTID != uuid.Nil {
-				csstSet[rows[i].StudentClassSectionSubjectTeacherCSSTID] = struct{}{}
+			if rows[i].StudentCSSTCSSTID != uuid.Nil {
+				csstSet[rows[i].StudentCSSTCSSTID] = struct{}{}
 			}
 		}
 
@@ -228,9 +229,9 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		}
 
 		// 2) query tabel class_section_subject_teachers
-		var csstRows []model.ClassSectionSubjectTeacherModel
+		var csstRows []studentCSSTModel.ClassSectionSubjectTeacherModel
 		if err := ctl.DB.WithContext(c.Context()).
-			Model(&model.ClassSectionSubjectTeacherModel{}).
+			Model(&studentCSSTModel.ClassSectionSubjectTeacherModel{}).
 			Where("class_section_subject_teacher_school_id = ?", schoolID).
 			Where("class_section_subject_teacher_id IN ?", csstIDs).
 			Find(&csstRows).Error; err != nil {
@@ -292,8 +293,8 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 	// 1) kumpulkan csst_id unik dari rows
 	csstSet := make(map[uuid.UUID]struct{})
 	for i := range rows {
-		if rows[i].StudentClassSectionSubjectTeacherCSSTID != uuid.Nil {
-			csstSet[rows[i].StudentClassSectionSubjectTeacherCSSTID] = struct{}{}
+		if rows[i].StudentCSSTCSSTID != uuid.Nil {
+			csstSet[rows[i].StudentCSSTCSSTID] = struct{}{}
 		}
 	}
 
@@ -306,9 +307,9 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 	csstMap := make(map[uuid.UUID]*CSSTIncluded)
 
 	if len(csstIDs) > 0 {
-		var csstRows []model.ClassSectionSubjectTeacherModel
+		var csstRows []studentCSSTModel.ClassSectionSubjectTeacherModel
 		if err := ctl.DB.WithContext(c.Context()).
-			Model(&model.ClassSectionSubjectTeacherModel{}).
+			Model(&studentCSSTModel.ClassSectionSubjectTeacherModel{}).
 			Where("class_section_subject_teacher_school_id = ?", schoolID).
 			Where("class_section_subject_teacher_id IN ?", csstIDs).
 			Find(&csstRows).Error; err != nil {
@@ -361,7 +362,7 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 	// 4) kumpulkan students HANYA untuk CSST utama
 	students := make([]dto.StudentCSSTItem, 0, len(rows))
 	for i := range rows {
-		if rows[i].StudentClassSectionSubjectTeacherCSSTID == mainCSSTID {
+		if rows[i].StudentCSSTCSSTID == mainCSSTID {
 			students = append(students, toStudentCSSTItem(&rows[i]))
 		}
 	}

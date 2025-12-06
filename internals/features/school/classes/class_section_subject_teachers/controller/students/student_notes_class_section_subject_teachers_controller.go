@@ -51,11 +51,11 @@ func (ctl *StudentCSSTController) UpdateStudentNotes(c *fiber.Ctx) error {
 		}
 	}()
 
-	var m model.StudentClassSectionSubjectTeacher
+	var m model.StudentClassSectionSubjectTeacherModel
 	if err := tx.
 		Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("student_class_section_subject_teacher_id = ?", path.ID).
-		Where("student_class_section_subject_teacher_school_id = ?", schoolID).
+		Where("student_csst_id = ?", path.ID).
+		Where("student_csst_school_id = ?", schoolID).
 		First(&m).Error; err != nil {
 
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -70,11 +70,11 @@ func (ctl *StudentCSSTController) UpdateStudentNotes(c *fiber.Ctx) error {
 
 	// Notes: nil -> clear
 	if req.Notes == nil {
-		m.StudentClassSectionSubjectTeacherStudentNotes = nil
+		m.StudentCSSTStudentNotes = nil
 	} else {
-		m.StudentClassSectionSubjectTeacherStudentNotes = req.Notes
+		m.StudentCSSTStudentNotes = req.Notes
 	}
-	m.StudentClassSectionSubjectTeacherStudentNotesUpdatedAt = &now
+	m.StudentCSSTStudentNotesUpdatedAt = &now
 
 	if err := tx.Save(&m).Error; err != nil {
 		tx.Rollback()
@@ -125,11 +125,11 @@ func (ctl *StudentCSSTController) UpdateHomeroomNotes(c *fiber.Ctx) error {
 		}
 	}()
 
-	var m model.StudentClassSectionSubjectTeacher
+	var m model.StudentClassSectionSubjectTeacherModel
 	if err := tx.
 		Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("student_class_section_subject_teacher_id = ?", path.ID).
-		Where("student_class_section_subject_teacher_school_id = ?", schoolID).
+		Where("student_csst_id = ?", path.ID).
+		Where("student_csst_school_id = ?", schoolID).
 		First(&m).Error; err != nil {
 
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -143,11 +143,11 @@ func (ctl *StudentCSSTController) UpdateHomeroomNotes(c *fiber.Ctx) error {
 	now := time.Now()
 
 	if req.Notes == nil {
-		m.StudentClassSectionSubjectTeacherHomeroomNotes = nil
+		m.StudentCSSTHomeroomNotes = nil
 	} else {
-		m.StudentClassSectionSubjectTeacherHomeroomNotes = req.Notes
+		m.StudentCSSTHomeroomNotes = req.Notes
 	}
-	m.StudentClassSectionSubjectTeacherHomeroomNotesUpdatedAt = &now
+	m.StudentCSSTHomeroomNotesUpdatedAt = &now
 
 	if err := tx.Save(&m).Error; err != nil {
 		tx.Rollback()
@@ -198,11 +198,11 @@ func (ctl *StudentCSSTController) UpdateSubjectTeacherNotes(c *fiber.Ctx) error 
 		}
 	}()
 
-	var m model.StudentClassSectionSubjectTeacher
+	var m model.StudentClassSectionSubjectTeacherModel
 	if err := tx.
 		Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("student_class_section_subject_teacher_id = ?", path.ID).
-		Where("student_class_section_subject_teacher_school_id = ?", schoolID).
+		Where("student_csst_id = ?", path.ID).
+		Where("student_csst_school_id = ?", schoolID).
 		First(&m).Error; err != nil {
 
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -216,11 +216,11 @@ func (ctl *StudentCSSTController) UpdateSubjectTeacherNotes(c *fiber.Ctx) error 
 	now := time.Now()
 
 	if req.Notes == nil {
-		m.StudentClassSectionSubjectTeacherSubjectTeacherNotes = nil
+		m.StudentCSSTSubjectTeacherNotes = nil
 	} else {
-		m.StudentClassSectionSubjectTeacherSubjectTeacherNotes = req.Notes
+		m.StudentCSSTSubjectTeacherNotes = req.Notes
 	}
-	m.StudentClassSectionSubjectTeacherSubjectTeacherNotesUpdatedAt = &now
+	m.StudentCSSTSubjectTeacherNotesUpdatedAt = &now
 
 	if err := tx.Save(&m).Error; err != nil {
 		tx.Rollback()
@@ -234,3 +234,7 @@ func (ctl *StudentCSSTController) UpdateSubjectTeacherNotes(c *fiber.Ctx) error 
 	item := toStudentCSSTItem(&m)
 	return helper.JsonUpdated(c, "catatan guru mapel berhasil diupdate", dto.StudentCSSTDetailResponse{Data: item})
 }
+
+/* =========================================================
+   HELPER: map model -> DTO StudentCSSTItem
+========================================================= */

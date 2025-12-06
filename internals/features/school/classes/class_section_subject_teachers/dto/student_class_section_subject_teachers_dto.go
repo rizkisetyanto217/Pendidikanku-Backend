@@ -195,52 +195,51 @@ type TeacherBrief struct {
 }
 
 /* =========================================================
-   MAIN ITEM — FULL MIRROR OF MODEL
+   MAIN ITEM — mirror student_csst_* model
 ========================================================= */
 
 type StudentCSSTItem struct {
-	StudentClassSectionSubjectTeacherID uuid.UUID `json:"student_class_section_subject_teacher_id"`
+	StudentCSSTID       uuid.UUID `json:"student_csst_id"`
+	StudentCSSTSchoolID uuid.UUID `json:"student_csst_school_id"`
 
-	StudentClassSectionSubjectTeacherSchoolID uuid.UUID `json:"student_class_section_subject_teacher_school_id"`
+	StudentCSSTStudentID uuid.UUID `json:"student_csst_student_id"`
+	StudentCSSTCSSTID    uuid.UUID `json:"student_csst_csst_id"`
 
-	StudentClassSectionSubjectTeacherStudentID uuid.UUID `json:"student_class_section_subject_teacher_student_id"`
-	StudentClassSectionSubjectTeacherCSSTID    uuid.UUID `json:"student_class_section_subject_teacher_csst_id"`
+	StudentCSSTIsActive bool       `json:"student_csst_is_active"`
+	StudentCSSTFrom     *time.Time `json:"student_csst_from,omitempty"`
+	StudentCSSTTo       *time.Time `json:"student_csst_to,omitempty"`
 
-	StudentClassSectionSubjectTeacherIsActive bool       `json:"student_class_section_subject_teacher_is_active"`
-	StudentClassSectionSubjectTeacherFrom     *time.Time `json:"student_class_section_subject_teacher_from,omitempty"`
-	StudentClassSectionSubjectTeacherTo       *time.Time `json:"student_class_section_subject_teacher_to,omitempty"`
+	StudentCSSTScoreTotal    *float64 `json:"student_csst_score_total,omitempty"`
+	StudentCSSTScoreMaxTotal *float64 `json:"student_csst_score_max_total,omitempty"`
+	StudentCSSTScorePercent  *float64 `json:"student_csst_score_percent,omitempty"`
+	StudentCSSTGradeLetter   *string  `json:"student_csst_grade_letter,omitempty"`
+	StudentCSSTGradePoint    *float64 `json:"student_csst_grade_point,omitempty"`
+	StudentCSSTIsPassed      *bool    `json:"student_csst_is_passed,omitempty"`
 
-	StudentClassSectionSubjectTeacherScoreTotal    *float64 `json:"student_class_section_subject_teacher_score_total,omitempty"`
-	StudentClassSectionSubjectTeacherScoreMaxTotal *float64 `json:"student_class_section_subject_teacher_score_max_total,omitempty"`
-	StudentClassSectionSubjectTeacherScorePercent  *float64 `json:"student_class_section_subject_teacher_score_percent,omitempty"`
-	StudentClassSectionSubjectTeacherGradeLetter   *string  `json:"student_class_section_subject_teacher_grade_letter,omitempty"`
-	StudentClassSectionSubjectTeacherGradePoint    *float64 `json:"student_class_section_subject_teacher_grade_point,omitempty"`
-	StudentClassSectionSubjectTeacherIsPassed      *bool    `json:"student_class_section_subject_teacher_is_passed,omitempty"`
+	StudentCSSTNameCache        *string `json:"student_csst_name_cache,omitempty"`
+	StudentCSSTAvatarURLCache   *string `json:"student_csst_avatar_url_cache,omitempty"`
+	StudentCSSTWAURLCache       *string `json:"student_csst_wa_url_cache,omitempty"`
+	StudentCSSTParentNameCache  *string `json:"student_csst_parent_name_cache,omitempty"`
+	StudentCSSTParentWAURLCache *string `json:"student_csst_parent_wa_url_cache,omitempty"`
+	StudentCSSTGenderCache      *string `json:"student_csst_gender_cache,omitempty"`
+	StudentCSSTStudentCodeCache *string `json:"student_csst_student_code_cache,omitempty"`
 
-	StudentClassSectionSubjectTeacherUserProfileNameCache              *string `json:"student_class_section_subject_teacher_user_profile_name_cache,omitempty"`
-	StudentClassSectionSubjectTeacherUserProfileAvatarURLCache         *string `json:"student_class_section_subject_teacher_user_profile_avatar_url_cache,omitempty"`
-	StudentClassSectionSubjectTeacherUserProfileWhatsappURLCache       *string `json:"student_class_section_subject_teacher_user_profile_whatsapp_url_cache,omitempty"`
-	StudentClassSectionSubjectTeacherUserProfileParentNameCache        *string `json:"student_class_section_subject_teacher_user_profile_parent_name_cache,omitempty"`
-	StudentClassSectionSubjectTeacherUserProfileParentWhatsappURLCache *string `json:"student_class_section_subject_teacher_user_profile_parent_whatsapp_url_cache,omitempty"`
-	StudentClassSectionSubjectTeacherUserProfileGenderCache            *string `json:"student_class_section_subject_teacher_user_profile_gender_cache,omitempty"`
-	StudentClassSectionSubjectTeacherStudentCodeCache                  *string `json:"student_class_section_subject_teacher_student_code_cache,omitempty"`
+	StudentCSSTEditsHistory datatypes.JSON `json:"student_csst_edits_history"`
 
-	StudentClassSectionSubjectTeacherEditsHistory datatypes.JSON `json:"student_class_section_subject_teacher_edits_history"`
+	// NOTES
+	StudentCSSTStudentNotes                 *string    `json:"student_csst_student_notes,omitempty"`
+	StudentCSSTStudentNotesUpdatedAt        *time.Time `json:"student_csst_student_notes_updated_at,omitempty"`
+	StudentCSSTHomeroomNotes                *string    `json:"student_csst_homeroom_notes,omitempty"`
+	StudentCSSTHomeroomNotesUpdatedAt       *time.Time `json:"student_csst_homeroom_notes_updated_at,omitempty"`
+	StudentCSSTSubjectTeacherNotes          *string    `json:"student_csst_subject_teacher_notes,omitempty"`
+	StudentCSSTSubjectTeacherNotesUpdatedAt *time.Time `json:"student_csst_subject_teacher_notes_updated_at,omitempty"`
 
-	// NOTES (mirror model)
-	StudentClassSectionSubjectTeacherStudentNotes                 *string    `json:"student_class_section_subject_teacher_student_notes,omitempty"`
-	StudentClassSectionSubjectTeacherStudentNotesUpdatedAt        *time.Time `json:"student_class_section_subject_teacher_student_notes_updated_at,omitempty"`
-	StudentClassSectionSubjectTeacherHomeroomNotes                *string    `json:"student_class_section_subject_teacher_homeroom_notes,omitempty"`
-	StudentClassSectionSubjectTeacherHomeroomNotesUpdatedAt       *time.Time `json:"student_class_section_subject_teacher_homeroom_notes_updated_at,omitempty"`
-	StudentClassSectionSubjectTeacherSubjectTeacherNotes          *string    `json:"student_class_section_subject_teacher_subject_teacher_notes,omitempty"`
-	StudentClassSectionSubjectTeacherSubjectTeacherNotesUpdatedAt *time.Time `json:"student_class_section_subject_teacher_subject_teacher_notes_updated_at,omitempty"`
+	StudentCSSTSlug *string        `json:"student_csst_slug,omitempty"`
+	StudentCSSTMeta datatypes.JSON `json:"student_csst_meta"`
 
-	StudentClassSectionSubjectTeacherSlug *string        `json:"student_class_section_subject_teacher_slug,omitempty"`
-	StudentClassSectionSubjectTeacherMeta datatypes.JSON `json:"student_class_section_subject_teacher_meta"`
-
-	StudentClassSectionSubjectTeacherCreatedAt time.Time  `json:"student_class_section_subject_teacher_created_at"`
-	StudentClassSectionSubjectTeacherUpdatedAt time.Time  `json:"student_class_section_subject_teacher_updated_at"`
-	StudentClassSectionSubjectTeacherDeletedAt *time.Time `json:"student_class_section_subject_teacher_deleted_at,omitempty"`
+	StudentCSSTCreatedAt time.Time  `json:"student_csst_created_at"`
+	StudentCSSTUpdatedAt time.Time  `json:"student_csst_updated_at"`
+	StudentCSSTDeletedAt *time.Time `json:"student_csst_deleted_at,omitempty"`
 
 	// Expanded relations
 	Student      *StudentBrief      `json:"student,omitempty"`
