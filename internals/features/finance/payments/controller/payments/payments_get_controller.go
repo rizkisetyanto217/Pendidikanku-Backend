@@ -17,7 +17,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// ================= HANDLER: LIST & DETAIL PAYMENT (user / DKM / student) =================
+// ================= HANDLER: LIST & DETAIL PAYMENT (user / DKM) =================
 //
 // GET /api/u/payments/list
 //
@@ -27,8 +27,6 @@ import (
 //     -> DKM: list SEMUA payment di sekolah (scope=school)
 //   - /api/u/payments/list?mine=true
 //     -> DKM pun jadi "my payments" (by payment_user_id)
-//   - /api/u/payments/list?school_student_id=true
-//     -> list semua payment milik murid ini (by payment_school_student_id = school_student_id dari token)
 //   - /api/u/payments/list?payment-id=UUID
 //     -> detail 1 payment
 //   - /api/u/payments/list?status=pending&view=compact&page=1&per_page=20
@@ -55,22 +53,10 @@ func (h *PaymentController) List(c *fiber.Ctx) error {
 		isDKM = true
 	}
 
-	// 2) Mode: by user vs by school_student_id (PaymentSchoolStudentID)
-	asSchoolStudent := strings.ToLower(strings.TrimSpace(c.Query("school_student_id"))) == "true"
-
-	var schoolStudentID *uuid.UUID
-	if asSchoolStudent {
-		stuID, e := helperAuth.ResolveStudentIDFromContext(c, schoolID)
-		if e != nil {
-			return e
-		}
-		schoolStudentID = &stuID
-	}
-
 	// Optional: paksa "my payments" walaupun DKM
 	mine := strings.ToLower(strings.TrimSpace(c.Query("mine"))) == "true"
 
-	// 3) Tentukan mode: LIST vs DETAIL (payment-id/payment_id)
+	// 2) Tentukan mode: LIST vs DETAIL (payment-id/payment_id)
 	idQuery := strings.TrimSpace(c.Query("payment-id", ""))
 	if idQuery == "" {
 		idQuery = strings.TrimSpace(c.Query("payment_id", ""))
@@ -83,7 +69,7 @@ func (h *PaymentController) List(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusBadRequest, "payment_id tidak valid")
 		}
 
-		var p model.Payment
+		var p model.PaymentModel
 		if err := h.DB.WithContext(c.Context()).
 			Where("payment_id = ? AND payment_school_id = ? AND payment_deleted_at IS NULL",
 				pid, schoolID).
@@ -97,18 +83,10 @@ func (h *PaymentController) List(c *fiber.Ctx) error {
 
 		// Pastikan memang boleh diakses:
 		//  - DKM: boleh akses semua payment di sekolah
-		//  - non-DKM: hanya payment milik diri sendiri / murid sendiri
+		//  - non-DKM: hanya payment milik diri sendiri (payment_user_id)
 		if !isDKM {
-			if asSchoolStudent {
-				// mode murid pribadi → cek PaymentSchoolStudentID
-				if p.PaymentSchoolStudentID == nil || schoolStudentID == nil || *p.PaymentSchoolStudentID != *schoolStudentID {
-					return helper.JsonError(c, fiber.StatusForbidden, "kamu tidak berhak mengakses payment ini (school_student mismatch)")
-				}
-			} else {
-				// mode default → cek payment_user_id
-				if p.PaymentUserID == nil || *p.PaymentUserID != userID {
-					return helper.JsonError(c, fiber.StatusForbidden, "kamu tidak berhak mengakses payment ini")
-				}
+			if p.PaymentUserID == nil || *p.PaymentUserID != userID {
+				return helper.JsonError(c, fiber.StatusForbidden, "kamu tidak berhak mengakses payment ini")
 			}
 		}
 
@@ -171,22 +149,14 @@ func (h *PaymentController) List(c *fiber.Ctx) error {
 
 	// Base query: filter tenant + soft delete
 	db := h.DB.WithContext(c.Context()).
-		Model(&model.Payment{}).
+		Model(&model.PaymentModel{}).
 		Where("payment_school_id = ? AND payment_deleted_at IS NULL", schoolID)
 
 	// Mode filter utama:
-	//  - asSchoolStudent: payments milik murid ini (via PaymentSchoolStudentID)
 	//  - isDKM && !mine: semua payment sekolah (TANPA filter payment_user_id)
 	//  - lainnya: my payments (by payment_user_id)
-	if asSchoolStudent {
-		if schoolStudentID == nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "school_student_id=true tetapi student context tidak ditemukan")
-		}
-		// kolom DB tetap payment_school_student_id
-		db = db.Where("payment_school_student_id = ?", *schoolStudentID)
-	} else if isDKM && !mine {
+	if isDKM && !mine {
 		// DKM mode: lihat semua payment sekolah
-		// (sudah terfilter school_id dan deleted_at)
 	} else {
 		// Default: my payments by user_id
 		db = db.Where("payment_user_id = ?", userID)
@@ -264,12 +234,8 @@ func (h *PaymentController) List(c *fiber.Ctx) error {
 			"payment_user_name_snapshot",
 			"payment_full_name_snapshot",
 
-			// snapshot academic term (dipakai di PaymentCompactResponse.*AcademicTerm*)
-			"payment_academic_term_id",
-			"payment_academic_term_academic_year_cache",
-			"payment_academic_term_name_cache",
-			"payment_academic_term_slug_cache",
-			"payment_academic_term_angkatan_cache",
+			// snapshot academic term (kalau nanti ditambah lagi ke header)
+			// sementara: jeśli header belum punya kolom ini, hapus dari select
 
 			// snapshot channel / VA (dipakai di PaymentCompactResponse.*VA*)
 			"payment_channel_snapshot",
@@ -279,7 +245,7 @@ func (h *PaymentController) List(c *fiber.Ctx) error {
 		})
 	}
 
-	var rows []model.Payment
+	var rows []model.PaymentModel
 	if err := tx.Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal mengambil daftar payment: "+err.Error())
 	}

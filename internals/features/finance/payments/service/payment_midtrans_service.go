@@ -48,7 +48,7 @@ type CustomerInput struct {
 =========================================================
 */
 // SESUDAH
-func GenerateSnapToken(p model.Payment, cust CustomerInput, finishURL string) (string, string, error) {
+func GenerateSnapToken(p model.PaymentModel, cust CustomerInput, finishURL string) (string, string, error) {
 	if p.PaymentAmountIDR <= 0 {
 		return "", "", errors.New("invalid payment_amount_idr")
 	}

@@ -12,7 +12,7 @@ import (
 	"gorm.io/datatypes"
 )
 
-// Response ringkas: fokus untuk UI list
+// Response ringkas: fokus untuk UI list payment header
 type PaymentCompactResponse struct {
 	PaymentID        uuid.UUID       `json:"payment_id"`
 	PaymentNumber    *int64          `json:"payment_number,omitempty"` // nomor per sekolah
@@ -23,7 +23,6 @@ type PaymentCompactResponse struct {
 	PaymentGatewayProvider *m.PaymentGatewayProvider `json:"payment_gateway_provider,omitempty"` // pointer enum
 	PaymentEntryType       m.PaymentEntryType        `json:"payment_entry_type"`                 // enum dari model
 
-	PaymentInvoiceNumber    *string `json:"payment_invoice_number,omitempty"`
 	PaymentExternalID       *string `json:"payment_external_id,omitempty"`
 	PaymentGatewayReference *string `json:"payment_gateway_reference,omitempty"`
 	PaymentManualReference  *string `json:"payment_manual_reference,omitempty"`
@@ -45,13 +44,6 @@ type PaymentCompactResponse struct {
 	// Kategori pembayaran (registration / spp / dll)
 	// Diambil dari payment_meta.fee_rule_gbk_category_snapshot
 	FeeRuleCategorySnapshot *string `json:"fee_rule_gbk_category_snapshot,omitempty"`
-
-	// ====== SNAPSHOT ACADEMIC TERM (dari kolom di payments) ======
-	AcademicTermID            *uuid.UUID `json:"academic_term_id,omitempty"`
-	AcademicTermName          *string    `json:"academic_term_name,omitempty"`
-	AcademicTermAcademicYear  *string    `json:"academic_term_academic_year,omitempty"`
-	AcademicTermSlug          *string    `json:"academic_term_slug,omitempty"`
-	AcademicTermAngkatanCache *string    `json:"academic_term_angkatan_cache,omitempty"`
 
 	// ====== VA / channel snapshot (ringkas untuk list) ======
 	PaymentChannelSnapshot  *string `json:"payment_channel_snapshot,omitempty"`
@@ -97,7 +89,7 @@ func pickPayerName(fullName, userName *string) *string {
 }
 
 // Single model → compact DTO
-func FromModelCompact(src *m.Payment) *PaymentCompactResponse {
+func FromModelCompact(src *m.PaymentModel) *PaymentCompactResponse {
 	if src == nil {
 		return nil
 	}
@@ -114,10 +106,9 @@ func FromModelCompact(src *m.Payment) *PaymentCompactResponse {
 		PaymentGatewayProvider: src.PaymentGatewayProvider,
 		PaymentEntryType:       src.PaymentEntryType,
 
-		PaymentInvoiceNumber:    src.PaymentInvoiceNumber,
 		PaymentExternalID:       src.PaymentExternalID,
-		PaymentGatewayReference: src.PaymentGatewayReference,
-		PaymentManualReference:  src.PaymentManualReference,
+		PaymentGatewayReference: src.PaymentGatewayRef,      // <- pakai field model yang bener
+		PaymentManualReference:  src.PaymentManualReference, // ada di header
 		PaymentDescription:      src.PaymentDescription,
 
 		// ---- SNAPSHOT PAYER (pakai kolom snapshot di table) ----
@@ -130,15 +121,8 @@ func FromModelCompact(src *m.Payment) *PaymentCompactResponse {
 		StudentCode: jsonStr(meta, "student_code_snapshot"),
 		ClassName:   jsonStr(meta, "class_name_snapshot"),
 
-		// Kategori fee rule (ini sudah dipakai di flow registration)
+		// Kategori fee rule (opsional, di-meta)
 		FeeRuleCategorySnapshot: jsonStr(meta, "fee_rule_gbk_category_snapshot"),
-
-		// ---- SNAPSHOT ACADEMIC TERM (dari kolom di payments) ----
-		AcademicTermID:            src.PaymentAcademicTermID,
-		AcademicTermName:          src.PaymentAcademicTermNameCache,
-		AcademicTermAcademicYear:  src.PaymentAcademicTermAcademicYearCache,
-		AcademicTermSlug:          src.PaymentAcademicTermSlugCache,
-		AcademicTermAngkatanCache: src.PaymentAcademicTermAngkatanCache,
 
 		// ---- VA / channel snapshot (dari kolom di payments) ----
 		PaymentChannelSnapshot:  src.PaymentChannelSnapshot,
@@ -151,7 +135,7 @@ func FromModelCompact(src *m.Payment) *PaymentCompactResponse {
 }
 
 // Slice model → slice compact DTO
-func FromModelsCompact(src []m.Payment) []*PaymentCompactResponse {
+func FromModelsCompact(src []m.PaymentModel) []*PaymentCompactResponse {
 	out := make([]*PaymentCompactResponse, 0, len(src))
 	for i := range src {
 		out = append(out, FromModelCompact(&src[i]))

@@ -16,85 +16,108 @@ import (
 ========================================================= */
 
 type CreatePaymentGatewayEventRequest struct {
-	PaymentGatewayEventSchoolID  *uuid.UUID `json:"payment_gateway_event_school_id"`
-	PaymentGatewayEventPaymentID *uuid.UUID `json:"payment_gateway_event_payment_id"`
+	GatewayEventSchoolID  *uuid.UUID `json:"gateway_event_school_id"`
+	GatewayEventPaymentID *uuid.UUID `json:"gateway_event_payment_id"`
 
-	PaymentGatewayEventProvider string  `json:"payment_gateway_event_provider" validate:"required"` // enum: midtrans|xendit|...
-	PaymentGatewayEventType     *string `json:"payment_gateway_event_type"`
+	// enum: midtrans|xendit|tripay|...
+	GatewayEventProvider string  `json:"gateway_event_provider" validate:"required"`
+	GatewayEventType     *string `json:"gateway_event_type"`
 
-	PaymentGatewayEventExternalID  *string `json:"payment_gateway_event_external_id"`
-	PaymentGatewayEventExternalRef *string `json:"payment_gateway_event_external_ref"`
+	GatewayEventExternalID  *string `json:"gateway_event_external_id"`
+	GatewayEventExternalRef *string `json:"gateway_event_external_ref"`
 
-	PaymentGatewayEventHeaders   datatypes.JSON `json:"payment_gateway_event_headers"`
-	PaymentGatewayEventPayload   datatypes.JSON `json:"payment_gateway_event_payload"`
-	PaymentGatewayEventSignature *string        `json:"payment_gateway_event_signature"`
-	PaymentGatewayEventRawQuery  *string        `json:"payment_gateway_event_raw_query"`
+	GatewayEventHeaders   datatypes.JSON `json:"gateway_event_headers"`
+	GatewayEventPayload   datatypes.JSON `json:"gateway_event_payload"`
+	GatewayEventSignature *string        `json:"gateway_event_signature"`
+	GatewayEventRawQuery  *string        `json:"gateway_event_raw_query"`
 
-	PaymentGatewayEventStatus   *string `json:"payment_gateway_event_status"` // default: received
-	PaymentGatewayEventError    *string `json:"payment_gateway_event_error"`
-	PaymentGatewayEventTryCount *int    `json:"payment_gateway_event_try_count"`
+	// default: received
+	GatewayEventStatus   *string `json:"gateway_event_status"`
+	GatewayEventError    *string `json:"gateway_event_error"`
+	GatewayEventTryCount *int    `json:"gateway_event_try_count"`
 
-	PaymentGatewayEventReceivedAt  *time.Time `json:"payment_gateway_event_received_at"`
-	PaymentGatewayEventProcessedAt *time.Time `json:"payment_gateway_event_processed_at"`
+	GatewayEventReceivedAt  *time.Time `json:"gateway_event_received_at"`
+	GatewayEventProcessedAt *time.Time `json:"gateway_event_processed_at"`
 }
 
 func (r *CreatePaymentGatewayEventRequest) Validate() error {
-	// provider whitelist
-	if !inStr(r.PaymentGatewayEventProvider, model.PaymentProviderMidtrans, model.PaymentProviderXendit, model.PaymentProviderTripay,
-		model.PaymentProviderDuitku, model.PaymentProviderNicepay, model.PaymentProviderStripe, model.PaymentProviderPaypal, model.PaymentProviderOther) {
-		return errors.New("invalid payment_gateway_event_provider")
+	// provider whitelist (pakai enum di model)
+	if !inStr(
+		r.GatewayEventProvider,
+		string(model.GatewayProviderMidtrans),
+		string(model.GatewayProviderXendit),
+		string(model.GatewayProviderTripay),
+		string(model.GatewayProviderDuitku),
+		string(model.GatewayProviderNicepay),
+		string(model.GatewayProviderStripe),
+		string(model.GatewayProviderPaypal),
+		string(model.GatewayProviderOther),
+	) {
+		return errors.New("invalid gateway_event_provider")
 	}
-	// status (jika diisi)
-	if r.PaymentGatewayEventStatus != nil && !inStr(strings.ToLower(*r.PaymentGatewayEventStatus),
-		model.GatewayEventStatusReceived, model.GatewayEventStatusProcessed, model.GatewayEventStatusIgnored,
-		model.GatewayEventStatusDuplicated, model.GatewayEventStatusFailed) {
-		return errors.New("invalid payment_gateway_event_status")
+
+	// status (jika diisi) → harus salah satu dari enum di model
+	if r.GatewayEventStatus != nil && !inStr(
+		strings.ToLower(*r.GatewayEventStatus),
+		string(model.GatewayEventStatusReceived),
+		string(model.GatewayEventStatusProcessing),
+		string(model.GatewayEventStatusSuccess),
+		string(model.GatewayEventStatusFailed),
+	) {
+		return errors.New("invalid gateway_event_status")
 	}
+
 	// try_count non negatif
-	if r.PaymentGatewayEventTryCount != nil && *r.PaymentGatewayEventTryCount < 0 {
-		return errors.New("payment_gateway_event_try_count must be >= 0")
+	if r.GatewayEventTryCount != nil && *r.GatewayEventTryCount < 0 {
+		return errors.New("gateway_event_try_count must be >= 0")
 	}
 	return nil
 }
 
-func (r *CreatePaymentGatewayEventRequest) ToModel() *model.PaymentGatewayEvent {
+func (r *CreatePaymentGatewayEventRequest) ToModel() *model.PaymentGatewayEventModel {
 	now := time.Now().UTC()
-	out := &model.PaymentGatewayEvent{
-		PaymentGatewayEventSchoolID:  r.PaymentGatewayEventSchoolID,
-		PaymentGatewayEventPaymentID: r.PaymentGatewayEventPaymentID,
 
-		PaymentGatewayEventProvider: r.PaymentGatewayEventProvider,
-		PaymentGatewayEventType:     r.PaymentGatewayEventType,
+	// provider & status dinormalisasi → lowercase lalu cast ke enum
+	prov := model.PaymentGatewayProvider(strings.ToLower(r.GatewayEventProvider))
 
-		PaymentGatewayEventExternalID:  r.PaymentGatewayEventExternalID,
-		PaymentGatewayEventExternalRef: r.PaymentGatewayEventExternalRef,
+	status := model.GatewayEventStatusReceived
+	if r.GatewayEventStatus != nil {
+		status = model.GatewayEventStatus(strings.ToLower(*r.GatewayEventStatus))
+	}
 
-		PaymentGatewayEventHeaders:   r.PaymentGatewayEventHeaders,
-		PaymentGatewayEventPayload:   r.PaymentGatewayEventPayload,
-		PaymentGatewayEventSignature: r.PaymentGatewayEventSignature,
-		PaymentGatewayEventRawQuery:  r.PaymentGatewayEventRawQuery,
+	tryCount := 0
+	if r.GatewayEventTryCount != nil {
+		tryCount = *r.GatewayEventTryCount
+	}
 
-		PaymentGatewayEventStatus:     model.GatewayEventStatusReceived,
-		PaymentGatewayEventError:      r.PaymentGatewayEventError,
-		PaymentGatewayEventTryCount:   0,
-		PaymentGatewayEventReceivedAt: now,
+	receivedAt := now
+	if r.GatewayEventReceivedAt != nil {
+		receivedAt = *r.GatewayEventReceivedAt
+	}
 
-		PaymentGatewayEventCreatedAt: now,
-		PaymentGatewayEventUpdatedAt: now,
+	return &model.PaymentGatewayEventModel{
+		GatewayEventSchoolID:  r.GatewayEventSchoolID,
+		GatewayEventPaymentID: r.GatewayEventPaymentID,
+
+		GatewayEventProvider:    prov,
+		GatewayEventType:        r.GatewayEventType,
+		GatewayEventExternalID:  r.GatewayEventExternalID,
+		GatewayEventExternalRef: r.GatewayEventExternalRef,
+
+		GatewayEventHeaders:   r.GatewayEventHeaders,
+		GatewayEventPayload:   r.GatewayEventPayload,
+		GatewayEventSignature: r.GatewayEventSignature,
+		GatewayEventRawQuery:  r.GatewayEventRawQuery,
+
+		GatewayEventStatus:      status,
+		GatewayEventError:       r.GatewayEventError,
+		GatewayEventTryCount:    tryCount,
+		GatewayEventReceivedAt:  receivedAt,
+		GatewayEventProcessedAt: r.GatewayEventProcessedAt,
+
+		GatewayEventCreatedAt: now,
+		GatewayEventUpdatedAt: now,
 	}
-	if r.PaymentGatewayEventStatus != nil {
-		out.PaymentGatewayEventStatus = strings.ToLower(*r.PaymentGatewayEventStatus)
-	}
-	if r.PaymentGatewayEventTryCount != nil {
-		out.PaymentGatewayEventTryCount = *r.PaymentGatewayEventTryCount
-	}
-	if r.PaymentGatewayEventReceivedAt != nil {
-		out.PaymentGatewayEventReceivedAt = *r.PaymentGatewayEventReceivedAt
-	}
-	if r.PaymentGatewayEventProcessedAt != nil {
-		out.PaymentGatewayEventProcessedAt = r.PaymentGatewayEventProcessedAt
-	}
-	return out
 }
 
 /* =========================================================
@@ -102,90 +125,103 @@ func (r *CreatePaymentGatewayEventRequest) ToModel() *model.PaymentGatewayEvent 
 ========================================================= */
 
 type UpdatePaymentGatewayEventRequest struct {
-	PaymentGatewayEventSchoolID  PatchField[uuid.UUID] `json:"payment_gateway_event_school_id"`
-	PaymentGatewayEventPaymentID PatchField[uuid.UUID] `json:"payment_gateway_event_payment_id"`
+	GatewayEventSchoolID  PatchField[uuid.UUID] `json:"gateway_event_school_id"`
+	GatewayEventPaymentID PatchField[uuid.UUID] `json:"gateway_event_payment_id"`
 
-	PaymentGatewayEventProvider PatchField[string] `json:"payment_gateway_event_provider"`
-	PaymentGatewayEventType     PatchField[string] `json:"payment_gateway_event_type"`
+	GatewayEventProvider PatchField[string] `json:"gateway_event_provider"`
+	GatewayEventType     PatchField[string] `json:"gateway_event_type"`
 
-	PaymentGatewayEventExternalID  PatchField[string] `json:"payment_gateway_event_external_id"`
-	PaymentGatewayEventExternalRef PatchField[string] `json:"payment_gateway_event_external_ref"`
+	GatewayEventExternalID  PatchField[string] `json:"gateway_event_external_id"`
+	GatewayEventExternalRef PatchField[string] `json:"gateway_event_external_ref"`
 
-	PaymentGatewayEventHeaders   PatchField[datatypes.JSON] `json:"payment_gateway_event_headers"`
-	PaymentGatewayEventPayload   PatchField[datatypes.JSON] `json:"payment_gateway_event_payload"`
-	PaymentGatewayEventSignature PatchField[string]         `json:"payment_gateway_event_signature"`
-	PaymentGatewayEventRawQuery  PatchField[string]         `json:"payment_gateway_event_raw_query"`
+	GatewayEventHeaders   PatchField[datatypes.JSON] `json:"gateway_event_headers"`
+	GatewayEventPayload   PatchField[datatypes.JSON] `json:"gateway_event_payload"`
+	GatewayEventSignature PatchField[string]         `json:"gateway_event_signature"`
+	GatewayEventRawQuery  PatchField[string]         `json:"gateway_event_raw_query"`
 
-	PaymentGatewayEventStatus   PatchField[string] `json:"payment_gateway_event_status"`
-	PaymentGatewayEventError    PatchField[string] `json:"payment_gateway_event_error"`
-	PaymentGatewayEventTryCount PatchField[int]    `json:"payment_gateway_event_try_count"`
+	GatewayEventStatus   PatchField[string] `json:"gateway_event_status"`
+	GatewayEventError    PatchField[string] `json:"gateway_event_error"`
+	GatewayEventTryCount PatchField[int]    `json:"gateway_event_try_count"`
 
-	PaymentGatewayEventReceivedAt  PatchField[time.Time] `json:"payment_gateway_event_received_at"`
-	PaymentGatewayEventProcessedAt PatchField[time.Time] `json:"payment_gateway_event_processed_at"`
+	GatewayEventReceivedAt  PatchField[time.Time] `json:"gateway_event_received_at"`
+	GatewayEventProcessedAt PatchField[time.Time] `json:"gateway_event_processed_at"`
 }
 
-func (p *UpdatePaymentGatewayEventRequest) Apply(m *model.PaymentGatewayEvent) error {
-	applyPtr(&m.PaymentGatewayEventSchoolID, p.PaymentGatewayEventSchoolID)
-	applyPtr(&m.PaymentGatewayEventPaymentID, p.PaymentGatewayEventPaymentID)
+func (p *UpdatePaymentGatewayEventRequest) Apply(m *model.PaymentGatewayEventModel) error {
+	applyPtr(&m.GatewayEventSchoolID, p.GatewayEventSchoolID)
+	applyPtr(&m.GatewayEventPaymentID, p.GatewayEventPaymentID)
 
 	// provider (enum)
-	if p.PaymentGatewayEventProvider.Set {
-		if p.PaymentGatewayEventProvider.Null || p.PaymentGatewayEventProvider.Value == nil {
-			return errors.New("payment_gateway_event_provider cannot be null")
+	if p.GatewayEventProvider.Set {
+		if p.GatewayEventProvider.Null || p.GatewayEventProvider.Value == nil {
+			return errors.New("gateway_event_provider cannot be null")
 		}
-		prov := strings.ToLower(*p.PaymentGatewayEventProvider.Value)
-		if !inStr(prov, model.PaymentProviderMidtrans, model.PaymentProviderXendit, model.PaymentProviderTripay,
-			model.PaymentProviderDuitku, model.PaymentProviderNicepay, model.PaymentProviderStripe, model.PaymentProviderPaypal, model.PaymentProviderOther) {
-			return errors.New("invalid payment_gateway_event_provider")
+		provStr := strings.ToLower(*p.GatewayEventProvider.Value)
+		if !inStr(
+			provStr,
+			string(model.GatewayProviderMidtrans),
+			string(model.GatewayProviderXendit),
+			string(model.GatewayProviderTripay),
+			string(model.GatewayProviderDuitku),
+			string(model.GatewayProviderNicepay),
+			string(model.GatewayProviderStripe),
+			string(model.GatewayProviderPaypal),
+			string(model.GatewayProviderOther),
+		) {
+			return errors.New("invalid gateway_event_provider")
 		}
-		m.PaymentGatewayEventProvider = prov
+		m.GatewayEventProvider = model.PaymentGatewayProvider(provStr)
 	}
 
-	applyPtr(&m.PaymentGatewayEventType, p.PaymentGatewayEventType)
-	applyPtr(&m.PaymentGatewayEventExternalID, p.PaymentGatewayEventExternalID)
-	applyPtr(&m.PaymentGatewayEventExternalRef, p.PaymentGatewayEventExternalRef)
+	applyPtr(&m.GatewayEventType, p.GatewayEventType)
+	applyPtr(&m.GatewayEventExternalID, p.GatewayEventExternalID)
+	applyPtr(&m.GatewayEventExternalRef, p.GatewayEventExternalRef)
 
-	applyVal(&m.PaymentGatewayEventHeaders, p.PaymentGatewayEventHeaders)
-	applyVal(&m.PaymentGatewayEventPayload, p.PaymentGatewayEventPayload)
-	applyPtr(&m.PaymentGatewayEventSignature, p.PaymentGatewayEventSignature)
-	applyPtr(&m.PaymentGatewayEventRawQuery, p.PaymentGatewayEventRawQuery)
+	applyVal(&m.GatewayEventHeaders, p.GatewayEventHeaders)
+	applyVal(&m.GatewayEventPayload, p.GatewayEventPayload)
+	applyPtr(&m.GatewayEventSignature, p.GatewayEventSignature)
+	applyPtr(&m.GatewayEventRawQuery, p.GatewayEventRawQuery)
 
 	// status (enum)
-	if p.PaymentGatewayEventStatus.Set {
-		if p.PaymentGatewayEventStatus.Null || p.PaymentGatewayEventStatus.Value == nil {
-			return errors.New("payment_gateway_event_status cannot be null")
+	if p.GatewayEventStatus.Set {
+		if p.GatewayEventStatus.Null || p.GatewayEventStatus.Value == nil {
+			return errors.New("gateway_event_status cannot be null")
 		}
-		st := strings.ToLower(*p.PaymentGatewayEventStatus.Value)
-		if !inStr(st, model.GatewayEventStatusReceived, model.GatewayEventStatusProcessed, model.GatewayEventStatusIgnored,
-			model.GatewayEventStatusDuplicated, model.GatewayEventStatusFailed) {
-			return errors.New("invalid payment_gateway_event_status")
+		st := strings.ToLower(*p.GatewayEventStatus.Value)
+		if !inStr(
+			st,
+			string(model.GatewayEventStatusReceived),
+			string(model.GatewayEventStatusProcessing),
+			string(model.GatewayEventStatusSuccess),
+			string(model.GatewayEventStatusFailed),
+		) {
+			return errors.New("invalid gateway_event_status")
 		}
-		m.PaymentGatewayEventStatus = st
+		m.GatewayEventStatus = model.GatewayEventStatus(st)
 	}
 
-	applyPtr(&m.PaymentGatewayEventError, p.PaymentGatewayEventError)
+	applyPtr(&m.GatewayEventError, p.GatewayEventError)
 
 	// try count (>=0)
-	if p.PaymentGatewayEventTryCount.Set {
-		if p.PaymentGatewayEventTryCount.Null || p.PaymentGatewayEventTryCount.Value == nil {
-			return errors.New("payment_gateway_event_try_count cannot be null")
+	if p.GatewayEventTryCount.Set {
+		if p.GatewayEventTryCount.Null || p.GatewayEventTryCount.Value == nil {
+			return errors.New("gateway_event_try_count cannot be null")
 		}
-		if *p.PaymentGatewayEventTryCount.Value < 0 {
-			return errors.New("payment_gateway_event_try_count must be >= 0")
+		if *p.GatewayEventTryCount.Value < 0 {
+			return errors.New("gateway_event_try_count must be >= 0")
 		}
-		m.PaymentGatewayEventTryCount = *p.PaymentGatewayEventTryCount.Value
+		m.GatewayEventTryCount = *p.GatewayEventTryCount.Value
 	}
 
-	applyPtr(&m.PaymentGatewayEventProcessedAt, p.PaymentGatewayEventProcessedAt)
-	if p.PaymentGatewayEventReceivedAt.Set {
-		// received_at tidak boleh null & umumnya immutable, tapi kalau mau diizinkan set:
-		if p.PaymentGatewayEventReceivedAt.Null || p.PaymentGatewayEventReceivedAt.Value == nil {
-			return errors.New("payment_gateway_event_received_at cannot be null")
+	applyPtr(&m.GatewayEventProcessedAt, p.GatewayEventProcessedAt)
+
+	if p.GatewayEventReceivedAt.Set {
+		if p.GatewayEventReceivedAt.Null || p.GatewayEventReceivedAt.Value == nil {
+			return errors.New("gateway_event_received_at cannot be null")
 		}
-		m.PaymentGatewayEventReceivedAt = *p.PaymentGatewayEventReceivedAt.Value
+		m.GatewayEventReceivedAt = *p.GatewayEventReceivedAt.Value
 	}
 
-	// updated_at dikelola oleh hook gorm BeforeUpdate
 	return nil
 }
 
@@ -194,65 +230,65 @@ func (p *UpdatePaymentGatewayEventRequest) Apply(m *model.PaymentGatewayEvent) e
 ========================================================= */
 
 type PaymentGatewayEventResponse struct {
-	PaymentGatewayEventID uuid.UUID `json:"payment_gateway_event_id"`
+	GatewayEventID uuid.UUID `json:"gateway_event_id"`
 
-	PaymentGatewayEventSchoolID  *uuid.UUID `json:"payment_gateway_event_school_id,omitempty"`
-	PaymentGatewayEventPaymentID *uuid.UUID `json:"payment_gateway_event_payment_id,omitempty"`
+	GatewayEventSchoolID  *uuid.UUID `json:"gateway_event_school_id,omitempty"`
+	GatewayEventPaymentID *uuid.UUID `json:"gateway_event_payment_id,omitempty"`
 
-	PaymentGatewayEventProvider string  `json:"payment_gateway_event_provider"`
-	PaymentGatewayEventType     *string `json:"payment_gateway_event_type,omitempty"`
+	GatewayEventProvider string  `json:"gateway_event_provider"`
+	GatewayEventType     *string `json:"gateway_event_type,omitempty"`
 
-	PaymentGatewayEventExternalID  *string `json:"payment_gateway_event_external_id,omitempty"`
-	PaymentGatewayEventExternalRef *string `json:"payment_gateway_event_external_ref,omitempty"`
+	GatewayEventExternalID  *string `json:"gateway_event_external_id,omitempty"`
+	GatewayEventExternalRef *string `json:"gateway_event_external_ref,omitempty"`
 
-	PaymentGatewayEventHeaders   datatypes.JSON `json:"payment_gateway_event_headers,omitempty"`
-	PaymentGatewayEventPayload   datatypes.JSON `json:"payment_gateway_event_payload,omitempty"`
-	PaymentGatewayEventSignature *string        `json:"payment_gateway_event_signature,omitempty"`
-	PaymentGatewayEventRawQuery  *string        `json:"payment_gateway_event_raw_query,omitempty"`
+	GatewayEventHeaders   datatypes.JSON `json:"gateway_event_headers,omitempty"`
+	GatewayEventPayload   datatypes.JSON `json:"gateway_event_payload,omitempty"`
+	GatewayEventSignature *string        `json:"gateway_event_signature,omitempty"`
+	GatewayEventRawQuery  *string        `json:"gateway_event_raw_query,omitempty"`
 
-	PaymentGatewayEventStatus   string  `json:"payment_gateway_event_status"`
-	PaymentGatewayEventError    *string `json:"payment_gateway_event_error,omitempty"`
-	PaymentGatewayEventTryCount int     `json:"payment_gateway_event_try_count"`
+	GatewayEventStatus   string  `json:"gateway_event_status"`
+	GatewayEventError    *string `json:"gateway_event_error,omitempty"`
+	GatewayEventTryCount int     `json:"gateway_event_try_count"`
 
-	PaymentGatewayEventReceivedAt  time.Time  `json:"payment_gateway_event_received_at"`
-	PaymentGatewayEventProcessedAt *time.Time `json:"payment_gateway_event_processed_at,omitempty"`
+	GatewayEventReceivedAt  time.Time  `json:"gateway_event_received_at"`
+	GatewayEventProcessedAt *time.Time `json:"gateway_event_processed_at,omitempty"`
 
-	PaymentGatewayEventCreatedAt time.Time  `json:"payment_gateway_event_created_at"`
-	PaymentGatewayEventUpdatedAt time.Time  `json:"payment_gateway_event_updated_at"`
-	PaymentGatewayEventDeletedAt *time.Time `json:"payment_gateway_event_deleted_at,omitempty"`
+	GatewayEventCreatedAt time.Time  `json:"gateway_event_created_at"`
+	GatewayEventUpdatedAt time.Time  `json:"gateway_event_updated_at"`
+	GatewayEventDeletedAt *time.Time `json:"gateway_event_deleted_at,omitempty"`
 }
 
-func FromModelPGW(m *model.PaymentGatewayEvent) *PaymentGatewayEventResponse {
+func FromModelPGW(m *model.PaymentGatewayEventModel) *PaymentGatewayEventResponse {
 	if m == nil {
 		return nil
 	}
 	return &PaymentGatewayEventResponse{
-		PaymentGatewayEventID: m.PaymentGatewayEventID,
+		GatewayEventID: m.GatewayEventID,
 
-		PaymentGatewayEventSchoolID:  m.PaymentGatewayEventSchoolID,
-		PaymentGatewayEventPaymentID: m.PaymentGatewayEventPaymentID,
+		GatewayEventSchoolID:  m.GatewayEventSchoolID,
+		GatewayEventPaymentID: m.GatewayEventPaymentID,
 
-		PaymentGatewayEventProvider: m.PaymentGatewayEventProvider,
-		PaymentGatewayEventType:     m.PaymentGatewayEventType,
+		GatewayEventProvider: string(m.GatewayEventProvider),
+		GatewayEventType:     m.GatewayEventType,
 
-		PaymentGatewayEventExternalID:  m.PaymentGatewayEventExternalID,
-		PaymentGatewayEventExternalRef: m.PaymentGatewayEventExternalRef,
+		GatewayEventExternalID:  m.GatewayEventExternalID,
+		GatewayEventExternalRef: m.GatewayEventExternalRef,
 
-		PaymentGatewayEventHeaders:   m.PaymentGatewayEventHeaders,
-		PaymentGatewayEventPayload:   m.PaymentGatewayEventPayload,
-		PaymentGatewayEventSignature: m.PaymentGatewayEventSignature,
-		PaymentGatewayEventRawQuery:  m.PaymentGatewayEventRawQuery,
+		GatewayEventHeaders:   m.GatewayEventHeaders,
+		GatewayEventPayload:   m.GatewayEventPayload,
+		GatewayEventSignature: m.GatewayEventSignature,
+		GatewayEventRawQuery:  m.GatewayEventRawQuery,
 
-		PaymentGatewayEventStatus:   m.PaymentGatewayEventStatus,
-		PaymentGatewayEventError:    m.PaymentGatewayEventError,
-		PaymentGatewayEventTryCount: m.PaymentGatewayEventTryCount,
+		GatewayEventStatus:   string(m.GatewayEventStatus),
+		GatewayEventError:    m.GatewayEventError,
+		GatewayEventTryCount: m.GatewayEventTryCount,
 
-		PaymentGatewayEventReceivedAt:  m.PaymentGatewayEventReceivedAt,
-		PaymentGatewayEventProcessedAt: m.PaymentGatewayEventProcessedAt,
+		GatewayEventReceivedAt:  m.GatewayEventReceivedAt,
+		GatewayEventProcessedAt: m.GatewayEventProcessedAt,
 
-		PaymentGatewayEventCreatedAt: m.PaymentGatewayEventCreatedAt,
-		PaymentGatewayEventUpdatedAt: m.PaymentGatewayEventUpdatedAt,
-		PaymentGatewayEventDeletedAt: m.PaymentGatewayEventDeletedAt,
+		GatewayEventCreatedAt: m.GatewayEventCreatedAt,
+		GatewayEventUpdatedAt: m.GatewayEventUpdatedAt,
+		GatewayEventDeletedAt: m.GatewayEventDeletedAt,
 	}
 }
 

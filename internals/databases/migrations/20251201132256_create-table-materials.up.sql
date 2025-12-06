@@ -127,16 +127,23 @@ CREATE TABLE IF NOT EXISTS class_materials (
     REFERENCES schools (school_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
-  CONSTRAINT fk_class_material_csst_same_school
-    FOREIGN KEY (class_material_csst_id, class_material_school_id)
-    REFERENCES class_section_subject_teachers (csst_id, csst_school_id)
-    ON UPDATE CASCADE ON DELETE CASCADE,
+CONSTRAINT fk_class_material_csst_same_school
+  FOREIGN KEY (class_material_csst_id, class_material_school_id)
+  REFERENCES class_section_subject_teachers (
+    class_section_subject_teacher_id,
+    class_section_subject_teacher_school_id
+  )
+  ON UPDATE CASCADE ON DELETE CASCADE,
 
-  CONSTRAINT fk_class_material_session
-    FOREIGN KEY (class_material_session_id)
-    REFERENCES class_attendance_sessions (session_id)
-    ON UPDATE CASCADE ON DELETE SET NULL
+CONSTRAINT fk_class_material_session_same_school
+  FOREIGN KEY (class_material_session_id, class_material_school_id)
+  REFERENCES class_attendance_sessions (
+    class_attendance_session_id,
+    class_attendance_session_school_id
+  )
+  ON UPDATE CASCADE ON DELETE SET NULL
 );
+
 
 -- =====================================================================
 -- INDEXES: class_materials
@@ -354,16 +361,20 @@ CREATE TABLE IF NOT EXISTS student_class_material_progresses (
     ON UPDATE CASCADE ON DELETE CASCADE,
 
   -- Murid di school ini
-  CONSTRAINT fk_student_class_material_progress_student_same_school
-    FOREIGN KEY (student_class_material_progress_student_id, student_class_material_progress_school_id)
-    REFERENCES school_students (student_id, student_school_id)
-    ON UPDATE CASCADE ON DELETE CASCADE,
+CONSTRAINT fk_student_class_material_progress_student_same_school
+  FOREIGN KEY (student_class_material_progress_student_id, student_class_material_progress_school_id)
+  REFERENCES school_students (school_student_id, school_student_school_id)
+  ON UPDATE CASCADE ON DELETE CASCADE,
+
 
   -- Enrollment SCSST (murid x CSST)
-  CONSTRAINT fk_student_class_material_progress_scsst_same_school
-    FOREIGN KEY (student_class_material_progress_scsst_id, student_class_material_progress_school_id)
-    REFERENCES student_class_section_subject_teachers (scsst_id, scsst_school_id)
-    ON UPDATE CASCADE ON DELETE CASCADE,
+CONSTRAINT fk_student_class_material_progress_scsst_same_school
+  FOREIGN KEY (student_class_material_progress_scsst_id, student_class_material_progress_school_id)
+  REFERENCES student_class_section_subject_teachers (
+    student_class_section_subject_teacher_id,
+    student_class_section_subject_teacher_school_id
+  )
+  ON UPDATE CASCADE ON DELETE CASCADE,
 
   -- Materi yang diikuti murid ini
   CONSTRAINT fk_student_class_material_progress_class_material_same_school

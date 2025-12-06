@@ -1,3 +1,4 @@
+// file: internals/features/finance/payments/controller/payment_gateway_event_controller.go
 package controller
 
 import (
@@ -38,7 +39,7 @@ func (h *PaymentGatewayEventController) RegisterRoutes(r fiber.Router) {
    List (filter + pagination)
    Query params:
      - provider: midtrans|xendit|...
-     - status: received|processed|ignored|duplicated|failed
+     - status: received|processing|success|failed
      - payment_id: uuid
      - school_id: uuid
      - q: cari di external_id / external_ref (ilike)
@@ -47,49 +48,50 @@ func (h *PaymentGatewayEventController) RegisterRoutes(r fiber.Router) {
 ======================================================================= */
 
 func (h *PaymentGatewayEventController) ListEvents(c *fiber.Ctx) error {
-	db := h.DB.Model(&model.PaymentGatewayEvent{}).
-		Where("payment_gateway_event_deleted_at IS NULL")
+	db := h.DB.Model(&model.PaymentGatewayEventModel{}).
+		Where("gateway_event_deleted_at IS NULL")
 
 	if p := strings.TrimSpace(c.Query("provider")); p != "" {
-		db = db.Where("payment_gateway_event_provider = ?", strings.ToLower(p))
+		db = db.Where("gateway_event_provider = ?", strings.ToLower(p))
 	}
 	if s := strings.TrimSpace(c.Query("status")); s != "" {
-		db = db.Where("payment_gateway_event_status = ?", strings.ToLower(s))
+		db = db.Where("gateway_event_status = ?", strings.ToLower(s))
 	}
 	if pid := strings.TrimSpace(c.Query("payment_id")); pid != "" {
 		if id, err := uuid.Parse(pid); err == nil {
-			db = db.Where("payment_gateway_event_payment_id = ?", id)
+			db = db.Where("gateway_event_payment_id = ?", id)
 		} else {
 			return fiber.NewError(fiber.StatusBadRequest, "invalid payment_id")
 		}
 	}
-	if mid := strings.TrimSpace(c.Query("school_id")); mid != "" {
-		if id, err := uuid.Parse(mid); err == nil {
-			db = db.Where("payment_gateway_event_school_id = ?", id)
+	if sid := strings.TrimSpace(c.Query("school_id")); sid != "" {
+		if id, err := uuid.Parse(sid); err == nil {
+			db = db.Where("gateway_event_school_id = ?", id)
 		} else {
 			return fiber.NewError(fiber.StatusBadRequest, "invalid school_id")
 		}
 	}
-	// search
+
+	// search di external_id / external_ref
 	if q := strings.TrimSpace(c.Query("q")); q != "" {
 		like := "%" + q + "%"
 		db = db.Where(`
-			COALESCE(payment_gateway_event_external_id,'') ILIKE ? 
-			OR COALESCE(payment_gateway_event_external_ref,'') ILIKE ?
+			COALESCE(gateway_event_external_id,'') ILIKE ? 
+			OR COALESCE(gateway_event_external_ref,'') ILIKE ?
 		`, like, like)
 	}
 
 	// time range by received_at
 	if start := strings.TrimSpace(c.Query("start")); start != "" {
 		if t, err := time.Parse(time.RFC3339, start); err == nil {
-			db = db.Where("payment_gateway_event_received_at >= ?", t)
+			db = db.Where("gateway_event_received_at >= ?", t)
 		} else {
 			return fiber.NewError(fiber.StatusBadRequest, "invalid start (use RFC3339)")
 		}
 	}
 	if end := strings.TrimSpace(c.Query("end")); end != "" {
 		if t, err := time.Parse(time.RFC3339, end); err == nil {
-			db = db.Where("payment_gateway_event_received_at < ?", t)
+			db = db.Where("gateway_event_received_at < ?", t)
 		} else {
 			return fiber.NewError(fiber.StatusBadRequest, "invalid end (use RFC3339)")
 		}
@@ -105,8 +107,8 @@ func (h *PaymentGatewayEventController) ListEvents(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
-	var rows []model.PaymentGatewayEvent
-	if err := db.Order("payment_gateway_event_received_at DESC").
+	var rows []model.PaymentGatewayEventModel
+	if err := db.Order("gateway_event_received_at DESC").
 		Limit(limit).Offset(offset).
 		Find(&rows).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
@@ -134,13 +136,19 @@ func (h *PaymentGatewayEventController) GetByID(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid id")
 	}
-	var m model.PaymentGatewayEvent
-	if err := h.DB.First(&m, "payment_gateway_event_id = ? AND payment_gateway_event_deleted_at IS NULL", id).Error; err != nil {
+
+	var m model.PaymentGatewayEventModel
+	if err := h.DB.First(
+		&m,
+		"gateway_event_id = ? AND gateway_event_deleted_at IS NULL",
+		id,
+	).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fiber.NewError(fiber.StatusNotFound, "event not found")
 		}
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
+
 	return c.JSON(dto.FromModelPGW(&m))
 }
 
@@ -165,6 +173,7 @@ func (h *PaymentGatewayEventController) CreateEvent(c *fiber.Ctx) error {
 		}
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
+
 	return c.Status(fiber.StatusCreated).JSON(dto.FromModelPGW(m))
 }
 
@@ -177,8 +186,13 @@ func (h *PaymentGatewayEventController) PatchEvent(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid id")
 	}
-	var m model.PaymentGatewayEvent
-	if err := h.DB.First(&m, "payment_gateway_event_id = ? AND payment_gateway_event_deleted_at IS NULL", id).Error; err != nil {
+
+	var m model.PaymentGatewayEventModel
+	if err := h.DB.First(
+		&m,
+		"gateway_event_id = ? AND gateway_event_deleted_at IS NULL",
+		id,
+	).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fiber.NewError(fiber.StatusNotFound, "event not found")
 		}
@@ -194,10 +208,13 @@ func (h *PaymentGatewayEventController) PatchEvent(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	// processed_at: kalau status jadi processed dan belum ada processed_at -> isi sekarang (quality-of-life)
-	if strings.EqualFold(m.PaymentGatewayEventStatus, model.GatewayEventStatusProcessed) && m.PaymentGatewayEventProcessedAt == nil {
+	// Auto-set processed_at:
+	// kalau status sudah success/failed dan processed_at masih null → isi sekarang
+	if (m.GatewayEventStatus == model.GatewayEventStatusSuccess ||
+		m.GatewayEventStatus == model.GatewayEventStatusFailed) &&
+		m.GatewayEventProcessedAt == nil {
 		now := time.Now().UTC()
-		m.PaymentGatewayEventProcessedAt = &now
+		m.GatewayEventProcessedAt = &now
 	}
 
 	if err := h.DB.Save(&m).Error; err != nil {

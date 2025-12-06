@@ -1,4 +1,4 @@
-// file: internals/features/finance/payment_gateway_events/model/payment_gateway_event.go
+// file: internals/features/finance/payments/model/payment_gateway_event_model.go
 package model
 
 import (
@@ -6,126 +6,46 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
-	"gorm.io/gorm"
 )
 
-/* =========================
-   ENUM mirrors (Go-side)
-   ========================= */
+/*
+  payment_gateway_events = LOG WEBHOOK / CALLBACK PAYMENT GATEWAY
+  - Bisa banyak row per 1 payment (tiap callback / notif)
+  - Nyimpen raw headers, payload, signature, status processing.
+*/
 
-const (
-	// gateway_event_status (tipe ENUM di Postgres tetap)
-	GatewayEventStatusReceived   = "received"
-	GatewayEventStatusProcessed  = "processed"
-	GatewayEventStatusIgnored    = "ignored"
-	GatewayEventStatusDuplicated = "duplicated"
-	GatewayEventStatusFailed     = "failed"
-)
+type PaymentGatewayEventModel struct {
+	GatewayEventID uuid.UUID `gorm:"column:gateway_event_id;type:uuid;default:gen_random_uuid();primaryKey" json:"gateway_event_id"`
 
-const (
-	// payment_gateway_provider
-	PaymentProviderMidtrans = "midtrans"
-	PaymentProviderXendit   = "xendit"
-	PaymentProviderTripay   = "tripay"
-	PaymentProviderDuitku   = "duitku"
-	PaymentProviderNicepay  = "nicepay"
-	PaymentProviderStripe   = "stripe"
-	PaymentProviderPaypal   = "paypal"
-	PaymentProviderOther    = "other"
-)
+	GatewayEventSchoolID  *uuid.UUID `gorm:"column:gateway_event_school_id;type:uuid" json:"gateway_event_school_id"`
+	GatewayEventPaymentID *uuid.UUID `gorm:"column:gateway_event_payment_id;type:uuid" json:"gateway_event_payment_id"`
 
-/* =========================
-   Model: payment_gateway_events
-   ========================= */
+	// Provider & identitas event
+	GatewayEventProvider    PaymentGatewayProvider `gorm:"column:gateway_event_provider;type:payment_gateway_provider;not null" json:"gateway_event_provider"`
+	GatewayEventType        *string                `gorm:"column:gateway_event_type" json:"gateway_event_type"`
+	GatewayEventExternalID  *string                `gorm:"column:gateway_event_external_id" json:"gateway_event_external_id"`
+	GatewayEventExternalRef *string                `gorm:"column:gateway_event_external_ref" json:"gateway_event_external_ref"`
 
-type PaymentGatewayEvent struct {
-	PaymentGatewayEventID uuid.UUID `json:"payment_gateway_event_id" gorm:"column:payment_gateway_event_id;type:uuid;primaryKey;default:gen_random_uuid()"`
+	// Raw data (buat debug / replay)
+	GatewayEventHeaders   datatypes.JSON `gorm:"column:gateway_event_headers;type:jsonb" json:"gateway_event_headers"`
+	GatewayEventPayload   datatypes.JSON `gorm:"column:gateway_event_payload;type:jsonb" json:"gateway_event_payload"`
+	GatewayEventSignature *string        `gorm:"column:gateway_event_signature" json:"gateway_event_signature"`
+	GatewayEventRawQuery  *string        `gorm:"column:gateway_event_raw_query" json:"gateway_event_raw_query"`
 
-	// Nullable FKs (ON DELETE SET NULL)
-	PaymentGatewayEventSchoolID  *uuid.UUID `json:"payment_gateway_event_school_id,omitempty"  gorm:"column:payment_gateway_event_school_id;type:uuid"`
-	PaymentGatewayEventPaymentID *uuid.UUID `json:"payment_gateway_event_payment_id,omitempty" gorm:"column:payment_gateway_event_payment_id;type:uuid"`
+	// Status processing internal
+	GatewayEventStatus   GatewayEventStatus `gorm:"column:gateway_event_status;type:gateway_event_status;not null;default:'received'" json:"gateway_event_status"`
+	GatewayEventError    *string            `gorm:"column:gateway_event_error" json:"gateway_event_error"`
+	GatewayEventTryCount int                `gorm:"column:gateway_event_try_count;not null;default:0" json:"gateway_event_try_count"`
 
-	// Enums
-	PaymentGatewayEventProvider string `json:"payment_gateway_event_provider" gorm:"column:payment_gateway_event_provider;type:payment_gateway_provider;not null"`
+	// Timestamps
+	GatewayEventReceivedAt  time.Time  `gorm:"column:gateway_event_received_at;not null;default:now()" json:"gateway_event_received_at"`
+	GatewayEventProcessedAt *time.Time `gorm:"column:gateway_event_processed_at" json:"gateway_event_processed_at"`
 
-	// Identitas/metadata event
-	PaymentGatewayEventType        *string `json:"payment_gateway_event_type,omitempty"         gorm:"column:payment_gateway_event_type;type:text"`
-	PaymentGatewayEventExternalID  *string `json:"payment_gateway_event_external_id,omitempty"  gorm:"column:payment_gateway_event_external_id;type:text"`
-	PaymentGatewayEventExternalRef *string `json:"payment_gateway_event_external_ref,omitempty" gorm:"column:payment_gateway_event_external_ref;type:text"`
-
-	// Payloads
-	PaymentGatewayEventHeaders   datatypes.JSON `json:"payment_gateway_event_headers,omitempty"  gorm:"column:payment_gateway_event_headers;type:jsonb"`
-	PaymentGatewayEventPayload   datatypes.JSON `json:"payment_gateway_event_payload,omitempty"  gorm:"column:payment_gateway_event_payload;type:jsonb"`
-	PaymentGatewayEventSignature *string        `json:"payment_gateway_event_signature,omitempty" gorm:"column:payment_gateway_event_signature;type:text"`
-	PaymentGatewayEventRawQuery  *string        `json:"payment_gateway_event_raw_query,omitempty" gorm:"column:payment_gateway_event_raw_query;type:text"`
-
-	// Status & retries
-	PaymentGatewayEventStatus   string  `json:"payment_gateway_event_status"   gorm:"column:payment_gateway_event_status;type:gateway_event_status;not null;default:'received'"`
-	PaymentGatewayEventError    *string `json:"payment_gateway_event_error,omitempty" gorm:"column:payment_gateway_event_error;type:text"`
-	PaymentGatewayEventTryCount int     `json:"payment_gateway_event_try_count" gorm:"column:payment_gateway_event_try_count;type:int;not null;default:0"`
-
-	// Timestamps (soft delete manual)
-	PaymentGatewayEventReceivedAt  time.Time  `json:"payment_gateway_event_received_at"  gorm:"column:payment_gateway_event_received_at;type:timestamptz;not null;default:now()"`
-	PaymentGatewayEventProcessedAt *time.Time `json:"payment_gateway_event_processed_at,omitempty" gorm:"column:payment_gateway_event_processed_at;type:timestamptz"`
-
-	PaymentGatewayEventCreatedAt time.Time  `json:"payment_gateway_event_created_at"           gorm:"column:payment_gateway_event_created_at;type:timestamptz;not null;default:now()"`
-	PaymentGatewayEventUpdatedAt time.Time  `json:"payment_gateway_event_updated_at"           gorm:"column:payment_gateway_event_updated_at;type:timestamptz;not null;default:now()"`
-	PaymentGatewayEventDeletedAt *time.Time `json:"payment_gateway_event_deleted_at,omitempty" gorm:"column:payment_gateway_event_deleted_at;type:timestamptz"`
+	GatewayEventCreatedAt time.Time  `gorm:"column:gateway_event_created_at;not null;default:now()" json:"gateway_event_created_at"`
+	GatewayEventUpdatedAt time.Time  `gorm:"column:gateway_event_updated_at;not null;default:now()" json:"gateway_event_updated_at"`
+	GatewayEventDeletedAt *time.Time `gorm:"column:gateway_event_deleted_at" json:"gateway_event_deleted_at"`
 }
 
-func (PaymentGatewayEvent) TableName() string { return "payment_gateway_events" }
-
-/* =========================
-   Hooks: keep updated_at fresh
-   ========================= */
-
-func (e *PaymentGatewayEvent) BeforeCreate(tx *gorm.DB) error {
-	e.PaymentGatewayEventUpdatedAt = time.Now().UTC()
-	return nil
-}
-func (e *PaymentGatewayEvent) BeforeUpdate(tx *gorm.DB) error {
-	e.PaymentGatewayEventUpdatedAt = time.Now().UTC()
-	return nil
-}
-
-/* =========================
-   Scopes
-   ========================= */
-
-func ScopePGWAlive(db *gorm.DB) *gorm.DB {
-	return db.Where("payment_gateway_event_deleted_at IS NULL")
-}
-func ScopePGWByProvider(provider string) func(*gorm.DB) *gorm.DB {
-	return func(db *gorm.DB) *gorm.DB {
-		return db.Where("payment_gateway_event_provider = ?", provider)
-	}
-}
-func ScopePGWByPayment(paymentID uuid.UUID) func(*gorm.DB) *gorm.DB {
-	return func(db *gorm.DB) *gorm.DB {
-		return db.Where("payment_gateway_event_payment_id = ?", paymentID)
-	}
-}
-func ScopePGWBySchool(schoolID uuid.UUID) func(*gorm.DB) *gorm.DB {
-	return func(db *gorm.DB) *gorm.DB {
-		return db.Where("payment_gateway_event_school_id = ?", schoolID)
-	}
-}
-func ScopePGWByStatus(status string) func(*gorm.DB) *gorm.DB {
-	return func(db *gorm.DB) *gorm.DB {
-		return db.Where("payment_gateway_event_status = ?", status)
-	}
-}
-
-/* =========================
-   Convenience helpers (opsional)
-   ========================= */
-
-func (e *PaymentGatewayEvent) MarkProcessed() {
-	now := time.Now().UTC()
-	e.PaymentGatewayEventProcessedAt = &now
-	e.PaymentGatewayEventStatus = GatewayEventStatusProcessed
-}
-
-func (e *PaymentGatewayEvent) IncrementTryCount() {
-	e.PaymentGatewayEventTryCount++
+func (PaymentGatewayEventModel) TableName() string {
+	return "payment_gateway_events"
 }

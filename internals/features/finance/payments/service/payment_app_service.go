@@ -16,10 +16,13 @@ import (
 	model "madinahsalam_backend/internals/features/finance/payments/model"
 )
 
-// TargetInfo describes the resolved payment target (bill, general billing, or kind).
+/* =========================================================
+   Target info: student_bill / general_billing / kind
+========================================================= */
+
 type TargetInfo struct {
 	Kind             string     // "student_bill" | "general_billing" | "kind"
-	SchoolID         *uuid.UUID // dapat NULL untuk GLOBAL kind
+	SchoolID         *uuid.UUID // bisa NULL untuk GLOBAL kind
 	AmountSuggestion *int       // nominal saran dari target (boleh nil)
 	PayerUserID      *uuid.UUID // payer default jika tersedia
 }
@@ -109,6 +112,10 @@ func ResolveTarget(
 	return ti, nil
 }
 
+/* =========================================================
+   Snapshot user
+========================================================= */
+
 // HydrateUserSnapshots mengambil snapshot nama/email/donation dari tabel users dan profiles.
 func HydrateUserSnapshots(ctx context.Context, db *gorm.DB, userID uuid.UUID) (userName, fullName, email, donationName *string, err error) {
 	var row struct {
@@ -144,6 +151,10 @@ func HydrateUserSnapshots(ctx context.Context, db *gorm.DB, userID uuid.UUID) (u
 
 	return trim(row.UserName), trim(row.FullName), trim(row.Email), trim(row.Donation), nil
 }
+
+/* =========================================================
+   Meta registrasi (payment_meta)
+========================================================= */
 
 // RegistrationMeta memudahkan akses metadata registrasi dalam payment_meta.
 type RegistrationMeta struct {
@@ -221,18 +232,20 @@ func extractEnrollmentIDs(j datatypes.JSON) []uuid.UUID {
 	return ids
 }
 
+/* =========================================================
+   Enrollment side-effects
+========================================================= */
+
 // AttachEnrollmentOnCreate mengikat payment baru dengan enrollment registrasi.
 func AttachEnrollmentOnCreate(
 	ctx context.Context,
 	db *gorm.DB,
-	p *model.Payment,
+	p *model.PaymentModel,
 	enrollmentID uuid.UUID,
 	paymentSnapshot datatypes.JSON,
 ) error {
-	meta := RegistrationMeta{}
-	if p.PaymentMeta != nil {
-		meta = ParseRegistrationMeta(p.PaymentMeta)
-	}
+	// PaymentMeta sekarang datatypes.JSON biasa, cukup parse langsung
+	meta := ParseRegistrationMeta(p.PaymentMeta)
 
 	payer := meta.PayerUserID
 	if payer == nil && p.PaymentUserID != nil {
@@ -257,11 +270,12 @@ func AttachEnrollmentOnCreate(
 }
 
 // ApplyEnrollmentSideEffects menyinkronkan status enrollment berdasarkan status payment.
-func ApplyEnrollmentSideEffects(ctx context.Context, db *gorm.DB, p *model.Payment, paymentSnapshot datatypes.JSON) error {
-	if p == nil || p.PaymentMeta == nil {
+func ApplyEnrollmentSideEffects(ctx context.Context, db *gorm.DB, p *model.PaymentModel, paymentSnapshot datatypes.JSON) error {
+	if p == nil {
 		return nil
 	}
 
+	// cek kategori: hanya kalau category registration
 	var cat struct {
 		FeeRuleGBKCategory string `json:"fee_rule_gbk_category_snapshot"`
 	}
@@ -324,6 +338,7 @@ func ApplyEnrollmentSideEffects(ctx context.Context, db *gorm.DB, p *model.Payme
 		}
 
 	default:
+		// status lain: pending / initiated / awaiting_callback → keep awaiting_payment tapi attach payment
 		for _, eid := range ids {
 			if err := db.WithContext(ctx).Exec(`
 				UPDATE student_class_enrollments
@@ -346,9 +361,27 @@ func ApplyEnrollmentSideEffects(ctx context.Context, db *gorm.DB, p *model.Payme
 	return nil
 }
 
+/* =========================================================
+   Student bill side-effects (via payment_items)
+========================================================= */
+
 // ApplyStudentBillSideEffects menyelaraskan status student_bills dengan payment.
-func ApplyStudentBillSideEffects(ctx context.Context, db *gorm.DB, p *model.Payment) error {
-	if p == nil || p.PaymentStudentBillID == nil {
+// Dengan desain baru, relasi ke student_bills ada di payment_items.
+func ApplyStudentBillSideEffects(ctx context.Context, db *gorm.DB, p *model.PaymentModel) error {
+	if p == nil {
+		return nil
+	}
+
+	// Ambil semua student_bill_id yang terhubung ke payment ini via payment_items
+	var billIDs []uuid.UUID
+	if err := db.WithContext(ctx).
+		Table("payment_items").
+		Where("payment_item_payment_id = ? AND payment_item_student_bill_id IS NOT NULL AND payment_item_deleted_at IS NULL", p.PaymentID).
+		Pluck("payment_item_student_bill_id", &billIDs).Error; err != nil {
+		return err
+	}
+
+	if len(billIDs) == 0 {
 		return nil
 	}
 
@@ -359,33 +392,47 @@ func ApplyStudentBillSideEffects(ctx context.Context, db *gorm.DB, p *model.Paym
 		if paidAt == nil {
 			paidAt = &now
 		}
-		return db.WithContext(ctx).
-			Exec(`
-				UPDATE student_bills
-				   SET student_bill_status = 'paid',
-				       student_bill_paid_at = COALESCE(student_bill_paid_at, ?),
-				       student_bill_updated_at = NOW()
-				 WHERE student_bill_id = ?
-				   AND student_bill_deleted_at IS NULL
-			`, *paidAt, *p.PaymentStudentBillID).Error
+
+		// update satu per satu (biar tanpa dependency pq.Array)
+		for _, bid := range billIDs {
+			if err := db.WithContext(ctx).
+				Exec(`
+					UPDATE student_bills
+					   SET student_bill_status     = 'paid',
+					       student_bill_paid_at    = COALESCE(student_bill_paid_at, ?),
+					       student_bill_updated_at = NOW()
+					 WHERE student_bill_id = ?
+					   AND student_bill_deleted_at IS NULL
+				`, *paidAt, bid).Error; err != nil {
+				return err
+			}
+		}
 
 	case model.PaymentStatusCanceled,
 		model.PaymentStatusFailed,
 		model.PaymentStatusExpired,
 		model.PaymentStatusRefunded:
-		return db.WithContext(ctx).
-			Exec(`
-				UPDATE student_bills
-				   SET student_bill_status = 'unpaid',
-				       student_bill_paid_at = NULL,
-				       student_bill_updated_at = NOW()
-				 WHERE student_bill_id = ?
-				   AND student_bill_deleted_at IS NULL
-			`, *p.PaymentStudentBillID).Error
+		for _, bid := range billIDs {
+			if err := db.WithContext(ctx).
+				Exec(`
+					UPDATE student_bills
+					   SET student_bill_status     = 'unpaid',
+					       student_bill_paid_at    = NULL,
+					       student_bill_updated_at = NOW()
+					 WHERE student_bill_id = ?
+					   AND student_bill_deleted_at IS NULL
+				`, bid).Error; err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil
 }
+
+/* =========================================================
+   Payment number sequence
+========================================================= */
 
 // NextPaymentNumber menghasilkan nomor pembayaran incremental per sekolah.
 func NextPaymentNumber(ctx context.Context, db *gorm.DB, schoolID uuid.UUID) (*int64, error) {
@@ -405,7 +452,10 @@ func NextPaymentNumber(ctx context.Context, db *gorm.DB, schoolID uuid.UUID) (*i
 	return &next, nil
 }
 
-// MappedFields menyimpan field waktu yang perlu diperbarui saat map status Midtrans.
+/* =========================================================
+   Midtrans status mapping
+========================================================= */
+
 type MappedFields struct {
 	PaidAt     *time.Time
 	CanceledAt *time.Time
@@ -455,6 +505,10 @@ func MapMidtransStatus(current model.PaymentStatus, transactionStatus, fraudStat
 
 	return current, MappedFields{}
 }
+
+/* =========================================================
+   Generate student code (NIM) & OrderID
+========================================================= */
 
 // GenerateStudentCodeForClass membentuk kode siswa berdasarkan snapshot kelas & sekolah.
 func GenerateStudentCodeForClass(ctx context.Context, tx *gorm.DB, schoolID uuid.UUID, classID uuid.UUID) (string, error) {
