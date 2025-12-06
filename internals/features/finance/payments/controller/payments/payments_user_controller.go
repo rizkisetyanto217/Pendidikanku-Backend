@@ -59,6 +59,13 @@ func NewPaymentController(db *gorm.DB, midtransServerKey string, useProd bool) *
 	}
 }
 
+func coalesceStr(p *string, def string) string {
+	if p != nil && strings.TrimSpace(*p) != "" {
+		return strings.TrimSpace(*p)
+	}
+	return def
+}
+
 /* =======================================================================
    Handlers
 ======================================================================= */
@@ -906,6 +913,94 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 	}
 	minOpt := dto.MinAmountOption(opts)
 
+	// 3b) Resolve EXTRA fee_rules (donasi / spp / dll)
+	type extraResolved struct {
+		FeeRuleID   uuid.UUID
+		GBKID       uuid.UUID
+		GBKCode     *string
+		GBKCategory string
+		AmountIDR   int64
+		Code        string
+		Label       string
+	}
+
+	extras := make([]extraResolved, 0, len(req.Extras))
+
+	for _, ex := range req.Extras {
+		var hdr struct {
+			ID          uuid.UUID      `gorm:"column:fee_rule_id"`
+			SchoolID    uuid.UUID      `gorm:"column:fee_rule_school_id"`
+			GBKID       uuid.UUID      `gorm:"column:fee_rule_general_billing_kind_id"`
+			GBKCode     *string        `gorm:"column:fee_rule_gbk_code_snapshot"`
+			GBKCategory string         `gorm:"column:fee_rule_gbk_category_snapshot"`
+			AmountOpts  datatypes.JSON `gorm:"column:fee_rule_amount_options"`
+		}
+
+		if err := tx.Raw(`
+        SELECT fee_rule_id,
+               fee_rule_school_id,
+               fee_rule_general_billing_kind_id,
+               fee_rule_gbk_code_snapshot,
+               fee_rule_gbk_category_snapshot,
+               fee_rule_amount_options
+        FROM fee_rules
+        WHERE fee_rule_id = ?
+          AND fee_rule_deleted_at IS NULL
+        LIMIT 1
+    `, ex.FeeRuleID).Scan(&hdr).Error; err != nil || hdr.ID == uuid.Nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusBadRequest, "extra fee_rule tidak ditemukan")
+		}
+		if hdr.SchoolID != schoolID {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusBadRequest, "extra fee_rule bukan milik sekolah ini")
+		}
+
+		var opts []dto.FeeRuleAmountOption
+		if len(hdr.AmountOpts) > 0 {
+			_ = json.Unmarshal(hdr.AmountOpts, &opts)
+		}
+
+		var chosen *dto.FeeRuleAmountOption
+
+		switch {
+		case ex.CustomAmountIDR != nil:
+			// custom amount donasi / SPP
+			chosen = &dto.FeeRuleAmountOption{
+				Code:   "CUSTOM",
+				Label:  coalesceStr(ex.CustomLabel, "Custom Amount"),
+				Amount: *ex.CustomAmountIDR, // ✅ langsung pakai int64
+			}
+
+		case ex.FeeRuleOptionCode != nil && strings.TrimSpace(*ex.FeeRuleOptionCode) != "":
+			chosen = dto.FindAmountOptionByCode(opts, *ex.FeeRuleOptionCode)
+			if chosen == nil {
+				_ = tx.Rollback()
+				return helper.JsonError(c, fiber.StatusBadRequest, "extra fee_rule_option_code tidak valid")
+			}
+
+		default:
+			chosen = dto.FirstDefaultAmountOption(opts)
+			if chosen == nil && len(opts) > 0 {
+				chosen = &opts[0]
+			}
+			if chosen == nil {
+				_ = tx.Rollback()
+				return helper.JsonError(c, fiber.StatusBadRequest, "extra fee_rule tidak punya amount_options")
+			}
+		}
+
+		extras = append(extras, extraResolved{
+			FeeRuleID:   hdr.ID,
+			GBKID:       hdr.GBKID,
+			GBKCode:     hdr.GBKCode,
+			GBKCategory: strings.TrimSpace(hdr.GBKCategory),
+			AmountIDR:   int64(chosen.Amount),
+			Code:        chosen.Code,
+			Label:       chosen.Label,
+		})
+	}
+
 	// 4) Validasi semua kelas + hitung nominal per item
 	type itemResolved struct {
 		ClassID     uuid.UUID
@@ -1306,11 +1401,14 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 	// 6) Buat 1 payment (total)
 	// 🔍 pilih satu item untuk dijadikan snapshot option (kalau cocok)
 	// aturan: cuma kalau 1 kelas dan sumbernya dari opsi (bukan custom)
-
 	var totalAmount int64
-	for _, s := range perShares {
+	for _, s := range perShares { // ini dari enrollment items
 		totalAmount += s
 	}
+	for _, ex := range extras {
+		totalAmount += ex.AmountIDR
+	}
+
 	extID := req.PaymentExternalID
 	if extID == nil || strings.TrimSpace(*extID) == "" {
 		s := svc.GenOrderID("REG")
@@ -1348,6 +1446,33 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 				return out
 			}(),
 		},
+	}
+
+	if len(extras) > 0 {
+		meta["extras"] = map[string]any{
+			"total_amount_idr": func() int64 {
+				var s int64
+				for _, ex := range extras {
+					s += ex.AmountIDR
+				}
+				return s
+			}(),
+			"items": func() []map[string]any {
+				out := make([]map[string]any, 0, len(extras))
+				for _, ex := range extras {
+					out = append(out, map[string]any{
+						"fee_rule_id":  ex.FeeRuleID,
+						"gbk_id":       ex.GBKID,
+						"gbk_code":     ex.GBKCode,
+						"gbk_category": ex.GBKCategory,
+						"code":         ex.Code,
+						"label":        ex.Label,
+						"amount_idr":   ex.AmountIDR,
+					})
+				}
+				return out
+			}(),
+		}
 	}
 
 	if req.Customer != nil {
@@ -1500,6 +1625,54 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		if err := tx.Create(pi).Error; err != nil {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal membuat payment item: "+err.Error())
+		}
+	}
+
+	// mulai index setelah enrollment items
+	baseIdx := len(items)
+
+	for i, ex := range extras {
+		itemIdx := int16(baseIdx + i + 1)
+
+		ssID := schoolStudentID // copy var supaya punya alamat sendiri
+
+		pi := &model.PaymentItemModel{
+			PaymentItemSchoolID:  schoolID,
+			PaymentItemPaymentID: pm.PaymentID,
+			PaymentItemIndex:     itemIdx,
+
+			PaymentItemSchoolStudentID: &ssID,
+
+			PaymentItemAmountIDR: int(ex.AmountIDR),
+
+			PaymentItemFeeRuleID:            &ex.FeeRuleID,
+			PaymentItemFeeRuleGBKIDSnapshot: &ex.GBKID,
+		}
+
+		// title / invoice title (global, nggak terkait class)
+		title := ex.Label
+		pi.PaymentItemTitle = &title
+		invTitle := ex.Label
+		pi.PaymentItemInvoiceTitle = &invTitle
+
+		// optional: kalau mau embed kategori di title
+		// invTitle := fmt.Sprintf("%s (%s)", ex.Label, strings.ToUpper(ex.GBKCategory))
+
+		// nomor invoice per item: lanjut dari pattern yang sama
+		invNum := fmt.Sprintf(
+			"INV/%s/%s/%02d",
+			strings.TrimSpace(schoolSlug),
+			pm.PaymentID.String()[:8],
+			itemIdx,
+		)
+		pi.PaymentItemInvoiceNumber = &invNum
+
+		// kalau kamu mau, bisa juga isi snapshot kategori ke field khusus/JSON
+		// misal PaymentItemFeeRuleScopeSnapshot / note, dll.
+
+		if err := tx.Create(pi).Error; err != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal membuat payment item (extra): "+err.Error())
 		}
 	}
 

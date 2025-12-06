@@ -21,6 +21,13 @@ type BundleItem struct {
 	CustomLabel       *string   `json:"custom_label,omitempty"`         // label custom (opsional)
 }
 
+type ExtraFeeRuleItem struct {
+	FeeRuleID         uuid.UUID `json:"fee_rule_id" validate:"required"`
+	FeeRuleOptionCode *string   `json:"fee_rule_option_code,omitempty"`
+	CustomAmountIDR   *int64    `json:"custom_amount_idr,omitempty" validate:"omitempty,min=0"`
+	CustomLabel       *string   `json:"custom_label,omitempty"`
+}
+
 type CreateRegistrationAndPaymentRequest struct {
 	// Rekomendasi baru (per-kelas):
 	Items []BundleItem `json:"items" validate:"omitempty,min=1,dive"`
@@ -40,6 +47,9 @@ type CreateRegistrationAndPaymentRequest struct {
 
 	Customer *svc.CustomerInput `json:"customer,omitempty"`
 	Notes    string             `json:"notes,omitempty"`
+
+	// 🆕 tambahan:
+	Extras []ExtraFeeRuleItem `json:"extras,omitempty"`
 }
 
 /*
