@@ -4,7 +4,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	quizcontroller "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/controller"
+	quizQuestionsController "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/controller/questions"
+	quizzesController "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/controller/quizzes"
+	studentAttemptsController "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/controller/student_attempts"
 )
 
 /*
@@ -28,7 +30,7 @@ func mountQuizTeacherRoutes(base fiber.Router, db *gorm.DB) {
 	// ============================
 	// QUIZZES (master) -> /api/t/quizzes-teacher
 	// ============================
-	quizCtrl := quizcontroller.NewQuizController(db)
+	quizCtrl := quizzesController.NewQuizController(db)
 	quizzes := base.Group("/quizzes-teacher")
 
 	quizzes.Post("/", quizCtrl.Create)      // POST   /api/t/quizzes-teacher
@@ -39,7 +41,7 @@ func mountQuizTeacherRoutes(base fiber.Router, db *gorm.DB) {
 	// QUIZ QUESTIONS (soal & opsi JSONB)
 	// -> /api/t/quiz-questions-teacher  (+ alias /api/t/quiz-items-teacher)
 	// ============================
-	qqCtrl := quizcontroller.NewQuizQuestionsController(db)
+	qqCtrl := quizQuestionsController.NewQuizQuestionsController(db)
 	qqMain := base.Group("/quiz-questions-teacher")
 	mountQuizQuestionsGroup(qqMain, qqCtrl)
 
@@ -51,7 +53,7 @@ func mountQuizTeacherRoutes(base fiber.Router, db *gorm.DB) {
 	// USER QUIZ ATTEMPTS
 	// child dari /quizzes-teacher -> /attempts-teacher
 	// ============================
-	uqAttemptCtrl := quizcontroller.NewStudentQuizAttemptsController(db)
+	uqAttemptCtrl := studentAttemptsController.NewStudentQuizAttemptsController(db)
 	attempts := quizzes.Group("/attempts-teacher")
 
 	attempts.Get("/", uqAttemptCtrl.List)         // GET    /api/t/quizzes-teacher/attempts-teacher?quiz_id=&student_id=&status=&active_only=true
@@ -61,7 +63,7 @@ func mountQuizTeacherRoutes(base fiber.Router, db *gorm.DB) {
 }
 
 // Hindari duplikasi handler antara quiz-questions-teacher dan alias quiz-items-teacher
-func mountQuizQuestionsGroup(g fiber.Router, qqCtrl *quizcontroller.QuizQuestionsController) {
+func mountQuizQuestionsGroup(g fiber.Router, qqCtrl *quizQuestionsController.QuizQuestionsController) {
 	g.Get("/", qqCtrl.List)         // GET    /.../quiz-questions-teacher?quiz_id=&type=&q=&page=&per_page=&sort=
 	g.Get("/list", qqCtrl.List)     // alias
 	g.Post("/", qqCtrl.Create)      // POST   /.../quiz-questions-teacher

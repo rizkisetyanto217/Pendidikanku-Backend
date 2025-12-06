@@ -2,7 +2,8 @@
 package router
 
 import (
-	subjectsController "madinahsalam_backend/internals/features/school/academics/subjects/controller"
+	classSubjectController "madinahsalam_backend/internals/features/school/academics/subjects/controller/class_subjects"
+	subjectsController "madinahsalam_backend/internals/features/school/academics/subjects/controller/subjects"
 	schoolkuMiddleware "madinahsalam_backend/internals/middlewares/features"
 
 	"github.com/gofiber/fiber/v2"
@@ -24,7 +25,7 @@ Sehingga endpoint jadi:
 func AllSubjectRoutes(r fiber.Router, db *gorm.DB) {
 	// Controllers
 	subjectCtl := &subjectsController.SubjectsController{DB: db}
-	classSubjectCtl := &subjectsController.ClassSubjectController{DB: db}
+	classSubjectCtl := &classSubjectController.ClassSubjectController{DB: db}
 
 	// ===== Base by school_id =====
 	baseByID := r.Group("/:school_id") // set ctx school dari param

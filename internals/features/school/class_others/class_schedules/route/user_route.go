@@ -2,7 +2,9 @@
 package routes
 
 import (
-	nhctl "madinahsalam_backend/internals/features/school/class_others/class_schedules/controller"
+	holidayController "madinahsalam_backend/internals/features/school/class_others/class_schedules/controller/holidays"
+	rulesController "madinahsalam_backend/internals/features/school/class_others/class_schedules/controller/rules"
+	scheduleController "madinahsalam_backend/internals/features/school/class_others/class_schedules/controller/schedule"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -12,8 +14,8 @@ import (
 // ScheduleUserRoutes mendaftarkan route untuk USER / PUBLIC (read-only)
 func ScheduleUserRoutes(user fiber.Router, db *gorm.DB) {
 	// Controller jadwal (header + optional rules)
-	sched := nhctl.New(db, nil)
-	rules := nhctl.NewClassScheduleRuleListController(db)
+	sched := scheduleController.NewSchedule(db, nil)
+	rules := rulesController.NewClassScheduleRuleListController(db)
 
 	// ============================
 	// JADWAL KELAS (TOKEN-BASED SCHOOL)
@@ -34,7 +36,7 @@ func ScheduleUserRoutes(user fiber.Router, db *gorm.DB) {
 	// ============================
 	// National Holidays (tetap tidak terkait token)
 	// ============================
-	ctl := nhctl.NewNationHoliday(db, validator.New())
+	ctl := holidayController.NewNationHoliday(db, validator.New())
 	grp := user.Group("/holidays/national")
 	grp.Get("/", ctl.List) // ?q&is_active&is_recurring&date_from&date_to&sort&limit&offset
 	grp.Get("/:id", ctl.GetByID)

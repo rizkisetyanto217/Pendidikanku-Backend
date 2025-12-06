@@ -5,8 +5,8 @@ import (
 	"madinahsalam_backend/internals/constants"
 	"madinahsalam_backend/internals/middlewares/auth"
 
-	cmctl "madinahsalam_backend/internals/features/school/class_others/class_materials/controller"
-
+	classMatController "madinahsalam_backend/internals/features/school/class_others/class_materials/controller/classes"
+	schoolMatController "madinahsalam_backend/internals/features/school/class_others/class_materials/controller/schools"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -34,8 +34,8 @@ import (
 //	PATCH  /api/t/school-materials/:id
 //	DELETE /api/t/school-materials/:id
 func MaterialsTeacherRoutes(teacher fiber.Router, db *gorm.DB) {
-	classMatCtrl := cmctl.NewClassMaterialsController(db)
-	schoolMatCtrl := cmctl.NewSchoolMaterialController(db)
+	classMatCtrl := classMatController.NewClassMaterialsController(db)
+	schoolMatCtrl := schoolMatController.NewSchoolMaterialController(db)
 
 	/* =====================================================
 	   Guard untuk endpoint yang butuh Admin/DKM

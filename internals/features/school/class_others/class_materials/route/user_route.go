@@ -2,7 +2,9 @@
 package route
 
 import (
-	cmctl "madinahsalam_backend/internals/features/school/class_others/class_materials/controller"
+	classMatController "madinahsalam_backend/internals/features/school/class_others/class_materials/controller/classes"
+
+	studentMatController "madinahsalam_backend/internals/features/school/class_others/class_materials/controller/students"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -27,10 +29,10 @@ import (
 //	POST /api/u/student/class-material-progress/ping
 func MaterialsUserRoutes(user fiber.Router, db *gorm.DB) {
 	// Controller materi (class_materials)
-	classMatCtrl := cmctl.NewClassMaterialsController(db)
+	classMatCtrl := classMatController.NewClassMaterialsController(db)
 
 	// Controller progress murid (student_class_material_progresses)
-	progressCtrl := cmctl.NewStudentClassMaterialProgressController(db)
+	progressCtrl := studentMatController.NewStudentClassMaterialProgressController(db)
 
 	/* =====================================================
 	   CLASS MATERIALS (CSST level) - user area

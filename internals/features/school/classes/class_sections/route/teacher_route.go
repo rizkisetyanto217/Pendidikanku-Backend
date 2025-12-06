@@ -1,7 +1,7 @@
 package route
 
 import (
-	sectionctrl "madinahsalam_backend/internals/features/school/classes/class_sections/controller"
+	classSectionStudentsController "madinahsalam_backend/internals/features/school/classes/class_sections/controller/class_section_students"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -18,7 +18,7 @@ Route khusus STAFF AKADEMIK (Guru / DKM / Admin / Bendahara)
 - Frontend guru tinggal pastikan :school_id = active_school_id dari token.
 */
 func StudentClassSectionTeacherRoutes(r fiber.Router, db *gorm.DB) {
-	ucsH := sectionctrl.NewStudentClassSectionController(db)
+	ucsH := classSectionStudentsController.NewStudentClassSectionController(db)
 
 	// Contoh mount di main:
 	// apiT := app.Group("/api/t")

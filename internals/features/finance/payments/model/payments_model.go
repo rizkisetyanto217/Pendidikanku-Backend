@@ -1,4 +1,3 @@
-// file: internals/features/finance/payments/model/payment_model.go
 package model
 
 import (
@@ -56,7 +55,7 @@ const (
 	PaymentEntryAdjustment PaymentEntryType = "adjustment"
 )
 
-// enum fee_scope di DB: ('tenant','class_parent','class','section','student','term')
+// enum fee_scope di DB
 const (
 	FeeScopeTenant      FeeScope = "tenant"
 	FeeScopeClassParent FeeScope = "class_parent"
@@ -67,7 +66,8 @@ const (
 )
 
 /* ================================
-   MODEL: payments (sinkron dgn SQL)
+   MODEL: payments
+   Sinkron dengan SQL migration
 ================================ */
 
 type Payment struct {
@@ -77,8 +77,11 @@ type Payment struct {
 	PaymentSchoolID *uuid.UUID `json:"payment_school_id" gorm:"column:payment_school_id;type:uuid"`
 	PaymentUserID   *uuid.UUID `json:"payment_user_id"   gorm:"column:payment_user_id;type:uuid"`
 
-	// Nomor pembayaran per sekolah (BIGINT, optional, unik per school)
+	// Nomor pembayaran per sekolah - unik per tenant
 	PaymentNumber *int64 `json:"payment_number" gorm:"column:payment_number;type:bigint"`
+
+	// Header checkout / group transaksi
+	PaymentGroupID *uuid.UUID `json:"payment_group_id" gorm:"column:payment_group_id;type:uuid"`
 
 	// Target (salah satu wajib)
 	PaymentStudentBillID        *uuid.UUID `json:"payment_student_bill_id"          gorm:"column:payment_student_bill_id;type:uuid"`
@@ -96,7 +99,7 @@ type Payment struct {
 	PaymentStatus PaymentStatus `json:"payment_status" gorm:"column:payment_status;type:payment_status;not null;default:'initiated'"`
 	PaymentMethod PaymentMethod `json:"payment_method" gorm:"column:payment_method;type:payment_method;not null;default:'gateway'"`
 
-	// Info gateway (NULL jika manual)
+	// Info gateway
 	PaymentGatewayProvider  *PaymentGatewayProvider `json:"payment_gateway_provider"  gorm:"column:payment_gateway_provider;type:payment_gateway_provider"`
 	PaymentExternalID       *string                 `json:"payment_external_id"       gorm:"column:payment_external_id;type:text"`
 	PaymentGatewayReference *string                 `json:"payment_gateway_reference" gorm:"column:payment_gateway_reference;type:text"`
@@ -104,6 +107,12 @@ type Payment struct {
 	PaymentQRString         *string                 `json:"payment_qr_string"         gorm:"column:payment_qr_string;type:text"`
 	PaymentSignature        *string                 `json:"payment_signature"         gorm:"column:payment_signature;type:text"`
 	PaymentIdempotencyKey   *string                 `json:"payment_idempotency_key"   gorm:"column:payment_idempotency_key;type:text"`
+
+	// Snapshot hasil checkout (VA, QR, bank)
+	PaymentChannelSnapshot  *string `json:"payment_channel_snapshot"   gorm:"column:payment_channel_snapshot;type:varchar(40)"`
+	PaymentBankSnapshot     *string `json:"payment_bank_snapshot"      gorm:"column:payment_bank_snapshot;type:varchar(80)"`
+	PaymentVANumberSnapshot *string `json:"payment_va_number_snapshot" gorm:"column:payment_va_number_snapshot;type:varchar(80)"`
+	PaymentVANameSnapshot   *string `json:"payment_va_name_snapshot"   gorm:"column:payment_va_name_snapshot;type:varchar(160)"`
 
 	// Timestamps status
 	PaymentRequestedAt *time.Time `json:"payment_requested_at" gorm:"column:payment_requested_at;type:timestamptz"`
@@ -126,11 +135,11 @@ type Payment struct {
 	PaymentInvoiceDueDate *time.Time       `json:"payment_invoice_due_date" gorm:"column:payment_invoice_due_date;type:date"`
 	PaymentInvoiceTitle   *string          `json:"payment_invoice_title"    gorm:"column:payment_invoice_title;type:text"`
 
-	// Subject (opsional)
+	// Subjek pembayaran
 	PaymentSubjectUserID   *uuid.UUID `json:"payment_subject_user_id"    gorm:"column:payment_subject_user_id;type:uuid"`
 	PaymentSchoolStudentID *uuid.UUID `json:"payment_school_student_id"  gorm:"column:payment_school_student_id;type:uuid"`
 
-	// ===== Fee rule snapshots (pakai *_snapshot) =====
+	// Fee rule snapshots
 	PaymentFeeRuleID                  *uuid.UUID `json:"payment_fee_rule_id"                   gorm:"column:payment_fee_rule_id;type:uuid"`
 	PaymentFeeRuleOptionCodeSnapshot  *string    `json:"payment_fee_rule_option_code_snapshot"  gorm:"column:payment_fee_rule_option_code_snapshot;type:varchar(20)"`
 	PaymentFeeRuleOptionIndexSnapshot *int16     `json:"payment_fee_rule_option_index_snapshot" gorm:"column:payment_fee_rule_option_index_snapshot;type:smallint"`
@@ -139,20 +148,14 @@ type Payment struct {
 	PaymentFeeRuleScopeSnapshot       *FeeScope  `json:"payment_fee_rule_scope_snapshot"        gorm:"column:payment_fee_rule_scope_snapshot;type:fee_scope"`
 	PaymentFeeRuleNoteSnapshot        *string    `json:"payment_fee_rule_note_snapshot"         gorm:"column:payment_fee_rule_note_snapshot;type:text"`
 
-	// ===== VA / channel snapshot (baru, mirror migration) =====
-	PaymentChannelSnapshot  *string `json:"payment_channel_snapshot"   gorm:"column:payment_channel_snapshot;type:varchar(40)"`
-	PaymentBankSnapshot     *string `json:"payment_bank_snapshot"      gorm:"column:payment_bank_snapshot;type:varchar(40)"`
-	PaymentVANumberSnapshot *string `json:"payment_va_number_snapshot" gorm:"column:payment_va_number_snapshot;type:varchar(80)"`
-	PaymentVANameSnapshot   *string `json:"payment_va_name_snapshot"   gorm:"column:payment_va_name_snapshot;type:varchar(120)"`
-
-	// ===== Academic term snapshot =====
+	// Academic term snapshot
 	PaymentAcademicTermID                *uuid.UUID `json:"payment_academic_term_id"                 gorm:"column:payment_academic_term_id;type:uuid"`
 	PaymentAcademicTermAcademicYearCache *string    `json:"payment_academic_term_academic_year_cache" gorm:"column:payment_academic_term_academic_year_cache;type:varchar(40)"`
 	PaymentAcademicTermNameCache         *string    `json:"payment_academic_term_name_cache"          gorm:"column:payment_academic_term_name_cache;type:varchar(100)"`
 	PaymentAcademicTermSlugCache         *string    `json:"payment_academic_term_slug_cache"          gorm:"column:payment_academic_term_slug_cache;type:varchar(160)"`
 	PaymentAcademicTermAngkatanCache     *string    `json:"payment_academic_term_angkatan_cache"      gorm:"column:payment_academic_term_angkatan_cache;type:varchar(40)"`
 
-	// ===== User snapshots (payer) =====
+	// User snapshots (payer)
 	PaymentUserNameSnapshot     *string `json:"payment_user_name_snapshot"     gorm:"column:payment_user_name_snapshot;type:text"`
 	PaymentFullNameSnapshot     *string `json:"payment_full_name_snapshot"     gorm:"column:payment_full_name_snapshot;type:text"`
 	PaymentEmailSnapshot        *string `json:"payment_email_snapshot"         gorm:"column:payment_email_snapshot;type:text"`

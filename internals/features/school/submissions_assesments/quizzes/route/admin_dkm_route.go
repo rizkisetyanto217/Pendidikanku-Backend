@@ -4,7 +4,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	quizcontroller "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/controller"
+	quizQuestionsController "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/controller/questions"
+	quizzesController "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/controller/quizzes"
+	studentAttemptsController "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/controller/student_attempts"
 )
 
 /*
@@ -23,7 +25,7 @@ func QuizzesAdminRoutes(r fiber.Router, db *gorm.DB) {
 // mountQuizRoutes mendaftarkan semua endpoint di bawah group yg diberikan
 func mountQuizRoutes(g fiber.Router, db *gorm.DB) {
 	// QUIZZES (master)
-	ctrl := quizcontroller.NewQuizController(db)
+	ctrl := quizzesController.NewQuizController(db)
 
 	// List: sediakan "/" dan "/list" sebagai alias
 	g.Get("/", ctrl.List)         // GET /api/a/quizzes
@@ -33,7 +35,7 @@ func mountQuizRoutes(g fiber.Router, db *gorm.DB) {
 	g.Delete("/:id", ctrl.Delete) // DELETE /api/a/quizzes/:id
 
 	// QUIZ QUESTIONS (soal & opsi dalam satu baris)
-	qqCtrl := quizcontroller.NewQuizQuestionsController(db)
+	qqCtrl := quizQuestionsController.NewQuizQuestionsController(db)
 	qs := g.Group("/questions") // -> /api/a/quizzes/questions
 
 	qs.Get("/", qqCtrl.List)         // GET /api/a/quizzes/questions?quiz_id=&type=&q=&page=&per_page=&sort=
@@ -43,7 +45,7 @@ func mountQuizRoutes(g fiber.Router, db *gorm.DB) {
 	qs.Delete("/:id", qqCtrl.Delete) // DELETE /api/a/quizzes/questions/:id
 
 	// USER QUIZ ATTEMPTS
-	uqAttemptCtrl := quizcontroller.NewStudentQuizAttemptsController(db)
+	uqAttemptCtrl := studentAttemptsController.NewStudentQuizAttemptsController(db)
 	attempts := g.Group("/attempts") // -> /api/a/quizzes/attempts
 
 	attempts.Get("/", uqAttemptCtrl.List)         // GET    /api/a/quizzes/attempts?quiz_id=&student_id=&status=&active_only=true

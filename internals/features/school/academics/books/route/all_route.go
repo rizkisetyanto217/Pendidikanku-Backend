@@ -2,7 +2,8 @@
 package route
 
 import (
-	cbController "madinahsalam_backend/internals/features/school/academics/books/controller"
+	bookController "madinahsalam_backend/internals/features/school/academics/books/controller/books"
+	ClassSubjectBooksController "madinahsalam_backend/internals/features/school/academics/books/controller/class_subject_books"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -21,8 +22,8 @@ import (
 //  1. Coba active_school_id dari token,
 //  2. fallback ke ResolveSchoolContext (baca :school_id atau :school_slug).
 func AllClassBooksRoutes(r fiber.Router, db *gorm.DB) {
-	booksCtl := &cbController.BooksController{DB: db}
-	csbCtl := &cbController.ClassSubjectBookController{DB: db}
+	booksCtl := &bookController.BooksController{DB: db}
+	csbCtl := &ClassSubjectBooksController.ClassSubjectBookController{DB: db}
 
 	// =========================
 	// 1) By school_id (UUID)

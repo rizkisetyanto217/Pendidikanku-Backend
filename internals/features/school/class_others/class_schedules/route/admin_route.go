@@ -2,7 +2,7 @@
 package routes
 
 import (
-	dailyctl "madinahsalam_backend/internals/features/school/class_others/class_schedules/controller"
+	scheduleController "madinahsalam_backend/internals/features/school/class_others/class_schedules/controller/schedule"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -11,7 +11,7 @@ import (
 // ScheduleAdminRoutes mendaftarkan route untuk ADMIN (CRUD penuh + sinkronisasi CAS)
 func ScheduleAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	// constructor controller (validator nil sesuai arsitektur sekarang)
-	sched := dailyctl.New(db, nil)
+	sched := scheduleController.NewSchedule(db, nil)
 
 	// ⬇️ tambahkan :school_id di path supaya helper ResolveSchoolContext bisa resolve dari path
 	grpSched := admin.Group("/class-schedules")

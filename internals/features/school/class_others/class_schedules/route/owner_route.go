@@ -6,13 +6,14 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	nhctl "madinahsalam_backend/internals/features/school/class_others/class_schedules/controller"
+	holidayController "madinahsalam_backend/internals/features/school/class_others/class_schedules/controller/holidays"
+
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 // NationalHolidayAdminRoutes: owner-only CRUD (POST/PATCH/DELETE)
 func NationalHolidayAdminRoutes(admin fiber.Router, db *gorm.DB) {
-	ctl := nhctl.NewNationHoliday(db, validator.New())
+	ctl := holidayController.NewNationHoliday(db, validator.New())
 
 	grp := admin.Group("/holidays/national", helperAuth.OwnerOnly())
 

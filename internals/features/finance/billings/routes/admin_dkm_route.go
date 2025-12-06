@@ -4,7 +4,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	sppapi "madinahsalam_backend/internals/features/finance/billings/controller"
+	billBatchesController "madinahsalam_backend/internals/features/finance/billings/controller/bill_batches"
+	billStudentController "madinahsalam_backend/internals/features/finance/billings/controller/bill_students"
+	feeRulesController "madinahsalam_backend/internals/features/finance/billings/controller/fee_rules"
 )
 
 /*
@@ -12,9 +14,9 @@ Admin routes (CRUD & actions)
 Diproteksi IsSchoolAdmin() — sesuaikan jika ada varian ByParam.
 */
 func BillingsAdminRoutes(admin fiber.Router, db *gorm.DB) {
-	h := &sppapi.Handler{DB: db}
-	billBatch := &sppapi.BillBatchHandler{DB: db}
-	studentBill := &sppapi.StudentBillHandler{DB: db}
+	h := &feeRulesController.FeeRuleHandler{DB: db}
+	billBatch := &billBatchesController.BillBatchHandler{DB: db}
+	studentBill := &billStudentController.StudentBillHandler{DB: db}
 
 	// Jika kamu punya resolver konteks school berbasis param, aktifkan di sini
 	// contoh: ResolveSchoolContextByParam("school_id")

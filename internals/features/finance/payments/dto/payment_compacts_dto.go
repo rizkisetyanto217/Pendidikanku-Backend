@@ -17,7 +17,7 @@ type PaymentCompactResponse struct {
 	PaymentID        uuid.UUID       `json:"payment_id"`
 	PaymentNumber    *int64          `json:"payment_number,omitempty"` // nomor per sekolah
 	PaymentStatus    m.PaymentStatus `json:"payment_status"`
-	PaymentAmountIDR int             `json:"payment_amount_idr"` // samakan dengan model (int)
+	PaymentAmountIDR int             `json:"payment_amount_idr"` // sama dengan model (int)
 
 	PaymentMethod          m.PaymentMethod           `json:"payment_method"`                     // enum dari model
 	PaymentGatewayProvider *m.PaymentGatewayProvider `json:"payment_gateway_provider,omitempty"` // pointer enum
@@ -30,20 +30,20 @@ type PaymentCompactResponse struct {
 	PaymentDescription      *string `json:"payment_description,omitempty"`
 
 	// ====== SNAPSHOT INFO PAYER ======
-	// Diisi dari kolom snapshot di table payments (bukan lagi dari meta)
 	// PayerName: kalau ada full_name_snapshot pakai itu, fallback ke user_name_snapshot
 	PayerName *string `json:"payer_name,omitempty"`
-	PayerRole *string `json:"payer_role,omitempty"` // masih diambil dari meta: payer_role_snapshot (kalau ada)
+	// sementara masih diambil dari meta: payer_role_snapshot (kalau suatu saat kamu isi)
+	PayerRole *string `json:"payer_role,omitempty"`
 
-	// Info murid (kalau payment ini terkait class enrollment / siswa)
-	// Sekarang tetap diambil dari meta (student_*_snapshot) kalau suatu saat kamu isi.
+	// Info murid (opsional, dari meta kalau kamu isi)
 	StudentName *string `json:"student_name,omitempty"`
 	StudentCode *string `json:"student_code,omitempty"`
 
-	// Info kelas (opsional, dari meta kalau diisi)
+	// Info kelas (opsional, dari meta)
 	ClassName *string `json:"class_name,omitempty"`
 
 	// Kategori pembayaran (registration / spp / dll)
+	// Diambil dari payment_meta.fee_rule_gbk_category_snapshot
 	FeeRuleCategorySnapshot *string `json:"fee_rule_gbk_category_snapshot,omitempty"`
 
 	// ====== SNAPSHOT ACADEMIC TERM (dari kolom di payments) ======
@@ -62,7 +62,7 @@ type PaymentCompactResponse struct {
 	PaymentCreatedAt time.Time `json:"payment_created_at"`
 }
 
-/* ================== helpers JSONB (untuk meta lama) ================== */
+/* ================== helpers JSONB (untuk meta) ================== */
 
 func jsonStr(j datatypes.JSON, key string) *string {
 	if len(j) == 0 || string(j) == "null" {
@@ -122,7 +122,7 @@ func FromModelCompact(src *m.Payment) *PaymentCompactResponse {
 
 		// ---- SNAPSHOT PAYER (pakai kolom snapshot di table) ----
 		PayerName: pickPayerName(src.PaymentFullNameSnapshot, src.PaymentUserNameSnapshot),
-		// Role masih dari meta (kalau suatu saat kamu isi payer_role_snapshot)
+		// Role masih dari meta (opsional)
 		PayerRole: jsonStr(meta, "payer_role_snapshot"),
 
 		// ---- SNAPSHOT SISWA & KELAS (opsional dari meta) ----

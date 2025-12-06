@@ -2,7 +2,7 @@
 package route
 
 import (
-	sectionctrl "madinahsalam_backend/internals/features/school/classes/class_sections/controller"
+	classSectionController "madinahsalam_backend/internals/features/school/classes/class_sections/controller/class_sections"
 	schoolkuMiddleware "madinahsalam_backend/internals/middlewares/features"
 
 	"github.com/gofiber/fiber/v2"
@@ -10,7 +10,7 @@ import (
 )
 
 func AllClassSectionRoutes(r fiber.Router, db *gorm.DB) {
-	h := sectionctrl.NewClassSectionController(db)
+	h := classSectionController.NewClassSectionController(db)
 
 	// ===== Base by school_id =====
 	baseByID := r.Group("/:school_id")

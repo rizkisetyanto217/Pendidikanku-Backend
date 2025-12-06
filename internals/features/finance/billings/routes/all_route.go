@@ -5,11 +5,11 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	sppapi "madinahsalam_backend/internals/features/finance/billings/controller"
+	feeRulesController "madinahsalam_backend/internals/features/finance/billings/controller/fee_rules"
 )
 
 func AllBillingRoutes(pub fiber.Router, db *gorm.DB) {
-	feeAndBatch := &sppapi.Handler{DB: db} // punya ListFeeRules, ListBillBatches, dst.
+	feeAndBatch := &feeRulesController.FeeRuleHandler{DB: db} // punya ListFeeRules, ListBillBatches, dst.
 
 	grp := pub.Group("/:school_id")
 	{

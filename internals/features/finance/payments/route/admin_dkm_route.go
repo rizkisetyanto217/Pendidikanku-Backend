@@ -1,7 +1,7 @@
 package route
 
 import (
-	paymentController "madinahsalam_backend/internals/features/finance/payments/controller"
+	paymentsController "madinahsalam_backend/internals/features/finance/payments/controller/payments"
 	schoolkuMiddleware "madinahsalam_backend/internals/middlewares/features"
 
 	"github.com/gofiber/fiber/v2"
@@ -15,7 +15,7 @@ Final paths yang didukung:
 - /api/a/payments ...
 */
 func PaymentAdminRoutes(r fiber.Router, db *gorm.DB, midtransServerKey string, useProd bool) {
-	ctl := paymentController.NewPaymentController(db, midtransServerKey, useProd)
+	ctl := paymentsController.NewPaymentController(db, midtransServerKey, useProd)
 
 	// BASE: payments by admin (school context diambil dari token/context)
 	pay := r.Group("/payments",

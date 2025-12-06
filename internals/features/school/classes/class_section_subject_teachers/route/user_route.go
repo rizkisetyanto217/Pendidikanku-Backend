@@ -2,7 +2,8 @@
 package router
 
 import (
-	csstController "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/controller"
+	csstController "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/controller/csst"
+	csstStudentController "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/controller/students"
 	schoolkuMiddleware "madinahsalam_backend/internals/middlewares/features"
 
 	"github.com/gofiber/fiber/v2"
@@ -25,7 +26,7 @@ Endpoint:
 */
 func CSSTUserRoutes(r fiber.Router, db *gorm.DB) {
 	csstCtl := &csstController.ClassSectionSubjectTeacherController{DB: db}
-	stuCtl := &csstController.StudentCSSTController{DB: db}
+	stuCtl := &csstStudentController.StudentCSSTController{DB: db}
 
 	base := r.Group("/", schoolkuMiddleware.UseSchoolScope())
 	csst := base.Group("/class-section-subject-teachers")

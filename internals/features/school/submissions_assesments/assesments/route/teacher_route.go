@@ -1,7 +1,7 @@
 package route
 
 import (
-	ctr "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/controller"
+	assesmentsController "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/controller/assesments"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -9,7 +9,7 @@ import (
 
 // Register TEACHER routes for assessments (manage own school scope via token/context)
 func AssessmentTeacherRoutes(r fiber.Router, db *gorm.DB) {
-	assessCtrl := ctr.NewAssessmentController(db)
+	assessCtrl := assesmentsController.NewAssessmentController(db)
 
 	// TANPA :school_id – school diambil dari context/token di controller
 	g := r.Group("")

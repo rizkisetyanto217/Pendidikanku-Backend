@@ -1,7 +1,8 @@
 package route
 
 import (
-	uaCtrl "madinahsalam_backend/internals/features/school/class_others/class_attendance_sessions/controller"
+	attendanceParticipantController "madinahsalam_backend/internals/features/school/class_others/class_attendance_sessions/controller/participants"
+	attendanceController "madinahsalam_backend/internals/features/school/class_others/class_attendance_sessions/controller/sessions"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -17,7 +18,7 @@ func AttendanceSessionsAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// =====================
 	// Attendance Participant Types (CRUD)
 	// =====================
-	uattCtl := uaCtrl.NewClassAttendanceSessionParticipantTypeController(db)
+	uattCtl := attendanceParticipantController.NewClassAttendanceSessionParticipantTypeController(db)
 	uatt := base.Group("/attendance-participant-types")
 
 	uatt.Post("/", uattCtl.Create)
@@ -29,7 +30,7 @@ func AttendanceSessionsAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// =====================
 	// Attendance Session Types (CRUD master per tenant)
 	// =====================
-	stCtl := uaCtrl.NewClassAttendanceSessionTypeController(db)
+	stCtl := attendanceController.NewClassAttendanceSessionTypeController(db)
 	st := base.Group("/attendance-session-types")
 
 	// create + list

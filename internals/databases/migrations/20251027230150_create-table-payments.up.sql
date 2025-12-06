@@ -53,9 +53,89 @@ DO $$ BEGIN
   END IF;
 END$$;
 
+-- =========================================
+-- TABLE: payment_groups (header checkout)
+-- =========================================
+CREATE TABLE IF NOT EXISTS payment_groups (
+  payment_group_id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- Tenant & actor
+  payment_group_school_id          UUID REFERENCES schools(school_id) ON DELETE SET NULL,
+  payment_group_user_id            UUID REFERENCES users(id)          ON DELETE SET NULL,
+  payment_group_school_student_id  UUID REFERENCES school_students(school_student_id) ON DELETE SET NULL,
+
+  -- Numbering (opsional, seperti invoice number)
+  payment_group_number             BIGINT,
+
+  -- Total nominal semua pembayaran di group ini
+  payment_group_amount_idr         INT NOT NULL CHECK (payment_group_amount_idr >= 0),
+  payment_group_currency           VARCHAR(8) NOT NULL DEFAULT 'IDR'
+                                   CHECK (payment_group_currency IN ('IDR')),
+
+  -- Status & metode (pakai enum yang sama)
+  payment_group_status             payment_status NOT NULL DEFAULT 'initiated',
+  payment_group_method             payment_method NOT NULL DEFAULT 'gateway',
+
+  -- Info gateway (header-level)
+  payment_group_gateway_provider   payment_gateway_provider,
+  payment_group_external_id        TEXT,
+  payment_group_gateway_reference  TEXT,
+  payment_group_checkout_url       TEXT,
+  payment_group_qr_string          TEXT,
+  payment_group_signature          TEXT,
+  payment_group_idempotency_key    TEXT,
+
+  -- Timestamps status
+  payment_group_requested_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  payment_group_expires_at         TIMESTAMPTZ,
+  payment_group_paid_at            TIMESTAMPTZ,
+  payment_group_canceled_at        TIMESTAMPTZ,
+  payment_group_failed_at          TIMESTAMPTZ,
+  payment_group_refunded_at        TIMESTAMPTZ,
+
+  -- Meta
+  payment_group_description        TEXT,
+  payment_group_note               TEXT,
+  payment_group_meta               JSONB,
+
+  -- Audit
+  payment_group_created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  payment_group_updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  payment_group_deleted_at         TIMESTAMPTZ,
+
+  CONSTRAINT ck_payment_groups_method_provider CHECK (
+    (payment_group_method = 'gateway' AND payment_group_gateway_provider IS NOT NULL)
+    OR
+    (payment_group_method IN ('cash','bank_transfer','qris','other') AND payment_group_gateway_provider IS NULL)
+  )
+);
+
+-- Index idempotency per tenant
+CREATE UNIQUE INDEX IF NOT EXISTS uq_payment_groups_idem_live
+  ON payment_groups (payment_group_school_id, COALESCE(payment_group_idempotency_key, ''))
+  WHERE payment_group_deleted_at IS NULL
+    AND payment_group_idempotency_key IS NOT NULL;
+
+-- Unique nomor per tenant (kalau dipakai)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_payment_groups_school_number_live
+  ON payment_groups (payment_group_school_id, payment_group_number)
+  WHERE payment_group_deleted_at IS NULL
+    AND payment_group_number IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS ix_payment_groups_tenant_created_live
+  ON payment_groups (payment_group_school_id, payment_group_created_at DESC)
+  WHERE payment_group_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS ix_payment_groups_status_live
+  ON payment_groups (payment_group_status, payment_group_created_at DESC)
+  WHERE payment_group_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS ix_payment_groups_user_live
+  ON payment_groups (payment_group_user_id, payment_group_created_at DESC)
+  WHERE payment_group_deleted_at IS NULL;
 
 -- =========================================
--- TABLE: payments  (kolom snapshot => *_snapshot)
+-- TABLE: payments  (item per kebutuhan; bisa di-group lewat payment_group_id)
 -- =========================================
 CREATE TABLE IF NOT EXISTS payments (
   payment_id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -64,6 +144,12 @@ CREATE TABLE IF NOT EXISTS payments (
   payment_school_id                UUID REFERENCES schools(school_id) ON DELETE SET NULL,
   payment_user_id                  UUID REFERENCES users(id)          ON DELETE SET NULL,
   payment_number                   BIGINT,
+
+  -- Header checkout (opsional; NULL = pembayaran berdiri sendiri)
+  payment_group_id                 UUID
+    REFERENCES payment_groups(payment_group_id)
+    ON UPDATE CASCADE
+    ON DELETE SET NULL,
 
   -- Target (salah satu wajib)
   payment_student_bill_id          UUID REFERENCES student_bills(student_bill_id)               ON DELETE SET NULL,
@@ -120,7 +206,7 @@ CREATE TABLE IF NOT EXISTS payments (
   -- Subjek pembayaran (RENAMED)
   payment_subject_user_id          UUID REFERENCES users(id) ON DELETE SET NULL,
 
-  -- 🔥 NEW NAME: jelas & sesuai domain
+  -- Subjek murid (NEW NAME)
   payment_school_student_id        UUID REFERENCES school_students(school_student_id) ON DELETE SET NULL,
 
   -- ===== Fee rule snapshots =====
@@ -180,7 +266,7 @@ CREATE TABLE IF NOT EXISTS payments (
 );
 
 -- =========================================
--- Indexes
+-- Indexes: payments
 -- =========================================
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_idem_live
@@ -230,7 +316,7 @@ CREATE INDEX IF NOT EXISTS ix_payments_entrytype_live
   ON payments (payment_entry_type, payment_created_at DESC)
   WHERE payment_deleted_at IS NULL;
 
--- 🔥 INDEX untuk kolom rename student
+-- INDEX untuk kolom rename student
 CREATE INDEX IF NOT EXISTS ix_payments_school_student_live
   ON payments (payment_school_student_id, payment_created_at DESC)
   WHERE payment_deleted_at IS NULL;
@@ -282,8 +368,14 @@ CREATE INDEX IF NOT EXISTS ix_payments_bank_live
 
 CREATE INDEX IF NOT EXISTS ix_payments_va_number_live
   ON payments (payment_va_number_snapshot, payment_created_at DESC)
-  WHERE payment_deleted_at IS NOT NULL IS FALSE
+  WHERE payment_deleted_at IS NULL
     AND payment_va_number_snapshot IS NOT NULL;
+
+-- Index by group (buat load semua item 1 checkout)
+CREATE INDEX IF NOT EXISTS ix_payments_group_live
+  ON payments (payment_group_id, payment_created_at DESC)
+  WHERE payment_deleted_at IS NULL
+    AND payment_group_id IS NOT NULL;
 
 COMMIT;
 

@@ -4,7 +4,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	quizcontroller "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/controller"
+	quizQuestionsController "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/controller/questions"
+	quizzesController "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/controller/quizzes"
+	studentAttemptsController "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/controller/student_attempts"
 )
 
 /*
@@ -31,7 +33,7 @@ func mountQuizUserRoutes(base fiber.Router, db *gorm.DB) {
 	// ============================
 	// QUIZZES (read-only publik)
 	// ============================
-	quizCtrl := quizcontroller.NewQuizController(db)
+	quizCtrl := quizzesController.NewQuizController(db)
 	quizzes := base.Group("/quizzes") // -> /api/u/quizzes
 
 	quizzes.Get("/", quizCtrl.List)     // GET /api/u/quizzes
@@ -40,7 +42,7 @@ func mountQuizUserRoutes(base fiber.Router, db *gorm.DB) {
 	// ============================
 	// QUIZ QUESTIONS (read-only)
 	// ============================
-	qqCtrl := quizcontroller.NewQuizQuestionsController(db)
+	qqCtrl := quizQuestionsController.NewQuizQuestionsController(db)
 	qq := base.Group("/quiz-questions") // -> /api/u/quiz-questions
 
 	qq.Get("/", qqCtrl.List)     // GET /api/u/quiz-questions?quiz_id=&type=&q=&page=&per_page=&sort=
@@ -50,7 +52,7 @@ func mountQuizUserRoutes(base fiber.Router, db *gorm.DB) {
 	// USER QUIZ ATTEMPTS (user)
 	// nested di /quizzes + alias kompatibel
 	// ============================
-	uqAttemptCtrl := quizcontroller.NewStudentQuizAttemptsController(db)
+	uqAttemptCtrl := studentAttemptsController.NewStudentQuizAttemptsController(db)
 
 	// Nested utama
 	attempts := quizzes.Group("/attempts") // -> /api/u/quizzes/attempts
@@ -63,7 +65,7 @@ func mountQuizUserRoutes(base fiber.Router, db *gorm.DB) {
 }
 
 // Hindari duplikasi handler untuk attempts (nested & alias)
-func mountUserAttemptsGroup(g fiber.Router, ctrl *quizcontroller.StudentQuizAttemptsController) {
+func mountUserAttemptsGroup(g fiber.Router, ctrl *studentAttemptsController.StudentQuizAttemptsController) {
 	g.Get("/", ctrl.List)         // GET list
 	g.Get("/list", ctrl.List)     // alias
 	g.Post("/", ctrl.Create)      // POST create attempt

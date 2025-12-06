@@ -2,7 +2,8 @@
 package routes
 
 import (
-	evCtl "madinahsalam_backend/internals/features/school/class_others/class_events/controller"
+	eventsController "madinahsalam_backend/internals/features/school/class_others/class_events/controller/events"
+	themesController "madinahsalam_backend/internals/features/school/class_others/class_events/controller/themes"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -14,14 +15,14 @@ import (
 // =========================
 func EventAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// EVENTS (existing)
-	ev := evCtl.NewClassEvents(db, nil)
+	ev := eventsController.NewClassEvents(db, nil)
 	grp := r.Group("/:school_id/events")
 	grp.Post("/", ev.Create)
 	grp.Patch("/:id", ev.Patch)
 	grp.Delete("/:id", ev.Delete)
 
 	// THEMES (baru)
-	th := evCtl.NewClassEventThemeController(db)
+	th := themesController.NewClassEventThemeController(db)
 	tgrp := r.Group("/:school_id/event-themes")
 	tgrp.Post("/", th.Create)
 	tgrp.Patch("/:id", th.Patch)

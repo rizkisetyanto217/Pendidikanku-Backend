@@ -2,7 +2,8 @@
 package router
 
 import (
-	subjectsController "madinahsalam_backend/internals/features/school/academics/subjects/controller"
+	classSubjectController "madinahsalam_backend/internals/features/school/academics/subjects/controller/class_subjects"
+	subjectsController "madinahsalam_backend/internals/features/school/academics/subjects/controller/subjects"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -22,7 +23,7 @@ Sehingga endpoint jadi:
 func SubjectUserRoutes(r fiber.Router, db *gorm.DB) {
 	// Controllers
 	subjectCtl := &subjectsController.SubjectsController{DB: db}
-	classSubjectCtl := &subjectsController.ClassSubjectController{DB: db}
+	classSubjectCtl := &classSubjectController.ClassSubjectController{DB: db}
 
 	// Base: token-based school context (no :school_id / :school_slug di path)
 	// r di sini biasanya sudah /api/u

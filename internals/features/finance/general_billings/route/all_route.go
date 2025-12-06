@@ -5,21 +5,21 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	// General Billings controller (create/patch/delete/get/list)
-	gbController "madinahsalam_backend/internals/features/finance/general_billings/controller"
+	generalBillingController "madinahsalam_backend/internals/features/finance/general_billings/controller/general"
+	generalBillingKindController "madinahsalam_backend/internals/features/finance/general_billings/controller/kinds"
 )
 
 // AFTER
 func AllGeneralBillingRoutes(r fiber.Router, db *gorm.DB) {
 	// ===== General Billings (READ-ONLY) =====
-	gbCtl := gbController.NewGeneralBillingController(db)
+	gbCtl := generalBillingController.NewGeneralBillingController(db)
 	gb := r.Group("/:school_id/general-billings")
 	{
 		gb.Get("/list", gbCtl.List) // GET    /:school_id/general-billings
 	}
 
 	// ===== General Billing Kinds (READ-ONLY per snippet) =====
-	kindCtl := gbController.NewGeneralBillingKindController(db)
+	kindCtl := generalBillingKindController.NewGeneralBillingKindController(db)
 	kinds := r.Group("/:school_id/general-billing-kinds")
 	{
 		kinds.Get("/list", kindCtl.List) // GET /:school_id/general-billing-kinds/list
@@ -33,7 +33,7 @@ func AllGeneralBillingRoutes(r fiber.Router, db *gorm.DB) {
 	}
 
 	// ===== User General Billings (READ-ONLY) =====
-	ugbCtl := gbController.NewUserGeneralBillingController(db)
+	ugbCtl := generalBillingController.NewUserGeneralBillingController(db)
 	ugb := r.Group("/:school_id/user-general-billings")
 	{
 		ugb.Get("/list", ugbCtl.List) // GET    /:school_id/user-general-billings

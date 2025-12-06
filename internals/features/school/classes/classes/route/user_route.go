@@ -2,8 +2,8 @@
 package route
 
 import (
-	// Classes controller (read only)
-	classCtrl "madinahsalam_backend/internals/features/school/classes/classes/controller"
+	classesController "madinahsalam_backend/internals/features/school/classes/classes/controller/classes"
+	classStudentsController "madinahsalam_backend/internals/features/school/classes/classes/controller/students"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -11,8 +11,8 @@ import (
 
 func ClassUserRoutes(r fiber.Router, db *gorm.DB) {
 	// ===== Controllers =====
-	classHandler := classCtrl.NewClassController(db)
-	enrollHandler := classCtrl.NewStudentClassEnrollmentController(db)
+	classHandler := classesController.NewClassController(db)
+	enrollHandler := classStudentsController.NewStudentClassEnrollmentController(db)
 
 	// ================================
 	// Classes (READ-ONLY untuk user)

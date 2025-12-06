@@ -2,7 +2,8 @@ package route
 
 import (
 	"madinahsalam_backend/internals/constants"
-	cbController "madinahsalam_backend/internals/features/school/academics/books/controller"
+	bookController "madinahsalam_backend/internals/features/school/academics/books/controller/books"
+	ClassSubjectBooksController "madinahsalam_backend/internals/features/school/academics/books/controller/class_subject_books"
 	"madinahsalam_backend/internals/middlewares/auth"
 
 	"github.com/go-playground/validator/v10"
@@ -17,11 +18,11 @@ import (
 //	/api/a/class-subject-books
 //	/api/a/book-urls
 func ClassBooksAdminRoutes(r fiber.Router, db *gorm.DB) {
-	booksCtl := &cbController.BooksController{DB: db}
-	csbCtl := &cbController.ClassSubjectBookController{DB: db}
+	booksCtl := &bookController.BooksController{DB: db}
+	csbCtl := &ClassSubjectBooksController.ClassSubjectBookController{DB: db}
 
 	// Book URL controller (punya Create, Patch, Delete)
-	bookURLCtl := &cbController.BookURLController{
+	bookURLCtl := &bookController.BookURLController{
 		DB:        db,
 		Validator: validator.New(),
 	}

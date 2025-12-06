@@ -1,7 +1,8 @@
 package route
 
 import (
-	ctr "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/controller"
+	assesmentsController "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/controller/assesments"
+	assesmentTypesController "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/controller/type"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -9,8 +10,8 @@ import (
 
 // Register USER routes for assessment types (read-only) dan assessments (listing/filter)
 func AssessmentUserRoutes(r fiber.Router, db *gorm.DB) {
-	typeCtrl := ctr.NewAssessmentTypeController(db)
-	assessCtrl := ctr.NewAssessmentController(db)
+	typeCtrl := assesmentTypesController.NewAssessmentTypeController(db)
+	assessCtrl := assesmentsController.NewAssessmentController(db)
 
 	// TANPA :school_id – pakai ResolveSchoolContext / token
 	g := r.Group("")

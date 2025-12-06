@@ -4,14 +4,15 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	ctr "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/controller"
+	assesmentsController "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/controller/assesments"
+	assesmentTypesController "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/controller/type"
 )
 
 // AssessmentAdminRoutes mendaftarkan route ADMIN untuk assessments
 // Sekarang TIDAK scoped lagi pakai :school_id di path, tapi pakai school context (token/slug).
 func AssessmentAdminRoutes(r fiber.Router, db *gorm.DB) {
-	typeCtrl := ctr.NewAssessmentTypeController(db)
-	assessCtrl := ctr.NewAssessmentController(db)
+	typeCtrl := assesmentTypesController.NewAssessmentTypeController(db)
+	assessCtrl := assesmentsController.NewAssessmentController(db)
 
 	// Tanpa :school_id
 	g := r.Group("")

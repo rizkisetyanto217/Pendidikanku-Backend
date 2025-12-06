@@ -2,7 +2,8 @@
 package route
 
 import (
-	classctrl "madinahsalam_backend/internals/features/school/classes/classes/controller"
+	classesController "madinahsalam_backend/internals/features/school/classes/classes/controller/classes"
+	classStudentsController "madinahsalam_backend/internals/features/school/classes/classes/controller/students"
 
 	schoolkuMiddleware "madinahsalam_backend/internals/middlewares/features"
 
@@ -11,7 +12,7 @@ import (
 )
 
 func ClassAdminRoutes(admin fiber.Router, db *gorm.DB) {
-	classHandler := classctrl.NewClassController(db)
+	classHandler := classesController.NewClassController(db)
 
 	// kalau ada middleware versi by-param, pakai itu:
 	// grp := admin.Group("/:school_id/classes", schoolkuMiddleware.IsSchoolAdminByParam("school_id"))
@@ -26,7 +27,7 @@ func ClassAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	// ================================
 	// Student Class Enrollments
 	// ================================
-	enrollHandler := classctrl.NewStudentClassEnrollmentController(db)
+	enrollHandler := classStudentsController.NewStudentClassEnrollmentController(db)
 
 	// kalau ada middleware versi by-param, bisa:
 	// enrollGrp := admin.Group("/:school_id/class-enrollments", schoolkuMiddleware.IsSchoolAdminByParam("school_id"))

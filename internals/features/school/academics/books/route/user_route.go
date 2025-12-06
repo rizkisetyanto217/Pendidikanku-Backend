@@ -1,7 +1,9 @@
 package route
 
 import (
-	cbController "madinahsalam_backend/internals/features/school/academics/books/controller"
+	bookController "madinahsalam_backend/internals/features/school/academics/books/controller/books"
+	ClassSubjectBooksController "madinahsalam_backend/internals/features/school/academics/books/controller/class_subject_books"
+
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -13,8 +15,8 @@ import (
 //	GET /api/u/:school_id/books/list
 //	GET /api/u/:school_id/class-subject-books/list
 func ClassBooksUserRoutes(r fiber.Router, db *gorm.DB) {
-	booksCtl := &cbController.BooksController{DB: db}
-	csbCtl := &cbController.ClassSubjectBookController{DB: db}
+	booksCtl := &bookController.BooksController{DB: db}
+	csbCtl := &ClassSubjectBooksController.ClassSubjectBookController{DB: db}
 
 	// /api/u/:school_id/books/list
 	books := r.Group("/books")

@@ -6,7 +6,9 @@ import (
 	"madinahsalam_backend/internals/middlewares/auth"
 
 
-	schoolMatCtl "madinahsalam_backend/internals/features/school/class_others/class_materials/controller"
+	classMatController "madinahsalam_backend/internals/features/school/class_others/class_materials/controller/classes"
+	schoolMatController "madinahsalam_backend/internals/features/school/class_others/class_materials/controller/schools"
+
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -34,8 +36,8 @@ import (
 //	PATCH  /api/a/school-materials/:id
 //	DELETE /api/a/school-materials/:id
 func MaterialsAdminRoutes(admin fiber.Router, db *gorm.DB) {
-	classMaterialsCtrl := schoolMatCtl.NewClassMaterialsController(db)
-	schoolMaterialsCtrl := schoolMatCtl.NewSchoolMaterialController(db)
+	classMaterialsCtrl := classMatController.NewClassMaterialsController(db)
+	schoolMaterialsCtrl := schoolMatController.NewSchoolMaterialController(db)
 
 	// Guard: hanya Admin/DKM/Owner (AdminAndAbove)
 	guard := auth.OnlyRolesSlice(

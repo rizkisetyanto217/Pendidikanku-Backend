@@ -2,15 +2,16 @@
 package route
 
 import (
-	sectionctrl "madinahsalam_backend/internals/features/school/classes/class_sections/controller"
+	classSectionStudentsController "madinahsalam_backend/internals/features/school/classes/class_sections/controller/class_section_students"
+	classSectionController "madinahsalam_backend/internals/features/school/classes/class_sections/controller/class_sections"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
 
 func ClassSectionUserRoutes(r fiber.Router, db *gorm.DB) {
-	sectionH := sectionctrl.NewClassSectionController(db)
-	ucsH := sectionctrl.NewStudentClassSectionController(db)
+	sectionH := classSectionController.NewClassSectionController(db)
+	ucsH := classSectionStudentsController.NewStudentClassSectionController(db)
 
 	r.Get("/class-sections/list", sectionH.List)
 

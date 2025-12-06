@@ -9,13 +9,13 @@ import (
 
 	// Controller untuk GENERAL BILLINGS (finance/general_billings)
 
-	gbController "madinahsalam_backend/internals/features/finance/general_billings/controller"
+	generalBillingKindController "madinahsalam_backend/internals/features/finance/general_billings/controller/kinds"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
 func OwnerGeneralBillingRoutes(r fiber.Router, db *gorm.DB) {
 
-	kindCtl := gbController.NewGeneralBillingKindController(db)
+	kindCtl := generalBillingKindController.NewGeneralBillingKindController(db)
 
 	// ===== GLOBAL admin (tanpa :school_id) untuk kinds =====
 	admin := r.Group("/admin", helperAuth.OwnerOnly()) // <-- tambahkan middleware di sini

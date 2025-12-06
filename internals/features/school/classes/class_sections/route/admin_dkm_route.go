@@ -3,7 +3,8 @@ package route
 
 import (
 	"madinahsalam_backend/internals/constants"
-	sectionctrl "madinahsalam_backend/internals/features/school/classes/class_sections/controller"
+	classSectionController "madinahsalam_backend/internals/features/school/classes/class_sections/controller/class_sections"
+	classSectionStudentsController "madinahsalam_backend/internals/features/school/classes/class_sections/controller/class_section_students"
 	authMiddleware "madinahsalam_backend/internals/middlewares/auth"
 	schoolkuMiddleware "madinahsalam_backend/internals/middlewares/features"
 
@@ -13,8 +14,8 @@ import (
 
 func ClassSectionAdminRoutes(api fiber.Router, db *gorm.DB) {
 	// Controllers
-	sectionH := sectionctrl.NewClassSectionController(db)
-	ucsH := sectionctrl.NewStudentClassSectionController(db)
+	sectionH := classSectionController.NewClassSectionController(db)
+	ucsH := classSectionStudentsController.NewStudentClassSectionController(db)
 
 	// Guard global: Admin/DKM + school admin check
 	base := api.Group("",

@@ -50,6 +50,7 @@ func applyPtr[T any](dst **T, f PatchField[T]) {
 		}
 	}
 }
+
 func applyVal[T any](dst *T, f PatchField[T]) {
 	if f.Set && !f.Null && f.Value != nil {
 		*dst = *f.Value
@@ -58,12 +59,14 @@ func applyVal[T any](dst *T, f PatchField[T]) {
 
 /* =========================================================
    REQUEST: CreatePayment (POST)
-   (sinkron dgn model & SQL terbaru)
+   Sinkron dengan model & SQL (tanpa payment_group_id)
 ========================================================= */
 
 type CreatePaymentRequest struct {
-	PaymentSchoolID *uuid.UUID `json:"payment_school_id" validate:"required"`
+	// Tenant & actor (school_id boleh dikosongin, nanti di-prefill dari target)
+	PaymentSchoolID *uuid.UUID `json:"payment_school_id"`
 	PaymentUserID   *uuid.UUID `json:"payment_user_id"`
+
 	// Nomor pembayaran per sekolah (biasanya server yang isi)
 	PaymentNumber *int64 `json:"payment_number"`
 
@@ -297,8 +300,7 @@ func (r *CreatePaymentRequest) ToModel() *model.Payment {
 type UpdatePaymentRequest struct {
 	PaymentSchoolID PatchField[uuid.UUID] `json:"payment_school_id"`
 	PaymentUserID   PatchField[uuid.UUID] `json:"payment_user_id"`
-	// Nomor pembayaran per sekolah
-	PaymentNumber PatchField[int64] `json:"payment_number"`
+	PaymentNumber   PatchField[int64]     `json:"payment_number"`
 
 	PaymentStudentBillID        PatchField[uuid.UUID] `json:"payment_student_bill_id"`
 	PaymentGeneralBillingID     PatchField[uuid.UUID] `json:"payment_general_billing_id"`
@@ -379,8 +381,6 @@ func (p *UpdatePaymentRequest) Apply(m *model.Payment) error {
 	// pointers
 	applyPtr(&m.PaymentSchoolID, p.PaymentSchoolID)
 	applyPtr(&m.PaymentUserID, p.PaymentUserID)
-
-	// payment_number
 	applyPtr(&m.PaymentNumber, p.PaymentNumber)
 
 	applyPtr(&m.PaymentStudentBillID, p.PaymentStudentBillID)
@@ -527,8 +527,7 @@ type PaymentResponse struct {
 
 	PaymentSchoolID *uuid.UUID `json:"payment_school_id"`
 	PaymentUserID   *uuid.UUID `json:"payment_user_id"`
-	// Nomor pembayaran per sekolah
-	PaymentNumber *int64 `json:"payment_number"`
+	PaymentNumber   *int64     `json:"payment_number"`
 
 	PaymentStudentBillID        *uuid.UUID `json:"payment_student_bill_id"`
 	PaymentGeneralBillingID     *uuid.UUID `json:"payment_general_billing_id"`

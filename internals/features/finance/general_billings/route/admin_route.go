@@ -6,12 +6,13 @@ import (
 	"gorm.io/gorm"
 
 	// Controller untuk GENERAL BILLINGS (finance/general_billings)
-	gbController "madinahsalam_backend/internals/features/finance/general_billings/controller"
+	generalBillingController "madinahsalam_backend/internals/features/finance/general_billings/controller/general"
+	generalBillingKindController "madinahsalam_backend/internals/features/finance/general_billings/controller/kinds"
 )
 
 func AdminGeneralBillingRoutes(r fiber.Router, db *gorm.DB) {
 	// ===== Tenant-scoped (school_id diambil dari token di controller) =====
-	gbCtl := gbController.NewGeneralBillingController(db)
+	gbCtl := generalBillingController.NewGeneralBillingController(db)
 	gb := r.Group("/general-billings")
 	{
 		gb.Post("/", gbCtl.Create)
@@ -19,7 +20,7 @@ func AdminGeneralBillingRoutes(r fiber.Router, db *gorm.DB) {
 		gb.Delete("/:id", gbCtl.Delete)
 	}
 
-	kindCtl := gbController.NewGeneralBillingKindController(db)
+	kindCtl := generalBillingKindController.NewGeneralBillingKindController(db)
 	kinds := r.Group("/general-billing-kinds")
 	{
 		// per-school, tapi school_id diambil dari token
@@ -28,7 +29,7 @@ func AdminGeneralBillingRoutes(r fiber.Router, db *gorm.DB) {
 		kinds.Delete("/:id", kindCtl.Delete)
 	}
 
-	ugbCtl := gbController.NewUserGeneralBillingController(db)
+	ugbCtl := generalBillingController.NewUserGeneralBillingController(db)
 	ugb := r.Group("/user-general-billings")
 	{
 		ugb.Post("/", ugbCtl.Create)

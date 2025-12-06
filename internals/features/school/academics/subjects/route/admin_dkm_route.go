@@ -2,7 +2,8 @@
 package router
 
 import (
-	subjectsController "madinahsalam_backend/internals/features/school/academics/subjects/controller"
+	classSubjectController "madinahsalam_backend/internals/features/school/academics/subjects/controller/class_subjects"
+	subjectsController "madinahsalam_backend/internals/features/school/academics/subjects/controller/subjects"
 	schoolkuMiddleware "madinahsalam_backend/internals/middlewares/features"
 
 	"github.com/gofiber/fiber/v2"
@@ -19,7 +20,7 @@ Final paths yang didukung (tanpa :school_id / :school_slug):
 */
 func SubjectAdminRoutes(r fiber.Router, db *gorm.DB) {
 	subjectCtl := &subjectsController.SubjectsController{DB: db}
-	classSubjectCtl := &subjectsController.ClassSubjectController{DB: db}
+	classSubjectCtl := &classSubjectController.ClassSubjectController{DB: db}
 
 	// Base group: guard DKM/admin, school context diambil via helper (token/context),
 	// bukan dari path.

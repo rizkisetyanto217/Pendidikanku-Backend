@@ -26,7 +26,7 @@ import (
 	osshelper "madinahsalam_backend/internals/helpers/oss"
 	routes "madinahsalam_backend/internals/route"
 
-	payctl "madinahsalam_backend/internals/features/finance/payments/controller"
+	payctl "madinahsalam_backend/internals/features/finance/payments/controller/payments"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 	middlewares "madinahsalam_backend/internals/middlewares"
 )

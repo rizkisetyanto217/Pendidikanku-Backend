@@ -8,7 +8,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	paymentctl "madinahsalam_backend/internals/features/finance/payments/controller"
+	paymentsController "madinahsalam_backend/internals/features/finance/payments/controller/payments"
 )
 
 func getenv(key, def string) string {
@@ -22,7 +22,7 @@ func AllPaymentRoutes(r fiber.Router, db *gorm.DB) {
 	midtransServerKey := getenv("MIDTRANS_SERVER_KEY", "")
 	useProd := strings.EqualFold(getenv("MIDTRANS_USE_PROD", "false"), "true")
 
-	h := paymentctl.NewPaymentController(db, midtransServerKey, useProd)
+	h := paymentsController.NewPaymentController(db, midtransServerKey, useProd)
 
 	// Base path di caller: /api/v1/finance
 	payments := r.Group("/payments")

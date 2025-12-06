@@ -2,7 +2,9 @@
 package routes
 
 import (
-	nhctl "madinahsalam_backend/internals/features/school/class_others/class_schedules/controller"
+	holidayController "madinahsalam_backend/internals/features/school/class_others/class_schedules/controller/holidays"
+	rulesController "madinahsalam_backend/internals/features/school/class_others/class_schedules/controller/rules"
+	scheduleController "madinahsalam_backend/internals/features/school/class_others/class_schedules/controller/schedule"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -12,8 +14,8 @@ import (
 // AllScheduleRoutes mendaftarkan route untuk USER / PUBLIC (read-only)
 func AllScheduleRoutes(user fiber.Router, db *gorm.DB) {
 	// Controller jadwal (header + optional rules)
-	sched := nhctl.New(db, nil)
-	rules := nhctl.NewClassScheduleRuleListController(db)
+	sched := scheduleController.NewSchedule(db, nil)
+	rules := rulesController.NewClassScheduleRuleListController(db)
 
 	// ============================
 	// VARIAN PATH: BY :school_id
@@ -59,7 +61,7 @@ func AllScheduleRoutes(user fiber.Router, db *gorm.DB) {
 	// ============================
 	// National Holidays (tetap)
 	// ============================
-	ctl := nhctl.NewNationHoliday(db, validator.New())
+	ctl := holidayController.NewNationHoliday(db, validator.New())
 	grp := user.Group("/holidays/national")
 	grp.Get("/", ctl.List) // ?q&is_active&is_recurring&date_from&date_to&sort&limit&offset
 	grp.Get("/:id", ctl.GetByID)
