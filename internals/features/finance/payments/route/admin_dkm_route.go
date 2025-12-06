@@ -23,7 +23,7 @@ func PaymentAdminRoutes(r fiber.Router, db *gorm.DB, midtransServerKey string, u
 	)
 
 	// LIST semua transaksi per tenant (sukses/gagal/pending)
-	pay.Get("/list", ctl.ListPaymentsBySchoolAdmin)
+	pay.Get("/list", ctl.List)
 	// CREATE payment (manual / gateway)
 	pay.Post("/", ctl.CreatePayment)
 	// DETAIL + PATCH

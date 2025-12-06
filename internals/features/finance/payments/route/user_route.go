@@ -22,6 +22,6 @@ func UserPaymentRoutes(r fiber.Router, db *gorm.DB) {
 		payments.Post("/registration-enroll", h.CreateRegistrationAndPayment)
 
 		// 🔹 LIST (default) + DETAIL (via query ?payment-id=...)
-		payments.Get("/", h.MyPayments)
+		payments.Get("/list", h.List)
 	}
 }

@@ -107,15 +107,15 @@ type CreatePaymentRequest struct {
 	PaymentManualVerifiedByUserID *uuid.UUID `json:"payment_manual_verified_by_user_id"`
 	PaymentManualVerifiedAt       *time.Time `json:"payment_manual_verified_at"`
 
-	// Ledger & invoice (opsional) — pakai prefix payment_invoice_*
+	// Ledger & invoice (opsional)
 	PaymentEntryType      *model.PaymentEntryType `json:"payment_entry_type" validate:"omitempty,oneof=charge payment refund adjustment"`
 	PaymentInvoiceNumber  *string                 `json:"payment_invoice_number"`
 	PaymentInvoiceDueDate *time.Time              `json:"payment_invoice_due_date"`
 	PaymentInvoiceTitle   *string                 `json:"payment_invoice_title"`
 
 	// Subject (opsional)
-	PaymentSubjectUserID    *uuid.UUID `json:"payment_subject_user_id"`
-	PaymentSubjectStudentID *uuid.UUID `json:"payment_subject_student_id"`
+	PaymentSubjectUserID   *uuid.UUID `json:"payment_subject_user_id"`
+	PaymentSchoolStudentID *uuid.UUID `json:"payment_school_student_id"`
 
 	// ===== Link & snapshot fee_rules (opsional; sudah *_snapshot) =====
 	PaymentFeeRuleID                  *uuid.UUID      `json:"payment_fee_rule_id"`
@@ -123,14 +123,27 @@ type CreatePaymentRequest struct {
 	PaymentFeeRuleOptionIndexSnapshot *int16          `json:"payment_fee_rule_option_index_snapshot"` // 1-based
 	PaymentFeeRuleAmountSnapshot      *int            `json:"payment_fee_rule_amount_snapshot"`       // >= 0
 	PaymentFeeRuleGBKIDSnapshot       *uuid.UUID      `json:"payment_fee_rule_gbk_id_snapshot"`
-	PaymentFeeRuleScopeSnapshot       *model.FeeScope `json:"payment_fee_rule_scope_snapshot"` // enum fee_scope
+	PaymentFeeRuleScopeSnapshot       *model.FeeScope `json:"payment_fee_rule_scope_snapshot"`
 	PaymentFeeRuleNoteSnapshot        *string         `json:"payment_fee_rule_note_snapshot"`
 
-	// (opsional) user snapshots — biasanya server isi otomatis saat create
+	// ===== Academic term snapshot (opsional) =====
+	PaymentAcademicTermID                *uuid.UUID `json:"payment_academic_term_id"`
+	PaymentAcademicTermAcademicYearCache *string    `json:"payment_academic_term_academic_year_cache"`
+	PaymentAcademicTermNameCache         *string    `json:"payment_academic_term_name_cache"`
+	PaymentAcademicTermSlugCache         *string    `json:"payment_academic_term_slug_cache"`
+	PaymentAcademicTermAngkatanCache     *string    `json:"payment_academic_term_angkatan_cache"`
+
+	// (opsional) user snapshots — biasanya server isi otomatis
 	PaymentUserNameSnapshot     *string `json:"payment_user_name_snapshot"`
 	PaymentFullNameSnapshot     *string `json:"payment_full_name_snapshot"`
 	PaymentEmailSnapshot        *string `json:"payment_email_snapshot"`
 	PaymentDonationNameSnapshot *string `json:"payment_donation_name_snapshot"`
+
+	// ===== VA / channel snapshot (gateway) =====
+	PaymentChannelSnapshot  *string `json:"payment_channel_snapshot"`
+	PaymentBankSnapshot     *string `json:"payment_bank_snapshot"`
+	PaymentVANumberSnapshot *string `json:"payment_va_number_snapshot"`
+	PaymentVANameSnapshot   *string `json:"payment_va_name_snapshot"`
 
 	// Meta
 	PaymentDescription *string        `json:"payment_description"`
@@ -165,7 +178,7 @@ func (r *CreatePaymentRequest) Validate() error {
 		return fmt.Errorf("payment_currency hanya mendukung 'IDR'")
 	}
 
-	// Fee rule checks (lebih longgar sesuai SQL terbaru)
+	// Fee rule checks
 	if r.PaymentFeeRuleOptionIndexSnapshot != nil && *r.PaymentFeeRuleOptionIndexSnapshot < 1 {
 		return errors.New("payment_fee_rule_option_index_snapshot minimal 1 (1-based)")
 	}
@@ -221,8 +234,8 @@ func (r *CreatePaymentRequest) ToModel() *model.Payment {
 		PaymentInvoiceDueDate: r.PaymentInvoiceDueDate,
 		PaymentInvoiceTitle:   r.PaymentInvoiceTitle,
 
-		PaymentSubjectUserID:    r.PaymentSubjectUserID,
-		PaymentSubjectStudentID: r.PaymentSubjectStudentID,
+		PaymentSubjectUserID:   r.PaymentSubjectUserID,
+		PaymentSchoolStudentID: r.PaymentSchoolStudentID,
 
 		// fee_rule snapshots
 		PaymentFeeRuleID:                  r.PaymentFeeRuleID,
@@ -233,11 +246,24 @@ func (r *CreatePaymentRequest) ToModel() *model.Payment {
 		PaymentFeeRuleScopeSnapshot:       r.PaymentFeeRuleScopeSnapshot,
 		PaymentFeeRuleNoteSnapshot:        r.PaymentFeeRuleNoteSnapshot,
 
-		// user snapshots (optional; seringnya diisi server dari join)
+		// academic term snapshots
+		PaymentAcademicTermID:                r.PaymentAcademicTermID,
+		PaymentAcademicTermAcademicYearCache: r.PaymentAcademicTermAcademicYearCache,
+		PaymentAcademicTermNameCache:         r.PaymentAcademicTermNameCache,
+		PaymentAcademicTermSlugCache:         r.PaymentAcademicTermSlugCache,
+		PaymentAcademicTermAngkatanCache:     r.PaymentAcademicTermAngkatanCache,
+
+		// user snapshots
 		PaymentUserNameSnapshot:     r.PaymentUserNameSnapshot,
 		PaymentFullNameSnapshot:     r.PaymentFullNameSnapshot,
 		PaymentEmailSnapshot:        r.PaymentEmailSnapshot,
 		PaymentDonationNameSnapshot: r.PaymentDonationNameSnapshot,
+
+		// VA/channel snapshots
+		PaymentChannelSnapshot:  r.PaymentChannelSnapshot,
+		PaymentBankSnapshot:     r.PaymentBankSnapshot,
+		PaymentVANumberSnapshot: r.PaymentVANumberSnapshot,
+		PaymentVANameSnapshot:   r.PaymentVANameSnapshot,
 
 		PaymentDescription: r.PaymentDescription,
 		PaymentNote:        r.PaymentNote,
@@ -311,8 +337,8 @@ type UpdatePaymentRequest struct {
 	PaymentInvoiceDueDate PatchField[time.Time]              `json:"payment_invoice_due_date"`
 	PaymentInvoiceTitle   PatchField[string]                 `json:"payment_invoice_title"`
 
-	PaymentSubjectUserID    PatchField[uuid.UUID] `json:"payment_subject_user_id"`
-	PaymentSubjectStudentID PatchField[uuid.UUID] `json:"payment_subject_student_id"`
+	PaymentSubjectUserID   PatchField[uuid.UUID] `json:"payment_subject_user_id"`
+	PaymentSchoolStudentID PatchField[uuid.UUID] `json:"payment_school_student_id"`
 
 	// ===== fee_rule snapshots =====
 	PaymentFeeRuleID                  PatchField[uuid.UUID]      `json:"payment_fee_rule_id"`
@@ -323,11 +349,24 @@ type UpdatePaymentRequest struct {
 	PaymentFeeRuleScopeSnapshot       PatchField[model.FeeScope] `json:"payment_fee_rule_scope_snapshot"`
 	PaymentFeeRuleNoteSnapshot        PatchField[string]         `json:"payment_fee_rule_note_snapshot"`
 
+	// ===== academic term snapshots =====
+	PaymentAcademicTermID                PatchField[uuid.UUID] `json:"payment_academic_term_id"`
+	PaymentAcademicTermAcademicYearCache PatchField[string]    `json:"payment_academic_term_academic_year_cache"`
+	PaymentAcademicTermNameCache         PatchField[string]    `json:"payment_academic_term_name_cache"`
+	PaymentAcademicTermSlugCache         PatchField[string]    `json:"payment_academic_term_slug_cache"`
+	PaymentAcademicTermAngkatanCache     PatchField[string]    `json:"payment_academic_term_angkatan_cache"`
+
 	// ===== user snapshots =====
 	PaymentUserNameSnapshot     PatchField[string] `json:"payment_user_name_snapshot"`
 	PaymentFullNameSnapshot     PatchField[string] `json:"payment_full_name_snapshot"`
 	PaymentEmailSnapshot        PatchField[string] `json:"payment_email_snapshot"`
 	PaymentDonationNameSnapshot PatchField[string] `json:"payment_donation_name_snapshot"`
+
+	// ===== VA / channel snapshot =====
+	PaymentChannelSnapshot  PatchField[string] `json:"payment_channel_snapshot"`
+	PaymentBankSnapshot     PatchField[string] `json:"payment_bank_snapshot"`
+	PaymentVANumberSnapshot PatchField[string] `json:"payment_va_number_snapshot"`
+	PaymentVANameSnapshot   PatchField[string] `json:"payment_va_name_snapshot"`
 
 	// Meta
 	PaymentDescription PatchField[string]         `json:"payment_description"`
@@ -341,7 +380,7 @@ func (p *UpdatePaymentRequest) Apply(m *model.Payment) error {
 	applyPtr(&m.PaymentSchoolID, p.PaymentSchoolID)
 	applyPtr(&m.PaymentUserID, p.PaymentUserID)
 
-	// payment_number (boleh null / di-set / di-clear)
+	// payment_number
 	applyPtr(&m.PaymentNumber, p.PaymentNumber)
 
 	applyPtr(&m.PaymentStudentBillID, p.PaymentStudentBillID)
@@ -415,20 +454,24 @@ func (p *UpdatePaymentRequest) Apply(m *model.Payment) error {
 	applyPtr(&m.PaymentInvoiceDueDate, p.PaymentInvoiceDueDate)
 	applyPtr(&m.PaymentInvoiceTitle, p.PaymentInvoiceTitle)
 	applyPtr(&m.PaymentSubjectUserID, p.PaymentSubjectUserID)
-	applyPtr(&m.PaymentSubjectStudentID, p.PaymentSubjectStudentID)
+	applyPtr(&m.PaymentSchoolStudentID, p.PaymentSchoolStudentID)
 
 	// ===== fee_rule snapshots =====
 	applyPtr(&m.PaymentFeeRuleID, p.PaymentFeeRuleID)
 	applyPtr(&m.PaymentFeeRuleOptionCodeSnapshot, p.PaymentFeeRuleOptionCodeSnapshot)
 
 	if p.PaymentFeeRuleOptionIndexSnapshot.Set {
-		if !p.PaymentFeeRuleOptionIndexSnapshot.Null && p.PaymentFeeRuleOptionIndexSnapshot.Value != nil && *p.PaymentFeeRuleOptionIndexSnapshot.Value < 1 {
+		if !p.PaymentFeeRuleOptionIndexSnapshot.Null &&
+			p.PaymentFeeRuleOptionIndexSnapshot.Value != nil &&
+			*p.PaymentFeeRuleOptionIndexSnapshot.Value < 1 {
 			return errors.New("payment_fee_rule_option_index_snapshot minimal 1 (1-based)")
 		}
 		applyPtr(&m.PaymentFeeRuleOptionIndexSnapshot, p.PaymentFeeRuleOptionIndexSnapshot)
 	}
 	if p.PaymentFeeRuleAmountSnapshot.Set {
-		if !p.PaymentFeeRuleAmountSnapshot.Null && p.PaymentFeeRuleAmountSnapshot.Value != nil && *p.PaymentFeeRuleAmountSnapshot.Value < 0 {
+		if !p.PaymentFeeRuleAmountSnapshot.Null &&
+			p.PaymentFeeRuleAmountSnapshot.Value != nil &&
+			*p.PaymentFeeRuleAmountSnapshot.Value < 0 {
 			return errors.New("payment_fee_rule_amount_snapshot tidak boleh negatif")
 		}
 		applyPtr(&m.PaymentFeeRuleAmountSnapshot, p.PaymentFeeRuleAmountSnapshot)
@@ -437,11 +480,24 @@ func (p *UpdatePaymentRequest) Apply(m *model.Payment) error {
 	applyPtr(&m.PaymentFeeRuleScopeSnapshot, p.PaymentFeeRuleScopeSnapshot)
 	applyPtr(&m.PaymentFeeRuleNoteSnapshot, p.PaymentFeeRuleNoteSnapshot)
 
+	// ===== academic term snapshots =====
+	applyPtr(&m.PaymentAcademicTermID, p.PaymentAcademicTermID)
+	applyPtr(&m.PaymentAcademicTermAcademicYearCache, p.PaymentAcademicTermAcademicYearCache)
+	applyPtr(&m.PaymentAcademicTermNameCache, p.PaymentAcademicTermNameCache)
+	applyPtr(&m.PaymentAcademicTermSlugCache, p.PaymentAcademicTermSlugCache)
+	applyPtr(&m.PaymentAcademicTermAngkatanCache, p.PaymentAcademicTermAngkatanCache)
+
 	// ===== user snapshots =====
 	applyPtr(&m.PaymentUserNameSnapshot, p.PaymentUserNameSnapshot)
 	applyPtr(&m.PaymentFullNameSnapshot, p.PaymentFullNameSnapshot)
 	applyPtr(&m.PaymentEmailSnapshot, p.PaymentEmailSnapshot)
 	applyPtr(&m.PaymentDonationNameSnapshot, p.PaymentDonationNameSnapshot)
+
+	// ===== VA / channel snapshot =====
+	applyPtr(&m.PaymentChannelSnapshot, p.PaymentChannelSnapshot)
+	applyPtr(&m.PaymentBankSnapshot, p.PaymentBankSnapshot)
+	applyPtr(&m.PaymentVANumberSnapshot, p.PaymentVANumberSnapshot)
+	applyPtr(&m.PaymentVANameSnapshot, p.PaymentVANameSnapshot)
 
 	// meta
 	applyPtr(&m.PaymentDescription, p.PaymentDescription)
@@ -463,7 +519,7 @@ func (p *UpdatePaymentRequest) Apply(m *model.Payment) error {
 }
 
 /* =========================================================
-   RESPONSE
+   RESPONSE (full)
 ========================================================= */
 
 type PaymentResponse struct {
@@ -511,8 +567,8 @@ type PaymentResponse struct {
 	PaymentInvoiceDueDate *time.Time             `json:"payment_invoice_due_date"`
 	PaymentInvoiceTitle   *string                `json:"payment_invoice_title"`
 
-	PaymentSubjectUserID    *uuid.UUID `json:"payment_subject_user_id"`
-	PaymentSubjectStudentID *uuid.UUID `json:"payment_subject_student_id"`
+	PaymentSubjectUserID   *uuid.UUID `json:"payment_subject_user_id"`
+	PaymentSchoolStudentID *uuid.UUID `json:"payment_school_student_id"`
 
 	// ===== fee_rule snapshots =====
 	PaymentFeeRuleID                  *uuid.UUID      `json:"payment_fee_rule_id"`
@@ -523,11 +579,24 @@ type PaymentResponse struct {
 	PaymentFeeRuleScopeSnapshot       *model.FeeScope `json:"payment_fee_rule_scope_snapshot"`
 	PaymentFeeRuleNoteSnapshot        *string         `json:"payment_fee_rule_note_snapshot"`
 
+	// ===== academic term snapshots =====
+	PaymentAcademicTermID                *uuid.UUID `json:"payment_academic_term_id"`
+	PaymentAcademicTermAcademicYearCache *string    `json:"payment_academic_term_academic_year_cache"`
+	PaymentAcademicTermNameCache         *string    `json:"payment_academic_term_name_cache"`
+	PaymentAcademicTermSlugCache         *string    `json:"payment_academic_term_slug_cache"`
+	PaymentAcademicTermAngkatanCache     *string    `json:"payment_academic_term_angkatan_cache"`
+
 	// ===== user snapshots =====
 	PaymentUserNameSnapshot     *string `json:"payment_user_name_snapshot"`
 	PaymentFullNameSnapshot     *string `json:"payment_full_name_snapshot"`
 	PaymentEmailSnapshot        *string `json:"payment_email_snapshot"`
 	PaymentDonationNameSnapshot *string `json:"payment_donation_name_snapshot"`
+
+	// ===== VA / channel snapshot =====
+	PaymentChannelSnapshot  *string `json:"payment_channel_snapshot"`
+	PaymentBankSnapshot     *string `json:"payment_bank_snapshot"`
+	PaymentVANumberSnapshot *string `json:"payment_va_number_snapshot"`
+	PaymentVANameSnapshot   *string `json:"payment_va_name_snapshot"`
 
 	PaymentDescription *string        `json:"payment_description"`
 	PaymentNote        *string        `json:"payment_note"`
@@ -587,10 +656,10 @@ func FromModel(m *model.Payment) *PaymentResponse {
 		PaymentInvoiceDueDate: m.PaymentInvoiceDueDate,
 		PaymentInvoiceTitle:   m.PaymentInvoiceTitle,
 
-		PaymentSubjectUserID:    m.PaymentSubjectUserID,
-		PaymentSubjectStudentID: m.PaymentSubjectStudentID,
+		PaymentSubjectUserID:   m.PaymentSubjectUserID,
+		PaymentSchoolStudentID: m.PaymentSchoolStudentID,
 
-		// snapshots
+		// fee_rule snapshots
 		PaymentFeeRuleID:                  m.PaymentFeeRuleID,
 		PaymentFeeRuleOptionCodeSnapshot:  m.PaymentFeeRuleOptionCodeSnapshot,
 		PaymentFeeRuleOptionIndexSnapshot: m.PaymentFeeRuleOptionIndexSnapshot,
@@ -599,10 +668,24 @@ func FromModel(m *model.Payment) *PaymentResponse {
 		PaymentFeeRuleScopeSnapshot:       m.PaymentFeeRuleScopeSnapshot,
 		PaymentFeeRuleNoteSnapshot:        m.PaymentFeeRuleNoteSnapshot,
 
+		// academic term snapshots
+		PaymentAcademicTermID:                m.PaymentAcademicTermID,
+		PaymentAcademicTermAcademicYearCache: m.PaymentAcademicTermAcademicYearCache,
+		PaymentAcademicTermNameCache:         m.PaymentAcademicTermNameCache,
+		PaymentAcademicTermSlugCache:         m.PaymentAcademicTermSlugCache,
+		PaymentAcademicTermAngkatanCache:     m.PaymentAcademicTermAngkatanCache,
+
+		// user snapshots
 		PaymentUserNameSnapshot:     m.PaymentUserNameSnapshot,
 		PaymentFullNameSnapshot:     m.PaymentFullNameSnapshot,
 		PaymentEmailSnapshot:        m.PaymentEmailSnapshot,
 		PaymentDonationNameSnapshot: m.PaymentDonationNameSnapshot,
+
+		// VA/channel snapshots
+		PaymentChannelSnapshot:  m.PaymentChannelSnapshot,
+		PaymentBankSnapshot:     m.PaymentBankSnapshot,
+		PaymentVANumberSnapshot: m.PaymentVANumberSnapshot,
+		PaymentVANameSnapshot:   m.PaymentVANameSnapshot,
 
 		PaymentDescription: m.PaymentDescription,
 		PaymentNote:        m.PaymentNote,

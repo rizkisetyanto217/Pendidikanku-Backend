@@ -207,7 +207,13 @@ func (h *PaymentController) CreatePayment(c *fiber.Ctx) error {
 	}
 
 	// 1) Resolve target → isi school/amount jika kosong
-	ti, err := h.resolveTarget(c.Context(), h.DB, &req)
+	ti, err := svc.ResolveTarget(
+		c.Context(),
+		h.DB,
+		req.PaymentStudentBillID,
+		req.PaymentGeneralBillingID,
+		req.PaymentGeneralBillingKindID,
+	)
 	if err != nil {
 		code := fiber.StatusBadRequest
 		if fe, ok := err.(*fiber.Error); ok {
@@ -233,7 +239,6 @@ func (h *PaymentController) CreatePayment(c *fiber.Ctx) error {
 
 	// 🆕 Default invoice due date kalau belum diisi dari request
 	if m.PaymentInvoiceDueDate == nil {
-		// kalau suatu saat kamu isi PaymentExpiresAt, bisa pakai ini:
 		if m.PaymentExpiresAt != nil {
 			d := m.PaymentExpiresAt.In(time.Local)
 			dateOnly := time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, d.Location())
@@ -248,7 +253,7 @@ func (h *PaymentController) CreatePayment(c *fiber.Ctx) error {
 
 	// 🆕 generate payment_number per sekolah (kalau ada school_id)
 	if m.PaymentSchoolID != nil && *m.PaymentSchoolID != uuid.Nil {
-		if num, er := h.nextPaymentNumber(c.Context(), h.DB, *m.PaymentSchoolID); er == nil {
+		if num, er := svc.NextPaymentNumber(c.Context(), h.DB, *m.PaymentSchoolID); er == nil {
 			m.PaymentNumber = num
 		} else {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal generate payment_number: "+er.Error())
@@ -257,7 +262,7 @@ func (h *PaymentController) CreatePayment(c *fiber.Ctx) error {
 
 	// Auto-hydrate user snapshots (jika ada PaymentUserID)
 	if m.PaymentUserID != nil {
-		if un, fn, em, dn, er := h.hydrateUserSnapshots(c.Context(), h.DB, *m.PaymentUserID); er == nil {
+		if un, fn, em, dn, er := svc.HydrateUserSnapshots(c.Context(), h.DB, *m.PaymentUserID); er == nil {
 			if m.PaymentUserNameSnapshot == nil {
 				m.PaymentUserNameSnapshot = un
 			}
@@ -286,9 +291,15 @@ func (h *PaymentController) CreatePayment(c *fiber.Ctx) error {
 
 	// 3a) Jika meta mengandung kategori registration + enrollment id → link & set awaiting_payment
 	if m.PaymentMeta != nil {
-		meta := parseRegistrationMeta(m.PaymentMeta)
+		meta := svc.ParseRegistrationMeta(m.PaymentMeta)
 		if meta.StudentClassEnrollmentID != nil && meta.FeeRuleGBKCategory == "registration" {
-			_ = h.attachEnrollmentOnCreate(c.Context(), h.DB, m, *meta.StudentClassEnrollmentID)
+			_ = svc.AttachEnrollmentOnCreate(
+				c.Context(),
+				h.DB,
+				m,
+				*meta.StudentClassEnrollmentID,
+				paymentSnapshot(m),
+			)
 		}
 	}
 
@@ -320,19 +331,19 @@ func (h *PaymentController) CreatePayment(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "update payment after snap failed: "+err.Error())
 		}
 
-		// Setelah status → pending, sinkronkan lagi enrollment → awaiting_payment + snapshot/ID
-		_ = h.applyEnrollmentSideEffects(c.Context(), h.DB, m)
+		_ = svc.ApplyEnrollmentSideEffects(c.Context(), h.DB, m, paymentSnapshot(m))
 	}
 
 	// 5) Jika pembayaran manual dan sudah ditandai paid sejak awal → sync ke student_bills & enrollment
 	if m.PaymentMethod != model.PaymentMethodGateway && m.PaymentStatus == model.PaymentStatusPaid {
-		_ = h.applyStudentBillSideEffects(c.Context(), h.DB, m)
-		_ = h.applyEnrollmentSideEffects(c.Context(), h.DB, m)
+		_ = svc.ApplyStudentBillSideEffects(c.Context(), h.DB, m)
+		_ = svc.ApplyEnrollmentSideEffects(c.Context(), h.DB, m, paymentSnapshot(m))
 	}
 
 	return helper.JsonCreated(c, "payment created", dto.FromModel(m))
 }
 
+// PATCH /payments/:id
 // PATCH /payments/:id
 func (h *PaymentController) PatchPayment(c *fiber.Ctx) error {
 	idStr := c.Params("id")
@@ -363,8 +374,8 @@ func (h *PaymentController) PatchPayment(c *fiber.Ctx) error {
 	}
 
 	// Jika status berubah → sinkronkan student_bills & enrollment
-	_ = h.applyStudentBillSideEffects(c.Context(), h.DB, &m)
-	_ = h.applyEnrollmentSideEffects(c.Context(), h.DB, &m)
+	_ = svc.ApplyStudentBillSideEffects(c.Context(), h.DB, &m)
+	_ = svc.ApplyEnrollmentSideEffects(c.Context(), h.DB, &m, paymentSnapshot(&m))
 
 	return helper.JsonUpdated(c, "payment updated", dto.FromModel(&m))
 }
@@ -375,15 +386,26 @@ func (h *PaymentController) PatchPayment(c *fiber.Ctx) error {
 
 type midtransNotif struct {
 	TransactionTime   string `json:"transaction_time"`
-	TransactionStatus string `json:"transaction_status"` // capture, settlement, pending, deny, cancel, expire, refund, partial_refund, failure
+	TransactionStatus string `json:"transaction_status"`
 	StatusCode        string `json:"status_code"`
 	SignatureKey      string `json:"signature_key"`
 	OrderID           string `json:"order_id"`
 	GrossAmount       string `json:"gross_amount"`
 	PaymentType       string `json:"payment_type"`
-	FraudStatus       string `json:"fraud_status"` // accept / challenge / deny
+	FraudStatus       string `json:"fraud_status"`
 	TransactionID     string `json:"transaction_id"`
 	SettlementTime    string `json:"settlement_time"`
+
+	// 🔽 Tambahan buat VA / channel / cstore dll
+	Bank            string `json:"bank"`              // kadang ada langsung
+	PermataVANumber string `json:"permata_va_number"` // khusus permata
+	VANumbers       []struct {
+		Bank     string `json:"bank"`
+		VANumber string `json:"va_number"`
+	} `json:"va_numbers"`
+
+	Store       string `json:"store"`        // Indomaret/Alfamart/etc
+	PaymentCode string `json:"payment_code"` // kode bayar cstore
 }
 
 func (h *PaymentController) MidtransWebhook(c *fiber.Ctx) error {
@@ -394,10 +416,22 @@ func (h *PaymentController) MidtransWebhook(c *fiber.Ctx) error {
 	}
 
 	// 2) Verify signature — SHA512(order_id + status_code + gross_amount + ServerKey)
-	want := strings.ToLower(notif.SignatureKey)
+	want := strings.ToLower(strings.TrimSpace(notif.SignatureKey))
 	raw := notif.OrderID + notif.StatusCode + notif.GrossAmount + h.MidtransServerKey
 	got := sha512sum(raw)
+
+	fmt.Printf(
+		"[MIDTRANS][WEBHOOK] order_id=%s status_code=%s gross=%s want=%s got=%s\n",
+		notif.OrderID,
+		notif.StatusCode,
+		notif.GrossAmount,
+		want,
+		got,
+	)
+
 	if want == "" || got != want {
+		// log event juga biar kelihatan di DB
+		_ = h.logGatewayEvent(c, nil, notif, "invalid_signature", "signature mismatch")
 		return helper.JsonError(c, fiber.StatusUnauthorized, "invalid signature")
 	}
 
@@ -422,7 +456,7 @@ func (h *PaymentController) MidtransWebhook(c *fiber.Ctx) error {
 
 	// 5) Map status midtrans → status internal
 	now := time.Now()
-	newStatus, setFields := h.mapMidtransStatus(&p, notif, now)
+	newStatus, setFields := svc.MapMidtransStatus(p.PaymentStatus, notif.TransactionStatus, notif.FraudStatus, now)
 
 	// 6) Terapkan perubahan ke model
 	p.PaymentStatus = newStatus
@@ -447,6 +481,60 @@ func (h *PaymentController) MidtransWebhook(c *fiber.Ctx) error {
 	if amt, err := strconv.ParseFloat(notif.GrossAmount, 64); err == nil {
 		p.PaymentAmountIDR = int(amt + 0.5)
 	}
+
+	// ============================
+	// 🆕 Isi channel/bank/VA snapshot
+	// ============================
+
+	// channel snapshot → simpan payment_type mentah dari Midtrans
+	if strings.TrimSpace(notif.PaymentType) != "" {
+		ch := strings.TrimSpace(notif.PaymentType)
+		p.PaymentChannelSnapshot = &ch
+	}
+
+	switch strings.TrimSpace(notif.PaymentType) {
+	case "bank_transfer":
+		var bank, va string
+
+		// 1) Cek di va_numbers (BCA, BNI, BRI, dll)
+		if len(notif.VANumbers) > 0 {
+			bank = strings.TrimSpace(notif.VANumbers[0].Bank)
+			va = strings.TrimSpace(notif.VANumbers[0].VANumber)
+		}
+
+		// 2) Fallback permata_va_number
+		if va == "" && strings.TrimSpace(notif.PermataVANumber) != "" {
+			va = strings.TrimSpace(notif.PermataVANumber)
+		}
+
+		// 3) Fallback bank langsung
+		if bank == "" && strings.TrimSpace(notif.Bank) != "" {
+			bank = strings.TrimSpace(notif.Bank)
+		}
+
+		if bank != "" {
+			p.PaymentBankSnapshot = &bank
+		}
+		if va != "" {
+			p.PaymentVANumberSnapshot = &va
+		}
+
+	case "cstore":
+		// contoh: Indomaret / Alfamart
+		if strings.TrimSpace(notif.Store) != "" {
+			store := strings.TrimSpace(notif.Store)
+			p.PaymentBankSnapshot = &store // atau pakai channel snapshot khusus cstore
+		}
+		if strings.TrimSpace(notif.PaymentCode) != "" {
+			code := strings.TrimSpace(notif.PaymentCode)
+			p.PaymentVANumberSnapshot = &code
+		}
+
+	// kamu bisa tambahin case lain: "echannel", "qris", "gopay", dll kalau butuh
+	default:
+		// biarkan default, minimal channel sudah keisi
+	}
+
 	p.PaymentUpdatedAt = now
 
 	if err := h.DB.WithContext(c.Context()).Save(&p).Error; err != nil {
@@ -455,8 +543,8 @@ func (h *PaymentController) MidtransWebhook(c *fiber.Ctx) error {
 	}
 
 	// 7) Side effects ke student_bills & enrollment (jika ada target/meta)
-	_ = h.applyStudentBillSideEffects(c.Context(), h.DB, &p)
-	_ = h.applyEnrollmentSideEffects(c.Context(), h.DB, &p)
+	_ = svc.ApplyStudentBillSideEffects(c.Context(), h.DB, &p)
+	_ = svc.ApplyEnrollmentSideEffects(c.Context(), h.DB, &p, paymentSnapshot(&p))
 
 	_ = h.updateEventStatus(notif, "processed", "")
 
@@ -546,330 +634,14 @@ func (h *PaymentController) updateEventStatus(notif midtransNotif, newStatus str
 }
 
 // hasil mapping status: status target + field waktu mana yang perlu di-set
-type mappedFields struct {
-	PaidAt     *time.Time
-	CanceledAt *time.Time
-	FailedAt   *time.Time
-	RefundedAt *time.Time
-}
-
-func (h *PaymentController) mapMidtransStatus(p *model.Payment, n midtransNotif, now time.Time) (model.PaymentStatus, mappedFields) {
-	ts := strings.ToLower(n.TransactionStatus)
-	fraud := strings.ToLower(n.FraudStatus)
-	switch ts {
-	case "capture":
-		// untuk cc: capture + fraud=accept -> paid, fraud=challenge -> awaiting
-		if fraud == "accept" {
-			return model.PaymentStatusPaid, mappedFields{PaidAt: &now}
-		}
-		if fraud == "challenge" {
-			return model.PaymentStatusAwaitingCallback, mappedFields{}
-		}
-		return model.PaymentStatusFailed, mappedFields{FailedAt: &now}
-
-	case "settlement":
-		return model.PaymentStatusPaid, mappedFields{PaidAt: &now}
-
-	case "pending":
-		return model.PaymentStatusPending, mappedFields{}
-
-	case "deny":
-		return model.PaymentStatusFailed, mappedFields{FailedAt: &now}
-
-	case "cancel":
-		return model.PaymentStatusCanceled, mappedFields{CanceledAt: &now}
-
-	case "expire":
-		return model.PaymentStatusExpired, mappedFields{}
-
-	case "refund":
-		return model.PaymentStatusRefunded, mappedFields{RefundedAt: &now}
-
-	case "partial_refund":
-		return model.PaymentStatusPartiallyRefunded, mappedFields{RefundedAt: &now}
-
-	case "failure":
-		return model.PaymentStatusFailed, mappedFields{FailedAt: &now}
-	}
-	// fallback
-	return p.PaymentStatus, mappedFields{}
-}
-
 func strPtr(s string) *string { return &s }
 
-/* =======================================================================
-   Side effects ke student_bills (sinkronisasi status)
-   - dipanggil dari Create (manual paid) dan Webhook/ Patch
-======================================================================= */
-
-func (h *PaymentController) applyStudentBillSideEffects(ctx context.Context, db *gorm.DB, p *model.Payment) error {
-	if p == nil || p.PaymentStudentBillID == nil {
+func paymentSnapshot(p *model.Payment) datatypes.JSON {
+	if p == nil {
 		return nil
 	}
-
-	switch p.PaymentStatus {
-	case model.PaymentStatusPaid:
-		// tandai student bill paid
-		now := time.Now()
-		paidAt := p.PaymentPaidAt
-		if paidAt == nil {
-			paidAt = &now
-		}
-		return db.WithContext(ctx).
-			Exec(`
-				UPDATE student_bills
-				   SET student_bill_status = 'paid',
-				       student_bill_paid_at = COALESCE(student_bill_paid_at, ?),
-				       student_bill_updated_at = NOW()
-				 WHERE student_bill_id = ?
-				   AND student_bill_deleted_at IS NULL
-			`, *paidAt, *p.PaymentStudentBillID).Error
-
-	case model.PaymentStatusCanceled, model.PaymentStatusFailed, model.PaymentStatusExpired, model.PaymentStatusRefunded:
-		// kembalikan ke unpaid (kebijakan sederhana; sesuaikan jika perlu)
-		return db.WithContext(ctx).
-			Exec(`
-				UPDATE student_bills
-				   SET student_bill_status = 'unpaid',
-				       student_bill_paid_at = NULL,
-				       student_bill_updated_at = NOW()
-				 WHERE student_bill_id = ?
-				   AND student_bill_deleted_at IS NULL
-			`, *p.PaymentStudentBillID).Error
-	}
-
-	return nil
-}
-
-/* =======================================================================
-   ===== Enrollment integration based on payment_meta (registration) =====
-======================================================================= */
-
-// Meta yang kita butuhkan untuk hubungkan payment ↔ enrollment
-type registrationMeta struct {
-	StudentClassEnrollmentID *uuid.UUID `json:"student_class_enrollments_id"`
-	FeeRuleGBKCategory       string     `json:"fee_rule_gbk_category_snapshot"`
-
-	// detail fee rule yang akan disalin ke enrollment.preferences
-	FeeRuleID           *uuid.UUID `json:"fee_rule_id"`
-	FeeRuleOptionCode   *string    `json:"fee_rule_option_code"`
-	FeeRuleOptionLabel  *string    `json:"fee_rule_option_label"`
-	FeeRuleOptionAmount *int64     `json:"fee_rule_option_amount_idr"`
-
-	// payer dari token/met
-	PayerUserID *uuid.UUID `json:"payer_user_id"`
-}
-
-// parser meta → normalisasi category lower-case
-func parseRegistrationMeta(j datatypes.JSON) registrationMeta {
-	var m registrationMeta
-	_ = json.Unmarshal(j, &m)
-	m.FeeRuleGBKCategory = strings.ToLower(strings.TrimSpace(m.FeeRuleGBKCategory))
-	return m
-}
-
-// Build patch JSON untuk enrollment.preferences
-func buildEnrollmentPrefPatch(payer *uuid.UUID, meta registrationMeta) datatypes.JSON {
-	payload := map[string]interface{}{}
-
-	// Bangun object registration hanya kalau ada data fee_rule yang meaningful
-	reg := map[string]interface{}{}
-
-	if meta.FeeRuleID != nil {
-		reg["fee_rule_id"] = meta.FeeRuleID
-	}
-	if meta.FeeRuleOptionCode != nil {
-		reg["fee_rule_option_code"] = meta.FeeRuleOptionCode
-	}
-	if meta.FeeRuleOptionLabel != nil {
-		reg["fee_rule_option_label"] = meta.FeeRuleOptionLabel
-	}
-	if meta.FeeRuleOptionAmount != nil {
-		reg["fee_rule_option_amount"] = meta.FeeRuleOptionAmount
-	}
-
-	// Hanya kalau ada minimal satu field di atas yang keisi → kita tambahkan category + registration
-	if len(reg) > 0 {
-		if strings.TrimSpace(meta.FeeRuleGBKCategory) != "" {
-			reg["category_snapshot"] = meta.FeeRuleGBKCategory
-		}
-		payload["registration"] = reg
-	}
-
-	// payer_user_id tetap boleh dipatch sendiri, tanpa menyentuh registration
-	if payer != nil {
-		payload["payer_user_id"] = payer
-	}
-
-	b, _ := json.Marshal(payload)
+	b, _ := json.Marshal(dto.FromModel(p))
 	return datatypes.JSON(b)
-}
-
-// letakkan dekat tipe/DTO meta
-type bundleMeta struct {
-	EnrollmentIDs []uuid.UUID `json:"enrollment_ids"`
-}
-
-// =======================================================================
-// Helper: generate payment_number per school (increment per sekolah)
-// =======================================================================
-
-func (h *PaymentController) nextPaymentNumber(
-	ctx context.Context,
-	db *gorm.DB,
-	schoolID uuid.UUID,
-) (*int64, error) {
-	if schoolID == uuid.Nil {
-		return nil, nil
-	}
-
-	var next int64
-	if err := db.WithContext(ctx).Raw(`
-		SELECT COALESCE(MAX(payment_number), 0) + 1
-		FROM payments
-		WHERE payment_school_id = ?
-	`, schoolID).Scan(&next).Error; err != nil {
-		return nil, err
-	}
-
-	return &next, nil
-}
-
-func extractEnrollmentIDs(j datatypes.JSON) []uuid.UUID {
-	ids := []uuid.UUID{}
-	// single
-	var r registrationMeta
-	_ = json.Unmarshal(j, &r)
-	if r.StudentClassEnrollmentID != nil {
-		ids = append(ids, *r.StudentClassEnrollmentID)
-	}
-	// bundle
-	var b struct {
-		Bundle bundleMeta `json:"bundle"`
-	}
-	if err := json.Unmarshal(j, &b); err == nil && len(b.Bundle.EnrollmentIDs) > 0 {
-		ids = append(ids, b.Bundle.EnrollmentIDs...)
-	}
-	return ids
-}
-
-// Dipanggil segera setelah payment dibuat (CreatePayment) untuk set awaiting_payment & snapshot + merge prefs + set total_due (jika 0)
-func (h *PaymentController) attachEnrollmentOnCreate(
-	ctx context.Context, db *gorm.DB, p *model.Payment, enrollmentID uuid.UUID,
-) error {
-	snap, _ := json.Marshal(dto.FromModel(p))
-
-	meta := registrationMeta{}
-	if p.PaymentMeta != nil {
-		meta = parseRegistrationMeta(p.PaymentMeta)
-	}
-	// tentukan payer: prioritas dari meta.PayerUserID; fallback ke PaymentUserID
-	payer := meta.PayerUserID
-	if payer == nil && p.PaymentUserID != nil {
-		payer = p.PaymentUserID
-	}
-	prefPatch := buildEnrollmentPrefPatch(payer, meta)
-
-	return db.WithContext(ctx).Exec(`
-		UPDATE student_class_enrollments
-		   SET student_class_enrollments_payment_id       = ?,
-		       student_class_enrollments_payment_snapshot = ?::jsonb,
-		       student_class_enrollments_status           = 'awaiting_payment',
-		       student_class_enrollments_preferences      = COALESCE(student_class_enrollments_preferences,'{}'::jsonb) || ?::jsonb,
-		       student_class_enrollments_total_due_idr    = CASE
-		    WHEN COALESCE(student_class_enrollments_total_due_idr,0)=0 THEN ?
-			ELSE student_class_enrollments_total_due_idr
-		                                                   END,
-		       student_class_enrollments_updated_at       = NOW()
-		 WHERE student_class_enrollments_id = ?
-		   AND student_class_enrollments_deleted_at IS NULL
-	`, p.PaymentID, datatypes.JSON(snap), prefPatch, p.PaymentAmountIDR, enrollmentID).Error
-}
-
-// Sinkronkan status enrollment tiap kali status payment berubah (merge prefs juga)
-func (h *PaymentController) applyEnrollmentSideEffects(ctx context.Context, db *gorm.DB, p *model.Payment) error {
-	if p == nil || p.PaymentMeta == nil {
-		return nil
-	}
-
-	// wajib kategori registration
-	var cat struct {
-		FeeRuleGBKCategory string `json:"fee_rule_gbk_category_snapshot"`
-	}
-	_ = json.Unmarshal(p.PaymentMeta, &cat)
-	if strings.ToLower(strings.TrimSpace(cat.FeeRuleGBKCategory)) != "registration" {
-		return nil
-	}
-
-	ids := extractEnrollmentIDs(p.PaymentMeta)
-	if len(ids) == 0 {
-		return nil
-	}
-
-	// build prefPatch & snap seperti semula ...
-	meta := parseRegistrationMeta(p.PaymentMeta)
-	payer := meta.PayerUserID
-	if payer == nil && p.PaymentUserID != nil {
-		payer = p.PaymentUserID
-	}
-	prefPatch := buildEnrollmentPrefPatch(payer, meta)
-	snap, _ := json.Marshal(dto.FromModel(p))
-
-	switch p.PaymentStatus {
-	case model.PaymentStatusPaid:
-		for _, eid := range ids {
-			if err := db.WithContext(ctx).Exec(`
-                UPDATE student_class_enrollments
-                   SET student_class_enrollments_status           = 'accepted',
-                       student_class_enrollments_accepted_at      = COALESCE(student_class_enrollments_accepted_at, NOW()),
-                       student_class_enrollments_payment_id       = ?,
-                       student_class_enrollments_payment_snapshot = ?::jsonb,
-                       student_class_enrollments_preferences      = COALESCE(student_class_enrollments_preferences,'{}'::jsonb) || ?::jsonb,
-                       student_class_enrollments_total_due_idr    = CASE
-                           WHEN COALESCE(student_class_enrollments_total_due_idr,0)=0 THEN ?
-                           ELSE student_class_enrollments_total_due_idr END,
-                       student_class_enrollments_updated_at       = NOW()
-                 WHERE student_class_enrollments_id = ?
-                   AND student_class_enrollments_deleted_at IS NULL
-            `, p.PaymentID, datatypes.JSON(snap), prefPatch, p.PaymentAmountIDR, eid).Error; err != nil {
-				return err
-			}
-		}
-	case model.PaymentStatusCanceled, model.PaymentStatusFailed, model.PaymentStatusExpired, model.PaymentStatusRefunded, model.PaymentStatusPartiallyRefunded:
-		for _, eid := range ids {
-			if err := db.WithContext(ctx).Exec(`
-                UPDATE student_class_enrollments
-                   SET student_class_enrollments_status           = 'awaiting_payment',
-                       student_class_enrollments_payment_id       = NULL,
-                       student_class_enrollments_payment_snapshot = NULL,
-                       student_class_enrollments_preferences      = COALESCE(student_class_enrollments_preferences,'{}'::jsonb) || ?::jsonb,
-                       student_class_enrollments_updated_at       = NOW()
-                 WHERE student_class_enrollments_id = ?
-                   AND student_class_enrollments_deleted_at IS NULL
-            `, prefPatch, eid).Error; err != nil {
-				return err
-			}
-		}
-	default: // pending / awaiting_callback / initiated
-		for _, eid := range ids {
-			if err := db.WithContext(ctx).Exec(`
-                UPDATE student_class_enrollments
-                   SET student_class_enrollments_status           = 'awaiting_payment',
-                       student_class_enrollments_payment_id       = ?,
-                       student_class_enrollments_payment_snapshot = ?::jsonb,
-                       student_class_enrollments_preferences      = COALESCE(student_class_enrollments_preferences,'{}'::jsonb) || ?::jsonb,
-                       student_class_enrollments_total_due_idr    = CASE
-                           WHEN COALESCE(student_class_enrollments_total_due_idr,0)=0 THEN ?
-                           ELSE student_class_enrollments_total_due_idr END,
-                       student_class_enrollments_updated_at       = NOW()
-                 WHERE student_class_enrollments_id = ?
-                   AND student_class_enrollments_deleted_at IS NULL
-            `, p.PaymentID, datatypes.JSON(snap), prefPatch, p.PaymentAmountIDR, eid).Error; err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 // ================= DTO & helpers (request bundle) =================
@@ -879,126 +651,13 @@ type CreateRegistrationAndPaymentResponse struct {
 	Payment     any                                     `json:"payment"`
 }
 
-func genOrderID(prefix string) string {
-	now := time.Now().In(time.Local).Format("20060102-150405")
-	u := uuid.New().String()
-	if len(u) > 8 {
-		u = u[:8]
-	}
-	return prefix + "-" + now + "-" + strings.ToUpper(u)
-}
-
 // Generate NIM untuk siswa baru berdasarkan term (diambil dari salah satu class)
 // Format: SSSYYYYAA####
 //   - SSS  = school_number (3 digit, zero-padded)
 //   - YYYY = tahun awal akademik
 //   - AA   = angkatan 2 digit
 //   - #### = sequence per sekolah + prefix
-func (h *PaymentController) generateStudentCodeForClass(
-	ctx context.Context,
-	tx *gorm.DB,
-	schoolID uuid.UUID,
-	classID uuid.UUID,
-) (string, error) {
-	if classID == uuid.Nil {
-		return "", fmt.Errorf("class_id kosong saat generate NIM")
-	}
-
-	// ---------------------------------
-	// 0) Ambil school_number dulu
-	// ---------------------------------
-	var schoolNumber int64
-	if err := tx.WithContext(ctx).Raw(`
-		SELECT COALESCE(school_number, 0)
-		FROM schools
-		WHERE school_id = ?
-		  AND school_deleted_at IS NULL
-		LIMIT 1
-	`, schoolID).Scan(&schoolNumber).Error; err != nil {
-		return "", fmt.Errorf("gagal ambil school_number: %w", err)
-	}
-	// fallback kalau belum keisi (shouldn't happen, tapi jaga-jaga)
-	if schoolNumber < 0 {
-		schoolNumber = 0
-	}
-	// SSS: 3 digit (001, 010, 123, dst)
-	schoolNumStr := fmt.Sprintf("%03d", schoolNumber)
-
-	// ---------------------------------
-	// 1) Ambil snapshot tahun akademik + angkatan dari classes
-	// ---------------------------------
-	var row struct {
-		YearRaw     *string `gorm:"column:year"`
-		AngkatanRaw *string `gorm:"column:angkatan"`
-	}
-
-	if err := tx.WithContext(ctx).Raw(`
-		SELECT 
-			NULLIF(class_academic_term_academic_year_cache,'') AS year,
-			NULLIF(class_academic_term_angkatan_cache,'')      AS angkatan
-		FROM classes
-		WHERE class_id = ?
-		  AND class_school_id = ?
-		  AND class_deleted_at IS NULL
-		LIMIT 1
-	`, classID, schoolID).Scan(&row).Error; err != nil {
-		return "", fmt.Errorf("gagal select term snapshot: %w", err)
-	}
-
-	// ===== Normalisasi YEAR =====
-	var year4 string
-	if row.YearRaw != nil && strings.TrimSpace(*row.YearRaw) != "" {
-		y := strings.TrimSpace(*row.YearRaw) // contoh "2024/2025" atau "2025"
-		if len(y) >= 4 {
-			year4 = y[:4]
-		} else {
-			year4 = fmt.Sprintf("%04d", time.Now().Year())
-		}
-	} else {
-		year4 = fmt.Sprintf("%04d", time.Now().Year())
-	}
-
-	// ===== Normalisasi ANGKATAN =====
-	var angkatanInt int
-	if row.AngkatanRaw != nil && strings.TrimSpace(*row.AngkatanRaw) != "" {
-		if n, err := strconv.Atoi(strings.TrimSpace(*row.AngkatanRaw)); err == nil && n >= 0 {
-			angkatanInt = n
-		} else {
-			angkatanInt = 0
-		}
-	} else {
-		angkatanInt = 0
-	}
-
-	// prefix: SSS + YYYY + angkatan (2 digit)
-	prefix := fmt.Sprintf("%s%s%02d", schoolNumStr, year4, angkatanInt)
-
-	// ---------------------------------
-	//  2. Cari sequence terakhir per SEKOLAH (tanpa reset per prefix)
-	//     #### = running counter sepanjang sejarah sekolah tsb
-	//
-	// ---------------------------------
-	var lastSeq int
-	if err := tx.WithContext(ctx).Raw(`
-    SELECT COALESCE(MAX(RIGHT(school_student_code, 4)::int), 0)
-    FROM school_students
-    WHERE school_student_school_id = ?
-      AND school_student_code IS NOT NULL
-      AND school_student_code ~ '^[0-9]+$'
-`, schoolID).Scan(&lastSeq).Error; err != nil {
-		return "", fmt.Errorf("gagal hitung sequence NIM: %w", err)
-	}
-
-	next := lastSeq + 1
-	code := fmt.Sprintf("%s%04d", prefix, next) // SSSYYYYAA####
-
-	if strings.TrimSpace(code) == "" {
-		return "", fmt.Errorf("kode hasil generate kosong (prefix=%s, lastSeq=%d)", prefix, lastSeq)
-	}
-
-	return code, nil
-}
-
+//
 // ================= HANDLER: POST /payments/registration-enroll =================
 // ================= HANDLER: POST /payments/registration-enroll =================
 func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
@@ -1169,7 +828,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 			}
 
 			if currentCode == nil || strings.TrimSpace(*currentCode) == "" {
-				code, er := h.generateStudentCodeForClass(c.Context(), tx, schoolID, baseClassID)
+				code, er := svc.GenerateStudentCodeForClass(c.Context(), tx, schoolID, baseClassID)
 				if er != nil {
 					_ = tx.Rollback()
 					return helper.JsonError(c, fiber.StatusInternalServerError, "gagal generate kode siswa: "+er.Error())
@@ -1227,7 +886,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		if schoolStudentID == uuid.Nil {
 			var newStudentCode *string
 			if baseClassID != uuid.Nil {
-				code, er := h.generateStudentCodeForClass(c.Context(), tx, schoolID, baseClassID)
+				code, er := svc.GenerateStudentCodeForClass(c.Context(), tx, schoolID, baseClassID)
 				if er != nil {
 					_ = tx.Rollback()
 					return helper.JsonError(c, fiber.StatusInternalServerError, "gagal generate kode siswa (baru): "+er.Error())
@@ -1507,14 +1166,14 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 	// 4b) Ambil SNAPSHOT kelas + TERM untuk semua class_id
 	// ---------------------------
 	type clsSnap struct {
-		ID         uuid.UUID  `gorm:"column:class_id"`
-		Name       string     `gorm:"column:class_name"`
-		Slug       string     `gorm:"column:class_slug"`
-		TermID     *uuid.UUID `gorm:"column:class_academic_term_id"`
-		TermYear   *string    `gorm:"column:class_academic_term_academic_year_cache"`
-		TermName   *string    `gorm:"column:class_academic_term_name_cache"`
-		TermSlug   *string    `gorm:"column:class_academic_term_slug_cache"`
-		TermAngkat *int       `gorm:"column:term_angkatan_int"` // cast dari varchar
+		ID           uuid.UUID  `gorm:"column:class_id"`
+		Name         string     `gorm:"column:class_name"`
+		Slug         string     `gorm:"column:class_slug"`
+		TermID       *uuid.UUID `gorm:"column:class_academic_term_id"`
+		TermYear     *string    `gorm:"column:class_academic_term_academic_year_cache"`
+		TermName     *string    `gorm:"column:class_academic_term_name_cache"`
+		TermSlug     *string    `gorm:"column:class_academic_term_slug_cache"`
+		TermAngkatan *int       `gorm:"column:term_angkatan_int"` // cast dari varchar
 	}
 
 	classIDs := make([]uuid.UUID, 0, len(items))
@@ -1589,7 +1248,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 			tYear = cs.TermYear
 			tName = cs.TermName
 			tSlug = cs.TermSlug
-			tAngkat = cs.TermAngkat
+			tAngkat = cs.TermAngkatan
 		}
 
 		// snapshot siswa (boleh nil → NULL)
@@ -1771,7 +1430,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 	}
 	extID := req.PaymentExternalID
 	if extID == nil || strings.TrimSpace(*extID) == "" {
-		s := genOrderID("REG")
+		s := svc.GenOrderID("REG")
 		extID = &s
 	}
 
@@ -1815,7 +1474,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 
 	// 🆕 generate payment_number per sekolah (pakai TX)
 	var payNum *int64
-	if num, er := h.nextPaymentNumber(c.Context(), tx, schoolID); er == nil {
+	if num, er := svc.NextPaymentNumber(c.Context(), tx, schoolID); er == nil {
 		payNum = num
 	} else {
 		_ = tx.Rollback()
@@ -1833,9 +1492,22 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		PaymentMeta:                 datatypes.JSON(metaJSON),
 		PaymentNumber:               payNum, // 🆕 nomor per sekolah
 
+		// 🆕 penting: link langsung ke siswa sekolah
+		PaymentSchoolStudentID: &schoolStudentID,
+
 		// 🆕 snapshot fee_rule
 		PaymentFeeRuleID:            &fr.ID,
 		PaymentFeeRuleGBKIDSnapshot: &fr.GBKID,
+	}
+
+	// 🆕 isi fee_rule_scope_snapshot & fee_rule_note_snapshot kalau ada
+	if fr.Scope != nil && strings.TrimSpace(*fr.Scope) != "" {
+		scope := model.FeeScope(strings.TrimSpace(*fr.Scope))
+		pm.PaymentFeeRuleScopeSnapshot = &scope
+	}
+	if fr.Note != nil && strings.TrimSpace(*fr.Note) != "" {
+		note := strings.TrimSpace(*fr.Note)
+		pm.PaymentFeeRuleNoteSnapshot = &note
 	}
 
 	// 🆕 Default invoice due date untuk bundle registration
@@ -1866,7 +1538,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		pm.PaymentFeeRuleOptionIndexSnapshot = &idx
 	}
 
-	if un, fn, em, dn, er := h.hydrateUserSnapshots(c.Context(), tx, userID); er == nil {
+	if un, fn, em, dn, er := svc.HydrateUserSnapshots(c.Context(), tx, userID); er == nil {
 		pm.PaymentUserNameSnapshot = un
 		if fn != nil {
 			pm.PaymentFullNameSnapshot = fn
@@ -1916,6 +1588,20 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		title = fmt.Sprintf("Pendaftaran - %s", studentName)
 	}
 
+	// 🆕 Isi academic term snapshot di payment (kalau ada)
+	if firstClass != nil && firstClass.TermID != nil {
+		pm.PaymentAcademicTermID = firstClass.TermID
+		pm.PaymentAcademicTermAcademicYearCache = firstClass.TermYear
+		pm.PaymentAcademicTermNameCache = firstClass.TermName
+		pm.PaymentAcademicTermSlugCache = firstClass.TermSlug
+
+		// term_angkatan disimpan sebagai string di payment, jadi perlu konversi
+		if firstClass.TermAngkatan != nil {
+			angk := strconv.Itoa(*firstClass.TermAngkatan)
+			pm.PaymentAcademicTermAngkatanCache = &angk
+		}
+	}
+
 	//  4. Build invoice number
 	//     INV/{school-slug}/{YYYYMMDD-HHMMSS}/{payment_number}/{gbk_code}
 	t := pm.PaymentCreatedAt
@@ -1957,7 +1643,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 
 	// Link payment → semua enrollment
 	for _, eid := range enrollIDs {
-		if er := h.attachEnrollmentOnCreate(c.Context(), tx, pm, eid); er != nil {
+		if er := svc.AttachEnrollmentOnCreate(c.Context(), tx, pm, eid, paymentSnapshot(pm)); er != nil {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal link enrollment: "+er.Error())
 		}
@@ -2018,7 +1704,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "update payment (snap) gagal: "+err.Error())
 		}
-		if er := h.applyEnrollmentSideEffects(c.Context(), tx, pm); er != nil {
+		if er := svc.ApplyEnrollmentSideEffects(c.Context(), tx, pm, paymentSnapshot(pm)); er != nil {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal apply efek enrollment: "+er.Error())
 		}
@@ -2061,7 +1747,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 			dtoRow.StudentClassEnrollmentTermAcademicYearCache = cs.TermYear
 			dtoRow.StudentClassEnrollmentTermNameCache = cs.TermName
 			dtoRow.StudentClassEnrollmentTermSlugCache = cs.TermSlug
-			dtoRow.StudentClassEnrollmentTermAngkatanCache = cs.TermAngkat
+			dtoRow.StudentClassEnrollmentTermAngkatanCache = cs.TermAngkatan
 		}
 
 		// snapshot siswa

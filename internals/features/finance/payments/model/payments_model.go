@@ -89,7 +89,7 @@ type Payment struct {
 	PaymentBillBatchID *uuid.UUID `json:"payment_bill_batch_id" gorm:"column:payment_bill_batch_id;type:uuid"`
 
 	// Nominal
-	PaymentAmountIDR int    `json:"payment_amount_idr" gorm:"column:payment_amount_idr;type:int;not null;check:payment_amount_idr>=0"`
+	PaymentAmountIDR int    `json:"payment_amount_idr" gorm:"column:payment_amount_idr;type:int;not null"`
 	PaymentCurrency  string `json:"payment_currency"   gorm:"column:payment_currency;type:varchar(8);not null;default:IDR"`
 
 	// Status & metode
@@ -127,8 +127,8 @@ type Payment struct {
 	PaymentInvoiceTitle   *string          `json:"payment_invoice_title"    gorm:"column:payment_invoice_title;type:text"`
 
 	// Subject (opsional)
-	PaymentSubjectUserID    *uuid.UUID `json:"payment_subject_user_id"    gorm:"column:payment_subject_user_id;type:uuid"`
-	PaymentSubjectStudentID *uuid.UUID `json:"payment_subject_student_id" gorm:"column:payment_subject_student_id;type:uuid"`
+	PaymentSubjectUserID   *uuid.UUID `json:"payment_subject_user_id"    gorm:"column:payment_subject_user_id;type:uuid"`
+	PaymentSchoolStudentID *uuid.UUID `json:"payment_school_student_id"  gorm:"column:payment_school_student_id;type:uuid"`
 
 	// ===== Fee rule snapshots (pakai *_snapshot) =====
 	PaymentFeeRuleID                  *uuid.UUID `json:"payment_fee_rule_id"                   gorm:"column:payment_fee_rule_id;type:uuid"`
@@ -138,6 +138,19 @@ type Payment struct {
 	PaymentFeeRuleGBKIDSnapshot       *uuid.UUID `json:"payment_fee_rule_gbk_id_snapshot"       gorm:"column:payment_fee_rule_gbk_id_snapshot;type:uuid"`
 	PaymentFeeRuleScopeSnapshot       *FeeScope  `json:"payment_fee_rule_scope_snapshot"        gorm:"column:payment_fee_rule_scope_snapshot;type:fee_scope"`
 	PaymentFeeRuleNoteSnapshot        *string    `json:"payment_fee_rule_note_snapshot"         gorm:"column:payment_fee_rule_note_snapshot;type:text"`
+
+	// ===== VA / channel snapshot (baru, mirror migration) =====
+	PaymentChannelSnapshot  *string `json:"payment_channel_snapshot"   gorm:"column:payment_channel_snapshot;type:varchar(40)"`
+	PaymentBankSnapshot     *string `json:"payment_bank_snapshot"      gorm:"column:payment_bank_snapshot;type:varchar(40)"`
+	PaymentVANumberSnapshot *string `json:"payment_va_number_snapshot" gorm:"column:payment_va_number_snapshot;type:varchar(80)"`
+	PaymentVANameSnapshot   *string `json:"payment_va_name_snapshot"   gorm:"column:payment_va_name_snapshot;type:varchar(120)"`
+
+	// ===== Academic term snapshot =====
+	PaymentAcademicTermID                *uuid.UUID `json:"payment_academic_term_id"                 gorm:"column:payment_academic_term_id;type:uuid"`
+	PaymentAcademicTermAcademicYearCache *string    `json:"payment_academic_term_academic_year_cache" gorm:"column:payment_academic_term_academic_year_cache;type:varchar(40)"`
+	PaymentAcademicTermNameCache         *string    `json:"payment_academic_term_name_cache"          gorm:"column:payment_academic_term_name_cache;type:varchar(100)"`
+	PaymentAcademicTermSlugCache         *string    `json:"payment_academic_term_slug_cache"          gorm:"column:payment_academic_term_slug_cache;type:varchar(160)"`
+	PaymentAcademicTermAngkatanCache     *string    `json:"payment_academic_term_angkatan_cache"      gorm:"column:payment_academic_term_angkatan_cache;type:varchar(40)"`
 
 	// ===== User snapshots (payer) =====
 	PaymentUserNameSnapshot     *string `json:"payment_user_name_snapshot"     gorm:"column:payment_user_name_snapshot;type:text"`

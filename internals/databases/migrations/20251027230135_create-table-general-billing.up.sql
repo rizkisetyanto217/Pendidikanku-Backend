@@ -83,8 +83,7 @@ CREATE TABLE IF NOT EXISTS user_general_billings (
 
   -- nilai & status
   user_general_billing_amount_idr         INT NOT NULL CHECK (user_general_billing_amount_idr >= 0),
-  user_general_billing_status             VARCHAR(20) NOT NULL DEFAULT 'unpaid'
-                                          CHECK (user_general_billing_status IN ('unpaid','paid','canceled')),
+  user_general_billing_status             VARCHAR(20) NOT NULL DEFAULT 'unpaid' CHECK (user_general_billing_status IN ('unpaid','paid','canceled')),
   user_general_billing_paid_at            TIMESTAMPTZ,
   user_general_billing_note               TEXT,
 

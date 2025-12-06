@@ -35,7 +35,7 @@
     "payment_invoice_due_date": null,
     "payment_invoice_title": null,
     "payment_subject_user_id": null,
-    "payment_subject_student_id": null,
+    "payment_school_student_id": null,
     "payment_fee_rule_id": "08aa7c8f-038e-4e00-9ce3-9e8e23c61a78",
     "payment_fee_rule_option_code_snapshot": "T2",
     "payment_fee_rule_option_index_snapshot": 1,
