@@ -1,3 +1,4 @@
+// file: internals/features/school/classes/class_attendance_sessions/dto/class_attendance_session_dto.go
 package dto
 
 import (
@@ -35,6 +36,7 @@ func (p *PatchFieldSessions[T]) UnmarshalJSON(b []byte) error {
 
 func (p PatchFieldSessions[T]) Get() (*T, bool) { return p.Value, p.Present }
 
+// (helper2 ini sekarang nggak kepakai, tapi nggak masalah kalau mau disimpan)
 func getStrFromAnyMap(m map[string]any, key string) *string {
 	if m == nil {
 		return nil
@@ -64,7 +66,6 @@ func getUUIDFromAnyMap(m map[string]any, key string) *uuid.UUID {
 	return nil
 }
 
-// Helper kecil
 func isZeroUUID(id uuid.UUID) bool { return id == uuid.Nil }
 
 /* ========================================================
@@ -247,9 +248,8 @@ type CreateClassAttendanceSessionRequest struct {
 	ClassAttendanceSessionTypeId       *uuid.UUID     `json:"class_attendance_session_type_id" validate:"omitempty,uuid"`
 	ClassAttendanceSessionTypeSnapshot map[string]any `json:"class_attendance_session_type_snapshot,omitempty" validate:"omitempty"`
 
-	// Optional — RULE jejak (harus ada jika mengisi RuleId, sesuai DB CHECK)
-	ClassAttendanceSessionRuleId       *uuid.UUID     `json:"class_attendance_session_rule_id" validate:"omitempty,uuid"`
-	ClassAttendanceSessionRuleSnapshot map[string]any `json:"class_attendance_session_rule_snapshot,omitempty" validate:"omitempty"`
+	// Optional — RULE jejak (hanya id, tanpa snapshot di schema baru)
+	ClassAttendanceSessionRuleId *uuid.UUID `json:"class_attendance_session_rule_id" validate:"omitempty,uuid"`
 
 	// Optional — create URLs together
 	URLs []ClassAttendanceSessionURLUpsert `json:"urls" validate:"omitempty,dive"`
@@ -265,12 +265,6 @@ func (r *CreateClassAttendanceSessionRequest) Normalize() {
 	}
 	if r.ClassAttendanceSessionTypeId != nil && isZeroUUID(*r.ClassAttendanceSessionTypeId) {
 		r.ClassAttendanceSessionTypeId = nil
-	}
-	// Jaga konsistensi CHECK: bila ada RuleId tapi snapshot kosong → isi minimal
-	if r.ClassAttendanceSessionRuleId != nil && r.ClassAttendanceSessionRuleSnapshot == nil {
-		r.ClassAttendanceSessionRuleSnapshot = map[string]any{
-			"rule_id": r.ClassAttendanceSessionRuleId.String(),
-		}
 	}
 }
 
@@ -319,9 +313,8 @@ type UpdateClassAttendanceSessionRequest struct {
 	ClassAttendanceSessionTypeId       PatchFieldSessions[uuid.UUID]      `json:"class_attendance_session_type_id"`
 	ClassAttendanceSessionTypeSnapshot PatchFieldSessions[map[string]any] `json:"class_attendance_session_type_snapshot"`
 
-	// RULE (id + snapshot)
-	ClassAttendanceSessionRuleId       PatchFieldSessions[uuid.UUID]      `json:"class_attendance_session_rule_id"`
-	ClassAttendanceSessionRuleSnapshot PatchFieldSessions[map[string]any] `json:"class_attendance_session_rule_snapshot"`
+	// RULE (id saja)
+	ClassAttendanceSessionRuleId PatchFieldSessions[uuid.UUID] `json:"class_attendance_session_rule_id"`
 
 	// URL ops
 	URLsAdd    []ClassAttendanceSessionURLUpsert `json:"urls_add" validate:"omitempty,dive"`
@@ -358,7 +351,7 @@ type ListClassAttendanceSessionQuery struct {
 }
 
 /* ========================================================
-   3) SESSION RESPONSE DTOs (TERMASUK TYPE & RULE)
+   3) SESSION RESPONSE DTOs (TERMASUK TYPE)
    ======================================================== */
 
 type ClassAttendanceSessionResponse struct {
@@ -367,9 +360,8 @@ type ClassAttendanceSessionResponse struct {
 	ClassAttendanceSessionScheduleId *uuid.UUID `json:"class_attendance_session_schedule_id,omitempty"`
 
 	// Identity
-	ClassAttendanceSessionSlug         *string `json:"class_attendance_session_slug,omitempty"`
-	ClassAttendanceSessionTitle        *string `json:"class_attendance_session_title,omitempty"`
-	ClassAttendanceSessionDisplayTitle *string `json:"class_attendance_session_display_title,omitempty"`
+	ClassAttendanceSessionSlug  *string `json:"class_attendance_session_slug,omitempty"`
+	ClassAttendanceSessionTitle *string `json:"class_attendance_session_title,omitempty"`
 
 	// Info & rekap
 	ClassAttendanceSessionGeneralInfo string  `json:"class_attendance_session_general_info"`
@@ -414,28 +406,6 @@ type ClassAttendanceSessionResponse struct {
 	ClassAttendanceSessionTypeId       *uuid.UUID     `json:"class_attendance_session_type_id,omitempty"`
 	ClassAttendanceSessionTypeSnapshot map[string]any `json:"class_attendance_session_type_snapshot,omitempty"`
 
-	// Snapshot (raw) — CSST & RULE
-	ClassAttendanceSessionCSSTSnapshot map[string]any `json:"class_attendance_session_csst_snapshot,omitempty"`
-	ClassAttendanceSessionRuleSnapshot map[string]any `json:"class_attendance_session_rule_snapshot,omitempty"`
-
-	// Generated from CSST snapshot → CACHE (read-only)
-	ClassAttendanceSessionCSSTIdCache      *uuid.UUID `json:"class_attendance_session_csst_id_cache,omitempty"`
-	ClassAttendanceSessionSubjectIdCache   *uuid.UUID `json:"class_attendance_session_subject_id_cache,omitempty"`
-	ClassAttendanceSessionSectionIdCache   *uuid.UUID `json:"class_attendance_session_section_id_cache,omitempty"`
-	ClassAttendanceSessionTeacherIdCache   *uuid.UUID `json:"class_attendance_session_teacher_id_cache,omitempty"`
-	ClassAttendanceSessionRoomIdCache      *uuid.UUID `json:"class_attendance_session_room_id_cache,omitempty"`
-	ClassAttendanceSessionSubjectCodeCache *string    `json:"class_attendance_session_subject_code_cache,omitempty"`
-	ClassAttendanceSessionSubjectNameCache *string    `json:"class_attendance_session_subject_name_cache,omitempty"`
-	ClassAttendanceSessionSectionNameCache *string    `json:"class_attendance_session_section_name_cache,omitempty"`
-	ClassAttendanceSessionTeacherNameCache *string    `json:"class_attendance_session_teacher_name_cache,omitempty"`
-	ClassAttendanceSessionRoomNameCache    *string    `json:"class_attendance_session_room_name_cache,omitempty"`
-
-	// Generated from RULE snapshot → CACHE (read-only)
-	ClassAttendanceSessionRuleDayOfWeekCache  *int    `json:"class_attendance_session_rule_day_of_week_cache,omitempty"`
-	ClassAttendanceSessionRuleStartTimeCache  *string `json:"class_attendance_session_rule_start_time_cache,omitempty"`
-	ClassAttendanceSessionRuleEndTimeCache    *string `json:"class_attendance_session_rule_end_time_cache,omitempty"`
-	ClassAttendanceSessionRuleWeekParityCache *string `json:"class_attendance_session_rule_week_parity_cache,omitempty"`
-
 	// Audit & soft delete
 	ClassAttendanceSessionCreatedAt time.Time  `json:"class_attendance_session_created_at"`
 	ClassAttendanceSessionUpdatedAt time.Time  `json:"class_attendance_session_updated_at"`
@@ -460,7 +430,6 @@ type ListMeta struct {
    3b) COMPACT RESPONSE — untuk Agenda/List view guru
    ======================================================== */
 
-// Compact response: untuk list ringan (agenda, kalender, timeline siswa)
 type ClassAttendanceSessionCompactResponse struct {
 	ClassAttendanceSessionId       uuid.UUID `json:"class_attendance_session_id"`
 	ClassAttendanceSessionSchoolId uuid.UUID `json:"class_attendance_session_school_id"`
@@ -471,9 +440,8 @@ type ClassAttendanceSessionCompactResponse struct {
 	ClassAttendanceSessionEndsAt   *time.Time `json:"class_attendance_session_ends_at,omitempty"`
 
 	// Identity & info ringan
-	ClassAttendanceSessionTitle        *string `json:"class_attendance_session_title,omitempty"`
-	ClassAttendanceSessionDisplayTitle *string `json:"class_attendance_session_display_title,omitempty"`
-	ClassAttendanceSessionGeneralInfo  string  `json:"class_attendance_session_general_info"`
+	ClassAttendanceSessionTitle       *string `json:"class_attendance_session_title,omitempty"`
+	ClassAttendanceSessionGeneralInfo string  `json:"class_attendance_session_general_info"`
 
 	// 🔢 Meeting number
 	ClassAttendanceSessionMeetingNumber *int `json:"class_attendance_session_meeting_number,omitempty"`
@@ -482,38 +450,24 @@ type ClassAttendanceSessionCompactResponse struct {
 	ClassAttendanceSessionStatus           string `json:"class_attendance_session_status"`
 	ClassAttendanceSessionAttendanceStatus string `json:"class_attendance_session_attendance_status"`
 
-	// Cache matpel/kelas/ruang/guru (read-only, dari *_cache)
-	ClassAttendanceSessionSubjectNameCache *string    `json:"class_attendance_session_subject_name_cache,omitempty"`
-	ClassAttendanceSessionSubjectCodeCache *string    `json:"class_attendance_session_subject_code_cache,omitempty"`
-	ClassAttendanceSessionSectionNameCache *string    `json:"class_attendance_session_section_name_cache,omitempty"`
-	ClassAttendanceSessionRoomNameCache    *string    `json:"class_attendance_session_room_name_cache,omitempty"`
-	ClassAttendanceSessionTeacherNameCache *string    `json:"class_attendance_session_teacher_name_cache,omitempty"`
-	ClassAttendanceSessionTeacherIdCache   *uuid.UUID `json:"class_attendance_session_teacher_id_cache,omitempty"`
-	ClassAttendanceSessionSectionIdCache   *uuid.UUID `json:"class_attendance_session_section_id_cache,omitempty"`
-	ClassAttendanceSessionSubjectIdCache   *uuid.UUID `json:"class_attendance_session_subject_id_cache,omitempty"`
-	ClassAttendanceSessionCSSTIdCache      *uuid.UUID `json:"class_attendance_session_csst_id_cache,omitempty"`
-
-	// ⬅️ Tambahan: raw CSST snapshot JSON
-	ClassAttendanceSessionCSSTSnapshot map[string]any `json:"class_attendance_session_csst_snapshot,omitempty"`
+	// Direct FK (kalau FE mau join sendiri)
+	ClassAttendanceSessionTeacherId   *uuid.UUID `json:"class_attendance_session_teacher_id,omitempty"`
+	ClassAttendanceSessionClassRoomId *uuid.UUID `json:"class_attendance_session_class_room_id,omitempty"`
+	ClassAttendanceSessionCSSTId      *uuid.UUID `json:"class_attendance_session_csst_id,omitempty"`
 
 	// TYPE ringkas
 	ClassAttendanceSessionTypeId       *uuid.UUID     `json:"class_attendance_session_type_id,omitempty"`
 	ClassAttendanceSessionTypeSnapshot map[string]any `json:"class_attendance_session_type_snapshot,omitempty"`
 }
 
-// Optional helper: mapping dari model penuh → compact
+// Compact mapper
 func FromClassAttendanceSessionModelCompact(m model.ClassAttendanceSessionModel) ClassAttendanceSessionCompactResponse {
 	var typeSnap map[string]any
 	if m.ClassAttendanceSessionTypeSnapshot != nil {
 		typeSnap = map[string]any(m.ClassAttendanceSessionTypeSnapshot)
 	}
 
-	var csstSnap map[string]any
-	if m.ClassAttendanceSessionCSSTSnapshot != nil {
-		csstSnap = map[string]any(m.ClassAttendanceSessionCSSTSnapshot)
-	}
-
-	resp := ClassAttendanceSessionCompactResponse{
+	return ClassAttendanceSessionCompactResponse{
 		ClassAttendanceSessionId:       m.ClassAttendanceSessionID,
 		ClassAttendanceSessionSchoolId: m.ClassAttendanceSessionSchoolID,
 
@@ -521,36 +475,21 @@ func FromClassAttendanceSessionModelCompact(m model.ClassAttendanceSessionModel)
 		ClassAttendanceSessionStartsAt: m.ClassAttendanceSessionStartsAt,
 		ClassAttendanceSessionEndsAt:   m.ClassAttendanceSessionEndsAt,
 
-		ClassAttendanceSessionTitle:        m.ClassAttendanceSessionTitle,
-		ClassAttendanceSessionDisplayTitle: m.ClassAttendanceSessionDisplayTitle,
-		ClassAttendanceSessionGeneralInfo:  m.ClassAttendanceSessionGeneralInfo,
+		ClassAttendanceSessionTitle:       m.ClassAttendanceSessionTitle,
+		ClassAttendanceSessionGeneralInfo: m.ClassAttendanceSessionGeneralInfo,
 
-		// 🔢 meeting number
 		ClassAttendanceSessionMeetingNumber: m.ClassAttendanceSessionMeetingNumber,
 
 		ClassAttendanceSessionStatus:           string(m.ClassAttendanceSessionStatus),
 		ClassAttendanceSessionAttendanceStatus: string(m.ClassAttendanceSessionAttendanceStatus),
 
-		ClassAttendanceSessionSubjectNameCache: m.ClassAttendanceSessionSubjectNameCache,
-		ClassAttendanceSessionSubjectCodeCache: m.ClassAttendanceSessionSubjectCodeCache,
-		ClassAttendanceSessionSectionNameCache: m.ClassAttendanceSessionSectionNameCache,
-		ClassAttendanceSessionRoomNameCache:    m.ClassAttendanceSessionRoomNameCache,
-		ClassAttendanceSessionTeacherNameCache: m.ClassAttendanceSessionTeacherNameCache,
-		ClassAttendanceSessionTeacherIdCache:   m.ClassAttendanceSessionTeacherIDCache,
-		ClassAttendanceSessionSectionIdCache:   m.ClassAttendanceSessionSectionIDCache,
-		ClassAttendanceSessionSubjectIdCache:   m.ClassAttendanceSessionSubjectIDCache,
-		ClassAttendanceSessionCSSTIdCache:      m.ClassAttendanceSessionCSSTIDCache,
-
-		ClassAttendanceSessionCSSTSnapshot: csstSnap,
+		ClassAttendanceSessionTeacherId:   m.ClassAttendanceSessionTeacherID,
+		ClassAttendanceSessionClassRoomId: m.ClassAttendanceSessionClassRoomID,
+		ClassAttendanceSessionCSSTId:      m.ClassAttendanceSessionCSSTID,
 
 		ClassAttendanceSessionTypeId:       m.ClassAttendanceSessionTypeID,
 		ClassAttendanceSessionTypeSnapshot: typeSnap,
 	}
-
-	// override dari CSST SNAPSHOT JSON kalau mau (kode kamu sebelumnya di sini)
-	// ...
-
-	return resp
 }
 
 func FromClassAttendanceSessionModelsCompact(models []model.ClassAttendanceSessionModel) []ClassAttendanceSessionCompactResponse {
@@ -631,17 +570,9 @@ func (r CreateClassAttendanceSessionRequest) ToModel() model.ClassAttendanceSess
 		m.ClassAttendanceSessionTypeSnapshot = r.ClassAttendanceSessionTypeSnapshot
 	}
 
-	// RULE: kalau ada, set id + snapshot (minimal)
+	// RULE: kalau ada, set id saja
 	if r.ClassAttendanceSessionRuleId != nil && !isZeroUUID(*r.ClassAttendanceSessionRuleId) {
 		m.ClassAttendanceSessionRuleID = r.ClassAttendanceSessionRuleId
-	}
-	if r.ClassAttendanceSessionRuleSnapshot != nil {
-		m.ClassAttendanceSessionRuleSnapshot = r.ClassAttendanceSessionRuleSnapshot
-	} else if r.ClassAttendanceSessionRuleId != nil {
-		// safety: minimal snapshot supaya lolos CHECK (akan dioverride generator)
-		m.ClassAttendanceSessionRuleSnapshot = map[string]any{
-			"rule_id": r.ClassAttendanceSessionRuleId.String(),
-		}
 	}
 
 	return m
@@ -654,18 +585,10 @@ func FromClassAttendanceSessionModel(m model.ClassAttendanceSessionModel) ClassA
 		deletedAt = &m.ClassAttendanceSessionDeletedAt.Time
 	}
 
-	// snapshot → map[string]any (TYPE, CSST & RULE)
+	// snapshot → map[string]any (TYPE)
 	var typeSnap map[string]any
 	if m.ClassAttendanceSessionTypeSnapshot != nil {
 		typeSnap = map[string]any(m.ClassAttendanceSessionTypeSnapshot)
-	}
-	var csstSnap map[string]any
-	if m.ClassAttendanceSessionCSSTSnapshot != nil {
-		csstSnap = map[string]any(m.ClassAttendanceSessionCSSTSnapshot)
-	}
-	var ruleSnap map[string]any
-	if m.ClassAttendanceSessionRuleSnapshot != nil {
-		ruleSnap = map[string]any(m.ClassAttendanceSessionRuleSnapshot)
 	}
 
 	return ClassAttendanceSessionResponse{
@@ -673,9 +596,8 @@ func FromClassAttendanceSessionModel(m model.ClassAttendanceSessionModel) ClassA
 		ClassAttendanceSessionSchoolId:   m.ClassAttendanceSessionSchoolID,
 		ClassAttendanceSessionScheduleId: m.ClassAttendanceSessionScheduleID,
 
-		ClassAttendanceSessionSlug:         m.ClassAttendanceSessionSlug,
-		ClassAttendanceSessionTitle:        m.ClassAttendanceSessionTitle,
-		ClassAttendanceSessionDisplayTitle: m.ClassAttendanceSessionDisplayTitle,
+		ClassAttendanceSessionSlug:  m.ClassAttendanceSessionSlug,
+		ClassAttendanceSessionTitle: m.ClassAttendanceSessionTitle,
 
 		ClassAttendanceSessionGeneralInfo: m.ClassAttendanceSessionGeneralInfo,
 		ClassAttendanceSessionNote:        m.ClassAttendanceSessionNote,
@@ -715,32 +637,9 @@ func FromClassAttendanceSessionModel(m model.ClassAttendanceSessionModel) ClassA
 		ClassAttendanceSessionTypeId:       m.ClassAttendanceSessionTypeID,
 		ClassAttendanceSessionTypeSnapshot: typeSnap,
 
-		// snapshots raw
-		ClassAttendanceSessionCSSTSnapshot: csstSnap,
-		ClassAttendanceSessionRuleSnapshot: ruleSnap,
-
-		// generated (nama *_cache) — CSST
-		ClassAttendanceSessionCSSTIdCache:      m.ClassAttendanceSessionCSSTIDCache,
-		ClassAttendanceSessionSubjectIdCache:   m.ClassAttendanceSessionSubjectIDCache,
-		ClassAttendanceSessionSectionIdCache:   m.ClassAttendanceSessionSectionIDCache,
-		ClassAttendanceSessionTeacherIdCache:   m.ClassAttendanceSessionTeacherIDCache,
-		ClassAttendanceSessionRoomIdCache:      m.ClassAttendanceSessionRoomIDCache,
-		ClassAttendanceSessionSubjectCodeCache: m.ClassAttendanceSessionSubjectCodeCache,
-		ClassAttendanceSessionSubjectNameCache: m.ClassAttendanceSessionSubjectNameCache,
-		ClassAttendanceSessionSectionNameCache: m.ClassAttendanceSessionSectionNameCache,
-		ClassAttendanceSessionTeacherNameCache: m.ClassAttendanceSessionTeacherNameCache,
-		ClassAttendanceSessionRoomNameCache:    m.ClassAttendanceSessionRoomNameCache,
-
-		// generated — RULE (cache)
-		ClassAttendanceSessionRuleDayOfWeekCache:  m.ClassAttendanceSessionRuleDayOfWeekCache,
-		ClassAttendanceSessionRuleStartTimeCache:  m.ClassAttendanceSessionRuleStartTimeCache,
-		ClassAttendanceSessionRuleEndTimeCache:    m.ClassAttendanceSessionRuleEndTimeCache,
-		ClassAttendanceSessionRuleWeekParityCache: m.ClassAttendanceSessionRuleWeekParityCache,
-
 		ClassAttendanceSessionCreatedAt: m.ClassAttendanceSessionCreatedAt,
 		ClassAttendanceSessionUpdatedAt: m.ClassAttendanceSessionUpdatedAt,
 		ClassAttendanceSessionDeletedAt: deletedAt,
-		// URLs diisi di service/controller (preload/relasi)
 	}
 }
 
@@ -804,7 +703,6 @@ func (r UpdateClassAttendanceSessionRequest) Apply(m *model.ClassAttendanceSessi
 
 	// 🔢 Meeting number
 	if v, ok := r.ClassAttendanceSessionMeetingNumber.Get(); ok {
-		// v bisa nil (clear) atau pointer ke int (set nilai)
 		m.ClassAttendanceSessionMeetingNumber = v
 	}
 
@@ -892,27 +790,13 @@ func (r UpdateClassAttendanceSessionRequest) Apply(m *model.ClassAttendanceSessi
 		}
 	}
 
-	// RULE (id + snapshot)
+	// RULE (id saja)
 	if v, ok := r.ClassAttendanceSessionRuleId.Get(); ok {
 		if v == nil || isZeroUUID(*v) {
 			m.ClassAttendanceSessionRuleID = nil
 		} else {
 			vv := *v
 			m.ClassAttendanceSessionRuleID = &vv
-		}
-	}
-	if v, ok := r.ClassAttendanceSessionRuleSnapshot.Get(); ok {
-		// jika user clear → set nil; kalau set value → simpan apa adanya
-		if v == nil {
-			m.ClassAttendanceSessionRuleSnapshot = nil
-		} else {
-			m.ClassAttendanceSessionRuleSnapshot = *v
-		}
-		// safety: jika ada RuleID tapi snapshot nil → isi minimal agar lolos DB CHECK
-		if m.ClassAttendanceSessionRuleID != nil && m.ClassAttendanceSessionRuleSnapshot == nil {
-			m.ClassAttendanceSessionRuleSnapshot = map[string]any{
-				"rule_id": m.ClassAttendanceSessionRuleID.String(),
-			}
 		}
 	}
 }
@@ -922,6 +806,7 @@ func (r UpdateClassAttendanceSessionRequest) URLsAddToModels(schoolID, sessionID
 	if len(r.URLsAdd) == 0 {
 		return nil
 	}
+
 	out := make([]model.ClassAttendanceSessionURLModel, 0, len(r.URLsAdd))
 	for _, u := range r.URLsAdd {
 		u.Normalize()

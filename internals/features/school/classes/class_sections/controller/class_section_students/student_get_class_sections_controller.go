@@ -315,7 +315,7 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		ClassSectionCodeCache *string `json:"class_section_subject_teacher_class_section_code_cache,omitempty"`
 
 		// Cache subject
-		SubjectIDCache   *uuid.UUID `json:"class_section_subject_teacher_subject_id_cache,omitempty"`
+		SubjectIDCache   *uuid.UUID `json:"class_section_subject_teacher_subject_id,omitempty"`
 		SubjectNameCache *string    `json:"class_section_subject_teacher_subject_name_cache,omitempty"`
 		SubjectCodeCache *string    `json:"class_section_subject_teacher_subject_code_cache,omitempty"`
 		SubjectSlugCache *string    `json:"class_section_subject_teacher_subject_slug_cache,omitempty"`
@@ -468,7 +468,7 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 				ClassSectionNameCache: r.ClassSectionSubjectTeacherClassSectionNameCache,
 				ClassSectionCodeCache: r.ClassSectionSubjectTeacherClassSectionCodeCache,
 
-				SubjectIDCache:   r.ClassSectionSubjectTeacherSubjectIDCache,
+				SubjectIDCache:   r.ClassSectionSubjectTeacherSubjectID,
 				SubjectNameCache: r.ClassSectionSubjectTeacherSubjectNameCache,
 				SubjectCodeCache: r.ClassSectionSubjectTeacherSubjectCodeCache,
 				SubjectSlugCache: r.ClassSectionSubjectTeacherSubjectSlugCache,

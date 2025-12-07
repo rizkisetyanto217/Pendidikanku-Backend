@@ -245,7 +245,7 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
      ======================= */
   class_section_subject_teacher_total_books          INT NOT NULL DEFAULT 0,
   class_section_subject_teacher_class_subject_id     UUID NOT NULL,
-  class_section_subject_teacher_subject_id_cache     UUID,
+  class_section_subject_teacher_subject_id     UUID,
   class_section_subject_teacher_subject_name_cache   VARCHAR(160),
   class_section_subject_teacher_subject_code_cache   VARCHAR(80),
   class_section_subject_teacher_subject_slug_cache   VARCHAR(160),

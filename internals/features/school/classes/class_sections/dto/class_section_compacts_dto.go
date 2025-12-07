@@ -1,4 +1,4 @@
-// file: internals/features/school/classes/class_sections/dto/class_section_compact.go (atau nama sejenis)
+// file: internals/features/school/classes/class_sections/dto/class_section_compact.go
 package dto
 
 import (
@@ -50,6 +50,11 @@ type ClassSectionCompact struct {
 	ClassSectionTotalClassClassSectionSubjectTeachers       int `json:"class_section_total_class_class_section_subject_teachers"`
 	ClassSectionTotalClassClassSectionSubjectTeachersActive int `json:"class_section_total_class_class_section_subject_teachers_active"`
 
+	// 🔧 CSST SETTINGS (baru, mirror dari model)
+	ClassSectionSubjectTeachersEnrollmentMode             string `json:"class_section_subject_teachers_enrollment_mode,omitempty"`
+	ClassSectionSubjectTeachersSelfSelectRequiresApproval bool   `json:"class_section_subject_teachers_self_select_requires_approval"`
+	ClassSectionSubjectTeachersMaxSubjectsPerStudent      *int   `json:"class_section_subject_teachers_max_subjects_per_student,omitempty"`
+
 	// Link & image
 	ClassSectionGroupURL *string `json:"class_section_group_url,omitempty"`
 	ClassSectionImageURL *string `json:"class_section_image_url,omitempty"`
@@ -62,7 +67,7 @@ type ClassSectionCompact struct {
 	HomeroomTeacher  *TeacherPersonLite `json:"homeroom_teacher,omitempty"`
 	AssistantTeacher *TeacherPersonLite `json:"assistant_teacher,omitempty"`
 
-	// Room
+	// Room (pakai field generated dari DB)
 	ClassSectionClassRoomID            *uuid.UUID `json:"class_section_class_room_id,omitempty"`
 	ClassSectionClassRoomSlugCache     *string    `json:"class_section_class_room_slug_cache,omitempty"`
 	ClassSectionClassRoomNameCache     *string    `json:"class_section_class_room_name_cache,omitempty"`
@@ -86,6 +91,7 @@ type ClassSectionCompact struct {
 func FromModelsClassSectionCompact(rows []m.ClassSectionModel) []ClassSectionCompact {
 	out := make([]ClassSectionCompact, 0, len(rows))
 	for _, cs := range rows {
+		// model pakai string non-null; di DTO mau pointer biar bisa omitempty
 		slug := cs.ClassSectionSlug
 
 		var statsRaw json.RawMessage
@@ -108,6 +114,7 @@ func FromModelsClassSectionCompact(rows []m.ClassSectionModel) []ClassSectionCom
 
 			ClassSectionIsActive: cs.ClassSectionIsActive,
 
+			// Stats
 			ClassSectionTotalStudentsActive:       cs.ClassSectionTotalStudentsActive,
 			ClassSectionTotalStudentsMale:         cs.ClassSectionTotalStudentsMale,
 			ClassSectionTotalStudentsFemale:       cs.ClassSectionTotalStudentsFemale,
@@ -115,15 +122,24 @@ func FromModelsClassSectionCompact(rows []m.ClassSectionModel) []ClassSectionCom
 			ClassSectionTotalStudentsFemaleActive: cs.ClassSectionTotalStudentsFemaleActive,
 			ClassSectionStats:                     statsRaw,
 
+			// CSST totals
 			ClassSectionTotalClassClassSectionSubjectTeachers:       cs.ClassSectionTotalClassClassSectionSubjectTeachers,
 			ClassSectionTotalClassClassSectionSubjectTeachersActive: cs.ClassSectionTotalClassClassSectionSubjectTeachersActive,
 
+			// CSST settings
+			ClassSectionSubjectTeachersEnrollmentMode:             string(cs.ClassSectionSubjectTeachersEnrollmentMode),
+			ClassSectionSubjectTeachersSelfSelectRequiresApproval: cs.ClassSectionSubjectTeachersSelfSelectRequiresApproval,
+			ClassSectionSubjectTeachersMaxSubjectsPerStudent:      cs.ClassSectionSubjectTeachersMaxSubjectsPerStudent,
+
+			// Link & image
 			ClassSectionGroupURL: cs.ClassSectionGroupURL,
 			ClassSectionImageURL: cs.ClassSectionImageURL,
 
+			// Homeroom teacher raw cache
 			ClassSectionSchoolTeacherID:        cs.ClassSectionSchoolTeacherID,
 			ClassSectionSchoolTeacherSlugCache: cs.ClassSectionSchoolTeacherSlugCache,
 
+			// Room (dari cache + kolom generated)
 			ClassSectionClassRoomID:            cs.ClassSectionClassRoomID,
 			ClassSectionClassRoomSlugCache:     cs.ClassSectionClassRoomSlugCache,
 			ClassSectionClassRoomNameCache:     cs.ClassSectionClassRoomNameCache,
@@ -155,6 +171,8 @@ func FromModelsClassSectionCompact(rows []m.ClassSectionModel) []ClassSectionCom
 			item.AssistantTeacher = t
 		}
 
+		// IsStudent + SubjectTeachers sengaja dikosongin di sini,
+		// diisi manual di controller kalau konteksnya butuh.
 		out = append(out, item)
 	}
 	return out

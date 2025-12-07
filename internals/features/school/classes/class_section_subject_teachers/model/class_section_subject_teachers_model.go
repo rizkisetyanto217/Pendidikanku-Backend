@@ -79,7 +79,7 @@ type ClassSectionSubjectTeacherModel struct {
 	ClassSectionSubjectTeacherClassRoomLocationCache *string `gorm:"->;column:class_section_subject_teacher_class_room_location_cache" json:"class_section_subject_teacher_class_room_location_cache,omitempty"`
 
 	/* ===== PEOPLE caches (teacher & assistant) ===== */
-	ClassSectionSubjectTeacherSchoolTeacherID *uuid.UUID `gorm:"type:uuid;column:class_section_subject_teacher_school_teacher_id" json:"class_section_subject_teacher_school_teacher_id,omitempty"`
+	ClassSectionSubjectTeacherSchoolTeacherID        *uuid.UUID      `gorm:"type:uuid;column:class_section_subject_teacher_school_teacher_id" json:"class_section_subject_teacher_school_teacher_id,omitempty"`
 	ClassSectionSubjectTeacherSchoolTeacherSlugCache *string         `gorm:"type:varchar(160);column:class_section_subject_teacher_school_teacher_slug_cache" json:"class_section_subject_teacher_school_teacher_slug_cache,omitempty"`
 	ClassSectionSubjectTeacherSchoolTeacherCache     *datatypes.JSON `gorm:"type:jsonb;column:class_section_subject_teacher_school_teacher_cache" json:"class_section_subject_teacher_school_teacher_cache,omitempty"`
 
@@ -94,7 +94,7 @@ type ClassSectionSubjectTeacherModel struct {
 	/* ===== SUBJECT (via CLASS_SUBJECT) cache ===== */
 	ClassSectionSubjectTeacherTotalBooks       int        `gorm:"not null;default:0;column:class_section_subject_teacher_total_books" json:"class_section_subject_teacher_total_books"`
 	ClassSectionSubjectTeacherClassSubjectID   uuid.UUID  `gorm:"type:uuid;not null;column:class_section_subject_teacher_class_subject_id" json:"class_section_subject_teacher_class_subject_id"`
-	ClassSectionSubjectTeacherSubjectIDCache   *uuid.UUID `gorm:"type:uuid;column:class_section_subject_teacher_subject_id_cache" json:"class_section_subject_teacher_subject_id_cache,omitempty"`
+	ClassSectionSubjectTeacherSubjectID        *uuid.UUID `gorm:"type:uuid;column:class_section_subject_teacher_subject_id" json:"class_section_subject_teacher_subject_id,omitempty"`
 	ClassSectionSubjectTeacherSubjectNameCache *string    `gorm:"type:varchar(160);column:class_section_subject_teacher_subject_name_cache" json:"class_section_subject_teacher_subject_name_cache,omitempty"`
 	ClassSectionSubjectTeacherSubjectCodeCache *string    `gorm:"type:varchar(80);column:class_section_subject_teacher_subject_code_cache" json:"class_section_subject_teacher_subject_code_cache,omitempty"`
 	ClassSectionSubjectTeacherSubjectSlugCache *string    `gorm:"type:varchar(160);column:class_section_subject_teacher_subject_slug_cache" json:"class_section_subject_teacher_subject_slug_cache,omitempty"`

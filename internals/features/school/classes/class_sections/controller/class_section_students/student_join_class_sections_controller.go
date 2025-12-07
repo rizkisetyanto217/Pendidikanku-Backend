@@ -244,8 +244,11 @@ func getOrCreateSchoolStudentWithCaches(
    Handler
 ========================= */
 
+// NOTE: struct controller-nya diasumsikan sudah ada:
+// type StudentClassSectionController struct { DB *gorm.DB }
+
 // POST /api/a/:school_id/student-class-sections/join     (versi lama: school_id di path)
-// POST /api/student-class-sections/join                   (versi baru: auto school dari code)
+// POST /api/student-class-sections/join                  (versi baru: auto school dari code)
 // Body: { "student_code": "...." }
 func (ctl *StudentClassSectionController) JoinByCodeAutoSchool(c *fiber.Ctx) error {
 	// --- auth wajib login ---
@@ -467,14 +470,14 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoSchool(c *fiber.Ctx) err
 
 	// --- 6.5) INCREMENT class_quota_taken (+1) secara atomic di parent class ---
 	resClass := tx.Exec(`
-	UPDATE classes
-	SET class_quota_taken = class_quota_taken + 1,
-	    class_updated_at = NOW()
-	WHERE class_id = ?
-	  AND class_deleted_at IS NULL
-	  AND class_status = 'active'
-	  AND (class_quota_total IS NULL OR class_quota_taken < class_quota_total)
-`, sec.ClassSectionClassID)
+		UPDATE classes
+		SET class_quota_taken = class_quota_taken + 1,
+		    class_updated_at = NOW()
+		WHERE class_id = ?
+		  AND class_deleted_at IS NULL
+		  AND class_status = 'active'
+		  AND (class_quota_total IS NULL OR class_quota_taken < class_quota_total)
+	`, sec.ClassSectionClassID)
 	if resClass.Error != nil {
 		// kompensasi: hapus enrollment & rollback (increment section ikut dibatalkan oleh TX)
 		_ = tx.Where("student_class_section_id = ?", scs.StudentClassSectionID).
@@ -497,11 +500,15 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoSchool(c *fiber.Ctx) err
 
 	log.Printf("[SCS][JOIN] user=%s school=%s section=%s", userID, schoolID, sec.ClassSectionID)
 
+	// Pakai DTO join terbaru
+	scsResp := dto.FromModel(scs) // FromModel mengembalikan value
+	joinResp := dto.ClassSectionJoinResponse{
+		UserClassSection: &scsResp, // 🔧 jadikan pointer
+		ClassSectionID:   sec.ClassSectionID.String(),
+	}
+
 	resp := fiber.Map{
-		"item": fiber.Map{
-			"student_class_section": dto.FromModel(scs),
-			"class_section_id":      sec.ClassSectionID.String(),
-		},
+		"item":      joinResp,
 		"school_id": schoolID.String(),
 	}
 	if profileSnap != nil {
@@ -509,4 +516,5 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoSchool(c *fiber.Ctx) err
 	}
 
 	return helper.JsonOK(c, "Berhasil bergabung", resp)
+
 }

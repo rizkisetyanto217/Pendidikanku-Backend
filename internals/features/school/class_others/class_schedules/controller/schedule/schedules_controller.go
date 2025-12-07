@@ -12,19 +12,18 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
-
 	"github.com/lib/pq"
-	"gorm.io/datatypes"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
 	sessModel "madinahsalam_backend/internals/features/school/class_others/class_attendance_sessions/model"
 	d "madinahsalam_backend/internals/features/school/class_others/class_schedules/dto"
-	m "madinahsalam_backend/internals/features/school/class_others/class_schedules/model"
 	svc "madinahsalam_backend/internals/features/school/class_others/class_schedules/services"
+
+	// ✅ rule model baru (slim) di modul sessions/schedules
+	ruleModel "madinahsalam_backend/internals/features/school/class_others/class_schedules/model"
 )
 
 /* =========================
@@ -132,8 +131,7 @@ type csstCore struct {
 	Slug      *string
 	SectionID *uuid.UUID
 
-	// Di model baru kita sudah punya subject cache,
-	// jadi cukup ambil dari situ (tanpa join ke class_subject_books)
+	// pakai subject_id snapshot dari CSST
 	SubjectID *uuid.UUID
 
 	TeacherID *uuid.UUID
@@ -149,10 +147,7 @@ func getCSSTCore(tx *gorm.DB, schoolID, csstID uuid.UUID) (csstCore, error) {
 			csst.class_section_subject_teacher_school_id         AS school_id,
 			csst.class_section_subject_teacher_slug              AS slug,
 			csst.class_section_subject_teacher_class_section_id  AS section_id,
-
-			-- pakai subject_id dari SNAPSHOT (tanpa join ke class_subjects/books)
-			csst.class_section_subject_teacher_subject_id_cache  AS subject_id,
-
+			csst.class_section_subject_teacher_subject_id        AS subject_id,
 			csst.class_section_subject_teacher_school_teacher_id AS teacher_id,
 			csst.class_section_subject_teacher_class_room_id     AS room_id
 		`).
@@ -241,18 +236,20 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 			return er
 		}
 
-		// (b) rules (opsional) — enrich CSST slug+cache
+		// (b) rules (opsional) — slim, tanpa JSONB di controller
 		if len(req.Rules) > 0 {
 			ruleModels, er := req.RulesToModels(actSchoolID, header.ClassScheduleID)
 			if er != nil {
 				return er
 			}
+
+			// Tenant guard: pastikan setiap CSST milik school ini
 			for i := range ruleModels {
 				csstID := ruleModels[i].ClassScheduleRuleCSSTID
 				core, e := getCSSTCore(tx, actSchoolID, csstID)
 				if e != nil {
 					if errors.Is(e, gorm.ErrRecordNotFound) {
-						return helper.JsonError(c, http.StatusBadRequest, "CSST tidak ditemukan / beda tenant")
+						return helper.JsonError(c, fiber.StatusBadRequest, "CSST tidak ditemukan / beda tenant")
 					}
 					var fe *fiber.Error
 					if errors.As(e, &fe) {
@@ -260,80 +257,12 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 					}
 					return e
 				}
-				ruleModels[i].ClassScheduleRuleCSSTSlugCache = core.Slug
-				ruleModels[i].ClassScheduleRuleCSSTCache = datatypes.JSONMap{
-					"school_id":        core.SchoolID.String(),
-					"csst_id":          core.ID.String(),
-					"slug":             core.Slug,
-					"section_id":       core.SectionID,
-					"class_subject_id": core.SubjectID, // ⬅️ disesuaikan: key sinkron dg generated column
-					"teacher_id":       core.TeacherID,
-					"room_id":          core.RoomID,
-				}
+				// cuma dipakai buat validasi tenant
+				_ = core
 			}
+
 			if er := tx.Create(&ruleModels).Error; er != nil {
 				return er
-			}
-		}
-
-		// (c) sessions (opsional) — enrich cache CSST + fallback teacher/room
-		if len(req.Sessions) > 0 {
-			ms, er := req.SessionsToModels(
-				actSchoolID,
-				header.ClassScheduleID,
-				header.ClassScheduleStartDate,
-				header.ClassScheduleEndDate,
-			)
-			if er != nil {
-				return helper.JsonError(c, fiber.StatusBadRequest, er.Error())
-			}
-
-			for i := range ms {
-				if ms[i].ClassAttendanceSessionCSSTID == nil {
-					return helper.JsonError(c, fiber.StatusBadRequest, fmt.Sprintf("sessions[%d]: csst_id wajib", i))
-				}
-				core, e := getCSSTCore(tx, actSchoolID, *ms[i].ClassAttendanceSessionCSSTID)
-				if e != nil {
-					if errors.Is(e, gorm.ErrRecordNotFound) {
-						return helper.JsonError(c, fiber.StatusBadRequest, fmt.Sprintf("sessions[%d]: CSST tidak ditemukan / beda tenant", i))
-					}
-					var fe *fiber.Error
-					if errors.As(e, &fe) {
-						return helper.JsonError(c, fe.Code, fe.Message)
-					}
-					return e
-				}
-
-				// Cache CSST (minimal namun cukup)
-				ms[i].ClassAttendanceSessionCSSTSnapshot = datatypes.JSONMap{
-					"school_id":        core.SchoolID.String(),
-					"csst_id":          core.ID.String(),
-					"slug":             core.Slug,
-					"section_id":       core.SectionID,
-					"class_subject_id": core.SubjectID, // ⬅️ disesuaikan juga
-					"teacher_id":       core.TeacherID,
-					"room_id":          core.RoomID,
-				}
-
-				// Fallback override teacher/room jika payload kosong
-				if ms[i].ClassAttendanceSessionTeacherID == nil && core.TeacherID != nil {
-					v := *core.TeacherID
-					ms[i].ClassAttendanceSessionTeacherID = &v
-				}
-				if ms[i].ClassAttendanceSessionClassRoomID == nil && core.RoomID != nil {
-					v := *core.RoomID
-					ms[i].ClassAttendanceSessionClassRoomID = &v
-				}
-			}
-
-			if len(ms) > 0 {
-				if er := tx.
-					Clauses(clause.OnConflict{DoNothing: true}).
-					Clauses(clause.Returning{}).
-					Create(&ms).Error; er != nil {
-					return er
-				}
-				sessionsProvided = ms // sudah berisi ID & timestamps dari DB
 			}
 		}
 
@@ -367,18 +296,6 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 		if req.SessionTypeID != nil {
 			v := *req.SessionTypeID
 			defSessionTypeID = &v
-		}
-
-		// fallback dari sessions payload (kalau ada)
-		for _, s := range req.Sessions {
-			if s.CSSTID != nil && defCSST == nil {
-				v := *s.CSSTID
-				defCSST = &v
-			}
-			if s.ClassRoomID != nil && defRoom == nil {
-				v := *s.ClassRoomID
-				defRoom = &v
-			}
 		}
 
 		gen := svc.Generator{DB: ctl.DB}
@@ -441,7 +358,7 @@ func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	var existing m.ClassScheduleModel
+	var existing ruleModel.ClassScheduleModel
 	if err := ctl.DB.
 		Where("class_schedule_id = ? AND class_schedule_deleted_at IS NULL", id).
 		First(&existing).Error; err != nil {
@@ -496,7 +413,7 @@ func (ctl *ClassScheduleController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	var existing m.ClassScheduleModel
+	var existing ruleModel.ClassScheduleModel
 	if err := ctl.DB.
 		Where("class_schedule_id = ? AND class_schedule_deleted_at IS NULL", id).
 		First(&existing).Error; err != nil {
@@ -522,7 +439,7 @@ func (ctl *ClassScheduleController) Delete(c *fiber.Ctx) error {
 	// 🔒 GUARD 1: masih ada class_schedule_rules yang pakai schedule ini?
 	var ruleCount int64
 	if err := ctl.DB.
-		Model(&m.ClassScheduleRuleModel{}).
+		Model(&ruleModel.ClassScheduleRuleModel{}).
 		Where(`
 			class_schedule_rule_schedule_id = ?
 			AND class_schedule_rule_deleted_at IS NULL

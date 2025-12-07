@@ -491,7 +491,7 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		qry = qry.Where("assessment_is_published = ?", *isPublished)
 	}
 	if isGraded != nil {
-		// pakai snapshot scalar terbaru
+		// pakai snapshot scalar bool
 		qry = qry.Where("assessment_type_is_graded_snapshot = ?", *isGraded)
 	}
 	if qStr != "" {

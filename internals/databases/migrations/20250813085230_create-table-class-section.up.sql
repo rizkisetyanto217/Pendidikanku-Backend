@@ -93,24 +93,27 @@ CREATE TABLE IF NOT EXISTS class_sections (
   class_section_class_parent_level_cache SMALLINT,
 
   -- People (teacher/assistant/leader)
-  class_section_school_teacher_id              UUID,
-  class_section_school_teacher_slug_cache      VARCHAR(100),
-  class_section_school_teacher_cache           JSONB,
+  class_section_school_teacher_id                   UUID,
+  class_section_school_teacher_slug_cache           VARCHAR(100),
+  class_section_school_teacher_cache                JSONB,
 
-  class_section_assistant_school_teacher_id    UUID,
-  class_section_assistant_school_teacher_slug_cache  VARCHAR(100),
-  class_section_assistant_school_teacher_cache       JSONB,
+  class_section_assistant_school_teacher_id         UUID,
+  class_section_assistant_school_teacher_slug_cache VARCHAR(100),
+  class_section_assistant_school_teacher_cache      JSONB,
 
-  class_section_leader_school_student_id       UUID,
-  class_section_leader_school_student_slug_cache     VARCHAR(100),
-  class_section_leader_school_student_cache          JSONB,
+  class_section_leader_school_student_id            UUID,
+  class_section_leader_school_student_slug_cache    VARCHAR(100),
+  class_section_leader_school_student_cache         JSONB,
 
-  -- Room
-  class_section_class_room_id              UUID,
-  class_section_class_room_slug_cache      VARCHAR(100),
-  class_section_class_room_name_cache      VARCHAR(160),
-  class_section_class_room_location_cache  TEXT,
-  class_section_class_room_cache           JSONB,
+  /* =======================
+     ROOM cache (JSONB + generated)
+     ======================= */
+  class_section_class_room_id             UUID,
+  class_section_class_room_slug_cache     VARCHAR(160),
+  class_section_class_room_cache          JSONB,
+  class_section_class_room_name_cache     TEXT GENERATED ALWAYS AS ((class_section_class_room_cache->>'name')) STORED,
+  class_section_class_room_slug_cache_gen TEXT GENERATED ALWAYS AS ((class_section_class_room_cache->>'slug')) STORED,
+  class_section_class_room_location_cache TEXT GENERATED ALWAYS AS ((class_section_class_room_cache->>'location')) STORED,
 
   -- TERM (dipakai juga utk FK ke academic_terms)
   class_section_academic_term_id UUID,

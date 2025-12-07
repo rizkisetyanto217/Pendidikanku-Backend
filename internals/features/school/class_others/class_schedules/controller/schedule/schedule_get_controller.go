@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	d "madinahsalam_backend/internals/features/school/class_others/class_schedules/dto"
-	m "madinahsalam_backend/internals/features/school/class_others/class_schedules/model"
+	ruleDTO "madinahsalam_backend/internals/features/school/class_others/class_schedules/dto"
+	ruleModel "madinahsalam_backend/internals/features/school/class_others/class_schedules/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
@@ -129,8 +129,8 @@ func buildScheduleOrder(sort *string) string {
 ========================= */
 
 type classScheduleWithRules struct {
-	Schedule d.ClassScheduleResponse       `json:"schedule"`
-	Rules    []d.ClassScheduleRuleResponse `json:"rules,omitempty"`
+	Schedule ruleDTO.ClassScheduleResponse       `json:"schedule"`
+	Rules    []ruleDTO.ClassScheduleRuleResponse `json:"rules,omitempty"`
 }
 
 /* =========================
@@ -141,7 +141,7 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 
 	// parse query
-	var q d.ListClassScheduleQuery
+	var q ruleDTO.ListClassScheduleQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
@@ -159,7 +159,7 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 	limit, offset := clampLimitOffset(q.Limit, q.Offset)
 	orderExpr := buildScheduleOrder(q.Sort)
 
-	tx := ctl.DB.Model(&m.ClassScheduleModel{})
+	tx := ctl.DB.Model(&ruleModel.ClassScheduleModel{})
 
 	// alive filter
 	if q.WithDeleted == nil || !*q.WithDeleted {
@@ -172,10 +172,12 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 	// status filter
 	if q.Status != nil {
 		s := strings.ToLower(strings.TrimSpace(*q.Status))
-		if s != "scheduled" && s != "ongoing" && s != "completed" && s != "canceled" {
+		switch s {
+		case "scheduled", "ongoing", "completed", "canceled":
+			tx = tx.Where("class_schedule_status = ?", s)
+		default:
 			return helper.JsonError(c, http.StatusBadRequest, "status invalid")
 		}
-		tx = tx.Where("class_schedule_status = ?", s)
 	}
 
 	// active
@@ -213,7 +215,7 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 	}
 
 	// fetch schedules
-	var schedRows []m.ClassScheduleModel
+	var schedRows []ruleModel.ClassScheduleModel
 	if err := tx.Order(orderExpr).Limit(limit).Offset(offset).Find(&schedRows).Error; err != nil {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
@@ -223,9 +225,9 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 
 	// without rules → early return
 	if !withRules {
-		resp := make([]d.ClassScheduleResponse, 0, len(schedRows))
+		resp := make([]ruleDTO.ClassScheduleResponse, 0, len(schedRows))
 		for _, row := range schedRows {
-			resp = append(resp, d.FromModel(row))
+			resp = append(resp, ruleDTO.FromModel(row))
 		}
 		return helper.JsonList(c, "ok", resp, pg)
 	}
@@ -244,7 +246,7 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 	combined := make([]classScheduleWithRules, 0, len(schedRows))
 	for _, sched := range schedRows {
 		combined = append(combined, classScheduleWithRules{
-			Schedule: d.FromModel(sched),
+			Schedule: ruleDTO.FromModel(sched),
 			Rules:    rulesBySched[sched.ClassScheduleID],
 		})
 	}
@@ -258,17 +260,17 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 	=========================
 */
 
-func fetchRulesGrouped(db *gorm.DB, schoolID uuid.UUID, scheduleIDs []uuid.UUID, withDeleted *bool) (map[uuid.UUID][]d.ClassScheduleRuleResponse, error) {
-	out := make(map[uuid.UUID][]d.ClassScheduleRuleResponse)
+func fetchRulesGrouped(db *gorm.DB, schoolID uuid.UUID, scheduleIDs []uuid.UUID, withDeleted *bool) (map[uuid.UUID][]ruleDTO.ClassScheduleRuleResponse, error) {
+	out := make(map[uuid.UUID][]ruleDTO.ClassScheduleRuleResponse)
 
 	if len(scheduleIDs) == 0 {
 		return out, nil
 	}
 
-	var rules []m.ClassScheduleRuleModel
+	var rules []ruleModel.ClassScheduleRuleModel
 
 	q := db.
-		Model(&m.ClassScheduleRuleModel{}).
+		Model(&ruleModel.ClassScheduleRuleModel{}).
 		Where("class_schedule_rule_school_id = ?", schoolID).
 		Where("class_schedule_rule_schedule_id IN ?", scheduleIDs)
 
@@ -289,7 +291,7 @@ func fetchRulesGrouped(db *gorm.DB, schoolID uuid.UUID, scheduleIDs []uuid.UUID,
 
 	for _, r := range rules {
 		schedID := r.ClassScheduleRuleScheduleID
-		out[schedID] = append(out[schedID], d.FromRuleModel(r))
+		out[schedID] = append(out[schedID], ruleDTO.FromRuleModel(r))
 	}
 
 	return out, nil

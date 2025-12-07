@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -88,11 +87,6 @@ type AssessmentModel struct {
 
 	// Audit pembuat (opsional)
 	AssessmentCreatedByTeacherID *uuid.UUID `gorm:"type:uuid;column:assessment_created_by_teacher_id" json:"assessment_created_by_teacher_id,omitempty"`
-
-	// Snapshots relasi (CSST & sesi kehadiran)
-	AssessmentCSSTSnapshot            datatypes.JSONMap `gorm:"type:jsonb;not null;default:'{}';column:assessment_csst_snapshot" json:"assessment_csst_snapshot,omitempty"`
-	AssessmentAnnounceSessionSnapshot datatypes.JSONMap `gorm:"type:jsonb;not null;default:'{}';column:assessment_announce_session_snapshot" json:"assessment_announce_session_snapshot,omitempty"`
-	AssessmentCollectSessionSnapshot  datatypes.JSONMap `gorm:"type:jsonb;not null;default:'{}';column:assessment_collect_session_snapshot" json:"assessment_collect_session_snapshot,omitempty"`
 
 	// Mode pengumpulan (by date / by session)
 	AssessmentSubmissionMode    AssessmentSubmissionMode `gorm:"type:text;not null;default:'date';column:assessment_submission_mode" json:"assessment_submission_mode"`

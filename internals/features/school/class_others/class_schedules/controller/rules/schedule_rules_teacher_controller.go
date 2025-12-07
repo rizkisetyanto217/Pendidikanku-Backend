@@ -13,6 +13,7 @@ import (
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
+	// 🔄 DTO pakai path baru (sessions/schedules)
 	ruleDTO "madinahsalam_backend/internals/features/school/class_others/class_schedules/dto"
 	ruleModel "madinahsalam_backend/internals/features/school/class_others/class_schedules/model"
 )
@@ -77,7 +78,7 @@ func (ctl *ClassScheduleRuleListController) List(c *fiber.Ctx) error {
 		Where("class_schedule_rule_deleted_at IS NULL").
 		Where("class_schedule_rule_school_id = ?", schoolID)
 
-	// ===== Filters =====
+	// ===== Filters (sesuai DTO baru) =====
 	if q.ScheduleID != nil && *q.ScheduleID != uuid.Nil {
 		tx = tx.Where("class_schedule_rule_schedule_id = ?", *q.ScheduleID)
 	}
@@ -86,19 +87,10 @@ func (ctl *ClassScheduleRuleListController) List(c *fiber.Ctx) error {
 	}
 	if q.WeekParity != nil {
 		// enum di DB: all|odd|even
-		tx = tx.Where("class_schedule_rule_week_parity = ?", strings.ToLower(strings.TrimSpace(*q.WeekParity)))
-	}
-	if q.StudentTeacherID != nil && *q.StudentTeacherID != uuid.Nil {
-		tx = tx.Where("class_schedule_rule_csst_student_teacher_id = ?", *q.StudentTeacherID)
-	}
-	if q.ClassSectionID != nil && *q.ClassSectionID != uuid.Nil {
-		tx = tx.Where("class_schedule_rule_csst_class_section_id = ?", *q.ClassSectionID)
-	}
-	if q.ClassSubjectID != nil && *q.ClassSubjectID != uuid.Nil {
-		tx = tx.Where("class_schedule_rule_csst_class_subject_id = ?", *q.ClassSubjectID)
-	}
-	if q.ClassRoomID != nil && *q.ClassRoomID != uuid.Nil {
-		tx = tx.Where("class_schedule_rule_csst_class_room_id = ?", *q.ClassRoomID)
+		tx = tx.Where(
+			"class_schedule_rule_week_parity = ?",
+			strings.ToLower(strings.TrimSpace(*q.WeekParity)),
+		)
 	}
 
 	// ===== Total count =====
@@ -196,21 +188,18 @@ func (ctl *ClassScheduleRuleListController) ListPublic(c *fiber.Ctx) error {
 		Where("class_schedule_rule_deleted_at IS NULL").
 		Where("class_schedule_rule_school_id = ?", schoolID)
 
-	// ===== Filters sederhana =====
+	// ===== Filters sederhana (match DTO) =====
+	if q.ScheduleID != nil && *q.ScheduleID != uuid.Nil {
+		tx = tx.Where("class_schedule_rule_schedule_id = ?", *q.ScheduleID)
+	}
 	if q.DayOfWeek != nil {
 		tx = tx.Where("class_schedule_rule_day_of_week = ?", *q.DayOfWeek)
 	}
-	if q.ClassSectionID != nil && *q.ClassSectionID != uuid.Nil {
-		tx = tx.Where("class_schedule_rule_csst_class_section_id = ?", *q.ClassSectionID)
-	}
-	if q.ClassSubjectID != nil && *q.ClassSubjectID != uuid.Nil {
-		tx = tx.Where("class_schedule_rule_csst_class_subject_id = ?", *q.ClassSubjectID)
-	}
-	if q.ClassRoomID != nil && *q.ClassRoomID != uuid.Nil {
-		tx = tx.Where("class_schedule_rule_csst_class_room_id = ?", *q.ClassRoomID)
-	}
-	if q.StudentTeacherID != nil && *q.StudentTeacherID != uuid.Nil {
-		tx = tx.Where("class_schedule_rule_csst_student_teacher_id = ?", *q.StudentTeacherID)
+	if q.WeekParity != nil {
+		tx = tx.Where(
+			"class_schedule_rule_week_parity = ?",
+			strings.ToLower(strings.TrimSpace(*q.WeekParity)),
+		)
 	}
 
 	// ===== Total count =====

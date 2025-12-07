@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
-	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -88,7 +87,7 @@ const (
 )
 
 /* =========================================================
-   Main Model
+   Main Model (SLIM, tanpa CSST cache)
 ========================================================= */
 
 type ClassScheduleRuleModel struct {
@@ -116,29 +115,9 @@ type ClassScheduleRuleModel struct {
 	ClassScheduleRuleLastWeekOfMonth  bool           `gorm:"column:class_schedule_rule_last_week_of_month;not null;default:false" json:"class_schedule_rule_last_week_of_month"`
 
 	/* =========================================================
-	   CSST Reference (FK + slug + JSONB cache)
-	   - Satu sumber utama penugasan (guru + kelas + mapel + room default)
+	   CSST Reference (FK langsung; join ke CSST saat query)
 	========================================================= */
 	ClassScheduleRuleCSSTID uuid.UUID `gorm:"column:class_schedule_rule_csst_id;type:uuid;not null" json:"class_schedule_rule_csst_id"`
-
-	ClassScheduleRuleCSSTSlugCache *string           `gorm:"column:class_schedule_rule_csst_slug_cache;type:varchar(100)" json:"class_schedule_rule_csst_slug_cache,omitempty"`
-	ClassScheduleRuleCSSTCache     datatypes.JSONMap `gorm:"column:class_schedule_rule_csst_cache;type:jsonb;not null" json:"class_schedule_rule_csst_cache"`
-
-	/* =========================================================
-	   ROOM OVERRIDE (FK + slug + JSONB cache)
-	   - Jika NULL → gunakan room dari CSST (di cache)
-	========================================================= */
-	ClassScheduleRuleRoomID        *uuid.UUID        `gorm:"column:class_schedule_rule_room_id;type:uuid" json:"class_schedule_rule_room_id,omitempty"`
-	ClassScheduleRuleRoomSlugCache *string           `gorm:"column:class_schedule_rule_room_slug_cache;type:varchar(100)" json:"class_schedule_rule_room_slug_cache,omitempty"`
-	ClassScheduleRuleRoomCache     datatypes.JSONMap `gorm:"column:class_schedule_rule_room_cache;type:jsonb" json:"class_schedule_rule_room_cache,omitempty"`
-
-	/* =========================================================
-	   Generated Columns (read-only, dari CSST cache)
-	   - Dipakai untuk query & anti-overlap
-	========================================================= */
-	ClassScheduleRuleCSSTStudentTeacherID *uuid.UUID `gorm:"column:class_schedule_rule_csst_student_teacher_id;type:uuid;->" json:"class_schedule_rule_csst_student_teacher_id,omitempty"`
-	ClassScheduleRuleCSSTClassSectionID   *uuid.UUID `gorm:"column:class_schedule_rule_csst_class_section_id;type:uuid;->" json:"class_schedule_rule_csst_class_section_id,omitempty"`
-	ClassScheduleRuleCSSTClassRoomID      *uuid.UUID `gorm:"column:class_schedule_rule_csst_class_room_id;type:uuid;->" json:"class_schedule_rule_csst_class_room_id,omitempty"`
 
 	/* -----------------------------
 	   Generated Time Range (menit)
@@ -155,17 +134,3 @@ type ClassScheduleRuleModel struct {
 }
 
 func (ClassScheduleRuleModel) TableName() string { return "class_schedule_rules" }
-
-/* =========================================================
-   Hooks
-========================================================= */
-
-func (m *ClassScheduleRuleModel) BeforeSave(tx *gorm.DB) error {
-	if m.ClassScheduleRuleCSSTCache == nil {
-		m.ClassScheduleRuleCSSTCache = datatypes.JSONMap{}
-	}
-	if m.ClassScheduleRuleRoomCache == nil {
-		m.ClassScheduleRuleRoomCache = datatypes.JSONMap{}
-	}
-	return nil
-}

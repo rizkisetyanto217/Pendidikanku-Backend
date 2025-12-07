@@ -84,7 +84,7 @@ CREATE INDEX IF NOT EXISTS brin_castype_created_at
 
 
 -- =========================================
--- TABLE: class_attendance_sessions (fresh create)
+-- TABLE: class_attendance_sessions (simplified)
 -- =========================================
 CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -129,7 +129,7 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   -- tipe sesi (master per tenant)
   class_attendance_session_type_id UUID,
 
-  -- snapshot tipe sesi (jejak saat sesi dibuat)
+  -- snapshot tipe sesi (jejak saat sesi dibuat) – boleh dipertahankan kalau mau label tetap
   class_attendance_session_type_snapshot JSONB,
 
   -- info & rekap
@@ -144,50 +144,6 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_session_leave_count   INT,
 
   class_attendance_session_meeting_number SMALLINT,
-
-  -- ===== Snapshot CSST (sumber data turunan) =====
-  class_attendance_session_csst_snapshot JSONB,
-
-  -- ===== Kolom turunan (GENERATED) dari snapshot CSST → CACHE =====
-  class_attendance_session_csst_id_cache    UUID   GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'csst_id')::uuid) STORED,
-  class_attendance_session_subject_id_cache UUID   GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'subject_id')::uuid) STORED,
-  class_attendance_session_section_id_cache UUID   GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'section_id')::uuid) STORED,
-  class_attendance_session_teacher_id_cache UUID   GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'teacher_id')::uuid) STORED,
-  class_attendance_session_room_id_cache    UUID   GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'room_id')::uuid) STORED,
-
-  class_attendance_session_subject_code_cache  TEXT GENERATED ALWAYS AS (NULLIF(class_attendance_session_csst_snapshot->>'subject_code','')) STORED,
-  class_attendance_session_subject_name_cache  TEXT GENERATED ALWAYS AS (NULLIF(class_attendance_session_csst_snapshot->>'subject_name','')) STORED,
-  class_attendance_session_section_name_cache  TEXT GENERATED ALWAYS AS (NULLIF(class_attendance_session_csst_snapshot->>'section_name','')) STORED,
-  class_attendance_session_teacher_name_cache  TEXT GENERATED ALWAYS AS (NULLIF(class_attendance_session_csst_snapshot->>'teacher_name','')) STORED,
-  class_attendance_session_room_name_cache     TEXT GENERATED ALWAYS AS (NULLIF(class_attendance_session_csst_snapshot->>'room_name','')) STORED,
-
-  class_attendance_session_display_title TEXT
-    GENERATED ALWAYS AS (
-      NULLIF(
-        COALESCE(
-          (class_attendance_session_csst_snapshot->>'subject_name'),
-          (class_attendance_session_csst_snapshot->>'subject_code'),
-          ''
-        )
-        || CASE WHEN (class_attendance_session_csst_snapshot->>'section_name') IS NOT NULL
-           THEN ' — ' || (class_attendance_session_csst_snapshot->>'section_name') ELSE '' END
-        || CASE WHEN (class_attendance_session_csst_snapshot->>'teacher_name') IS NOT NULL
-           THEN ' (' || (class_attendance_session_csst_snapshot->>'teacher_name') || ')' ELSE '' END
-      , '')
-    ) STORED,
-
-  -- ===== Snapshot RULE (jejak pola saat generate) =====
-  class_attendance_session_rule_snapshot JSONB,
-
-  -- Turunan (GENERATED) dari rule snapshot (untuk filter cepat) → CACHE
-  class_attendance_session_rule_day_of_week_cache INT
-    GENERATED ALWAYS AS ((class_attendance_session_rule_snapshot->>'day_of_week')::INT) STORED,
-  class_attendance_session_rule_start_time_cache TEXT
-    GENERATED ALWAYS AS (NULLIF(class_attendance_session_rule_snapshot->>'start_time','')) STORED,
-  class_attendance_session_rule_end_time_cache TEXT
-    GENERATED ALWAYS AS (NULLIF(class_attendance_session_rule_snapshot->>'end_time','')) STORED,
-  class_attendance_session_rule_week_parity_cache TEXT
-    GENERATED ALWAYS AS (NULLIF(class_attendance_session_rule_snapshot->>'week_parity','')) STORED,
 
   -- audit
   class_attendance_session_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -225,28 +181,12 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
     CHECK (
       class_attendance_session_override_event_id IS NULL
       OR class_attendance_session_is_override = TRUE
-    ),
-  -- jika ada rule_id, sebaiknya snapshot rule juga ada (opsional tapi baik)
-  CONSTRAINT chk_cas_rule_snapshot_when_rule
-    CHECK (
-      class_attendance_session_rule_id IS NULL
-      OR class_attendance_session_rule_snapshot IS NOT NULL
     )
 );
 
 -- =========================================
--- INDEXES (idempotent)
+-- INDEXES (simplified, tanpa *_cache / snapshot rule)
 -- =========================================
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_school_csst_date_start_alive
-ON class_attendance_sessions (
-  class_attendance_session_school_id,
-  class_attendance_session_csst_id,
-  class_attendance_session_date,
-  class_attendance_session_starts_at
-)
-WHERE class_attendance_session_deleted_at IS NULL;
-
 
 -- Pair unik id+tenant
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_id_tenant
@@ -266,6 +206,16 @@ CREATE INDEX IF NOT EXISTS gin_cas_slug_trgm_alive
   ON class_attendance_sessions USING GIN ((lower(class_attendance_session_slug)) gin_trgm_ops)
   WHERE class_attendance_session_deleted_at IS NULL
     AND class_attendance_session_slug IS NOT NULL;
+
+-- Unik per (tenant, CSST, date, start) – pakai FK langsung
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_school_csst_date_start_alive
+ON class_attendance_sessions (
+  class_attendance_session_school_id,
+  class_attendance_session_csst_id,
+  class_attendance_session_date,
+  class_attendance_session_starts_at
+)
+WHERE class_attendance_session_deleted_at IS NULL;
 
 -- Unik per (tenant, schedule, date) yg alive
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_school_schedule_date_alive
@@ -338,49 +288,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_sched_start
     class_attendance_session_starts_at
   );
 
--- Idempotent materialize per (tenant, csst, date, start) via CACHE
-CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_tenant_csst_date_start_alive
-  ON class_attendance_sessions (
-    class_attendance_session_school_id,
-    class_attendance_session_csst_id_cache,
-    class_attendance_session_date,
-    class_attendance_session_starts_at
-  )
-  WHERE class_attendance_session_deleted_at IS NULL;
-
--- BRIN untuk scan besar by created_at
-CREATE INDEX IF NOT EXISTS brin_cas_created_at
-  ON class_attendance_sessions USING BRIN (class_attendance_session_created_at);
-
--- Pencarian cepat judul untuk kalender
-CREATE INDEX IF NOT EXISTS idx_cas_school_date_title_alive
-  ON class_attendance_sessions (
-    class_attendance_session_school_id,
-    class_attendance_session_date DESC,
-    class_attendance_session_display_title
-  )
-  WHERE class_attendance_session_deleted_at IS NULL;
-
--- Trigram pada display_title (case-insensitive)
-CREATE INDEX IF NOT EXISTS gin_cas_display_title_trgm_alive
-  ON class_attendance_sessions
-  USING GIN ((lower(class_attendance_session_display_title)) gin_trgm_ops)
-  WHERE class_attendance_session_deleted_at IS NOT NULL
-    IS NOT NULL;
-
--- GIN untuk rule snapshot (filter by day_of_week, parity, dll)
-CREATE INDEX IF NOT EXISTS gin_cas_rule_snapshot
-  ON class_attendance_sessions
-  USING GIN (class_attendance_session_rule_snapshot);
-
--- BTree untuk turunan rule (query umum: hari & jam) via CACHE
-CREATE INDEX IF NOT EXISTS idx_cas_rule_day_start_alive
-  ON class_attendance_sessions (
-    class_attendance_session_rule_day_of_week_cache,
-    class_attendance_session_rule_start_time_cache
-  )
-  WHERE class_attendance_session_deleted_at IS NULL;
-
 -- Index by type (per tenant)
 CREATE INDEX IF NOT EXISTS idx_cas_type_alive
   ON class_attendance_sessions (
@@ -390,55 +297,9 @@ CREATE INDEX IF NOT EXISTS idx_cas_type_alive
   )
   WHERE class_attendance_session_deleted_at IS NULL;
 
--- GIN utk snapshot type (query by JSONB)
-CREATE INDEX IF NOT EXISTS gin_cas_type_snapshot
-  ON class_attendance_sessions
-  USING GIN (class_attendance_session_type_snapshot);
-
-
-
--- =====================================================
--- BACKFILL: isi flat keys di JSON snapshot
--- supaya kolom GENERATED *_cache kebaca
--- =====================================================
-UPDATE class_attendance_sessions
-SET class_attendance_session_csst_snapshot =
-  COALESCE(class_attendance_session_csst_snapshot, '{}'::jsonb)
-  ||
-  jsonb_strip_nulls(
-    jsonb_build_object(
-      -- CSST ID (optional, kalau mau ada juga di snapshot)
-      'csst_id',
-        NULLIF(btrim(class_attendance_session_csst_snapshot->>'csst_id'), ''),
-
-      -- SUBJECT (flat)
-      'subject_id',
-        NULLIF(btrim(class_attendance_session_csst_snapshot->'subject'->>'id'), ''),
-      'subject_code',
-        NULLIF(btrim(class_attendance_session_csst_snapshot->'subject'->>'code'), ''),
-      'subject_name',
-        NULLIF(btrim(class_attendance_session_csst_snapshot->'subject'->>'name'), ''),
-
-      -- CLASS SECTION (flat)
-      'section_id',
-        NULLIF(btrim(class_attendance_session_csst_snapshot->'class_section'->>'id'), ''),
-      'section_name',
-        NULLIF(btrim(class_attendance_session_csst_snapshot->'class_section'->>'name'), ''),
-
-      -- TEACHER (flat)
-      'teacher_id',
-        NULLIF(btrim(class_attendance_session_csst_snapshot->'school_teacher'->>'id'), ''),
-      'teacher_name',
-        NULLIF(btrim(class_attendance_session_csst_snapshot->'school_teacher'->>'name'), ''),
-
-      -- ROOM (flat, opsional)
-      'room_id',
-        NULLIF(btrim(class_attendance_session_csst_snapshot->'class_room'->>'id'), ''),
-      'room_name',
-        NULLIF(btrim(class_attendance_session_csst_snapshot->'class_room'->>'name'), '')
-    )
-  )
-WHERE class_attendance_session_csst_snapshot IS NOT NULL;
+-- BRIN untuk scan besar by created_at
+CREATE INDEX IF NOT EXISTS brin_cas_created_at
+  ON class_attendance_sessions USING BRIN (class_attendance_session_created_at);
 
 
 -- =========================================

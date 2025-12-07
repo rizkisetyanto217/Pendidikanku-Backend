@@ -2,7 +2,6 @@
 package controller
 
 import (
-	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -10,7 +9,6 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
-	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
 	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
@@ -143,26 +141,6 @@ func pickTime(s *sessRow) time.Time {
 	return time.Now().UTC()
 }
 
-func makeSessionSnap(s *sessRow) datatypes.JSONMap {
-	if s == nil {
-		return datatypes.JSONMap{}
-	}
-	m := map[string]any{
-		"captured_at": time.Now().UTC(),
-		"session_id":  s.ID,
-	}
-	if s.StartsAt != nil {
-		m["starts_at"] = s.StartsAt.UTC()
-	}
-	if s.Date != nil {
-		m["date"] = s.Date.UTC()
-	}
-	if s.Title != nil && strings.TrimSpace(*s.Title) != "" {
-		m["title"] = strings.TrimSpace(*s.Title)
-	}
-	return datatypes.JSONMap(m)
-}
-
 // validasi guru milik school
 func (ctl *AssessmentController) assertTeacherBelongsToSchool(c *fiber.Ctx, schoolID uuid.UUID, teacherID *uuid.UUID) error {
 	if teacherID == nil || *teacherID == uuid.Nil {
@@ -286,8 +264,7 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	// =============== CSST SNAPSHOT (opsional, +auto teacher & auto-title) ===============
-	var csstSnap datatypes.JSONMap
+	// =============== CSST (opsional, +auto teacher & auto-title) ===============
 	var csstName *string
 
 	if req.Assessment.AssessmentClassSectionSubjectTeacherID != nil &&
@@ -313,13 +290,6 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 			cs.TeacherID != nil && *cs.TeacherID != uuid.Nil {
 			tid := *cs.TeacherID
 			req.Assessment.AssessmentCreatedByTeacherID = &tid
-		}
-
-		// Simpan snapshot FULL (sama persis dengan yg dipakai attendance session)
-		if jb := service.ToJSON(cs); len(jb) > 0 {
-			var m map[string]any
-			_ = json.Unmarshal(jb, &m)
-			csstSnap = datatypes.JSONMap(m)
 		}
 	}
 
@@ -428,17 +398,6 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		}())
 		row.AssessmentDescription = autofillDesc(row.AssessmentDescription, ann, col)
 
-		// Snapshots
-		if csstSnap != nil {
-			row.AssessmentCSSTSnapshot = csstSnap
-		}
-		if ann != nil {
-			row.AssessmentAnnounceSessionSnapshot = makeSessionSnap(ann)
-		}
-		if col != nil {
-			row.AssessmentCollectSessionSnapshot = makeSessionSnap(col)
-		}
-
 	} else {
 		// ===== MODE: date =====
 		if req.Assessment.AssessmentStartAt != nil && req.Assessment.AssessmentDueAt != nil &&
@@ -452,11 +411,6 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 
 		// Auto-title (pakai csstName bila title kosong)
 		row.AssessmentTitle = autofillTitle(row.AssessmentTitle, csstName, nil)
-
-		// Snapshot CSST bila ada
-		if csstSnap != nil {
-			row.AssessmentCSSTSnapshot = csstSnap
-		}
 	}
 
 	// ==== Sync assessment type snapshot (scalar) ====
@@ -658,12 +612,11 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 
 	tableName := (&model.AssessmentModel{}).TableName()
 
-	// ==== (Opsional) update CSST snapshot bila CSST diubah ====
+	// ==== (Opsional) update CSST bila CSST diubah ====
 	if req.AssessmentClassSectionSubjectTeacherID != nil {
 		if *req.AssessmentClassSectionSubjectTeacherID == uuid.Nil {
 			// clear relasi CSST
 			existing.AssessmentClassSectionSubjectTeacherID = nil
-			existing.AssessmentCSSTSnapshot = datatypes.JSONMap{}
 		} else {
 			cs, er := service.ValidateAndCacheCSST(
 				ctl.DB.WithContext(c.Context()),
@@ -678,13 +631,6 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 			}
 
 			existing.AssessmentClassSectionSubjectTeacherID = req.AssessmentClassSectionSubjectTeacherID
-
-			// Simpan service FULL (sama seperti Create)
-			if jb := service.ToJSON(cs); len(jb) > 0 {
-				var m map[string]any
-				_ = json.Unmarshal(jb, &m)
-				existing.AssessmentCSSTSnapshot = datatypes.JSONMap(m)
-			}
 
 			// Auto-isi created_by_teacher_id kalau:
 			// - user TIDAK mengirim AssessmentCreatedByTeacherID di PATCH
@@ -774,18 +720,6 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 			} else if col.Date != nil {
 				existing.AssessmentDueAt = col.Date
 			}
-		}
-
-		// Snapshots sesi
-		if ann != nil {
-			existing.AssessmentAnnounceSessionSnapshot = makeSessionSnap(ann)
-		} else {
-			existing.AssessmentAnnounceSessionSnapshot = datatypes.JSONMap{}
-		}
-		if col != nil {
-			existing.AssessmentCollectSessionSnapshot = makeSessionSnap(col)
-		} else {
-			existing.AssessmentCollectSessionSnapshot = datatypes.JSONMap{}
 		}
 
 		// ==== Update snapshot tipe assessment bila perlu ====
@@ -907,15 +841,9 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 	req.Apply(&existing)
 	existing.AssessmentSubmissionMode = model.SubmissionModeDate
 
-	// Jika pindah ke date → bersihkan session IDs & snapshots bila user clear
+	// Jika pindah ke date → bersihkan session IDs bila user clear
 	existing.AssessmentAnnounceSessionID = finalAnnID // akan nil jika user kirim UUID nil
 	existing.AssessmentCollectSessionID = finalColID
-	if finalAnnID == nil {
-		existing.AssessmentAnnounceSessionSnapshot = datatypes.JSONMap{}
-	}
-	if finalColID == nil {
-		existing.AssessmentCollectSessionSnapshot = datatypes.JSONMap{}
-	}
 
 	// ==== Update snapshot tipe assessment bila perlu ====
 	if err := ctl.applyAssessmentTypePatch(c, mid, &existing, &req); err != nil {

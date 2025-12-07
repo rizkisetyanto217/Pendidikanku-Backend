@@ -28,7 +28,7 @@ import (
 	classModel "madinahsalam_backend/internals/features/school/classes/classes/model"
 
 	// Cache (section room snapshot)
-	sectionroomsnap "madinahsalam_backend/internals/features/school/classes/class_sections/service"
+	roomCache "madinahsalam_backend/internals/features/school/academics/rooms/service"
 
 	// ✅ Cache guru versi baru (school_teachers)
 	teachersnap "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/service"
@@ -245,7 +245,6 @@ func applyClassParentAndTermCacheToSection(mcs *secModel.ClassSectionModel, s *C
 	mcs.ClassSectionAcademicTermSlugCache = s.TermSlug
 	mcs.ClassSectionAcademicTermAcademicYearCache = s.TermYear
 	mcs.ClassSectionAcademicTermAngkatanCache = s.TermAngkatan
-
 }
 
 /* =========================================================
@@ -516,7 +515,7 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 
 	// ==== Cache ROOM (opsional, via class_section_class_room_id) + propagate ke CSST ====
 	if m.ClassSectionClassRoomID != nil {
-		rs, err := sectionroomsnap.ValidateAndCacheRoom(tx, schoolID, *m.ClassSectionClassRoomID)
+		rs, err := roomCache.ValidateAndCacheRoom(tx, schoolID, *m.ClassSectionClassRoomID)
 		if err != nil {
 			_ = tx.Rollback()
 			var fe *fiber.Error
@@ -525,7 +524,7 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 			}
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi ruang kelas")
 		}
-		sectionroomsnap.ApplyRoomCacheToSection(m, rs)
+		roomCache.ApplyRoomCacheToSection(m, rs)
 
 		if propagateRoomToCSST {
 			if err := tx.Model(&csstModel.ClassSectionSubjectTeacherModel{}).
@@ -584,18 +583,11 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	}
 
 	// ==========================
-	// 📤 Upload file dari form-data ("file")
+	// 📤 Upload image dari form-data ("image" / "file")
 	// ==========================
-	if fh, err := c.FormFile("file"); err == nil && fh != nil && fh.Size > 0 {
-		ossSvc, err := helperOSS.NewOSSServiceFromEnv("")
-		if err != nil {
-			_ = tx.Rollback()
-			return helper.JsonError(c, fiber.StatusBadGateway, "Konfigurasi OSS tidak valid")
-		}
-
-		slot := "class-sections"
-
-		publicURL, err := helperOSS.UploadAnyToOSS(c.Context(), ossSvc, schoolID, slot, fh)
+	if fh := pickImageFile(c, "image", "file"); fh != nil {
+		log.Printf("[SECTIONS][CREATE] 📤 uploading image filename=%s size=%d", fh.Filename, fh.Size)
+		publicURL, err := helperOSS.UploadImageToOSSScoped(schoolID, "classes/sections", fh)
 		if err != nil {
 			_ = tx.Rollback()
 			var fe *fiber.Error
@@ -606,8 +598,11 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		}
 
 		m.ClassSectionImageURL = &publicURL
+
 		if key, kErr := helperOSS.ExtractKeyFromPublicURL(publicURL); kErr == nil {
 			m.ClassSectionImageObjectKey = &key
+		} else if key2, k2Err := helperOSS.KeyFromPublicURL(publicURL); k2Err == nil {
+			m.ClassSectionImageObjectKey = &key2
 		}
 	}
 
@@ -729,7 +724,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 	// Siapkan snapshot ROOM & GURU bila id dipatch
 	var (
 		roomSnapRequested bool
-		roomSnap          *sectionroomsnap.RoomCache
+		roomSnap          *roomCache.RoomCache
 
 		teacherSnapRequested     bool
 		teacherSnapJSON          datatypes.JSON
@@ -740,7 +735,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 	if req.ClassSectionClassRoomID.Present {
 		roomSnapRequested = true
 		if req.ClassSectionClassRoomID.Value != nil {
-			rs, err := sectionroomsnap.ValidateAndCacheRoom(
+			rs, err := roomCache.ValidateAndCacheRoom(
 				tx,
 				schoolID,
 				*req.ClassSectionClassRoomID.Value,
@@ -877,7 +872,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 
 	// Apply room snapshot jika field-nya dipatch (clear jika nil)
 	if roomSnapRequested {
-		sectionroomsnap.ApplyRoomCacheToSection(&existing, roomSnap)
+		roomCache.ApplyRoomCacheToSection(&existing, roomSnap)
 
 		// 🔥 propagate ke CSST kalau diminta frontend
 		if propagateRoomToCSST {

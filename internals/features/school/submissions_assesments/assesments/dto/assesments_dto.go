@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"gorm.io/datatypes"
 
 	assessModel "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/model"
 )
@@ -313,11 +312,7 @@ type AssessmentResponse struct {
 
 	AssessmentSubmissionMode    string     `json:"assessment_submission_mode"`
 	AssessmentAnnounceSessionID *uuid.UUID `json:"assessment_announce_session_id,omitempty"`
-	AssessmentCollectSessionID *uuid.UUID `json:"assessment_collect_session_id,omitempty"`
-
-	AssessmentCSSTSnapshot            map[string]any `json:"assessment_csst_snapshot,omitempty"`
-	AssessmentAnnounceSessionSnapshot map[string]any `json:"assessment_announce_session_snapshot,omitempty"`
-	AssessmentCollectSessionSnapshot  map[string]any `json:"assessment_collect_session_snapshot,omitempty"`
+	AssessmentCollectSessionID  *uuid.UUID `json:"assessment_collect_session_id,omitempty"`
 
 	AssessmentCreatedAt time.Time `json:"assessment_created_at"`
 	AssessmentUpdatedAt time.Time `json:"assessment_updated_at"`
@@ -325,22 +320,6 @@ type AssessmentResponse struct {
 
 // Converter Model → Response DTO
 func FromModelAssesment(m assessModel.AssessmentModel) AssessmentResponse {
-	// cast datatypes.JSONMap / map[string]any → map[string]any
-	toMap := func(j any) map[string]any {
-		if j == nil {
-			return nil
-		}
-
-		switch v := j.(type) {
-		case map[string]any:
-			return v
-		case datatypes.JSONMap:
-			// datatypes.JSONMap adalah alias map[string]any, tapi beda type
-			return map[string]any(v)
-		default:
-			return nil
-		}
-	}
 
 	return AssessmentResponse{
 		AssessmentID:       m.AssessmentID,
@@ -383,10 +362,6 @@ func FromModelAssesment(m assessModel.AssessmentModel) AssessmentResponse {
 		AssessmentSubmissionMode:    string(m.AssessmentSubmissionMode),
 		AssessmentAnnounceSessionID: m.AssessmentAnnounceSessionID,
 		AssessmentCollectSessionID:  m.AssessmentCollectSessionID,
-
-		AssessmentCSSTSnapshot:            toMap(m.AssessmentCSSTSnapshot),
-		AssessmentAnnounceSessionSnapshot: toMap(m.AssessmentAnnounceSessionSnapshot),
-		AssessmentCollectSessionSnapshot:  toMap(m.AssessmentCollectSessionSnapshot),
 
 		AssessmentCreatedAt: m.AssessmentCreatedAt,
 		AssessmentUpdatedAt: m.AssessmentUpdatedAt,

@@ -204,11 +204,6 @@ CREATE TABLE IF NOT EXISTS assessments (
   -- Audit pembuat (opsional)
   assessment_created_by_teacher_id UUID,
 
-  -- Snapshots relasi (CSST & sesi kehadiran)
-  assessment_csst_snapshot             JSONB NOT NULL DEFAULT '{}'::jsonb,
-  assessment_announce_session_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
-  assessment_collect_session_snapshot  JSONB NOT NULL DEFAULT '{}'::jsonb,
-
   -- Mode pengumpulan (by date / by session)
   assessment_submission_mode TEXT NOT NULL DEFAULT 'date'
     CHECK (assessment_submission_mode IN ('date','session')),

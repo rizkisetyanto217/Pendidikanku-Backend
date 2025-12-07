@@ -1,4 +1,4 @@
-// file: internals/features/school/classes/class_schedules/dto/class_schedule_rule_dto.go
+// file: internals/features/school/sessions/schedules/dto/class_schedule_rule_dto.go
 package dto
 
 import (
@@ -61,9 +61,6 @@ type CreateClassScheduleRuleRequest struct {
 
 	// CSST (WAJIB)
 	ClassScheduleRuleCSSTID uuid.UUID `json:"class_schedule_rule_csst_id" validate:"required,uuid"`
-
-	// ROOM OVERRIDE (opsional; kalau tidak dikirim → pakai room dari CSST)
-	ClassScheduleRuleRoomID *uuid.UUID `json:"class_schedule_rule_room_id" validate:"omitempty,uuid"`
 
 	// opsional (defaults: 1, 0, "all", nil, false)
 	ClassScheduleRuleIntervalWeeks    *int    `json:"class_schedule_rule_interval_weeks"     validate:"omitempty,min=1"`
@@ -133,11 +130,6 @@ func (r CreateClassScheduleRuleRequest) ToModel(schoolID uuid.UUID) (model.Class
 		ClassScheduleRuleCSSTID: r.ClassScheduleRuleCSSTID,
 	}
 
-	// ROOM override (opsional)
-	if r.ClassScheduleRuleRoomID != nil {
-		m.ClassScheduleRuleRoomID = r.ClassScheduleRuleRoomID
-	}
-
 	return m, nil
 }
 
@@ -153,10 +145,7 @@ type UpdateClassScheduleRuleRequest struct {
 	ClassScheduleRuleLastWeekOfMonth *bool  `json:"class_schedule_rule_last_week_of_month" validate:"omitempty"`
 
 	// ganti CSST (opsional)
-	ClassScheduleRuleCSSTID *uuid.UUID `json:"class_schedule_rule_csst_id"        validate:"omitempty,uuid"`
-
-	// ganti ROOM override (opsional; tidak mendukung "set NULL" eksplisit)
-	ClassScheduleRuleRoomID *uuid.UUID `json:"class_schedule_rule_room_id"        validate:"omitempty,uuid"`
+	ClassScheduleRuleCSSTID *uuid.UUID `json:"class_schedule_rule_csst_id" validate:"omitempty,uuid"`
 }
 
 func (r UpdateClassScheduleRuleRequest) Apply(m *model.ClassScheduleRuleModel) error {
@@ -206,9 +195,6 @@ func (r UpdateClassScheduleRuleRequest) Apply(m *model.ClassScheduleRuleModel) e
 	if r.ClassScheduleRuleCSSTID != nil {
 		m.ClassScheduleRuleCSSTID = *r.ClassScheduleRuleCSSTID
 	}
-	if r.ClassScheduleRuleRoomID != nil {
-		m.ClassScheduleRuleRoomID = r.ClassScheduleRuleRoomID
-	}
 	return nil
 }
 
@@ -222,12 +208,6 @@ type ListClassScheduleRuleQuery struct {
 	ScheduleID *uuid.UUID `query:"schedule_id" validate:"omitempty,uuid"`
 	DayOfWeek  *int       `query:"dow"         validate:"omitempty,min=1,max=7"`
 	WeekParity *string    `query:"parity"      validate:"omitempty,oneof=all odd even"`
-
-	// Filter by generated columns (tanpa join)
-	StudentTeacherID *uuid.UUID `query:"teacher_id"       validate:"omitempty,uuid"`
-	ClassSectionID   *uuid.UUID `query:"section_id"       validate:"omitempty,uuid"`
-	ClassSubjectID   *uuid.UUID `query:"class_subject_id" validate:"omitempty,uuid"`
-	ClassRoomID      *uuid.UUID `query:"room_id"          validate:"omitempty,uuid"`
 
 	// sort_by: day_of_week|start_time|end_time|created_at|updated_at
 	// order: asc|desc
@@ -257,20 +237,11 @@ type ClassScheduleRuleResponse struct {
 	ClassScheduleRuleLastWeekOfMonth bool    `json:"class_schedule_rule_last_week_of_month"`
 
 	// CSST
-	ClassScheduleRuleCSSTID        uuid.UUID      `json:"class_schedule_rule_csst_id"`
-	ClassScheduleRuleCSSTSlugCache *string        `json:"class_schedule_rule_csst_slug_cache,omitempty"`
-	ClassScheduleRuleCSSTCache     map[string]any `json:"class_schedule_rule_csst_cache,omitempty"`
+	ClassScheduleRuleCSSTID uuid.UUID `json:"class_schedule_rule_csst_id"`
 
-	// ROOM override
-	ClassScheduleRuleRoomID        *uuid.UUID     `json:"class_schedule_rule_room_id,omitempty"`
-	ClassScheduleRuleRoomSlugCache *string        `json:"class_schedule_rule_room_slug_cache,omitempty"`
-	ClassScheduleRuleRoomCache     map[string]any `json:"class_schedule_rule_room_cache,omitempty"`
-
-	// Generated columns (tanpa join)
-	ClassScheduleRuleCSSTStudentTeacherID *uuid.UUID `json:"class_schedule_rule_csst_student_teacher_id,omitempty"`
-	ClassScheduleRuleCSSTClassSectionID   *uuid.UUID `json:"class_schedule_rule_csst_class_section_id,omitempty"`
-
-	ClassScheduleRuleCSSTClassRoomID      *uuid.UUID `json:"class_schedule_rule_csst_class_room_id,omitempty"`
+	// Generated time range (kalau mau dipakai di FE)
+	ClassScheduleRuleStartMin int16 `json:"class_schedule_rule_start_min"`
+	ClassScheduleRuleEndMin   int16 `json:"class_schedule_rule_end_min"`
 
 	ClassScheduleRuleCreatedAt time.Time `json:"class_schedule_rule_created_at"`
 	ClassScheduleRuleUpdatedAt time.Time `json:"class_schedule_rule_updated_at"`
@@ -285,16 +256,6 @@ func FromRuleModel(m model.ClassScheduleRuleModel) ClassScheduleRuleResponse {
 	if len(m.ClassScheduleRuleWeeksOfMonth) > 0 {
 		weeks = make([]int64, len(m.ClassScheduleRuleWeeksOfMonth))
 		copy(weeks, m.ClassScheduleRuleWeeksOfMonth)
-	}
-
-	var csstSnap map[string]any
-	if m.ClassScheduleRuleCSSTCache != nil {
-		csstSnap = map[string]any(m.ClassScheduleRuleCSSTCache)
-	}
-
-	var roomSnap map[string]any
-	if m.ClassScheduleRuleRoomCache != nil {
-		roomSnap = map[string]any(m.ClassScheduleRuleRoomCache)
 	}
 
 	return ClassScheduleRuleResponse{
@@ -314,21 +275,10 @@ func FromRuleModel(m model.ClassScheduleRuleModel) ClassScheduleRuleResponse {
 		ClassScheduleRuleWeeksOfMonth:    weeks,
 		ClassScheduleRuleLastWeekOfMonth: m.ClassScheduleRuleLastWeekOfMonth,
 
-		// CSST
-		ClassScheduleRuleCSSTID:        m.ClassScheduleRuleCSSTID,
-		ClassScheduleRuleCSSTSlugCache: m.ClassScheduleRuleCSSTSlugCache,
-		ClassScheduleRuleCSSTCache:     csstSnap,
+		ClassScheduleRuleCSSTID: m.ClassScheduleRuleCSSTID,
 
-		// ROOM override
-		ClassScheduleRuleRoomID:        m.ClassScheduleRuleRoomID,
-		ClassScheduleRuleRoomSlugCache: m.ClassScheduleRuleRoomSlugCache,
-		ClassScheduleRuleRoomCache:     roomSnap,
-
-		// generated columns
-		ClassScheduleRuleCSSTStudentTeacherID: m.ClassScheduleRuleCSSTStudentTeacherID,
-		ClassScheduleRuleCSSTClassSectionID:   m.ClassScheduleRuleCSSTClassSectionID,
-
-		ClassScheduleRuleCSSTClassRoomID: m.ClassScheduleRuleCSSTClassRoomID,
+		ClassScheduleRuleStartMin: m.ClassScheduleRuleStartMin,
+		ClassScheduleRuleEndMin:   m.ClassScheduleRuleEndMin,
 
 		ClassScheduleRuleCreatedAt: m.ClassScheduleRuleCreatedAt,
 		ClassScheduleRuleUpdatedAt: m.ClassScheduleRuleUpdatedAt,

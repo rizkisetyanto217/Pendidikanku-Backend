@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv" // ⭐ NEW: buat parse meeting_number dari multipart
+	"strconv" // buat parse meeting_number dari multipart
 	"strings"
 	"time"
 
@@ -24,7 +24,6 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
-	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -172,7 +171,7 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 			req.ClassAttendanceSessionNote = &v
 		}
 
-		// ⭐ NEW: meeting number dari multipart
+		// meeting number dari multipart
 		if v := strings.TrimSpace(c.FormValue("class_attendance_session_meeting_number")); v != "" {
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
 				req.ClassAttendanceSessionMeetingNumber = &n
@@ -190,6 +189,16 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 		req.ClassAttendanceSessionLocked = parseBoolPtr("class_attendance_session_locked")
 		req.ClassAttendanceSessionIsOverride = parseBoolPtr("class_attendance_session_is_override")
 		req.ClassAttendanceSessionIsCanceled = parseBoolPtr("class_attendance_session_is_canceled")
+
+		// status & attendance_status (optional enum string)
+		if v := strings.TrimSpace(c.FormValue("class_attendance_session_status")); v != "" {
+			v = strings.ToLower(v)
+			req.ClassAttendanceSessionStatus = &v
+		}
+		if v := strings.TrimSpace(c.FormValue("class_attendance_session_attendance_status")); v != "" {
+			v = strings.ToLower(v)
+			req.ClassAttendanceSessionAttendanceStatus = &v
+		}
 
 		// override times / kind / reason
 		if v := strings.TrimSpace(c.FormValue("class_attendance_session_original_start_at")); v != "" {
@@ -226,21 +235,14 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 			}
 		}
 
-		// ===== Rule (baru) =====
+		// ===== Rule (id saja) =====
 		if v := strings.TrimSpace(c.FormValue("class_attendance_session_rule_id")); v != "" {
 			if id, err := uuid.Parse(v); err == nil {
 				req.ClassAttendanceSessionRuleId = &id
 			}
 		}
-		if v := strings.TrimSpace(c.FormValue("class_attendance_session_rule_snapshot")); v != "" {
-			if m, err := parseJSONMapPtr(v); err == nil {
-				req.ClassAttendanceSessionRuleSnapshot = m
-			} else {
-				return helper.JsonError(c, fiber.StatusBadRequest, "rule_snapshot tidak valid: "+err.Error())
-			}
-		}
 
-		// ===== TYPE (baru) =====
+		// ===== TYPE =====
 		if v := strings.TrimSpace(c.FormValue("class_attendance_session_type_id")); v != "" {
 			if id, err := uuid.Parse(v); err == nil {
 				req.ClassAttendanceSessionTypeId = &id
@@ -254,7 +256,7 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 			}
 		}
 
-		// URLs via JSON field
+		// URLs via JSON field (sesuai DTO: URLs []ClassAttendanceSessionURLUpsert)
 		var urlsJSON []attendanceDTO.ClassAttendanceSessionURLUpsert
 		if uj := strings.TrimSpace(c.FormValue("urls_json")); uj != "" {
 			if err := json.Unmarshal([]byte(uj), &urlsJSON); err != nil {
@@ -295,10 +297,10 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 		req.ClassAttendanceSessionNote = &n
 	}
 
-	// ✅ Coerce zero-UUIDs & minimal rule snapshot (DTO Normalize)
+	// ✅ Coerce zero-UUIDs (DTO Normalize)
 	req.Normalize()
 
-	// Validasi payload (sesuai tag DTO)
+	// Validasi payload (sesuai tag DTO baru)
 	if err := validator.New().Struct(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
@@ -426,38 +428,25 @@ LIMIT 1`
 			}
 		}
 
-		// 3) Validasi RULE (opsional) + bangun snapshot jika perlu
+		// 3) Validasi RULE (opsional) + ambil jam start/end untuk auto-time
 		var (
 			ruleStart time.Time
 			ruleEnd   time.Time
 			haveRule  bool
 		)
 		if req.ClassAttendanceSessionRuleId != nil && *req.ClassAttendanceSessionRuleId != uuid.Nil {
-			// Ambil rule & pastikan tenant sama (dan bila ada schedule_id, harus match)
 			var r struct {
-				SchoolID      uuid.UUID `gorm:"column:school_id"`
-				ScheduleID    uuid.UUID `gorm:"column:schedule_id"`
-				DayOfWeek     int       `gorm:"column:day_of_week"`
-				StartTime     time.Time `gorm:"column:start_time"`
-				EndTime       time.Time `gorm:"column:end_time"`
-				WeekParity    *string   `gorm:"column:week_parity"`
-				IntervalWeeks int       `gorm:"column:interval_weeks"`
-				StartOffset   int       `gorm:"column:start_offset_weeks"`
-				WeeksOfMonth  *string   `gorm:"column:weeks_of_month_json"` // ambil sebagai JSON text
-				LastWeek      bool      `gorm:"column:last_week_of_month"`
+				SchoolID   uuid.UUID `gorm:"column:school_id"`
+				ScheduleID uuid.UUID `gorm:"column:schedule_id"`
+				StartTime  time.Time `gorm:"column:start_time"`
+				EndTime    time.Time `gorm:"column:end_time"`
 			}
 			const q = `
 SELECT
-  class_schedule_rule_school_id            AS school_id,
-  class_schedule_rule_schedule_id          AS schedule_id,
-  class_schedule_rule_day_of_week          AS day_of_week,
-  class_schedule_rule_start_time           AS start_time,
-  class_schedule_rule_end_time             AS end_time,
-  class_schedule_rule_week_parity::text    AS week_parity,
-  class_schedule_rule_interval_weeks       AS interval_weeks,
-  class_schedule_rule_start_offset_weeks   AS start_offset_weeks,
-  to_json(class_schedule_rule_weeks_of_month)::text AS weeks_of_month_json,
-  class_schedule_rule_last_week_of_month   AS last_week_of_month
+  class_schedule_rule_school_id   AS school_id,
+  class_schedule_rule_schedule_id AS schedule_id,
+  class_schedule_rule_start_time  AS start_time,
+  class_schedule_rule_end_time    AS end_time
 FROM class_schedule_rules
 WHERE class_schedule_rule_id = ?
   AND class_schedule_rule_deleted_at IS NULL
@@ -473,30 +462,6 @@ LIMIT 1`
 			}
 			if req.ClassAttendanceSessionScheduleId != nil && r.ScheduleID != *req.ClassAttendanceSessionScheduleId {
 				return fiber.NewError(fiber.StatusBadRequest, "Rule tidak cocok dengan schedule yang dipilih")
-			}
-
-			// Snapshot: gunakan payload bila ada; kalau tidak, bangun dari DB
-			if req.ClassAttendanceSessionRuleSnapshot == nil {
-				m := map[string]any{
-					"rule_id":            req.ClassAttendanceSessionRuleId.String(),
-					"schedule_id":        r.ScheduleID.String(),
-					"day_of_week":        r.DayOfWeek,
-					"start_time":         r.StartTime.Format("15:04:05"),
-					"end_time":           r.EndTime.Format("15:04:05"),
-					"interval_weeks":     r.IntervalWeeks,
-					"start_offset_weeks": r.StartOffset,
-					"last_week_of_month": r.LastWeek,
-				}
-				if r.WeekParity != nil && strings.TrimSpace(*r.WeekParity) != "" {
-					m["week_parity"] = *r.WeekParity
-				}
-				if r.WeeksOfMonth != nil && strings.TrimSpace(*r.WeeksOfMonth) != "" {
-					// simpan JSON mentah (array int) — biarkan konsumsi di UI/BE sesuai kebutuhan
-					var arr any
-					_ = json.Unmarshal([]byte(*r.WeeksOfMonth), &arr)
-					m["weeks_of_month"] = arr
-				}
-				req.ClassAttendanceSessionRuleSnapshot = m
 			}
 
 			ruleStart = r.StartTime
@@ -569,7 +534,7 @@ LIMIT 1`
 				_ = q.Count(&n).Error
 				n++ // sesi yang akan dibuat ini
 
-				// ⭐ NEW: sinkron ke meeting_number kalau belum ada
+				// sinkron ke meeting_number kalau belum ada
 				var meetingNo int
 				if req.ClassAttendanceSessionMeetingNumber != nil && *req.ClassAttendanceSessionMeetingNumber > 0 {
 					meetingNo = *req.ClassAttendanceSessionMeetingNumber
@@ -583,25 +548,18 @@ LIMIT 1`
 			}
 		}
 
-		// ====== SNAPSHOT (hanya CSST) & EFEKTIF ASSIGNMENTS ======
+		// ===== EFEKTIF ASSIGNMENTS (CSST, teacher, room) =====
 		var (
 			effCSSTID    *uuid.UUID
 			effTeacherID *uuid.UUID
 			effRoomID    *uuid.UUID
-
-			csstSnapJSON datatypes.JSONMap
 		)
 
-		// 1) CSST efektif (+snapshot satu-satunya)
+		// 1) CSST efektif → validate & mungkin override teacher
 		if req.ClassAttendanceSessionCSSTId != nil && *req.ClassAttendanceSessionCSSTId != uuid.Nil {
 			effCSSTID = req.ClassAttendanceSessionCSSTId
 
 			if cs, err := snapshotCSST.ValidateAndCacheCSST(tx, schoolID, *effCSSTID); err == nil {
-				jb := snapshotCSST.ToJSON(cs)
-				var mm map[string]any
-				_ = json.Unmarshal(jb, &mm)
-				csstSnapJSON = datatypes.JSONMap(mm)
-
 				// override teacher dari CSST jika ada
 				if cs.TeacherID != nil {
 					req.ClassAttendanceSessionTeacherId = cs.TeacherID
@@ -611,15 +569,17 @@ LIMIT 1`
 			}
 		}
 
-		// 2) Teacher efektif (ID saja; snapshot guru TIDAK disimpan lagi)
+		// 2) Teacher efektif (ID saja)
 		if req.ClassAttendanceSessionTeacherId != nil && *req.ClassAttendanceSessionTeacherId != uuid.Nil {
 			effTeacherID = req.ClassAttendanceSessionTeacherId
 		}
 
-		// 3) Room efektif (coba resolve dari CSST/Section; snapshot ruang TIDAK disimpan lagi)
+		// 3) Room efektif (coba resolve dari CSST/Section; tanpa snapshot)
 		if effCSSTID != nil {
 			gen := &serviceSchedule.Generator{DB: tx}
-			roomID, _, rerr := gen.ResolveRoomFromCSSTOrSection(
+
+			// sebelum: roomID, _, rerr := gen.ResolveRoomFromCSSTOrSection(...)
+			roomID, rerr := gen.ResolveRoomFromCSSTOrSection(
 				c.Context(),
 				schoolID,
 				effCSSTID,
@@ -628,9 +588,10 @@ LIMIT 1`
 				effRoomID = roomID
 			}
 		}
+
 		if effRoomID == nil && req.ClassAttendanceSessionClassRoomId != nil && *req.ClassAttendanceSessionClassRoomId != uuid.Nil {
 			rid := *req.ClassAttendanceSessionClassRoomId
-			// validasi kepemilikan room (tanpa snapshot)
+			// validasi kepemilikan room
 			var rc int64
 			if err := tx.Table("class_rooms").
 				Where("class_room_id = ? AND class_room_school_id = ? AND class_room_deleted_at IS NULL", rid, schoolID).
@@ -643,16 +604,12 @@ LIMIT 1`
 			effRoomID = &rid
 		}
 
-		// 4) Build model dari DTO
+		// 4) Build model dari DTO (pakai DTO baru)
 		m := req.ToModel()
 		m.ClassAttendanceSessionSchoolID = schoolID
-		// (Schedule, Type, Rule sudah pointer-aware di ToModel; Rule & Type snapshot bisa dioverride di bawah)
 
 		if effCSSTID != nil {
 			m.ClassAttendanceSessionCSSTID = effCSSTID
-			if csstSnapJSON != nil {
-				m.ClassAttendanceSessionCSSTSnapshot = csstSnapJSON
-			}
 		}
 		if effTeacherID != nil {
 			m.ClassAttendanceSessionTeacherID = effTeacherID
@@ -661,16 +618,12 @@ LIMIT 1`
 			m.ClassAttendanceSessionClassRoomID = effRoomID
 		}
 
-		// ===== Rule assignment & snapshot ke model =====
+		// Rule assignment ke model (id saja; snapshot sudah dihapus di schema baru)
 		if req.ClassAttendanceSessionRuleId != nil && *req.ClassAttendanceSessionRuleId != uuid.Nil {
 			m.ClassAttendanceSessionRuleID = req.ClassAttendanceSessionRuleId
 		}
-		if req.ClassAttendanceSessionRuleSnapshot != nil {
-			m.ClassAttendanceSessionRuleSnapshot = req.ClassAttendanceSessionRuleSnapshot
-		}
 
-		// TYPE snapshot sudah ada di req dan sudah dimap di ToModel(),
-		// jadi tidak perlu assignment manual lagi di sini.
+		// TYPE snapshot sudah ada di req dan sudah dimap di ToModel()
 
 		// ===== Auto set starts_at/ends_at dari rule kalau kosong =====
 		if haveRule && req.ClassAttendanceSessionDate != nil {
@@ -828,7 +781,7 @@ LIMIT 1`
 	m := c.Locals("created_model").(attendanceModel.ClassAttendanceSessionModel)
 	resp := attendanceDTO.FromClassAttendanceSessionModel(m)
 
-	// Ambil URLs ringkas utk response
+	// Ambil URLs ringkas utk response → isi ke ClassAttendanceSessionUrls (DTO baru)
 	var rows []attendanceModel.ClassAttendanceSessionURLModel
 	_ = ctrl.DB.
 		Where("class_attendance_session_url_session_id = ? AND class_attendance_session_url_deleted_at IS NULL", m.ClassAttendanceSessionID).
@@ -844,314 +797,4 @@ LIMIT 1`
 
 	c.Set("Location", fmt.Sprintf("/admin/class-attendance-sessions/%s", m.ClassAttendanceSessionID.String()))
 	return helper.JsonCreated(c, "Sesi kehadiran & lampiran berhasil dibuat", resp)
-}
-
-// PATCH /admin/class-attendance-sessions/:id/urls/:url_id
-func (ctrl *ClassAttendanceSessionController) PatchClassAttendanceSessionUrl(c *fiber.Ctx) error {
-	// ✅ Role guard
-	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
-		return fiber.NewError(fiber.StatusUnauthorized, "Hanya admin atau guru yang diizinkan")
-	}
-
-	// ✅ Resolve school context
-	mc, er := helperAuth.ResolveSchoolContext(c)
-	if er != nil {
-		return helper.JsonError(c, er.(*fiber.Error).Code, er.Error())
-	}
-
-	// ✅ Tentukan schoolID dari context dengan aturan role
-	var schoolID uuid.UUID
-	switch {
-	case helperAuth.IsOwner(c) || helperAuth.IsDKM(c):
-		id, er := helperAuth.EnsureSchoolAccessDKM(c, mc)
-		if er != nil {
-			return helper.JsonError(c, er.(*fiber.Error).Code, er.Error())
-		}
-		schoolID = id
-	case helperAuth.IsTeacher(c):
-		if mc.ID != uuid.Nil {
-			schoolID = mc.ID
-		} else if strings.TrimSpace(mc.Slug) != "" {
-			id, er := helperAuth.GetSchoolIDBySlug(c, mc.Slug)
-			if er != nil {
-				return helper.JsonError(c, http.StatusNotFound, "School (slug) tidak ditemukan")
-			}
-			schoolID = id
-		} else if id, er := helperAuth.GetActiveSchoolID(c); er == nil && id != uuid.Nil {
-			schoolID = id
-		}
-		if schoolID == uuid.Nil || !helperAuth.UserHasSchool(c, schoolID) {
-			return helper.JsonError(c, fiber.StatusForbidden, "Scope school tidak valid untuk Teacher")
-		}
-	default:
-		return fiber.NewError(fiber.StatusUnauthorized, "Tidak diizinkan")
-	}
-
-	// ✅ Path params
-	sessionID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Session ID tidak valid")
-	}
-	urlID, err := uuid.Parse(strings.TrimSpace(c.Params("url_id")))
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "URL ID tidak valid")
-	}
-
-	// ✅ Parse + validate payload
-	var p attendanceDTO.ClassAttendanceSessionURLPatch
-	if err := c.BodyParser(&p); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
-	}
-	p.ID = urlID
-	p.Normalize()
-	if err := validator.New().Struct(p); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
-	}
-
-	// 🔒 TX
-	if err := ctrl.DB.Transaction(func(tx *gorm.DB) error {
-		// 0) Pastikan sesi target milik tenant & belum deleted
-		var sess struct {
-			ID       uuid.UUID  `gorm:"column:id"`
-			SchoolID uuid.UUID  `gorm:"column:school_id"`
-			Deleted  *time.Time `gorm:"column:deleted_at"`
-		}
-		if err := tx.Table("class_attendance_sessions").
-			Select(`
-				class_attendance_session_id AS id,
-				class_attendance_session_school_id AS school_id,
-				class_attendance_session_deleted_at AS deleted_at
-			`).
-			Where("class_attendance_session_id = ? AND class_attendance_session_school_id = ? AND class_attendance_session_deleted_at IS NULL",
-				sessionID, schoolID).
-			Take(&sess).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return fiber.NewError(fiber.StatusNotFound, "Session tidak ditemukan")
-			}
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil session")
-		}
-
-		// 1) Load target URL (tenant + owner + live)
-		var row attendanceModel.ClassAttendanceSessionURLModel
-		if err := tx.Where(`
-				class_attendance_session_url_id = ?
-				AND class_attendance_session_url_session_id = ?
-				AND class_attendance_session_url_school_id = ?
-				AND class_attendance_session_url_deleted_at IS NULL
-			`, urlID, sessionID, schoolID).
-			Take(&row).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return fiber.NewError(fiber.StatusNotFound, "URL tidak ditemukan")
-			}
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil URL")
-		}
-
-		patch := map[string]any{}
-		kindChanged := false
-
-		// 2) Apply field-by-field
-		if p.Label != nil {
-			patch["class_attendance_session_url_label"] = strings.TrimSpace(*p.Label)
-			row.ClassAttendanceSessionURLLabel = p.Label
-		}
-		if p.Order != nil {
-			patch["class_attendance_session_url_order"] = *p.Order
-			row.ClassAttendanceSessionURLOrder = *p.Order
-		}
-		if p.Kind != nil {
-			kind := strings.TrimSpace(*p.Kind)
-			if kind == "" {
-				kind = "attachment"
-			}
-			patch["class_attendance_session_url_kind"] = kind
-			kindChanged = kindChanged || (row.ClassAttendanceSessionURLKind != kind)
-			row.ClassAttendanceSessionURLKind = kind
-		}
-
-		// 2a) Href/ObjectKey handling
-		if p.Href != nil {
-			newHref := strings.TrimSpace(*p.Href)
-			if newHref == "" {
-				patch["class_attendance_session_url_href"] = nil
-				patch["class_attendance_session_url_object_key"] = nil
-				row.ClassAttendanceSessionURLHref = nil
-				row.ClassAttendanceSessionURLObjectKey = nil
-			} else {
-				// Pindahkan file lama ke spam (kalau ada lama & object_key ada)
-				if row.ClassAttendanceSessionURLHref != nil && row.ClassAttendanceSessionURLObjectKey != nil {
-					if spamURL, err := helperOSS.MoveToSpamByPublicURLENV(*row.ClassAttendanceSessionURLHref, 10*time.Second); err == nil {
-						_ = spamURL
-						patch["class_attendance_session_url_object_key_old"] = *row.ClassAttendanceSessionURLObjectKey
-						patch["class_attendance_session_url_delete_pending_until"] = time.Now().Add(7 * 24 * time.Hour)
-					}
-				}
-				patch["class_attendance_session_url_href"] = newHref
-				row.ClassAttendanceSessionURLHref = &newHref
-
-				if key, kerr := helperOSS.ExtractKeyFromPublicURL(newHref); kerr == nil && strings.TrimSpace(key) != "" {
-					patch["class_attendance_session_url_object_key"] = key
-					row.ClassAttendanceSessionURLObjectKey = &key
-				} else {
-					patch["class_attendance_session_url_object_key"] = nil
-					row.ClassAttendanceSessionURLObjectKey = nil
-				}
-			}
-		}
-
-		// If user explicitly sends object_key (manual override)
-		if p.ObjectKey != nil {
-			okey := strings.TrimSpace(*p.ObjectKey)
-			if okey == "" {
-				patch["class_attendance_session_url_object_key"] = nil
-				row.ClassAttendanceSessionURLObjectKey = nil
-			} else {
-				patch["class_attendance_session_url_object_key"] = okey
-				row.ClassAttendanceSessionURLObjectKey = &okey
-			}
-		}
-
-		if p.IsPrimary != nil {
-			patch["class_attendance_session_url_is_primary"] = *p.IsPrimary
-			row.ClassAttendanceSessionURLIsPrimary = *p.IsPrimary
-		}
-
-		// 3) Persist patch
-		if len(patch) > 0 {
-			if err := tx.Model(&attendanceModel.ClassAttendanceSessionURLModel{}).
-				Where("class_attendance_session_url_id = ?", row.ClassAttendanceSessionURLID).
-				Updates(patch).Error; err != nil {
-				return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui URL")
-			}
-		}
-
-		// 4) Enforce unique primary per (session, kind) jika:
-		// - is_primary diset ke true, ATAU
-		// - kind berubah & tetap primary di record ini
-		if (p.IsPrimary != nil && *p.IsPrimary) || (kindChanged && row.ClassAttendanceSessionURLIsPrimary) {
-			if err := tx.Model(&attendanceModel.ClassAttendanceSessionURLModel{}).
-				Where(`
-					class_attendance_session_url_school_id = ?
-					AND class_attendance_session_url_session_id = ?
-					AND class_attendance_session_url_kind = ?
-					AND class_attendance_session_url_id <> ?
-					AND class_attendance_session_url_deleted_at IS NULL
-				`,
-					schoolID, sessionID, row.ClassAttendanceSessionURLKind, row.ClassAttendanceSessionURLID).
-				Update("class_attendance_session_url_is_primary", false).Error; err != nil {
-				return fiber.NewError(fiber.StatusInternalServerError, "Gagal set primary lampiran")
-			}
-		}
-
-		c.Locals("updated_url", row)
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	// ✅ Response
-	u := c.Locals("updated_url").(attendanceModel.ClassAttendanceSessionURLModel)
-	return helper.JsonUpdated(c, "URL berhasil diperbarui", attendanceDTO.ToClassAttendanceSessionURLLite(&u))
-}
-
-/*
-=========================================================
-DELETE /admin/class-attendance-sessions/:id/urls/:url_id?hard=true
-=========================================================
-*/
-func (ctrl *ClassAttendanceSessionController) DeleteClassAttendanceSessionUrl(c *fiber.Ctx) error {
-	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
-		return fiber.NewError(fiber.StatusUnauthorized, "Hanya admin atau guru yang diizinkan")
-	}
-	mc, er := helperAuth.ResolveSchoolContext(c)
-	if er != nil {
-		return helper.JsonError(c, er.(*fiber.Error).Code, er.Error())
-	}
-
-	var schoolID uuid.UUID
-	isAdmin := false
-	switch {
-	case helperAuth.IsOwner(c) || helperAuth.IsDKM(c):
-		id, er := helperAuth.EnsureSchoolAccessDKM(c, mc)
-		if er != nil {
-			return helper.JsonError(c, er.(*fiber.Error).Code, er.Error())
-		}
-		schoolID = id
-		isAdmin = true
-	case helperAuth.IsTeacher(c):
-		if mc.ID != uuid.Nil {
-			schoolID = mc.ID
-		} else if strings.TrimSpace(mc.Slug) != "" {
-			id, er := helperAuth.GetSchoolIDBySlug(c, mc.Slug)
-			if er != nil {
-				return helper.JsonError(c, http.StatusNotFound, "School (slug) tidak ditemukan")
-			}
-			schoolID = id
-		} else if id, er := helperAuth.GetActiveSchoolID(c); er == nil && id != uuid.Nil {
-			schoolID = id
-		}
-		if schoolID == uuid.Nil || !helperAuth.UserHasSchool(c, schoolID) {
-			return helper.JsonError(c, fiber.StatusForbidden, "Scope school tidak valid untuk Teacher")
-		}
-	default:
-		return fiber.NewError(fiber.StatusUnauthorized, "Tidak diizinkan")
-	}
-
-	sessionID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Session ID tidak valid")
-	}
-	urlID, err := uuid.Parse(strings.TrimSpace(c.Params("url_id")))
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "URL ID tidak valid")
-	}
-
-	hard := strings.EqualFold(c.Query("hard"), "true")
-	if hard && !isAdmin {
-		return fiber.NewError(fiber.StatusForbidden, "Hanya admin yang boleh hard delete")
-	}
-
-	if err := ctrl.DB.Transaction(func(tx *gorm.DB) error {
-		var row attendanceModel.ClassAttendanceSessionURLModel
-		if err := tx.Where(`
-				class_attendance_session_url_id = ?
-				AND class_attendance_session_url_session_id = ?
-				AND class_attendance_session_url_school_id = ?
-				AND class_attendance_session_url_deleted_at IS NULL
-			`, urlID, sessionID, schoolID).Take(&row).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return fiber.NewError(fiber.StatusNotFound, "URL tidak ditemukan")
-			}
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil URL")
-		}
-
-		if hard {
-			// hard delete: hapus baris & coba hapus objek OSS (best-effort)
-			if err := tx.Unscoped().Delete(&attendanceModel.ClassAttendanceSessionURLModel{}, "class_attendance_session_url_id = ?", row.ClassAttendanceSessionURLID).Error; err != nil {
-				return fiber.NewError(fiber.StatusInternalServerError, "Gagal hard delete URL")
-			}
-			if row.ClassAttendanceSessionURLHref != nil {
-				_ = helperOSS.DeleteByPublicURLENV(*row.ClassAttendanceSessionURLHref, 10*time.Second) // best-effort
-			}
-			return nil
-		}
-
-		// soft delete: tandai deleted_at; jika punya object_key → set delete_pending_until (dipurge oleh reaper)
-		patch := map[string]interface{}{
-			"class_attendance_session_url_deleted_at": time.Now(),
-		}
-		if row.ClassAttendanceSessionURLObjectKey != nil && *row.ClassAttendanceSessionURLObjectKey != "" {
-			patch["class_attendance_session_url_delete_pending_until"] = time.Now().Add(30 * 24 * time.Hour)
-		}
-		if err := tx.Model(&attendanceModel.ClassAttendanceSessionURLModel{}).
-			Where("class_attendance_session_url_id = ?", row.ClassAttendanceSessionURLID).
-			Updates(patch).Error; err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal soft delete URL")
-		}
-		c.Locals("deleted_url", row)
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	return helper.JsonDeleted(c, "URL berhasil dihapus", fiber.Map{"id": urlID})
 }

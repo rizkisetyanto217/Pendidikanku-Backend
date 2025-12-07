@@ -243,7 +243,7 @@ type ClassSectionSubjectTeacherResponse struct {
 	ClassSectionSubjectTeacherAssistantSchoolTeacherNameCache *string `json:"class_section_subject_teacher_assistant_school_teacher_name_cache,omitempty"`
 
 	/* ===== SUBJECT (via CLASS_SUBJECT) cache ===== */
-	ClassSectionSubjectTeacherSubjectIDCache   *uuid.UUID `json:"class_section_subject_teacher_subject_id_cache,omitempty"`
+	ClassSectionSubjectTeacherSubjectID        *uuid.UUID `json:"class_section_subject_teacher_subject_id,omitempty"`
 	ClassSectionSubjectTeacherSubjectNameCache *string    `json:"class_section_subject_teacher_subject_name_cache,omitempty"`
 	ClassSectionSubjectTeacherSubjectCodeCache *string    `json:"class_section_subject_teacher_subject_code_cache,omitempty"`
 	ClassSectionSubjectTeacherSubjectSlugCache *string    `json:"class_section_subject_teacher_subject_slug_cache,omitempty"`
@@ -446,7 +446,7 @@ func fromClassSectionSubjectTeacherModelWithOptions(
 		ClassSectionSubjectTeacherAssistantSchoolTeacherNameCache: m.ClassSectionSubjectTeacherAssistantSchoolTeacherNameCache,
 
 		// SUBJECT cache
-		ClassSectionSubjectTeacherSubjectIDCache:   m.ClassSectionSubjectTeacherSubjectIDCache,
+		ClassSectionSubjectTeacherSubjectID:        m.ClassSectionSubjectTeacherSubjectID,
 		ClassSectionSubjectTeacherSubjectNameCache: m.ClassSectionSubjectTeacherSubjectNameCache,
 		ClassSectionSubjectTeacherSubjectCodeCache: m.ClassSectionSubjectTeacherSubjectCodeCache,
 		ClassSectionSubjectTeacherSubjectSlugCache: m.ClassSectionSubjectTeacherSubjectSlugCache,

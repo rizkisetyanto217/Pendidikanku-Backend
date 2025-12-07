@@ -30,7 +30,7 @@ const (
 )
 
 /* =========================================
-   MODEL: class_attendance_sessions
+   MODEL: class_attendance_sessions (simplified)
 ========================================= */
 
 type ClassAttendanceSessionModel struct {
@@ -39,7 +39,7 @@ type ClassAttendanceSessionModel struct {
 
 	// Tenant & relasi utama
 	ClassAttendanceSessionSchoolID   uuid.UUID  `gorm:"type:uuid;not null;column:class_attendance_session_school_id" json:"class_attendance_session_school_id"`
-	ClassAttendanceSessionScheduleID *uuid.UUID `gorm:"type:uuid;column:class_attendance_session_schedule_id" json:"class_attendance_session_schedule_id"`
+	ClassAttendanceSessionScheduleID *uuid.UUID `gorm:"type:uuid;column:class_attendance_session_schedule_id" json:"class_attendance_session_schedule_id,omitempty"`
 	ClassAttendanceSessionRuleID     *uuid.UUID `gorm:"type:uuid;column:class_attendance_session_rule_id" json:"class_attendance_session_rule_id,omitempty"`
 
 	// SLUG opsional
@@ -78,52 +78,16 @@ type ClassAttendanceSessionModel struct {
 	ClassAttendanceSessionGeneralInfo string  `gorm:"type:text;not null;default:'';column:class_attendance_session_general_info" json:"class_attendance_session_general_info"`
 	ClassAttendanceSessionNote        *string `gorm:"type:text;column:class_attendance_session_note" json:"class_attendance_session_note,omitempty"`
 
-	// 🔢 Nomor pertemuan (meeting number)
+	// Nomor pertemuan (meeting number)
 	ClassAttendanceSessionMeetingNumber *int `gorm:"column:class_attendance_session_meeting_number" json:"class_attendance_session_meeting_number,omitempty"`
 
+	// Rekap kehadiran
 	ClassAttendanceSessionPresentCount *int `gorm:"column:class_attendance_session_present_count" json:"class_attendance_session_present_count,omitempty"`
 	ClassAttendanceSessionAbsentCount  *int `gorm:"column:class_attendance_session_absent_count" json:"class_attendance_session_absent_count,omitempty"`
 	ClassAttendanceSessionLateCount    *int `gorm:"column:class_attendance_session_late_count" json:"class_attendance_session_late_count,omitempty"`
 	ClassAttendanceSessionExcusedCount *int `gorm:"column:class_attendance_session_excused_count" json:"class_attendance_session_excused_count,omitempty"`
 	ClassAttendanceSessionSickCount    *int `gorm:"column:class_attendance_session_sick_count" json:"class_attendance_session_sick_count,omitempty"`
 	ClassAttendanceSessionLeaveCount   *int `gorm:"column:class_attendance_session_leave_count" json:"class_attendance_session_leave_count,omitempty"`
-
-	/* ==========================
-	   SNAPSHOT TUNGGAL (CSST)
-	========================== */
-	ClassAttendanceSessionCSSTSnapshot datatypes.JSONMap `gorm:"type:jsonb;column:class_attendance_session_csst_snapshot" json:"class_attendance_session_csst_snapshot,omitempty"`
-
-	/* ==========================
-	   SNAPSHOT RULE (jejak saat generate)
-	========================== */
-	ClassAttendanceSessionRuleSnapshot datatypes.JSONMap `gorm:"type:jsonb;column:class_attendance_session_rule_snapshot" json:"class_attendance_session_rule_snapshot,omitempty"`
-
-	/* ===========================================================
-	   GENERATED (read-only; diisi DB dari snapshot → CACHE)
-	=========================================================== */
-
-	// IDs turunan (dari CSST snapshot)
-	ClassAttendanceSessionCSSTIDCache    *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_csst_id_cache" json:"class_attendance_session_csst_id_cache,omitempty"`
-	ClassAttendanceSessionSubjectIDCache *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_subject_id_cache" json:"class_attendance_session_subject_id_cache,omitempty"`
-	ClassAttendanceSessionSectionIDCache *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_section_id_cache" json:"class_attendance_session_section_id_cache,omitempty"`
-	ClassAttendanceSessionTeacherIDCache *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_teacher_id_cache" json:"class_attendance_session_teacher_id_cache,omitempty"`
-	ClassAttendanceSessionRoomIDCache    *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_room_id_cache" json:"class_attendance_session_room_id_cache,omitempty"`
-
-	// Label turunan (dari CSST snapshot)
-	ClassAttendanceSessionSubjectCodeCache *string `gorm:"type:text;->;column:class_attendance_session_subject_code_cache" json:"class_attendance_session_subject_code_cache,omitempty"`
-	ClassAttendanceSessionSubjectNameCache *string `gorm:"type:text;->;column:class_attendance_session_subject_name_cache" json:"class_attendance_session_subject_name_cache,omitempty"`
-	ClassAttendanceSessionSectionNameCache *string `gorm:"type:text;->;column:class_attendance_session_section_name_cache" json:"class_attendance_session_section_name_cache,omitempty"`
-	ClassAttendanceSessionTeacherNameCache *string `gorm:"type:text;->;column:class_attendance_session_teacher_name_cache" json:"class_attendance_session_teacher_name_cache,omitempty"`
-	ClassAttendanceSessionRoomNameCache    *string `gorm:"type:text;->;column:class_attendance_session_room_name_cache" json:"class_attendance_session_room_name_cache,omitempty"`
-
-	// Display title hasil komposisi (generated)
-	ClassAttendanceSessionDisplayTitle *string `gorm:"type:text;->;column:class_attendance_session_display_title" json:"class_attendance_session_display_title,omitempty"`
-
-	// Turunan dari RULE snapshot (generated → CACHE)
-	ClassAttendanceSessionRuleDayOfWeekCache  *int    `gorm:"->;column:class_attendance_session_rule_day_of_week_cache" json:"class_attendance_session_rule_day_of_week_cache,omitempty"`
-	ClassAttendanceSessionRuleStartTimeCache  *string `gorm:"type:text;->;column:class_attendance_session_rule_start_time_cache" json:"class_attendance_session_rule_start_time_cache,omitempty"`
-	ClassAttendanceSessionRuleEndTimeCache    *string `gorm:"type:text;->;column:class_attendance_session_rule_end_time_cache" json:"class_attendance_session_rule_end_time_cache,omitempty"`
-	ClassAttendanceSessionRuleWeekParityCache *string `gorm:"type:text;->;column:class_attendance_session_rule_week_parity_cache" json:"class_attendance_session_rule_week_parity_cache,omitempty"`
 
 	// Audit
 	ClassAttendanceSessionCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:class_attendance_session_created_at" json:"class_attendance_session_created_at"`
@@ -133,20 +97,4 @@ type ClassAttendanceSessionModel struct {
 
 func (ClassAttendanceSessionModel) TableName() string {
 	return "class_attendance_sessions"
-}
-
-// Optional guard: pastikan JSONMap tidak NULL saat insert/update
-func (m *ClassAttendanceSessionModel) BeforeSave(tx *gorm.DB) error {
-	if m.ClassAttendanceSessionCSSTSnapshot == nil {
-		m.ClassAttendanceSessionCSSTSnapshot = datatypes.JSONMap{}
-	}
-	if m.ClassAttendanceSessionRuleSnapshot == nil && m.ClassAttendanceSessionRuleID != nil {
-		// Kalau ada rule_id, kita prefer ada snapshot (biar lolos CHECK).
-		// Diisi minimal dulu; nanti generator bisa overwrite.
-		m.ClassAttendanceSessionRuleSnapshot = datatypes.JSONMap{
-			"rule_id": m.ClassAttendanceSessionRuleID.String(),
-		}
-	}
-	// type_snapshot boleh kosong, gak ada CHECK di DB
-	return nil
 }

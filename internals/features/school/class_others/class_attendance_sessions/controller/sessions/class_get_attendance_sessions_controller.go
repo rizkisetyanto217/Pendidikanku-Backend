@@ -190,10 +190,12 @@ func resolveSchoolID(c *fiber.Ctx) (uuid.UUID, error) {
 	return schoolID, nil
 }
 
-/* =========================================================
-   MODE: STUDENT TIMELINE
-========================================================= */
+/*
+	=========================================================
+	  MODE: STUDENT TIMELINE
 
+=========================================================
+*/
 func (ctrl *ClassAttendanceSessionController) listStudentTimeline(
 	c *fiber.Ctx,
 	schoolID uuid.UUID,
@@ -246,32 +248,24 @@ func (ctrl *ClassAttendanceSessionController) listStudentTimeline(
 
 	// 4) Row hasil join session + participant (1 siswa, bisa null)
 	type row struct {
-		// Session
+		// Session (hanya field yang ada di Compact DTO baru)
 		SessionID        uuid.UUID  `gorm:"column:class_attendance_session_id"`
 		SessionSchoolID  uuid.UUID  `gorm:"column:class_attendance_session_school_id"`
 		Date             time.Time  `gorm:"column:class_attendance_session_date"`
 		StartsAt         *time.Time `gorm:"column:class_attendance_session_starts_at"`
 		EndsAt           *time.Time `gorm:"column:class_attendance_session_ends_at"`
 		Title            *string    `gorm:"column:class_attendance_session_title"`
-		DisplayTitle     *string    `gorm:"column:class_attendance_session_display_title"`
 		Gen              *string    `gorm:"column:class_attendance_session_general_info"`
 		Status           string     `gorm:"column:class_attendance_session_status"`
 		AttendanceStatus string     `gorm:"column:class_attendance_session_attendance_status"`
 
-		// Caches untuk map ke CompactResponse
-		SubjectNameCache *string    `gorm:"column:class_attendance_session_subject_name_cache"`
-		SubjectCodeCache *string    `gorm:"column:class_attendance_session_subject_code_cache"`
-		SectionNameCache *string    `gorm:"column:class_attendance_session_section_name_cache"`
-		RoomNameCache    *string    `gorm:"column:class_attendance_session_room_name_cache"`
-		TeacherNameCache *string    `gorm:"column:class_attendance_session_teacher_name_cache"`
-		TeacherIDCache   *uuid.UUID `gorm:"column:class_attendance_session_teacher_id_cache"`
-		SectionIDCache   *uuid.UUID `gorm:"column:class_attendance_session_section_id_cache"`
-		SubjectIDCache   *uuid.UUID `gorm:"column:class_attendance_session_subject_id_cache"`
-		CSSTIDCache      *uuid.UUID `gorm:"column:class_attendance_session_csst_id_cache"`
+		MeetingNumber *int       `gorm:"column:class_attendance_session_meeting_number"`
+		TeacherID     *uuid.UUID `gorm:"column:class_attendance_session_teacher_id"`
+		RoomID        *uuid.UUID `gorm:"column:class_attendance_session_class_room_id"`
+		CSSTID        *uuid.UUID `gorm:"column:class_attendance_session_csst_id"`
 
 		TypeID   *uuid.UUID     `gorm:"column:class_attendance_session_type_id"`
 		TypeSnap datatypes.JSON `gorm:"column:class_attendance_session_type_snapshot"`
-		CSSTSnap datatypes.JSON `gorm:"column:class_attendance_session_csst_snapshot"`
 
 		// Participant (bisa NULL)
 		ParticipantID    *uuid.UUID `gorm:"column:class_attendance_session_participant_id"`
@@ -280,7 +274,7 @@ func (ctrl *ClassAttendanceSessionController) listStudentTimeline(
 
 	db := ctrl.DB
 
-	// 5) Base query: mulai dari SESSIONS, left join participant 1 murid
+	// 5) Base query: mulai dari SESSIONS, join ke SCST (enrollment murid)
 	q := db.Table("class_attendance_sessions AS cas").
 		Where("cas.class_attendance_session_school_id = ?", schoolID).
 		Where("cas.class_attendance_session_deleted_at IS NULL").
@@ -329,10 +323,8 @@ func (ctrl *ClassAttendanceSessionController) listStudentTimeline(
 
 	// Filter participant di level join (akan otomatis menghilangkan sesi yang tidak punya participant jika filter dipakai)
 	if state != "" {
-		// enum, cukup bandingkan langsung tanpa LOWER()
 		q = q.Where("p.class_attendance_session_participant_state = ?", state)
 	}
-
 	if typeIDPtr != nil {
 		q = q.Where("p.class_attendance_session_participant_type_id = ?", *typeIDPtr)
 	}
@@ -362,22 +354,15 @@ func (ctrl *ClassAttendanceSessionController) listStudentTimeline(
 			cas.class_attendance_session_starts_at,
 			cas.class_attendance_session_ends_at,
 			cas.class_attendance_session_title,
-			cas.class_attendance_session_display_title,
 			cas.class_attendance_session_general_info,
 			cas.class_attendance_session_status,
 			cas.class_attendance_session_attendance_status,
-			cas.class_attendance_session_subject_name_cache,
-			cas.class_attendance_session_subject_code_cache,
-			cas.class_attendance_session_section_name_cache,
-			cas.class_attendance_session_room_name_cache,
-			cas.class_attendance_session_teacher_name_cache,
-			cas.class_attendance_session_teacher_id_cache,
-			cas.class_attendance_session_section_id_cache,
-			cas.class_attendance_session_subject_id_cache,
-			cas.class_attendance_session_csst_id_cache,
+			cas.class_attendance_session_meeting_number,
+			cas.class_attendance_session_teacher_id,
+			cas.class_attendance_session_class_room_id,
+			cas.class_attendance_session_csst_id,
 			cas.class_attendance_session_type_id,
 			cas.class_attendance_session_type_snapshot,
-			cas.class_attendance_session_csst_snapshot,
 			p.class_attendance_session_participant_id,
 			p.class_attendance_session_participant_state
 		`).
@@ -413,24 +398,17 @@ func (ctrl *ClassAttendanceSessionController) listStudentTimeline(
 				ClassAttendanceSessionStartsAt: r.StartsAt,
 				ClassAttendanceSessionEndsAt:   r.EndsAt,
 
-				ClassAttendanceSessionTitle:        r.Title,
-				ClassAttendanceSessionDisplayTitle: r.DisplayTitle,
-				ClassAttendanceSessionGeneralInfo:  gen,
+				ClassAttendanceSessionTitle:       r.Title,
+				ClassAttendanceSessionGeneralInfo: gen,
+
+				ClassAttendanceSessionMeetingNumber: r.MeetingNumber,
 
 				ClassAttendanceSessionStatus:           r.Status,
 				ClassAttendanceSessionAttendanceStatus: r.AttendanceStatus,
 
-				ClassAttendanceSessionSubjectNameCache: r.SubjectNameCache,
-				ClassAttendanceSessionSubjectCodeCache: r.SubjectCodeCache,
-				ClassAttendanceSessionSectionNameCache: r.SectionNameCache,
-				ClassAttendanceSessionRoomNameCache:    r.RoomNameCache,
-				ClassAttendanceSessionTeacherNameCache: r.TeacherNameCache,
-				ClassAttendanceSessionTeacherIdCache:   r.TeacherIDCache,
-				ClassAttendanceSessionSectionIdCache:   r.SectionIDCache,
-				ClassAttendanceSessionSubjectIdCache:   r.SubjectIDCache,
-				ClassAttendanceSessionCSSTIdCache:      r.CSSTIDCache,
-
-				ClassAttendanceSessionCSSTSnapshot: jsonToMap(r.CSSTSnap),
+				ClassAttendanceSessionTeacherId:   r.TeacherID,
+				ClassAttendanceSessionClassRoomId: r.RoomID,
+				ClassAttendanceSessionCSSTId:      r.CSSTID,
 
 				ClassAttendanceSessionTypeId:       r.TypeID,
 				ClassAttendanceSessionTypeSnapshot: jsonToMap(r.TypeSnap),
@@ -442,7 +420,6 @@ func (ctrl *ClassAttendanceSessionController) listStudentTimeline(
 		if r.ParticipantID != nil {
 			item.Participant.ID = *r.ParticipantID
 		}
-
 		if r.ParticipantState != nil && strings.TrimSpace(*r.ParticipantState) != "" {
 			item.Participant.State = *r.ParticipantState
 		} else {
@@ -456,11 +433,13 @@ func (ctrl *ClassAttendanceSessionController) listStudentTimeline(
 	return helper.JsonList(c, "ok", items, pg)
 }
 
-/* =========================================================
-   MODE: TEACHER TIMELINE
-   (mirip student_timeline tapi anchor di guru)
-========================================================= */
+/*
+	=========================================================
+	  MODE: TEACHER TIMELINE
+	  (mirip student_timeline tapi anchor di guru)
 
+=========================================================
+*/
 func (ctrl *ClassAttendanceSessionController) listTeacherTimeline(
 	c *fiber.Ctx,
 	schoolID uuid.UUID,
@@ -487,7 +466,6 @@ func (ctrl *ClassAttendanceSessionController) listTeacherTimeline(
 
 	// 3) Filter participant (state/type/is_passed)
 	state := strings.ToLower(strings.TrimSpace(c.Query("participant_state")))
-	// 🔍 optional: filter by session title
 	titleFilter := strings.TrimSpace(c.Query("title"))
 
 	typeIDPtr, err := parseUUIDPtr(c.Query("participant_type_id"), "participant_type_id")
@@ -519,25 +497,17 @@ func (ctrl *ClassAttendanceSessionController) listTeacherTimeline(
 		StartsAt         *time.Time `gorm:"column:class_attendance_session_starts_at"`
 		EndsAt           *time.Time `gorm:"column:class_attendance_session_ends_at"`
 		Title            *string    `gorm:"column:class_attendance_session_title"`
-		DisplayTitle     *string    `gorm:"column:class_attendance_session_display_title"`
 		Gen              *string    `gorm:"column:class_attendance_session_general_info"`
 		Status           string     `gorm:"column:class_attendance_session_status"`
 		AttendanceStatus string     `gorm:"column:class_attendance_session_attendance_status"`
 
-		// Caches
-		SubjectNameCache *string    `gorm:"column:class_attendance_session_subject_name_cache"`
-		SubjectCodeCache *string    `gorm:"column:class_attendance_session_subject_code_cache"`
-		SectionNameCache *string    `gorm:"column:class_attendance_session_section_name_cache"`
-		RoomNameCache    *string    `gorm:"column:class_attendance_session_room_name_cache"`
-		TeacherNameCache *string    `gorm:"column:class_attendance_session_teacher_name_cache"`
-		TeacherIDCache   *uuid.UUID `gorm:"column:class_attendance_session_teacher_id_cache"`
-		SectionIDCache   *uuid.UUID `gorm:"column:class_attendance_session_section_id_cache"`
-		SubjectIDCache   *uuid.UUID `gorm:"column:class_attendance_session_subject_id_cache"`
-		CSSTIDCache      *uuid.UUID `gorm:"column:class_attendance_session_csst_id_cache"`
+		MeetingNumber *int       `gorm:"column:class_attendance_session_meeting_number"`
+		TeacherID     *uuid.UUID `gorm:"column:class_attendance_session_teacher_id"`
+		RoomID        *uuid.UUID `gorm:"column:class_attendance_session_class_room_id"`
+		CSSTID        *uuid.UUID `gorm:"column:class_attendance_session_csst_id"`
 
 		TypeID   *uuid.UUID     `gorm:"column:class_attendance_session_type_id"`
 		TypeSnap datatypes.JSON `gorm:"column:class_attendance_session_type_snapshot"`
-		CSSTSnap datatypes.JSON `gorm:"column:class_attendance_session_csst_snapshot"`
 
 		// Participant guru (bisa NULL)
 		ParticipantID          *uuid.UUID `gorm:"column:class_attendance_session_participant_id"`
@@ -589,10 +559,8 @@ func (ctrl *ClassAttendanceSessionController) listTeacherTimeline(
 
 	// Filter participant di level join
 	if state != "" {
-		// enum attendance_state_enum
 		q = q.Where("p.class_attendance_session_participant_state = ?", state)
 	}
-
 	if typeIDPtr != nil {
 		q = q.Where("p.class_attendance_session_participant_type_id = ?", *typeIDPtr)
 	}
@@ -622,22 +590,15 @@ func (ctrl *ClassAttendanceSessionController) listTeacherTimeline(
 			cas.class_attendance_session_starts_at,
 			cas.class_attendance_session_ends_at,
 			cas.class_attendance_session_title,
-			cas.class_attendance_session_display_title,
 			cas.class_attendance_session_general_info,
 			cas.class_attendance_session_status,
 			cas.class_attendance_session_attendance_status,
-			cas.class_attendance_session_subject_name_cache,
-			cas.class_attendance_session_subject_code_cache,
-			cas.class_attendance_session_section_name_cache,
-			cas.class_attendance_session_room_name_cache,
-			cas.class_attendance_session_teacher_name_cache,
-			cas.class_attendance_session_teacher_id_cache,
-			cas.class_attendance_session_section_id_cache,
-			cas.class_attendance_session_subject_id_cache,
-			cas.class_attendance_session_csst_id_cache,
+			cas.class_attendance_session_meeting_number,
+			cas.class_attendance_session_teacher_id,
+			cas.class_attendance_session_class_room_id,
+			cas.class_attendance_session_csst_id,
 			cas.class_attendance_session_type_id,
 			cas.class_attendance_session_type_snapshot,
-			cas.class_attendance_session_csst_snapshot,
 			p.class_attendance_session_participant_id,
 			p.class_attendance_session_participant_state,
 			p.class_attendance_session_participant_teacher_role
@@ -674,24 +635,17 @@ func (ctrl *ClassAttendanceSessionController) listTeacherTimeline(
 				ClassAttendanceSessionStartsAt: r.StartsAt,
 				ClassAttendanceSessionEndsAt:   r.EndsAt,
 
-				ClassAttendanceSessionTitle:        r.Title,
-				ClassAttendanceSessionDisplayTitle: r.DisplayTitle,
-				ClassAttendanceSessionGeneralInfo:  gen,
+				ClassAttendanceSessionTitle:       r.Title,
+				ClassAttendanceSessionGeneralInfo: gen,
+
+				ClassAttendanceSessionMeetingNumber: r.MeetingNumber,
 
 				ClassAttendanceSessionStatus:           r.Status,
 				ClassAttendanceSessionAttendanceStatus: r.AttendanceStatus,
 
-				ClassAttendanceSessionSubjectNameCache: r.SubjectNameCache,
-				ClassAttendanceSessionSubjectCodeCache: r.SubjectCodeCache,
-				ClassAttendanceSessionSectionNameCache: r.SectionNameCache,
-				ClassAttendanceSessionRoomNameCache:    r.RoomNameCache,
-				ClassAttendanceSessionTeacherNameCache: r.TeacherNameCache,
-				ClassAttendanceSessionTeacherIdCache:   r.TeacherIDCache,
-				ClassAttendanceSessionSectionIdCache:   r.SectionIDCache,
-				ClassAttendanceSessionSubjectIdCache:   r.SubjectIDCache,
-				ClassAttendanceSessionCSSTIdCache:      r.CSSTIDCache,
-
-				ClassAttendanceSessionCSSTSnapshot: jsonToMap(r.CSSTSnap),
+				ClassAttendanceSessionTeacherId:   r.TeacherID,
+				ClassAttendanceSessionClassRoomId: r.RoomID,
+				ClassAttendanceSessionCSSTId:      r.CSSTID,
 
 				ClassAttendanceSessionTypeId:       r.TypeID,
 				ClassAttendanceSessionTypeSnapshot: jsonToMap(r.TypeSnap),
@@ -1101,38 +1055,13 @@ func (ctrl *ClassAttendanceSessionController) listSessionsDefault(
 		SchoolID uuid.UUID `gorm:"column:class_attendance_session_school_id"`
 
 		ScheduleID *uuid.UUID `gorm:"column:class_attendance_session_schedule_id"`
-		RuleID     *uuid.UUID `gorm:"column:class_attendance_session_rule_id"`
 
-		TypeID   *uuid.UUID     `gorm:"column:class_attendance_session_type_id"`
-		TypeSnap datatypes.JSON `gorm:"column:class_attendance_session_type_snapshot"`
+		Slug  *string `gorm:"column:class_attendance_session_slug"`
+		Title *string `gorm:"column:class_attendance_session_title"`
+		Gen   *string `gorm:"column:class_attendance_session_general_info"`
+		Note  *string `gorm:"column:class_attendance_session_note"`
 
-		Slug *string `gorm:"column:class_attendance_session_slug"`
-
-		Date     time.Time  `gorm:"column:class_attendance_session_date"`
-		StartsAt *time.Time `gorm:"column:class_attendance_session_starts_at"`
-		EndsAt   *time.Time `gorm:"column:class_attendance_session_ends_at"`
-
-		Status           string `gorm:"column:class_attendance_session_status"`
-		AttendanceStatus string `gorm:"column:class_attendance_session_attendance_status"`
-		Locked           bool   `gorm:"column:class_attendance_session_locked"`
-		IsOverride       bool   `gorm:"column:class_attendance_session_is_override"`
-		IsCanceled       bool   `gorm:"column:class_attendance_session_is_canceled"`
-
-		OriginalStartAt *time.Time `gorm:"column:class_attendance_session_original_start_at"`
-		OriginalEndAt   *time.Time `gorm:"column:class_attendance_session_original_end_at"`
-		Kind            *string    `gorm:"column:class_attendance_session_kind"`
-		OverrideReason  *string    `gorm:"column:class_attendance_session_override_reason"`
-		OverrideEventID *uuid.UUID `gorm:"column:class_attendance_session_override_event_id"`
-
-		TeacherID *uuid.UUID `gorm:"column:class_attendance_session_teacher_id"`
-		RoomID    *uuid.UUID `gorm:"column:class_attendance_session_class_room_id"`
-
-		CSSTID *uuid.UUID `gorm:"column:class_attendance_session_csst_id"`
-
-		Title        *string `gorm:"column:class_attendance_session_title"`
-		DisplayTitle *string `gorm:"column:class_attendance_session_display_title"`
-		Gen          *string `gorm:"column:class_attendance_session_general_info"`
-		Note         *string `gorm:"column:class_attendance_session_note"`
+		MeetingNumber *int `gorm:"column:class_attendance_session_meeting_number"`
 
 		PresentCount *int `gorm:"column:class_attendance_session_present_count"`
 		AbsentCount  *int `gorm:"column:class_attendance_session_absent_count"`
@@ -1141,25 +1070,28 @@ func (ctrl *ClassAttendanceSessionController) listSessionsDefault(
 		SickCount    *int `gorm:"column:class_attendance_session_sick_count"`
 		LeaveCount   *int `gorm:"column:class_attendance_session_leave_count"`
 
-		CSSTSnap datatypes.JSON `gorm:"column:class_attendance_session_csst_snapshot"`
+		Date     time.Time  `gorm:"column:class_attendance_session_date"`
+		StartsAt *time.Time `gorm:"column:class_attendance_session_starts_at"`
+		EndsAt   *time.Time `gorm:"column:class_attendance_session_ends_at"`
 
-		// CACHE kolom turunan dari snapshot
-		CSSTIDCache      *uuid.UUID `gorm:"column:class_attendance_session_csst_id_cache"`
-		SubjectIDCache   *uuid.UUID `gorm:"column:class_attendance_session_subject_id_cache"`
-		SectionIDCache   *uuid.UUID `gorm:"column:class_attendance_session_section_id_cache"`
-		TeacherIDCache   *uuid.UUID `gorm:"column:class_attendance_session_teacher_id_cache"`
-		RoomIDCache      *uuid.UUID `gorm:"column:class_attendance_session_room_id_cache"`
-		SubjectCodeCache *string    `gorm:"column:class_attendance_session_subject_code_cache"`
-		SubjectNameCache *string    `gorm:"column:class_attendance_session_subject_name_cache"`
-		SectionNameCache *string    `gorm:"column:class_attendance_session_section_name_cache"`
-		TeacherNameCache *string    `gorm:"column:class_attendance_session_teacher_name_cache"`
-		RoomNameCache    *string    `gorm:"column:class_attendance_session_room_name_cache"`
+		Status           string `gorm:"column:class_attendance_session_status"`
+		AttendanceStatus string `gorm:"column:class_attendance_session_attendance_status"`
+		Locked           bool   `gorm:"column:class_attendance_session_locked"`
 
-		RuleSnapshot        datatypes.JSON `gorm:"column:class_attendance_session_rule_snapshot"`
-		RuleDayOfWeekCache  *int           `gorm:"column:class_attendance_session_rule_day_of_week_cache"`
-		RuleStartTimeCache  *string        `gorm:"column:class_attendance_session_rule_start_time_cache"`
-		RuleEndTimeCache    *string        `gorm:"column:class_attendance_session_rule_end_time_cache"`
-		RuleWeekParityCache *string        `gorm:"column:class_attendance_session_rule_week_parity_cache"`
+		IsOverride      bool       `gorm:"column:class_attendance_session_is_override"`
+		IsCanceled      bool       `gorm:"column:class_attendance_session_is_canceled"`
+		OriginalStartAt *time.Time `gorm:"column:class_attendance_session_original_start_at"`
+		OriginalEndAt   *time.Time `gorm:"column:class_attendance_session_original_end_at"`
+		Kind            *string    `gorm:"column:class_attendance_session_kind"`
+		OverrideReason  *string    `gorm:"column:class_attendance_session_override_reason"`
+		OverrideEventID *uuid.UUID `gorm:"column:class_attendance_session_override_event_id"`
+
+		TeacherID *uuid.UUID `gorm:"column:class_attendance_session_teacher_id"`
+		RoomID    *uuid.UUID `gorm:"column:class_attendance_session_class_room_id"`
+		CSSTID    *uuid.UUID `gorm:"column:class_attendance_session_csst_id"`
+
+		TypeID   *uuid.UUID     `gorm:"column:class_attendance_session_type_id"`
+		TypeSnap datatypes.JSON `gorm:"column:class_attendance_session_type_snapshot"`
 
 		CreatedAt time.Time  `gorm:"column:class_attendance_session_created_at"`
 		UpdatedAt time.Time  `gorm:"column:class_attendance_session_updated_at"`
@@ -1200,9 +1132,6 @@ func (ctrl *ClassAttendanceSessionController) listSessionsDefault(
 			cas.class_attendance_session_id,
 			cas.class_attendance_session_school_id,
 			cas.class_attendance_session_schedule_id,
-			cas.class_attendance_session_rule_id,
-			cas.class_attendance_session_type_id,
-			cas.class_attendance_session_type_snapshot,
 			cas.class_attendance_session_slug,
 			cas.class_attendance_session_date,
 			cas.class_attendance_session_starts_at,
@@ -1221,31 +1150,17 @@ func (ctrl *ClassAttendanceSessionController) listSessionsDefault(
 			cas.class_attendance_session_class_room_id,
 			cas.class_attendance_session_csst_id,
 			cas.class_attendance_session_title,
-			cas.class_attendance_session_display_title,
 			cas.class_attendance_session_general_info,
 			cas.class_attendance_session_note,
+			cas.class_attendance_session_meeting_number,
 			cas.class_attendance_session_present_count,
 			cas.class_attendance_session_absent_count,
 			cas.class_attendance_session_late_count,
 			cas.class_attendance_session_excused_count,
 			cas.class_attendance_session_sick_count,
 			cas.class_attendance_session_leave_count,
-			cas.class_attendance_session_csst_snapshot,
-			cas.class_attendance_session_csst_id_cache,
-			cas.class_attendance_session_subject_id_cache,
-			cas.class_attendance_session_section_id_cache,
-			cas.class_attendance_session_teacher_id_cache,
-			cas.class_attendance_session_room_id_cache,
-			cas.class_attendance_session_subject_code_cache,
-			cas.class_attendance_session_subject_name_cache,
-			cas.class_attendance_session_section_name_cache,
-			cas.class_attendance_session_teacher_name_cache,
-			cas.class_attendance_session_room_name_cache,
-			cas.class_attendance_session_rule_snapshot,
-			cas.class_attendance_session_rule_day_of_week_cache,
-			cas.class_attendance_session_rule_start_time_cache,
-			cas.class_attendance_session_rule_end_time_cache,
-			cas.class_attendance_session_rule_week_parity_cache,
+			cas.class_attendance_session_type_id,
+			cas.class_attendance_session_type_snapshot,
 			cas.class_attendance_session_created_at,
 			cas.class_attendance_session_updated_at,
 			cas.class_attendance_session_deleted_at
@@ -1284,17 +1199,23 @@ func (ctrl *ClassAttendanceSessionController) listSessionsDefault(
 			gen = *r.Gen
 		}
 
+		var typeSnap map[string]any
+		if len(r.TypeSnap) > 0 {
+			typeSnap = jsonToMap(r.TypeSnap)
+		}
+
 		return sessiondto.ClassAttendanceSessionResponse{
 			ClassAttendanceSessionId:         r.ID,
 			ClassAttendanceSessionSchoolId:   r.SchoolID,
 			ClassAttendanceSessionScheduleId: r.ScheduleID,
 
-			ClassAttendanceSessionSlug:         r.Slug,
-			ClassAttendanceSessionTitle:        r.Title,
-			ClassAttendanceSessionDisplayTitle: r.DisplayTitle,
+			ClassAttendanceSessionSlug:  r.Slug,
+			ClassAttendanceSessionTitle: r.Title,
 
 			ClassAttendanceSessionGeneralInfo: gen,
 			ClassAttendanceSessionNote:        r.Note,
+
+			ClassAttendanceSessionMeetingNumber: r.MeetingNumber,
 
 			ClassAttendanceSessionPresentCount: r.PresentCount,
 			ClassAttendanceSessionAbsentCount:  r.AbsentCount,
@@ -1324,26 +1245,7 @@ func (ctrl *ClassAttendanceSessionController) listSessionsDefault(
 			ClassAttendanceSessionCSSTId:      r.CSSTID,
 
 			ClassAttendanceSessionTypeId:       r.TypeID,
-			ClassAttendanceSessionTypeSnapshot: jsonToMap(r.TypeSnap),
-
-			ClassAttendanceSessionCSSTSnapshot: jsonToMap(r.CSSTSnap),
-			ClassAttendanceSessionRuleSnapshot: jsonToMap(r.RuleSnapshot),
-
-			ClassAttendanceSessionCSSTIdCache:      r.CSSTIDCache,
-			ClassAttendanceSessionSubjectIdCache:   r.SubjectIDCache,
-			ClassAttendanceSessionSectionIdCache:   r.SectionIDCache,
-			ClassAttendanceSessionTeacherIdCache:   r.TeacherIDCache,
-			ClassAttendanceSessionRoomIdCache:      r.RoomIDCache,
-			ClassAttendanceSessionSubjectCodeCache: r.SubjectCodeCache,
-			ClassAttendanceSessionSubjectNameCache: r.SubjectNameCache,
-			ClassAttendanceSessionSectionNameCache: r.SectionNameCache,
-			ClassAttendanceSessionTeacherNameCache: r.TeacherNameCache,
-			ClassAttendanceSessionRoomNameCache:    r.RoomNameCache,
-
-			ClassAttendanceSessionRuleDayOfWeekCache:  r.RuleDayOfWeekCache,
-			ClassAttendanceSessionRuleStartTimeCache:  r.RuleStartTimeCache,
-			ClassAttendanceSessionRuleEndTimeCache:    r.RuleEndTimeCache,
-			ClassAttendanceSessionRuleWeekParityCache: r.RuleWeekParityCache,
+			ClassAttendanceSessionTypeSnapshot: typeSnap,
 
 			ClassAttendanceSessionCreatedAt: r.CreatedAt,
 			ClassAttendanceSessionUpdatedAt: r.UpdatedAt,
@@ -1357,6 +1259,11 @@ func (ctrl *ClassAttendanceSessionController) listSessionsDefault(
 			gen = *r.Gen
 		}
 
+		var typeSnap map[string]any
+		if len(r.TypeSnap) > 0 {
+			typeSnap = jsonToMap(r.TypeSnap)
+		}
+
 		return sessiondto.ClassAttendanceSessionCompactResponse{
 			ClassAttendanceSessionId:       r.ID,
 			ClassAttendanceSessionSchoolId: r.SchoolID,
@@ -1365,27 +1272,20 @@ func (ctrl *ClassAttendanceSessionController) listSessionsDefault(
 			ClassAttendanceSessionStartsAt: r.StartsAt,
 			ClassAttendanceSessionEndsAt:   r.EndsAt,
 
-			ClassAttendanceSessionTitle:        r.Title,
-			ClassAttendanceSessionDisplayTitle: r.DisplayTitle,
-			ClassAttendanceSessionGeneralInfo:  gen,
+			ClassAttendanceSessionTitle:       r.Title,
+			ClassAttendanceSessionGeneralInfo: gen,
+
+			ClassAttendanceSessionMeetingNumber: r.MeetingNumber,
 
 			ClassAttendanceSessionStatus:           r.Status,
 			ClassAttendanceSessionAttendanceStatus: r.AttendanceStatus,
 
-			ClassAttendanceSessionSubjectNameCache: r.SubjectNameCache,
-			ClassAttendanceSessionSubjectCodeCache: r.SubjectCodeCache,
-			ClassAttendanceSessionSectionNameCache: r.SectionNameCache,
-			ClassAttendanceSessionRoomNameCache:    r.RoomNameCache,
-			ClassAttendanceSessionTeacherNameCache: r.TeacherNameCache,
-			ClassAttendanceSessionTeacherIdCache:   r.TeacherIDCache,
-			ClassAttendanceSessionSectionIdCache:   r.SectionIDCache,
-			ClassAttendanceSessionSubjectIdCache:   r.SubjectIDCache,
-			ClassAttendanceSessionCSSTIdCache:      r.CSSTIDCache,
-
-			ClassAttendanceSessionCSSTSnapshot: jsonToMap(r.CSSTSnap),
+			ClassAttendanceSessionTeacherId:   r.TeacherID,
+			ClassAttendanceSessionClassRoomId: r.RoomID,
+			ClassAttendanceSessionCSSTId:      r.CSSTID,
 
 			ClassAttendanceSessionTypeId:       r.TypeID,
-			ClassAttendanceSessionTypeSnapshot: jsonToMap(r.TypeSnap),
+			ClassAttendanceSessionTypeSnapshot: typeSnap,
 		}
 	}
 

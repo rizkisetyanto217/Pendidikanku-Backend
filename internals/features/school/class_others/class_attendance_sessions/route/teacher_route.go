@@ -20,9 +20,20 @@ func AttendanceSessionsTeacherRoutes(r fiber.Router, db *gorm.DB) {
 	// Attendance Sessions
 	// =====================
 	sGroup := base.Group("/attendance-sessions")
+
+	// GET pakai controller baru ListClassAttendanceSessions
+	sGroup.Get("/", sessionController.ListClassAttendanceSessions)
+
+	// POST pakai controller baru CreateClassAttendanceSession
 	sGroup.Post("/", sessionController.CreateClassAttendanceSession)
-	sGroup.Put("/:id", sessionController.PatchClassAttendanceSessionUrl)
-	sGroup.Delete("/:id", sessionController.DeleteClassAttendanceSessionUrl)
+
+	// (PUT/DELETE URL sudah tidak dipakai di versi baru, karena URL di-handle via
+	//  DTO UpdateClassAttendanceSessionRequest: urls_add / urls_patch / urls_delete)
+	// Kalau nanti kamu bikin endpoint PATCH session, tinggal tambahin:
+	// sGroup.Patch("/:id", sessionController.PatchClassAttendanceSession)
+	// dan implement method-nya di controller.
+	// Kalau mau delete session:
+	// sGroup.Delete("/:id", sessionController.DeleteClassAttendanceSession)
 
 	// =====================
 	// User Attendance Types (CRUD)

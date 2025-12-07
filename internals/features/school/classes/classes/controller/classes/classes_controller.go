@@ -649,7 +649,7 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 						// SUBJECT cache
 						ClassSectionSubjectTeacherTotalBooks:       0,
 						ClassSectionSubjectTeacherClassSubjectID:   cs.ClassSubjectID,
-						ClassSectionSubjectTeacherSubjectIDCache:   &cs.ClassSubjectSubjectID,
+						ClassSectionSubjectTeacherSubjectID:        &cs.ClassSubjectSubjectID,
 						ClassSectionSubjectTeacherSubjectNameCache: cs.ClassSubjectSubjectNameCache,
 						ClassSectionSubjectTeacherSubjectCodeCache: cs.ClassSubjectSubjectCodeCache,
 						ClassSectionSubjectTeacherSubjectSlugCache: cs.ClassSubjectSubjectSlugCache,

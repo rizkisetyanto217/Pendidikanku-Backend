@@ -253,15 +253,19 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		case "subject_name":
 			orderCol = "class_section_subject_teacher_subject_name_cache"
 		case "section_name":
-			orderCol = "class_section_subject_teacher_class_section_name_snapshot"
+			// 🆕 pakai *_name_cache
+			orderCol = "class_section_subject_teacher_class_section_name_cache"
 		case "teacher_name":
-			orderCol = "class_section_subject_teacher_school_teacher_name_snapshot"
+			// 🆕 pakai *_name_cache
+			orderCol = "class_section_subject_teacher_school_teacher_name_cache"
 		case "slug":
 			orderCol = "class_section_subject_teacher_slug"
 		case "academic_term_name":
-			orderCol = "class_section_subject_teacher_academic_term_name_snapshot"
+			// 🆕 pakai *_name_cache
+			orderCol = "class_section_subject_teacher_academic_term_name_cache"
 		case "academic_year":
-			orderCol = "class_section_subject_teacher_academic_year_snapshot"
+			// 🆕 pakai *_year_cache
+			orderCol = "class_section_subject_teacher_academic_year_cache"
 		default:
 			return helper.JsonError(c, fiber.StatusBadRequest, "order_by tidak dikenal (gunakan: created_at, updated_at, subject_name, section_name, teacher_name, slug, academic_term_name, academic_year)")
 		}
@@ -299,7 +303,8 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		tx = tx.Where("LOWER(class_section_subject_teacher_subject_name_cache) LIKE ?", like)
 	}
 	if subjectID != nil {
-		tx = tx.Where("class_section_subject_teacher_subject_id_snapshot = ?", *subjectID)
+		// 🆕 pakai kolom subject_id yang baru
+		tx = tx.Where("class_section_subject_teacher_subject_id = ?", *subjectID)
 	}
 	if len(academicTermIDs) > 0 {
 		tx = tx.Where("class_section_subject_teacher_academic_term_id IN ?", academicTermIDs)
@@ -333,11 +338,11 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		like := "%" + qtext + "%"
 		tx = tx.Where(`
 			LOWER(class_section_subject_teacher_slug) LIKE ? OR
-			LOWER(class_section_subject_teacher_class_section_name_snapshot) LIKE ? OR
+			LOWER(class_section_subject_teacher_class_section_name_cache) LIKE ? OR
 			LOWER(class_section_subject_teacher_subject_name_cache) LIKE ? OR
-			LOWER(class_section_subject_teacher_school_teacher_name_snapshot) LIKE ? OR
-			LOWER(class_section_subject_teacher_academic_term_name_snapshot) LIKE ? OR
-			LOWER(class_section_subject_teacher_academic_year_snapshot) LIKE ?`,
+			LOWER(class_section_subject_teacher_school_teacher_name_cache) LIKE ? OR
+			LOWER(class_section_subject_teacher_academic_term_name_cache) LIKE ? OR
+			LOWER(class_section_subject_teacher_academic_year_cache) LIKE ?`,
 			like, like, like, like, like, like,
 		)
 	}
@@ -363,7 +368,8 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		countTx = countTx.Where("class_section_subject_teacher_school_teacher_id = ?", *teacherID)
 	}
 	if subjectID != nil {
-		countTx = countTx.Where("class_section_subject_teacher_subject_id_snapshot = ?", *subjectID)
+		// 🆕 pakai kolom subject_id yang baru
+		countTx = countTx.Where("class_section_subject_teacher_subject_id = ?", *subjectID)
 	}
 	// 🆕 filter by subject_name (LIKE)
 	if subjectName != "" {
@@ -403,11 +409,11 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		like := "%" + qtext + "%"
 		countTx = countTx.Where(`
 			LOWER(class_section_subject_teacher_slug) LIKE ? OR
-			LOWER(class_section_subject_teacher_class_section_name_snapshot) LIKE ? OR
+			LOWER(class_section_subject_teacher_class_section_name_cache) LIKE ? OR
 			LOWER(class_section_subject_teacher_subject_name_cache) LIKE ? OR
-			LOWER(class_section_subject_teacher_school_teacher_name_snapshot) LIKE ? OR
-			LOWER(class_section_subject_teacher_academic_term_name_snapshot) LIKE ? OR
-			LOWER(class_section_subject_teacher_academic_year_snapshot) LIKE ?`,
+			LOWER(class_section_subject_teacher_school_teacher_name_cache) LIKE ? OR
+			LOWER(class_section_subject_teacher_academic_term_name_cache) LIKE ? OR
+			LOWER(class_section_subject_teacher_academic_year_cache) LIKE ?`,
 			like, like, like, like, like, like,
 		)
 	}
@@ -431,8 +437,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	resp := csstDTO.FromClassSectionSubjectTeacherModelsWithOptions(
 		rows,
 		csstDTO.FromCSSTOptions{
-			// ❌ DULU: IncludeAcademicTerm: nestedAcademicTerm || includeAcademicTermList,
-			// ✅ SEKARANG: nested academic_term HANYA kalau query ?nested=academic_term
+			// nested academic_term HANYA kalau query ?nested=academic_term
 			IncludeAcademicTerm: nestedAcademicTerm,
 		},
 	)

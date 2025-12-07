@@ -3,6 +3,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -261,7 +262,7 @@ func fillSubjectCacheForCSST(
 	}
 
 	// isi cache ke row
-	row.ClassSectionSubjectTeacherSubjectIDCache = &sr.SubjectID
+	row.ClassSectionSubjectTeacherSubjectID = &sr.SubjectID
 	if p := trimAny(sr.Name); p != nil {
 		row.ClassSectionSubjectTeacherSubjectNameCache = p
 	}
@@ -271,6 +272,9 @@ func fillSubjectCacheForCSST(
 	if p := trimAny(sr.Slug); p != nil {
 		row.ClassSectionSubjectTeacherSubjectSlugCache = p
 	}
+
+	// 🆕 simpan KKM default class_subject ke cache khusus
+	row.ClassSectionSubjectTeacherMinPassingScoreClassSubjectCache = sr.MinPassingScore
 
 	// KKM default dari class_subject jika CSST belum override
 	if row.ClassSectionSubjectTeacherMinPassingScore == nil && sr.MinPassingScore != nil {
@@ -287,13 +291,6 @@ func fillAcademicTermCacheFromSection(
 	sec *modelClassSection.ClassSectionModel,
 	row *modelCSST.ClassSectionSubjectTeacherModel,
 ) {
-	// asumsi field di model ClassSectionModel:
-	//   ClassSectionAcademicTermID               *uuid.UUID
-	//   ClassSectionAcademicTermNameCache        *string
-	//   ClassSectionAcademicTermSlugCache        *string
-	//   ClassSectionAcademicTermAcademicYearCache *string
-	//   ClassSectionAcademicTermAngkatanCache    *int
-
 	if sec.ClassSectionAcademicTermID != nil {
 		row.ClassSectionSubjectTeacherAcademicTermID = sec.ClassSectionAcademicTermID
 	}
@@ -417,8 +414,13 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 				idCopy := *sec.ClassSectionClassRoomID
 				finalClassRoomID = &idCopy
 			} else if len(sec.ClassSectionClassRoomCache) > 0 {
-				jb := datatypes.JSON(sec.ClassSectionClassRoomCache)
-				finalRoomJSON = &jb
+				// 🆕: ClassSectionClassRoomCache = JSONMap → marshal dulu ke JSON
+				if sec.ClassSectionClassRoomCache != nil {
+					if b, err := json.Marshal(sec.ClassSectionClassRoomCache); err == nil {
+						jb := datatypes.JSON(b)
+						finalRoomJSON = &jb
+					}
+				}
 			}
 		}
 
@@ -452,8 +454,11 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			row.ClassSectionSubjectTeacherClassRoomID = finalClassRoomID
 		}
 		if finalRoomSnap != nil {
-			jb := roomCache.ToJSON(finalRoomSnap)
-			row.ClassSectionSubjectTeacherClassRoomCache = &jb
+			// 🆕: marshal snapshot ruangan ke datatypes.JSON
+			if b, err := json.Marshal(finalRoomSnap); err == nil {
+				jb := datatypes.JSON(b)
+				row.ClassSectionSubjectTeacherClassRoomCache = &jb
+			}
 		} else if finalRoomJSON != nil {
 			row.ClassSectionSubjectTeacherClassRoomCache = finalRoomJSON
 		}
@@ -709,7 +714,7 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 		// Apply perubahan dasar ke row
 		req.Apply(&row)
 
-		// Jika CLASS_SUBJECT berubah → refresh subject cache (+ KKM default kalau belum di-override)
+		// Jika CLASS_SUBJECT berubah → refresh subject cache (+ KKM default + cache class_subject KKM)
 		if classSubjectChanged {
 			if err := fillSubjectCacheForCSST(c.Context(), tx, schoolID, row.ClassSectionSubjectTeacherClassSubjectID, &row); err != nil {
 				var fe *fiber.Error
@@ -809,6 +814,37 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 					if p := trimPtr(t.NameSnap); p != nil {
 						row.ClassSectionSubjectTeacherSchoolTeacherNameCache = p
 					}
+				}
+			}
+		}
+
+		// 🆕 Kalau assistant teacher diubah → rebuild cache asisten
+		if req.ClassSectionSubjectTeacherAssistantSchoolTeacherID != nil &&
+			row.ClassSectionSubjectTeacherAssistantSchoolTeacherID != nil {
+
+			// validasi guru asisten
+			if err := tx.
+				Where("school_teacher_id = ? AND school_teacher_school_id = ? AND school_teacher_deleted_at IS NULL",
+					row.ClassSectionSubjectTeacherAssistantSchoolTeacherID, schoolID).
+				First(&modelSchoolTeacher.SchoolTeacherModel{}).Error; err != nil {
+
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return helper.JsonError(c, http.StatusBadRequest, "Asisten guru tidak ditemukan / bukan guru school ini")
+				}
+				return helper.JsonError(c, http.StatusInternalServerError, "Gagal cek asisten guru")
+			}
+
+			if ats, err := teacherCache.ValidateAndCacheTeacher(tx, schoolID, *row.ClassSectionSubjectTeacherAssistantSchoolTeacherID); err != nil {
+				var fe *fiber.Error
+				if errors.As(err, &fe) {
+					return helper.JsonError(c, fe.Code, fe.Message)
+				}
+				return helper.JsonError(c, http.StatusInternalServerError, "Gagal membuat cache asisten guru")
+			} else if ats != nil {
+				jb := teacherCache.ToJSON(ats)
+				row.ClassSectionSubjectTeacherAssistantSchoolTeacherCache = &jb
+				if p := trimAny(ats.Name); p != nil {
+					row.ClassSectionSubjectTeacherAssistantSchoolTeacherNameCache = p
 				}
 			}
 		}

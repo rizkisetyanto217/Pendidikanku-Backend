@@ -86,7 +86,7 @@ type ClassSectionCreateRequest struct {
 	ClassSectionSchedule *string `json:"class_section_schedule"  form:"class_section_schedule"`
 	ClassSectionGroupURL *string `json:"class_section_group_url" form:"class_section_group_url"`
 
-	// Kuota (utama, mirror ke model quota_total / quota_taken)
+	// Kuota
 	ClassSectionQuotaTotal *int `json:"class_section_quota_total" form:"class_section_quota_total" validate:"omitempty,min=0"`
 	ClassSectionQuotaTaken *int `json:"class_section_quota_taken" form:"class_section_quota_taken" validate:"omitempty,min=0"`
 
@@ -229,7 +229,7 @@ type ClassSectionResponse struct {
 	ClassSectionQuotaTotal *int `json:"class_section_quota_total,omitempty"`
 	ClassSectionQuotaTaken int  `json:"class_section_quota_taken"`
 
-	// STATS (ALL & ACTIVE) - per jenis kelamin, dll.
+	// STATS (ALL & ACTIVE)
 	ClassSectionTotalStudentsActive       int             `json:"class_section_total_students_active"`
 	ClassSectionTotalStudentsMale         int             `json:"class_section_total_students_male"`
 	ClassSectionTotalStudentsFemale       int             `json:"class_section_total_students_female"`
@@ -280,6 +280,7 @@ type ClassSectionResponse struct {
 	ClassSectionClassRoomID            *uuid.UUID      `json:"class_section_class_room_id,omitempty"`
 	ClassSectionClassRoomSlugCache     *string         `json:"class_section_class_room_slug_cache,omitempty"`
 	ClassSectionClassRoomNameCache     *string         `json:"class_section_class_room_name_cache,omitempty"`
+	ClassSectionClassRoomSlugCacheGen  *string         `json:"class_section_class_room_slug_cache_gen,omitempty"`
 	ClassSectionClassRoomLocationCache *string         `json:"class_section_class_room_location_cache,omitempty"`
 	ClassSectionClassRoomCache         json.RawMessage `json:"class_section_class_room_cache,omitempty"`
 
@@ -307,12 +308,24 @@ func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 		deletedAt = &t
 	}
 
-	// helper: to raw JSON (dari datatypes.JSON)
-	toRaw := func(j datatypes.JSON) json.RawMessage {
+	// datatypes.JSON -> RawMessage (langsung []byte)
+	toRawJSON := func(j datatypes.JSON) json.RawMessage {
 		if len(j) == 0 {
 			return nil
 		}
 		return json.RawMessage(j)
+	}
+
+	// datatypes.JSONMap (map[string]any) -> RawMessage (marshal dulu)
+	toRawJSONMap := func(m datatypes.JSONMap) json.RawMessage {
+		if m == nil {
+			return nil
+		}
+		b, err := json.Marshal(m)
+		if err != nil {
+			return nil
+		}
+		return json.RawMessage(b)
 	}
 
 	return ClassSectionResponse{
@@ -339,7 +352,7 @@ func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 		ClassSectionTotalStudentsFemale:       cs.ClassSectionTotalStudentsFemale,
 		ClassSectionTotalStudentsMaleActive:   cs.ClassSectionTotalStudentsMaleActive,
 		ClassSectionTotalStudentsFemaleActive: cs.ClassSectionTotalStudentsFemaleActive,
-		ClassSectionStats:                     toRaw(cs.ClassSectionStats),
+		ClassSectionStats:                     toRawJSON(cs.ClassSectionStats),
 
 		ClassSectionGroupURL: cs.ClassSectionGroupURL,
 
@@ -366,22 +379,23 @@ func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 		// People (IDs + slugs + JSON cache)
 		ClassSectionSchoolTeacherID:        cs.ClassSectionSchoolTeacherID,
 		ClassSectionSchoolTeacherSlugCache: cs.ClassSectionSchoolTeacherSlugCache,
-		ClassSectionSchoolTeacherCache:     toRaw(cs.ClassSectionSchoolTeacherCache),
+		ClassSectionSchoolTeacherCache:     toRawJSON(cs.ClassSectionSchoolTeacherCache),
 
 		ClassSectionAssistantSchoolTeacherID:        cs.ClassSectionAssistantSchoolTeacherID,
 		ClassSectionAssistantSchoolTeacherSlugCache: cs.ClassSectionAssistantSchoolTeacherSlugCache,
-		ClassSectionAssistantSchoolTeacherCache:     toRaw(cs.ClassSectionAssistantSchoolTeacherCache),
+		ClassSectionAssistantSchoolTeacherCache:     toRawJSON(cs.ClassSectionAssistantSchoolTeacherCache),
 
 		ClassSectionLeaderSchoolStudentID:        cs.ClassSectionLeaderSchoolStudentID,
 		ClassSectionLeaderSchoolStudentSlugCache: cs.ClassSectionLeaderSchoolStudentSlugCache,
-		ClassSectionLeaderSchoolStudentCache:     toRaw(cs.ClassSectionLeaderSchoolStudentCache),
+		ClassSectionLeaderSchoolStudentCache:     toRawJSON(cs.ClassSectionLeaderSchoolStudentCache),
 
 		// Room (ID + slug + name + location + JSON cache)
 		ClassSectionClassRoomID:            cs.ClassSectionClassRoomID,
 		ClassSectionClassRoomSlugCache:     cs.ClassSectionClassRoomSlugCache,
 		ClassSectionClassRoomNameCache:     cs.ClassSectionClassRoomNameCache,
+		ClassSectionClassRoomSlugCacheGen:  cs.ClassSectionClassRoomSlugCacheGen,
 		ClassSectionClassRoomLocationCache: cs.ClassSectionClassRoomLocationCache,
-		ClassSectionClassRoomCache:         toRaw(cs.ClassSectionClassRoomCache),
+		ClassSectionClassRoomCache:         toRawJSONMap(cs.ClassSectionClassRoomCache),
 
 		// term
 		ClassSectionAcademicTermID:                cs.ClassSectionAcademicTermID,
@@ -403,13 +417,12 @@ func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 
 /* ----------------- PATCH REQUEST ----------------- */
 
-// contoh OptionalBool, kira-kira sudah ada tipe serupa
+// contoh OptionalBool, dipakai untuk propagate_room_to_csst
 type OptionalBool struct {
 	Present bool
 	Value   *bool
 }
 
-// biar bisa diparse dari JSON biasa (true/false/null)
 func (o *OptionalBool) UnmarshalJSON(b []byte) error {
 	o.Present = true
 	if string(b) == "null" {
@@ -454,8 +467,8 @@ type ClassSectionPatchRequest struct {
 	ClassSectionIsActive PatchFieldCS[bool] `json:"class_section_is_active"`
 
 	// ====== SUBJECT-TEACHERS settings ======
-	ClassSectionSubjectTeachersEnrollmentMode             PatchFieldCS[string] `json:"class_section_subject_teachers_enrollment_mode"`               // "self_select"|"assigned"|"hybrid"
-	ClassSectionSubjectTeachersSelfSelectRequiresApproval PatchFieldCS[bool]   `json:"class_section_subject_teachers_self_select_requires_approval"` // true/false
+	ClassSectionSubjectTeachersEnrollmentMode             PatchFieldCS[string] `json:"class_section_subject_teachers_enrollment_mode"`
+	ClassSectionSubjectTeachersSelfSelectRequiresApproval PatchFieldCS[bool]   `json:"class_section_subject_teachers_self_select_requires_approval"`
 	ClassSectionSubjectTeachersMaxSubjectsPerStudent      PatchFieldCS[int]    `json:"class_section_subject_teachers_max_subjects_per_student"`
 
 	// 🔥 NEW: flag propagate room → CSST (kontrol di controller)
@@ -848,7 +861,6 @@ func DecodePatchClassSectionFromRequest(c *fiber.Ctx, dst *ClassSectionPatchRequ
 		return nil
 
 	default:
-		// fallback: coba JSON biasa
 		if err := c.BodyParser(dst); err != nil {
 			return errors.New("Content-Type tidak didukung; gunakan application/json atau multipart/form-data")
 		}
@@ -955,6 +967,8 @@ func teacherLiteFromJSON(raw datatypes.JSON) *TeacherPersonLite {
 
 	return &t
 }
+
+/* ----------------- COMPACT MAPPER UNTUK LIST ----------------- */
 
 // Batch mapper: dari slice by-value
 func FromSectionModels(list []m.ClassSectionModel) []ClassSectionResponse {
