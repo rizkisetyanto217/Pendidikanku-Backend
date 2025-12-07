@@ -452,11 +452,11 @@ type ClassResponse struct {
 	ClassImageDeletePendingUntil *time.Time `json:"class_image_delete_pending_until,omitempty"`
 
 	// Snapshots Parent
-	ClassClassParentCodeCache  *string `json:"class_class_parent_code_cache,omitempty"`
-	ClassClassParentNameCache  *string `json:"class_class_parent_name_cache,omitempty"`
-	ClassClassParentSlugCache  *string `json:"class_class_parent_slug_cache,omitempty"`
-	ClassClassParentLevelCache *int16  `json:"class_class_parent_level_cache,omitempty"`
-	ClassClassParentURLCache   *string `json:"class_class_parent_url_cache,omitempty"`
+	ClassClassParentCodeCache     *string `json:"class_class_parent_code_cache,omitempty"`
+	ClassClassParentNameCache     *string `json:"class_class_parent_name_cache,omitempty"`
+	ClassClassParentSlugCache     *string `json:"class_class_parent_slug_cache,omitempty"`
+	ClassClassParentLevelCache    *int16  `json:"class_class_parent_level_cache,omitempty"`
+	ClassClassParentImageURLCache *string `json:"class_class_parent_image_url_cache,omitempty"`
 
 	// Snapshots Term
 	ClassTermAcademicYearCache *string `json:"class_academic_term_academic_year_cache,omitempty"`
@@ -544,11 +544,11 @@ func FromModel(m *model.ClassModel) ClassResponse {
 		ClassImageDeletePendingUntil: m.ClassImageDeletePendingUntil,
 
 		// parent snapshots
-		ClassClassParentCodeCache:  m.ClassClassParentCodeCache,
-		ClassClassParentNameCache:  m.ClassClassParentNameCache,
-		ClassClassParentSlugCache:  m.ClassClassParentSlugCache,
-		ClassClassParentLevelCache: m.ClassClassParentLevelCache,
-		ClassClassParentURLCache:   m.ClassClassParentURLCache,
+		ClassClassParentCodeCache:     m.ClassClassParentCodeCache,
+		ClassClassParentNameCache:     m.ClassClassParentNameCache,
+		ClassClassParentSlugCache:     m.ClassClassParentSlugCache,
+		ClassClassParentLevelCache:    m.ClassClassParentLevelCache,
+		ClassClassParentImageURLCache: m.ClassClassParentImageURLCache,
 
 		// term snapshots
 		ClassTermAcademicYearCache: m.ClassAcademicTermAcademicYearCache,

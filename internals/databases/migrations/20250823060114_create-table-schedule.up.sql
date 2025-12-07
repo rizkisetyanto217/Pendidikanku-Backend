@@ -101,7 +101,6 @@ BEGIN
       UNIQUE (class_section_subject_teacher_id, class_section_subject_teacher_school_id);
   END IF;
 END$$;
-
 -- =========================================================
 -- TABLE: class_schedule_rules (single-tenant column; no trigger)
 -- =========================================================
@@ -122,32 +121,36 @@ CREATE TABLE IF NOT EXISTS class_schedule_rules (
   class_schedule_rule_end_time    TIME NOT NULL CHECK (class_schedule_rule_end_time > class_schedule_rule_start_time),
 
   -- opsi pola
-  class_schedule_rule_interval_weeks      INT  NOT NULL DEFAULT 1,
-  class_schedule_rule_start_offset_weeks  INT  NOT NULL DEFAULT 0,
-  class_schedule_rule_week_parity         week_parity_enum NOT NULL DEFAULT 'all',
-  class_schedule_rule_weeks_of_month      INT[],
-  class_schedule_rule_last_week_of_month  BOOLEAN NOT NULL DEFAULT FALSE,
+  class_schedule_rule_interval_weeks     INT  NOT NULL DEFAULT 1,
+  class_schedule_rule_start_offset_weeks INT  NOT NULL DEFAULT 0,
+  class_schedule_rule_week_parity        week_parity_enum NOT NULL DEFAULT 'all',
+  class_schedule_rule_weeks_of_month     INT[],
+  class_schedule_rule_last_week_of_month BOOLEAN NOT NULL DEFAULT FALSE,
 
   -- DEFAULT PENUGASAN: CSST (FK satu kolom)
-  class_schedule_rule_csst_id            UUID NOT NULL,
-  class_schedule_rule_csst_slug_cache    VARCHAR(100),
+  class_schedule_rule_csst_id         UUID        NOT NULL,
+  class_schedule_rule_csst_slug_cache VARCHAR(100),
 
   -- ===== Cache CSST (diisi backend) =====
+  -- bentuk JSON fleksibel, minimal berisi: teacher_id, section_id, room_id
   class_schedule_rule_csst_cache JSONB NOT NULL,
 
-  -- ===== Generated columns dari cache =====
-  class_schedule_rule_csst_teacher_id   UUID
+  -- ===== ROOM OVERRIDE (opsional) =====
+  -- Jika NULL → gunakan room dari CSST cache
+  class_schedule_rule_room_id         UUID,
+  class_schedule_rule_room_slug_cache VARCHAR(100),
+  class_schedule_rule_room_cache      JSONB,
+
+  -- ===== Generated columns dari cache (read-only) =====
+  -- asumsi key top-level di JSONB: teacher_id, section_id, room_id
+  class_schedule_rule_csst_student_teacher_id UUID
     GENERATED ALWAYS AS ((class_schedule_rule_csst_cache->>'teacher_id')::uuid) STORED,
+
   class_schedule_rule_csst_class_section_id UUID
     GENERATED ALWAYS AS ((class_schedule_rule_csst_cache->>'section_id')::uuid) STORED,
-  class_schedule_rule_csst_class_subject_id UUID
-    GENERATED ALWAYS AS ((class_schedule_rule_csst_cache->>'class_subject_id')::uuid) STORED,
+
   class_schedule_rule_csst_class_room_id UUID
     GENERATED ALWAYS AS ((class_schedule_rule_csst_cache->>'room_id')::uuid) STORED,
-
-  -- Ambil school_id dari cache untuk guard tenant
-  class_schedule_rule_csst_school_id_from_cache UUID
-    GENERATED ALWAYS AS ((class_schedule_rule_csst_cache->>'school_id')::uuid) STORED,
 
   -- audit
   class_schedule_rule_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -162,13 +165,7 @@ CREATE TABLE IF NOT EXISTS class_schedule_rules (
   class_schedule_rule_end_min SMALLINT GENERATED ALWAYS AS (
     (EXTRACT(HOUR FROM class_schedule_rule_end_time)::INT * 60)
     + EXTRACT(MINUTE FROM class_schedule_rule_end_time)::INT
-  ) STORED,
-
-  -- ===== Tenant guard via cache (tanpa trigger)
-  CONSTRAINT ck_csr_cache_tenant_guard CHECK (
-    (class_schedule_rule_csst_cache ? 'school_id')
-    AND (class_schedule_rule_csst_school_id_from_cache = class_schedule_rule_school_id)
-  )
+  ) STORED
 );
 
 -- FK ke CSST (single-column; PK CSST adalah UUID global)

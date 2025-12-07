@@ -19,14 +19,15 @@ type CreateUserTeacherRequest struct {
 	UserTeacherUserID uuid.UUID `json:"user_teacher_user_id" form:"user_teacher_user_id"`
 
 	// Profil ringkas
-	UserTeacherUserFullNameCache   string `json:"user_teacher_user_full_name_cache" form:"user_teacher_user_full_name_cache" validate:"required,max=100"`
-	UserTeacherField           string `json:"user_teacher_field" form:"user_teacher_field" validate:"omitempty,max=80"`
-	UserTeacherShortBio        string `json:"user_teacher_short_bio" form:"user_teacher_short_bio" validate:"omitempty,max=300"`
-	UserTeacherLongBio         string `json:"user_teacher_long_bio" form:"user_teacher_long_bio" validate:"omitempty"`
-	UserTeacherGreeting        string `json:"user_teacher_greeting" form:"user_teacher_greeting" validate:"omitempty"`
-	UserTeacherEducation       string `json:"user_teacher_education" form:"user_teacher_education" validate:"omitempty"`
-	UserTeacherActivity        string `json:"user_teacher_activity" form:"user_teacher_activity" validate:"omitempty"`
-	UserTeacherExperienceYears *int16 `json:"user_teacher_experience_years" form:"user_teacher_experience_years" validate:"omitempty,min=0,max=80"`
+	UserTeacherUserFullNameCache string `json:"user_teacher_user_full_name_cache" form:"user_teacher_user_full_name_cache" validate:"required,max=100"`
+	UserTeacherUserNameCache     string `json:"user_teacher_user_name_cache" form:"user_teacher_user_name_cache" validate:"required,max=50"`
+	UserTeacherField             string `json:"user_teacher_field" form:"user_teacher_field" validate:"omitempty,max=80"`
+	UserTeacherShortBio          string `json:"user_teacher_short_bio" form:"user_teacher_short_bio" validate:"omitempty,max=300"`
+	UserTeacherLongBio           string `json:"user_teacher_long_bio" form:"user_teacher_long_bio" validate:"omitempty"`
+	UserTeacherGreeting          string `json:"user_teacher_greeting" form:"user_teacher_greeting" validate:"omitempty"`
+	UserTeacherEducation         string `json:"user_teacher_education" form:"user_teacher_education" validate:"omitempty"`
+	UserTeacherActivity          string `json:"user_teacher_activity" form:"user_teacher_activity" validate:"omitempty"`
+	UserTeacherExperienceYears   *int16 `json:"user_teacher_experience_years" form:"user_teacher_experience_years" validate:"omitempty,min=0,max=80"`
 
 	// Demografis
 	UserTeacherGender   string `json:"user_teacher_gender" form:"user_teacher_gender" validate:"omitempty,max=10"`
@@ -64,10 +65,11 @@ type CreateUserTeacherRequest struct {
 // ToModel: mapping Create → model.UserTeacher
 func (r CreateUserTeacherRequest) ToModel() model.UserTeacherModel {
 	m := model.UserTeacherModel{
-		UserTeacherUserID:        r.UserTeacherUserID,
+		UserTeacherUserID:            r.UserTeacherUserID,
 		UserTeacherUserFullNameCache: r.UserTeacherUserFullNameCache,
-		UserTeacherIsVerified:    false,
-		UserTeacherIsActive:      true,
+		UserTeacherUserNameCache:     r.UserTeacherUserNameCache,
+		UserTeacherIsVerified:        false,
+		UserTeacherIsActive:          true,
 		// UserTeacherIsCompleted: false, // default zero value di DB & Go
 	}
 
@@ -169,14 +171,15 @@ func (r CreateUserTeacherRequest) ToModel() model.UserTeacherModel {
 
 type UpdateUserTeacherRequest struct {
 	// Profil ringkas
-	UserTeacherUserFullNameCache   *string `json:"user_teacher_user_full_name_cache" form:"user_teacher_user_full_name_cache" validate:"omitempty,max=100"`
-	UserTeacherField           *string `json:"user_teacher_field" form:"user_teacher_field" validate:"omitempty,max=80"`
-	UserTeacherShortBio        *string `json:"user_teacher_short_bio" form:"user_teacher_short_bio" validate:"omitempty,max=300"`
-	UserTeacherLongBio         *string `json:"user_teacher_long_bio" form:"user_teacher_long_bio" validate:"omitempty"`
-	UserTeacherGreeting        *string `json:"user_teacher_greeting" form:"user_teacher_greeting" validate:"omitempty"`
-	UserTeacherEducation       *string `json:"user_teacher_education" form:"user_teacher_education" validate:"omitempty"`
-	UserTeacherActivity        *string `json:"user_teacher_activity" form:"user_teacher_activity" validate:"omitempty"`
-	UserTeacherExperienceYears *int16  `json:"user_teacher_experience_years" form:"user_teacher_experience_years" validate:"omitempty,min=0,max=80"`
+	UserTeacherUserFullNameCache *string `json:"user_teacher_user_full_name_cache" form:"user_teacher_user_full_name_cache" validate:"omitempty,max=100"`
+	UserTeacherUserNameCache     *string `json:"user_teacher_user_name_cache" form:"user_teacher_user_name_cache" validate:"omitempty,max=50"`
+	UserTeacherField             *string `json:"user_teacher_field" form:"user_teacher_field" validate:"omitempty,max=80"`
+	UserTeacherShortBio          *string `json:"user_teacher_short_bio" form:"user_teacher_short_bio" validate:"omitempty,max=300"`
+	UserTeacherLongBio           *string `json:"user_teacher_long_bio" form:"user_teacher_long_bio" validate:"omitempty"`
+	UserTeacherGreeting          *string `json:"user_teacher_greeting" form:"user_teacher_greeting" validate:"omitempty"`
+	UserTeacherEducation         *string `json:"user_teacher_education" form:"user_teacher_education" validate:"omitempty"`
+	UserTeacherActivity          *string `json:"user_teacher_activity" form:"user_teacher_activity" validate:"omitempty"`
+	UserTeacherExperienceYears   *int16  `json:"user_teacher_experience_years" form:"user_teacher_experience_years" validate:"omitempty,min=0,max=80"`
 
 	// Demografis
 	UserTeacherGender   *string `json:"user_teacher_gender" form:"user_teacher_gender" validate:"omitempty,max=10"`
@@ -220,6 +223,9 @@ func (r UpdateUserTeacherRequest) ApplyPatch(m *model.UserTeacherModel) {
 	// 1) Setter biasa (tanpa NULL implisit)
 	if r.UserTeacherUserFullNameCache != nil {
 		m.UserTeacherUserFullNameCache = *r.UserTeacherUserFullNameCache
+	}
+	if r.UserTeacherUserNameCache != nil {
+		m.UserTeacherUserNameCache = *r.UserTeacherUserNameCache
 	}
 	if r.UserTeacherField != nil {
 		m.UserTeacherField = r.UserTeacherField
@@ -390,6 +396,7 @@ type UserTeacherResponse struct {
 
 	// Profil ringkas
 	UserTeacherNameSnapshot    string `json:"user_teacher_user_full_name_cache"`
+	UserTeacherUserNameCache   string `json:"user_teacher_user_name_cache"`
 	UserTeacherField           string `json:"user_teacher_field"`
 	UserTeacherShortBio        string `json:"user_teacher_short_bio"`
 	UserTeacherLongBio         string `json:"user_teacher_long_bio"`
@@ -451,7 +458,9 @@ func ToUserTeacherResponse(m model.UserTeacherModel) UserTeacherResponse {
 		UserTeacherID:     m.UserTeacherID,
 		UserTeacherUserID: m.UserTeacherUserID,
 
-		UserTeacherNameSnapshot:    m.UserTeacherUserFullNameCache,
+		UserTeacherNameSnapshot:  m.UserTeacherUserFullNameCache,
+		UserTeacherUserNameCache: m.UserTeacherUserNameCache,
+
 		UserTeacherField:           deref(m.UserTeacherField),
 		UserTeacherShortBio:        deref(m.UserTeacherShortBio),
 		UserTeacherLongBio:         deref(m.UserTeacherLongBio),

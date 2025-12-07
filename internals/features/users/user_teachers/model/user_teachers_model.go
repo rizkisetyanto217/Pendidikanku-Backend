@@ -15,14 +15,15 @@ type UserTeacherModel struct {
 	UserTeacherUserID uuid.UUID `json:"user_teacher_user_id" gorm:"type:uuid;not null;column:user_teacher_user_id;uniqueIndex:uq_user_teachers_user"`
 
 	// Profil ringkas
-	UserTeacherUserFullNameCache   string  `json:"user_teacheru_user_full_name_cache" gorm:"type:varchar(100);not null;column:user_teacher_user_full_name_cache"`
-	UserTeacherField           *string `json:"user_teacher_field,omitempty" gorm:"type:varchar(80);column:user_teacher_field"`
-	UserTeacherShortBio        *string `json:"user_teacher_short_bio,omitempty" gorm:"type:varchar(300);column:user_teacher_short_bio"`
-	UserTeacherLongBio         *string `json:"user_teacher_long_bio,omitempty" gorm:"type:text;column:user_teacher_long_bio"`
-	UserTeacherGreeting        *string `json:"user_teacher_greeting,omitempty" gorm:"type:text;column:user_teacher_greeting"`
-	UserTeacherEducation       *string `json:"user_teacher_education,omitempty" gorm:"type:text;column:user_teacher_education"`
-	UserTeacherActivity        *string `json:"user_teacher_activity,omitempty" gorm:"type:text;column:user_teacher_activity"`
-	UserTeacherExperienceYears *int16  `json:"user_teacher_experience_years,omitempty" gorm:"type:smallint;column:user_teacher_experience_years"`
+	UserTeacherUserFullNameCache string  `json:"user_teacheru_user_full_name_cache" gorm:"type:varchar(100);not null;column:user_teacher_user_full_name_cache"`
+	UserTeacherUserNameCache     string  `json:"user_teacher_user_name_cache" gorm:"type:varchar(50);not null;column:user_teacher_user_name_cache"`
+	UserTeacherField             *string `json:"user_teacher_field,omitempty" gorm:"type:varchar(80);column:user_teacher_field"`
+	UserTeacherShortBio          *string `json:"user_teacher_short_bio,omitempty" gorm:"type:varchar(300);column:user_teacher_short_bio"`
+	UserTeacherLongBio           *string `json:"user_teacher_long_bio,omitempty" gorm:"type:text;column:user_teacher_long_bio"`
+	UserTeacherGreeting          *string `json:"user_teacher_greeting,omitempty" gorm:"type:text;column:user_teacher_greeting"`
+	UserTeacherEducation         *string `json:"user_teacher_education,omitempty" gorm:"type:text;column:user_teacher_education"`
+	UserTeacherActivity          *string `json:"user_teacher_activity,omitempty" gorm:"type:text;column:user_teacher_activity"`
+	UserTeacherExperienceYears   *int16  `json:"user_teacher_experience_years,omitempty" gorm:"type:smallint;column:user_teacher_experience_years"`
 
 	// Demografis (opsional)
 	UserTeacherGender   *string `json:"user_teacher_gender,omitempty" gorm:"type:varchar(10);column:user_teacher_gender"`

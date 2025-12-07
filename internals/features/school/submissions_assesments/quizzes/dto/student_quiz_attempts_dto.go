@@ -224,6 +224,13 @@ type StudentQuizAttemptResponse struct {
 	StudentQuizAttemptQuizID    uuid.UUID `json:"student_quiz_attempt_quiz_id"`
 	StudentQuizAttemptStudentID uuid.UUID `json:"student_quiz_attempt_student_id"`
 
+	// Snapshot/cache user profile & siswa
+	StudentQuizAttemptUserProfileNameSnapshot        *string `json:"student_quiz_attempt_user_profile_name_snapshot,omitempty"`
+	StudentQuizAttemptUserProfileAvatarURLSnapshot   *string `json:"student_quiz_attempt_user_profile_avatar_url_snapshot,omitempty"`
+	StudentQuizAttemptUserProfileWhatsappURLSnapshot *string `json:"student_quiz_attempt_user_profile_whatsapp_url_snapshot,omitempty"`
+	StudentQuizAttemptUserProfileGenderSnapshot      *string `json:"student_quiz_attempt_user_profile_gender_snapshot,omitempty"`
+	StudentQuizAttemptSchoolStudentCodeCache         *string `json:"student_quiz_attempt_school_student_code_cache,omitempty"`
+
 	// Status & waktu global attempt
 	StudentQuizAttemptStatus     qmodel.StudentQuizAttemptStatus `json:"student_quiz_attempt_status"`
 	StudentQuizAttemptStartedAt  *time.Time                      `json:"student_quiz_attempt_started_at,omitempty"`
@@ -255,6 +262,12 @@ func FromModelStudentQuizAttempt(m *qmodel.StudentQuizAttemptModel) *StudentQuiz
 		StudentQuizAttemptSchoolID:  m.StudentQuizAttemptSchoolID,
 		StudentQuizAttemptQuizID:    m.StudentQuizAttemptQuizID,
 		StudentQuizAttemptStudentID: m.StudentQuizAttemptStudentID,
+
+		StudentQuizAttemptUserProfileNameSnapshot:        m.StudentQuizAttemptUserProfileNameSnapshot,
+		StudentQuizAttemptUserProfileAvatarURLSnapshot:   m.StudentQuizAttemptUserProfileAvatarURLSnapshot,
+		StudentQuizAttemptUserProfileWhatsappURLSnapshot: m.StudentQuizAttemptUserProfileWhatsappURLSnapshot,
+		StudentQuizAttemptUserProfileGenderSnapshot:      m.StudentQuizAttemptUserProfileGenderSnapshot,
+		StudentQuizAttemptSchoolStudentCodeCache:         m.StudentQuizAttemptSchoolStudentCodeCache,
 
 		StudentQuizAttemptStatus:     m.StudentQuizAttemptStatus,
 		StudentQuizAttemptStartedAt:  m.StudentQuizAttemptStartedAt,

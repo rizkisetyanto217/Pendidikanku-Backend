@@ -57,13 +57,14 @@ func toStudentCSSTItem(m *model.StudentClassSectionSubjectTeacherModel) dto.Stud
 		StudentCSSTGradePoint:    m.StudentCSSTGradePoint,
 		StudentCSSTIsPassed:      m.StudentCSSTIsPassed,
 
-		StudentCSSTNameCache:        m.StudentCSSTNameCache,
-		StudentCSSTAvatarURLCache:   m.StudentCSSTAvatarURLCache,
-		StudentCSSTWAURLCache:       m.StudentCSSTWAURLCache,
-		StudentCSSTParentNameCache:  m.StudentCSSTParentNameCache,
-		StudentCSSTParentWAURLCache: m.StudentCSSTParentWAURLCache,
-		StudentCSSTGenderCache:      m.StudentCSSTGenderCache,
-		StudentCSSTStudentCodeCache: m.StudentCSSTStudentCodeCache,
+		// 🆕 diselaraskan dengan nama field di model + DTO + SQL
+		StudentCSSTUserProfileNameCache:        m.StudentCSSTUserProfileNameCache,
+		StudentCSSTUserProfileAvatarURLCache:   m.StudentCSSTUserProfileAvatarURLCache,
+		StudentCSSTUserProfileWAURLCache:       m.StudentCSSTUserProfileWAURLCache,
+		StudentCSSTUserProfileParentNameCache:  m.StudentCSSTUserProfileParentNameCache,
+		StudentCSSTUserProfileParentWAURLCache: m.StudentCSSTUserProfileParentWAURLCache,
+		StudentCSSTUserProfileGenderCache:      m.StudentCSSTUserProfileGenderCache,
+		StudentCSSTSchoolStudentCodeCache:      m.StudentCSSTSchoolStudentCodeCache,
 
 		StudentCSSTEditsHistory: m.StudentCSSTEditsHistory,
 

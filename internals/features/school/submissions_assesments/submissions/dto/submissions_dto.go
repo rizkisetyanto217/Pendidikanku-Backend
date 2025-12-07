@@ -66,9 +66,10 @@ func (r CreateSubmissionRequest) ToModel() subModel.SubmissionModel {
 		SubmissionStatus:      status,
 		SubmissionSubmittedAt: r.SubmissionSubmittedAt,
 		SubmissionIsLate:      r.SubmissionIsLate,
-		// submission_scores      → nil (default)
-		// submission_quiz_finished → 0 (default)
-		// created_at/updated_at dikelola DB (default now())
+		// snapshot user_profile & student code akan diisi di service (bukan dari request)
+		// submission_scores           → nil (default)
+		// submission_quiz_finished    → 0 (default)
+		// created_at / updated_at     → DB default now()
 	}
 }
 
@@ -189,7 +190,7 @@ func (p *PatchSubmissionRequest) ToUpdates() map[string]any {
 }
 
 /* =========================
-   (Opsional) DTO khusus grading
+   DTO khusus grading
    ========================= */
 
 type GradeSubmissionRequest struct {
@@ -246,6 +247,13 @@ type SubmissionResponse struct {
 	SubmissionAssessmentID uuid.UUID `json:"submission_assessment_id"`
 	SubmissionStudentID    uuid.UUID `json:"submission_student_id"`
 
+	// snapshot user_profile & student
+	SubmissionUserProfileNameSnapshot        *string `json:"submission_user_profile_name_snapshot,omitempty"`
+	SubmissionUserProfileAvatarURLSnapshot   *string `json:"submission_user_profile_avatar_url_snapshot,omitempty"`
+	SubmissionUserProfileWhatsappURLSnapshot *string `json:"submission_user_profile_whatsapp_url_snapshot,omitempty"`
+	SubmissionUserProfileGenderSnapshot      *string `json:"submission_user_profile_gender_snapshot,omitempty"`
+	SubmissionSchoolStudentCodeCache         *string `json:"submission_school_student_code_cache,omitempty"`
+
 	SubmissionText        *string                   `json:"submission_text,omitempty"`
 	SubmissionStatus      subModel.SubmissionStatus `json:"submission_status"`
 	SubmissionSubmittedAt *time.Time                `json:"submission_submitted_at,omitempty"`
@@ -281,6 +289,12 @@ func FromModel(m *subModel.SubmissionModel) SubmissionResponse {
 		SubmissionSchoolID:     m.SubmissionSchoolID,
 		SubmissionAssessmentID: m.SubmissionAssessmentID,
 		SubmissionStudentID:    m.SubmissionStudentID,
+
+		SubmissionUserProfileNameSnapshot:        m.SubmissionUserProfileNameSnapshot,
+		SubmissionUserProfileAvatarURLSnapshot:   m.SubmissionUserProfileAvatarURLSnapshot,
+		SubmissionUserProfileWhatsappURLSnapshot: m.SubmissionUserProfileWhatsappURLSnapshot,
+		SubmissionUserProfileGenderSnapshot:      m.SubmissionUserProfileGenderSnapshot,
+		SubmissionSchoolStudentCodeCache:         m.SubmissionSchoolStudentCodeCache,
 
 		SubmissionText:        m.SubmissionText,
 		SubmissionStatus:      m.SubmissionStatus,

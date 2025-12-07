@@ -354,19 +354,19 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 		// Isi cache user_profile ke student_class_section_subject_teachers (kalau ada)
 		if userProfileSnap != nil {
 			name := userProfileSnap.Name
-			newLink.StudentCSSTNameCache = &name
-			newLink.StudentCSSTAvatarURLCache = userProfileSnap.AvatarURL
-			newLink.StudentCSSTWAURLCache = userProfileSnap.WhatsappURL
-			newLink.StudentCSSTParentNameCache = userProfileSnap.ParentName
-			newLink.StudentCSSTParentWAURLCache = userProfileSnap.ParentWhatsappURL
-			newLink.StudentCSSTGenderCache = userProfileSnap.Gender
+			newLink.StudentCSSTUserProfileNameCache = &name
+			newLink.StudentCSSTUserProfileAvatarURLCache = userProfileSnap.AvatarURL
+			newLink.StudentCSSTUserProfileWAURLCache = userProfileSnap.WhatsappURL
+			newLink.StudentCSSTUserProfileParentNameCache = userProfileSnap.ParentName
+			newLink.StudentCSSTUserProfileParentWAURLCache = userProfileSnap.ParentWhatsappURL
+			newLink.StudentCSSTUserProfileGenderCache = userProfileSnap.Gender
 
 			log.Printf("[JoinSectionCSST] filled CSST mapping user_profile cache: name=%s", name)
 		}
 
 		// Isi student_code cache kalau ada
 		if studentCode != nil {
-			newLink.StudentCSSTStudentCodeCache = studentCode
+			newLink.StudentCSSTSchoolStudentCodeCache = studentCode
 			log.Printf("[JoinSectionCSST] filled CSST mapping student_code_cache: code=%s", *studentCode)
 		}
 

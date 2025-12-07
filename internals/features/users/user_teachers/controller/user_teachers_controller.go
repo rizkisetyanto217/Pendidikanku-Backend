@@ -138,15 +138,12 @@ func pickAvatarFile(c *fiber.Ctx) (fh *multipart.FileHeader, which string) {
 // - angka harus murni (tanpa komentar)
 // - JSON harus valid
 // - field time & slot-avatar lama diabaikan saat create
-// multipart TANPA payload: baca per-field manual (tanpa BodyParser)
-// - angka harus murni (tanpa komentar)
-// - JSON harus valid
-// - field time & slot-avatar lama diabaikan saat create
 func parseMultipartNoPayload(c *fiber.Ctx, rid string, req *userdto.CreateUserTeacherRequest) error {
 	get := func(k string) string { return strings.TrimSpace(c.FormValue(k)) }
 
 	// wajib
 	req.UserTeacherUserFullNameCache = get("user_teacher_user_full_name_cache")
+	req.UserTeacherUserNameCache = get("user_teacher_user_name_cache")
 
 	// profil ringkas
 	req.UserTeacherField = get("user_teacher_field")
@@ -229,10 +226,6 @@ func parseMultipartNoPayload(c *fiber.Ctx, rid string, req *userdto.CreateUserTe
 
 // ========================= CREATE =========================
 // POST /api/user-teachers
-// - multipart: file "avatar" + field "payload" (JSON CreateUserTeacherRequest)
-// - json: body langsung CreateUserTeacherRequest
-// ========================= CREATE =========================
-// POST /api/user-teachers
 // - multipart: file "avatar" + field "payload" (JSON CreateUserTeacherRequest)  ➜ rekomendasi
 // - multipart: per-field text (tanpa "payload"), angka murni & JSON valid        ➜ juga didukung
 // - json: body langsung CreateUserTeacherRequest
@@ -279,8 +272,8 @@ func (uc *UserTeacherController) Create(c *fiber.Ctx) error {
 		log.Printf("[user-teacher#create] reqid=%s validation error: %v", rid, err)
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
-	log.Printf("[user-teacher#create] reqid=%s validation OK name=%q field=%q expYears=%v",
-		rid, req.UserTeacherUserFullNameCache, req.UserTeacherField, req.UserTeacherExperienceYears)
+	log.Printf("[user-teacher#create] reqid=%s validation OK name=%q username=%q field=%q expYears=%v",
+		rid, req.UserTeacherUserFullNameCache, req.UserTeacherUserNameCache, req.UserTeacherField, req.UserTeacherExperienceYears)
 
 	// --- pastikan 1 user = 1 profile ---
 	var exist int64
@@ -302,7 +295,6 @@ func (uc *UserTeacherController) Create(c *fiber.Ctx) error {
 	m.UserTeacherCreatedAt = now
 	m.UserTeacherUpdatedAt = now
 
-	// --- upload avatar (opsional, hanya multipart) ---
 	// --- upload avatar (opsional, hanya multipart) ---
 	if ctIsMultipart(ct) {
 		// 1) coba cari file dengan beberapa alias key
@@ -485,6 +477,7 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 
 	// ringkas
 	applyIfChanged("user_teacher_user_full_name_cache", before.UserTeacherUserFullNameCache, m.UserTeacherUserFullNameCache)
+	applyIfChanged("user_teacher_user_name_cache", before.UserTeacherUserNameCache, m.UserTeacherUserNameCache)
 	applyIfChangedStr("user_teacher_field", before.UserTeacherField, m.UserTeacherField)
 	applyIfChangedStr("user_teacher_short_bio", before.UserTeacherShortBio, m.UserTeacherShortBio)
 	applyIfChangedStr("user_teacher_long_bio", before.UserTeacherLongBio, m.UserTeacherLongBio)
@@ -583,12 +576,8 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 
 	// === SNAPSHOT SYNC ke class_sections (teacher & assistant) ===
 	if changedSnapshot {
-		// ... (bagian ini sama persis seperti punyamu sebelumnya, tidak perlu diubah)
-		// aku biarkan singkat supaya kamu fokus ke logic completed di atas
-		// --------------------------------
 		hasTeacherSnap := uc.DB.Migrator().HasColumn(&classsectionModel.ClassSectionModel{}, "class_section_teacher_snapshot")
 		hasAssistantSnap := uc.DB.Migrator().HasColumn(&classsectionModel.ClassSectionModel{}, "class_section_assistant_teacher_snapshot")
-
 
 		if !(hasTeacherSnap || hasAssistantSnap) {
 			log.Printf("[user-teacher#patch] class_sections snapshot columns not found — skip sync to class_sections")
@@ -632,7 +621,6 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 					setAssistant["class_section_assistant_teacher_snapshot"] = jsonb
 				}
 
-
 				if hasTeacherSnap {
 					if err := uc.DB.
 						Model(&classsectionModel.ClassSectionModel{}).
@@ -656,7 +644,6 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 
 	// === SNAPSHOT SYNC ke class_section_subject_teachers (teacher & assistant) ===
 	{
-		// (bagian ini juga sama seperti sebelumnya, tidak perlu disentuh)
 		hasTeacherSnap := uc.DB.Migrator().HasColumn(&csstModel.ClassSectionSubjectTeacherModel{}, "class_section_subject_teacher_teacher_snapshot")
 		hasAssistantSnap := uc.DB.Migrator().HasColumn(&csstModel.ClassSectionSubjectTeacherModel{}, "class_section_subject_teacher_assistant_teacher_snapshot")
 		hasTeacherID := uc.DB.Migrator().HasColumn(&csstModel.ClassSectionSubjectTeacherModel{}, "class_section_subject_teacher_teacher_id")
@@ -784,7 +771,10 @@ func (uc *UserTeacherController) PatchMe(c *fiber.Ctx) error {
 	after := before
 	in.ApplyPatch(&after)
 
-	now := time.Now()
+	now := time.Time{}
+	if now.IsZero() {
+		now = time.Now()
+	}
 	after.UserTeacherUpdatedAt = now
 
 	// =========== HANDLE AVATAR (FILE) via MULTIPART ===========
@@ -825,7 +815,7 @@ func (uc *UserTeacherController) PatchMe(c *fiber.Ctx) error {
 
 	// =========== AUTO FLAG: is_completed & completed_at ===========
 	wasCompleted := before.UserTeacherIsCompleted
-	nowCompleted := isTeacherProfileCompleted(&after) // helper di bawah
+	nowCompleted := isTeacherProfileCompleted(&after) // helper di atas
 
 	if nowCompleted && !wasCompleted {
 		after.UserTeacherIsCompleted = true

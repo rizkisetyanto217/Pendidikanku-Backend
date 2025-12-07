@@ -76,12 +76,12 @@ type ClassModel struct {
 	// Snapshot Class Parent (denormalisasi label)
 	// =====================================================
 
-	ClassClassParentID         uuid.UUID `json:"class_class_parent_id"                    gorm:"column:class_class_parent_id;type:uuid;not null"`
-	ClassClassParentCodeCache  *string   `json:"class_class_parent_code_cache,omitempty"  gorm:"column:class_class_parent_code_cache;type:varchar(40)"`
-	ClassClassParentNameCache  *string   `json:"class_class_parent_name_cache,omitempty"  gorm:"column:class_class_parent_name_cache;type:varchar(80)"`
-	ClassClassParentSlugCache  *string   `json:"class_class_parent_slug_cache,omitempty"  gorm:"column:class_class_parent_slug_cache;type:varchar(160)"`
-	ClassClassParentLevelCache *int16    `json:"class_class_parent_level_cache,omitempty" gorm:"column:class_class_parent_level_cache;type:smallint"`
-	ClassClassParentURLCache   *string   `json:"class_class_parent_url_cache,omitempty"   gorm:"column:class_class_parent_url_cache;type:varchar(160)"`
+	ClassClassParentID            uuid.UUID `json:"class_class_parent_id"                    gorm:"column:class_class_parent_id;type:uuid;not null"`
+	ClassClassParentCodeCache     *string   `json:"class_class_parent_code_cache,omitempty"  gorm:"column:class_class_parent_code_cache;type:varchar(40)"`
+	ClassClassParentNameCache     *string   `json:"class_class_parent_name_cache,omitempty"  gorm:"column:class_class_parent_name_cache;type:varchar(80)"`
+	ClassClassParentSlugCache     *string   `json:"class_class_parent_slug_cache,omitempty"  gorm:"column:class_class_parent_slug_cache;type:varchar(160)"`
+	ClassClassParentLevelCache    *int16    `json:"class_class_parent_level_cache,omitempty" gorm:"column:class_class_parent_level_cache;type:smallint"`
+	ClassClassParentImageURLCache *string   `json:"class_class_parent_image_url_cache,omitempty"   gorm:"column:class_class_parent_image_url_cache;type:varchar(160)"`
 
 	// =====================================================
 	// Snapshot Academic Term (denormalisasi label)

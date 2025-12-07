@@ -35,14 +35,14 @@ type StudentClassSectionSubjectTeacherModel struct {
 	StudentCSSTGradePoint    *float64 `gorm:"type:numeric(3,2);column:student_csst_grade_point" json:"student_csst_grade_point,omitempty"`
 	StudentCSSTIsPassed      *bool    `gorm:"column:student_csst_is_passed" json:"student_csst_is_passed,omitempty"`
 
-	// Cache users_profile & siswa (saat enrol)
-	StudentCSSTNameCache        *string `gorm:"type:varchar(80);column:student_csst_name_cache" json:"student_csst_name_cache,omitempty"`
-	StudentCSSTAvatarURLCache   *string `gorm:"type:varchar(255);column:student_csst_avatar_url_cache" json:"student_csst_avatar_url_cache,omitempty"`
-	StudentCSSTWAURLCache       *string `gorm:"type:varchar(50);column:student_csst_wa_url_cache" json:"student_csst_wa_url_cache,omitempty"`
-	StudentCSSTParentNameCache  *string `gorm:"type:varchar(80);column:student_csst_parent_name_cache" json:"student_csst_parent_name_cache,omitempty"`
-	StudentCSSTParentWAURLCache *string `gorm:"type:varchar(50);column:student_csst_parent_wa_url_cache" json:"student_csst_parent_wa_url_cache,omitempty"`
-	StudentCSSTGenderCache      *string `gorm:"type:varchar(20);column:student_csst_gender_cache" json:"student_csst_gender_cache,omitempty"`
-	StudentCSSTStudentCodeCache *string `gorm:"type:varchar(50);column:student_csst_student_code_cache" json:"student_csst_student_code_cache,omitempty"`
+	// 🆕 Cache user profile & siswa (pendek) — disamakan dengan SQL
+	StudentCSSTUserProfileNameCache        *string `gorm:"type:varchar(80);column:student_csst_user_profile_name_cache" json:"student_csst_user_profile_name_cache,omitempty"`
+	StudentCSSTUserProfileAvatarURLCache   *string `gorm:"type:varchar(255);column:student_csst_user_profile_avatar_url_cache" json:"student_csst_user_profile_avatar_url_cache,omitempty"`
+	StudentCSSTUserProfileWAURLCache       *string `gorm:"type:varchar(50);column:student_csst_user_profile_wa_url_cache" json:"student_csst_user_profile_wa_url_cache,omitempty"`
+	StudentCSSTUserProfileParentNameCache  *string `gorm:"type:varchar(80);column:student_csst_user_profile_parent_name_cache" json:"student_csst_user_profile_parent_name_cache,omitempty"`
+	StudentCSSTUserProfileParentWAURLCache *string `gorm:"type:varchar(50);column:student_csst_user_profile_parent_wa_url_cache" json:"student_csst_user_profile_parent_wa_url_cache,omitempty"`
+	StudentCSSTUserProfileGenderCache      *string `gorm:"type:varchar(20);column:student_csst_user_profile_gender_cache" json:"student_csst_user_profile_gender_cache,omitempty"`
+	StudentCSSTSchoolStudentCodeCache      *string `gorm:"type:varchar(50);column:student_csst_school_student_code_cache" json:"student_csst_school_student_code_cache,omitempty"`
 
 	// Riwayat intervensi/remedial (append-only JSONB)
 	StudentCSSTEditsHistory datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'::jsonb;column:student_csst_edits_history" json:"student_csst_edits_history"`

@@ -1,3 +1,4 @@
+// file: internals/features/school/attendance_assesment/submissions/controller/submission_list_controller.go
 package controller
 
 import (
@@ -28,7 +29,21 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 		return err
 	}
 
-	// 3) Base query: semua submission milik school ini
+	// 3) Parse query ke DTO ListSubmissionsQuery
+	var q dto.ListSubmissionsQuery
+	if err := c.QueryParser(&q); err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "query params tidak valid")
+	}
+	if ctrl.Validator != nil {
+		if err := ctrl.Validator.Struct(&q); err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+		}
+	}
+
+	// SchoolID selalu di-force dari token (abaikan query school_id)
+	q.SchoolID = &schoolID
+
+	// 4) Base query: semua submission milik school ini
 	tx := ctrl.DB.WithContext(c.Context()).
 		Model(&model.SubmissionModel{}).
 		Where(`
@@ -36,7 +51,7 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 			AND submission_deleted_at IS NULL
 		`, schoolID)
 
-	// 4) Role flags
+	// 5) Role flags
 	isStudent := helperAuth.IsStudent(c)
 	isTeacher := helperAuth.IsTeacher(c)
 	isDKM := helperAuth.IsDKM(c)
@@ -44,18 +59,27 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 	// Student hanya boleh akses submission miliknya
 	if isStudent && !isTeacher && !isDKM {
 		if sid, _ := helperAuth.GetSchoolStudentIDForSchool(c, schoolID); sid != uuid.Nil {
-			tx = tx.Where("submission_student_id = ?", sid)
+			q.StudentID = &sid
 		} else {
 			// Student tapi tidak punya relasi school_student -> kosongkan list
-			paging := helper.ResolvePaging(c, 20, 100)
-			pagination := helper.BuildPaginationFromPage(0, paging.Page, paging.PerPage)
+			page := q.Page
+			if page <= 0 {
+				page = 1
+			}
+			perPage := q.PerPage
+			if perPage <= 0 {
+				perPage = 20
+			} else if perPage > 200 {
+				perPage = 200
+			}
+			pagination := helper.BuildPaginationFromPage(0, page, perPage)
 			return helper.JsonList(c, "OK", []any{}, pagination)
 		}
 	}
 
-	// 5) Optional filters
+	// 6) Optional filters dari query (DTO)
 
-	// 🔹 Filter by submission_id / id (single UUID)
+	// 🔹 Filter by submission_id / id (single UUID) — tambahan di luar DTO
 	if s := strings.TrimSpace(c.Query("id")); s != "" {
 		if sid, er := uuid.Parse(s); er == nil && sid != uuid.Nil {
 			tx = tx.Where("submission_id = ?", sid)
@@ -66,14 +90,12 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 🔹 Filter by assessment_id (single UUID)
-	if s := strings.TrimSpace(c.Query("assessment_id")); s != "" {
-		if aid, er := uuid.Parse(s); er == nil && aid != uuid.Nil {
-			tx = tx.Where("submission_assessment_id = ?", aid)
-		}
+	// 🔹 Filter by assessment_id (DTO)
+	if q.AssessmentID != nil {
+		tx = tx.Where("submission_assessment_id = ?", *q.AssessmentID)
 	}
 
-	// 🔹 (opsional) multiple assessment_ids=uuid1,uuid2,...
+	// 🔹 (opsional) multiple assessment_ids=uuid1,uuid2,... (tambahan)
 	if s := strings.TrimSpace(c.Query("assessment_ids")); s != "" {
 		parts := strings.Split(s, ",")
 		var ids []uuid.UUID
@@ -91,40 +113,63 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// ?student_id=<uuid> (hanya untuk non-student / staff)
-	if !isStudent {
-		if s := strings.TrimSpace(c.Query("student_id")); s != "" {
-			if sid, er := uuid.Parse(s); er == nil && sid != uuid.Nil {
-				tx = tx.Where("submission_student_id = ?", sid)
-			}
-		}
+	// 🔹 StudentID (hanya untuk non-student / staff; untuk student sudah di-force di atas)
+	if !isStudent && q.StudentID != nil {
+		tx = tx.Where("submission_student_id = ?", *q.StudentID)
 	}
 
-	// 6) Pagination (pakai helper)
-	paging := helper.ResolvePaging(c, 20, 100)
+	// 🔹 Status
+	if q.Status != nil {
+		tx = tx.Where("submission_status = ?", *q.Status)
+	}
 
+	// 🔹 Periode submitted_from / submitted_to
+	if q.SubmittedFrom != nil {
+		tx = tx.Where("submission_submitted_at >= ?", *q.SubmittedFrom)
+	}
+	if q.SubmittedTo != nil {
+		tx = tx.Where("submission_submitted_at < ?", *q.SubmittedTo)
+	}
+
+	// 7) Pagination (pakai Page/PerPage dari DTO dengan clamp)
+	page := q.Page
+	if page <= 0 {
+		page = 1
+	}
+	perPage := q.PerPage
+	if perPage <= 0 {
+		perPage = 20
+	} else if perPage > 200 {
+		perPage = 200
+	}
+	offset := (page - 1) * perPage
+
+	// 8) Hitung total
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
+	// 9) Sorting (pakai helper applySort yang sudah didefinisikan di controller lain)
+	tx = applySort(tx, q.Sort)
+
+	// 10) Ambil data
 	var rows []model.SubmissionModel
 	if err := tx.
-		Order("submission_created_at DESC").
-		Offset(paging.Offset).
-		Limit(paging.Limit).
+		Offset(offset).
+		Limit(perPage).
 		Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// 7) Mapping ke DTO
+	// 11) Mapping ke DTO
 	items := make([]any, 0, len(rows))
 	for i := range rows {
 		items = append(items, dto.FromModel(&rows[i]))
 	}
 
-	// 8) Build pagination full (TotalPages, HasNext, HasPrev, dsb)
-	pagination := helper.BuildPaginationFromPage(total, paging.Page, paging.PerPage)
+	// 12) Build pagination full (TotalPages, HasNext, HasPrev, dsb)
+	pagination := helper.BuildPaginationFromPage(total, page, perPage)
 
 	return helper.JsonList(c, "OK", items, pagination)
 }

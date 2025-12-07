@@ -1,8 +1,7 @@
-// file: schedule_rules_user_controller.go (refactored)
+// file: schedule_rules_user_controller.go
 package controller
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -14,7 +13,6 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
-	"github.com/lib/pq"
 	"gorm.io/gorm"
 )
 
@@ -256,7 +254,7 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 
 /*
 	=========================
-	  Fetch rules (fixed alias to avoid conflicts)
+	  Fetch rules (pakai model + DTO mapper)
 	=========================
 */
 
@@ -267,57 +265,10 @@ func fetchRulesGrouped(db *gorm.DB, schoolID uuid.UUID, scheduleIDs []uuid.UUID,
 		return out, nil
 	}
 
-	// Struct with SAFE field names
-	type ruleFlat struct {
-		ID                 uuid.UUID     `gorm:"column:class_schedule_rule_id"`
-		SchoolID           uuid.UUID     `gorm:"column:class_schedule_rule_school_id"`
-		ScheduleID         uuid.UUID     `gorm:"column:class_schedule_rule_schedule_id"`
-		DayOfWeek          int           `gorm:"column:class_schedule_rule_day_of_week"`
-		StartTimeStr       string        `gorm:"column:start_time_str"` // <── FIXED
-		EndTimeStr         string        `gorm:"column:end_time_str"`   // <── FIXED
-		IntervalWeeks      int           `gorm:"column:class_schedule_rule_interval_weeks"`
-		StartOffsetWeeks   int           `gorm:"column:class_schedule_rule_start_offset_weeks"`
-		WeekParity         string        `gorm:"column:class_schedule_rule_week_parity"`
-		WeeksOfMonth       pq.Int64Array `gorm:"column:class_schedule_rule_weeks_of_month"`
-		LastWeekOfMonth    bool          `gorm:"column:class_schedule_rule_last_week_of_month"`
-		CSSTID             uuid.UUID     `gorm:"column:class_schedule_rule_csst_id"`
-		CSSTSlugCache   *string       `gorm:"column:class_schedule_rule_csst_slug_cache"`
-		CSSTCacheRaw    []byte        `gorm:"column:class_schedule_rule_csst_cache"`
-		CSSTTeacherID      *uuid.UUID    `gorm:"column:class_schedule_rule_csst_student_teacher_id"`
-		CSSTSectionID      *uuid.UUID    `gorm:"column:class_schedule_rule_csst_class_section_id"`
-		CSSTClassSubjectID *uuid.UUID    `gorm:"column:class_schedule_rule_csst_class_subject_id"`
-		CSSTRoomID         *uuid.UUID    `gorm:"column:class_schedule_rule_csst_class_room_id"`
-		CreatedAt          time.Time     `gorm:"column:class_schedule_rule_created_at"`
-		UpdatedAt          time.Time     `gorm:"column:class_schedule_rule_updated_at"`
-	}
+	var rules []m.ClassScheduleRuleModel
 
 	q := db.
-		Table("class_schedule_rules").
-		Select(`
-			class_schedule_rule_id,
-			class_schedule_rule_school_id,
-			class_schedule_rule_schedule_id,
-			class_schedule_rule_day_of_week,
-
-			-- gunakan alias berbeda agar tidak bentrok dgn kolom asli
-			to_char(class_schedule_rule_start_time::time, 'HH24:MI:SS') AS start_time_str,
-			to_char(class_schedule_rule_end_time::time,   'HH24:MI:SS') AS end_time_str,
-
-			class_schedule_rule_interval_weeks,
-			class_schedule_rule_start_offset_weeks,
-			class_schedule_rule_week_parity,
-			class_schedule_rule_weeks_of_month,
-			class_schedule_rule_last_week_of_month,
-			class_schedule_rule_csst_id,
-			class_schedule_rule_csst_slug_cache,
-			class_schedule_rule_csst_cache,
-			class_schedule_rule_csst_student_teacher_id,
-			class_schedule_rule_csst_class_section_id,
-			class_schedule_rule_csst_class_subject_id,
-			class_schedule_rule_csst_class_room_id,
-			class_schedule_rule_created_at,
-			class_schedule_rule_updated_at
-		`).
+		Model(&m.ClassScheduleRuleModel{}).
 		Where("class_schedule_rule_school_id = ?", schoolID).
 		Where("class_schedule_rule_schedule_id IN ?", scheduleIDs)
 
@@ -332,41 +283,13 @@ func fetchRulesGrouped(db *gorm.DB, schoolID uuid.UUID, scheduleIDs []uuid.UUID,
 		class_schedule_rule_created_at ASC
 	`)
 
-	var rows []ruleFlat
-	if err := q.Find(&rows).Error; err != nil {
+	if err := q.Find(&rules).Error; err != nil {
 		return nil, err
 	}
 
-	for _, r := range rows {
-		var snap map[string]any
-		if len(r.CSSTCacheRaw) > 0 {
-			_ = json.Unmarshal(r.CSSTCacheRaw, &snap)
-		}
-
-		resp := d.ClassScheduleRuleResponse{
-			ClassScheduleRuleID:                   r.ID,
-			ClassScheduleRuleSchoolID:             r.SchoolID,
-			ClassScheduleRuleScheduleID:           r.ScheduleID,
-			ClassScheduleRuleDayOfWeek:            r.DayOfWeek,
-			ClassScheduleRuleStartTime:            r.StartTimeStr,
-			ClassScheduleRuleEndTime:              r.EndTimeStr,
-			ClassScheduleRuleIntervalWeeks:        r.IntervalWeeks,
-			ClassScheduleRuleStartOffsetWeeks:     r.StartOffsetWeeks,
-			ClassScheduleRuleWeekParity:           r.WeekParity,
-			ClassScheduleRuleWeeksOfMonth:         []int64(r.WeeksOfMonth),
-			ClassScheduleRuleLastWeekOfMonth:      r.LastWeekOfMonth,
-			ClassScheduleRuleCSSTID:               r.CSSTID,
-			ClassScheduleRuleCSSTSlugCache:     r.CSSTSlugCache,
-			ClassScheduleRuleCSSTCache:         snap,
-			ClassScheduleRuleCSSTStudentTeacherID: r.CSSTTeacherID,
-			ClassScheduleRuleCSSTClassSectionID:   r.CSSTSectionID,
-			ClassScheduleRuleCSSTClassSubjectID:   r.CSSTClassSubjectID,
-			ClassScheduleRuleCSSTClassRoomID:      r.CSSTRoomID,
-			ClassScheduleRuleCreatedAt:            r.CreatedAt,
-			ClassScheduleRuleUpdatedAt:            r.UpdatedAt,
-		}
-
-		out[r.ScheduleID] = append(out[r.ScheduleID], resp)
+	for _, r := range rules {
+		schedID := r.ClassScheduleRuleScheduleID
+		out[schedID] = append(out[schedID], d.FromRuleModel(r))
 	}
 
 	return out, nil

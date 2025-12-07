@@ -73,12 +73,12 @@ type SchoolStudentModel struct {
 	SchoolStudentNote *string `gorm:"column:school_student_note;type:text" json:"school_student_note,omitempty"`
 
 	// ===== SNAPSHOTS dari user_profiles =====
-	SchoolStudentUserProfileNameCache             *string `gorm:"column:school_student_user_profile_name_cache;type:varchar(80)" json:"school_student_user_profile_name_cache,omitempty"`
-	SchoolStudentUserProfileAvatarURLCache        *string `gorm:"column:school_student_user_profile_avatar_url_cache;type:varchar(255)" json:"school_student_user_profile_avatar_url_cache,omitempty"`
-	SchoolStudentUserProfileWhatsappURLCache      *string `gorm:"column:school_student_user_profile_whatsapp_url_cache;type:varchar(50)" json:"school_student_user_profile_whatsapp_url_cache,omitempty"`
-	SchoolStudentUserProfileParentNameCache       *string `gorm:"column:school_student_user_profile_parent_name_cache;type:varchar(80)" json:"school_student_user_profile_parent_name_cache,omitempty"`
-	SchoolStudentUserProfileParentWhatsappURLCache*string `gorm:"column:school_student_user_profile_parent_whatsapp_url_cache;type:varchar(50)" json:"school_student_user_profile_parent_whatsapp_url_cache,omitempty"`
-	SchoolStudentUserProfileGenderCache           *string `gorm:"column:school_student_user_profile_gender_cache;type:varchar(20)" json:"school_student_user_profile_gender_cache,omitempty"`
+	SchoolStudentUserProfileNameCache              *string `gorm:"column:school_student_user_profile_name_cache;type:varchar(80)" json:"school_student_user_profile_name_cache,omitempty"`
+	SchoolStudentUserProfileAvatarURLCache         *string `gorm:"column:school_student_user_profile_avatar_url_cache;type:varchar(255)" json:"school_student_user_profile_avatar_url_cache,omitempty"`
+	SchoolStudentUserProfileWhatsappURLCache       *string `gorm:"column:school_student_user_profile_whatsapp_url_cache;type:varchar(50)" json:"school_student_user_profile_whatsapp_url_cache,omitempty"`
+	SchoolStudentUserProfileParentNameCache        *string `gorm:"column:school_student_user_profile_parent_name_cache;type:varchar(80)" json:"school_student_user_profile_parent_name_cache,omitempty"`
+	SchoolStudentUserProfileParentWhatsappURLCache *string `gorm:"column:school_student_user_profile_parent_whatsapp_url_cache;type:varchar(50)" json:"school_student_user_profile_parent_whatsapp_url_cache,omitempty"`
+	SchoolStudentUserProfileGenderCache            *string `gorm:"column:school_student_user_profile_gender_cache;type:varchar(20)" json:"school_student_user_profile_gender_cache,omitempty"`
 
 	// ===== JSONB CLASS SECTIONS (NOT NULL DEFAULT '[]') =====
 	// Berisi array SchoolStudentSectionItem
@@ -103,11 +103,6 @@ type SchoolStudentModel struct {
 }
 
 func (SchoolStudentModel) TableName() string { return "school_students" }
-
-// =======================================
-// Hooks ringan (mirror aturan SQL)
-// =======================================
-
 func (m *SchoolStudentModel) BeforeCreate(tx *gorm.DB) error {
 	// JSONB guard
 	if len(m.SchoolStudentClassSections) == 0 {
@@ -117,7 +112,12 @@ func (m *SchoolStudentModel) BeforeCreate(tx *gorm.DB) error {
 		m.SchoolStudentClassSectionSubjectTeachers = datatypes.JSON([]byte("[]"))
 	}
 
-	// Validasi status
+	// Kalau kosong, pakai default "active" (mirror default SQL)
+	if m.SchoolStudentStatus == "" {
+		m.SchoolStudentStatus = SchoolStudentActive
+	}
+
+	// Validasi status (wajib valid saat create)
 	if _, ok := validSchoolStudentStatus[m.SchoolStudentStatus]; !ok {
 		return errors.New("invalid school_student_status")
 	}
@@ -126,9 +126,12 @@ func (m *SchoolStudentModel) BeforeCreate(tx *gorm.DB) error {
 }
 
 func (m *SchoolStudentModel) BeforeSave(tx *gorm.DB) error {
-	// Validasi status
-	if _, ok := validSchoolStudentStatus[m.SchoolStudentStatus]; !ok {
-		return errors.New("invalid school_student_status")
+	// Validasi status HANYA kalau diisi (non-blank).
+	// Untuk bulk Updates(map[...]), struct m biasanya zero value → jangan diblok.
+	if m.SchoolStudentStatus != "" {
+		if _, ok := validSchoolStudentStatus[m.SchoolStudentStatus]; !ok {
+			return errors.New("invalid school_student_status")
+		}
 	}
 
 	// JSONB guard

@@ -35,7 +35,7 @@ const (
 
 /* =========================================================
    HISTORY STRUCTS
-   ========================================================= */
+========================================================= */
 
 // Satu soal yang dijawab dalam satu attempt
 type StudentQuizAttemptQuestionItem struct {
@@ -66,10 +66,12 @@ type StudentQuizAttemptHistoryItem struct {
 	Items []StudentQuizAttemptQuestionItem `json:"items"`
 }
 
-/* =========================================================
-   MODEL
-   ========================================================= */
+/*
+	=========================================================
+	  MODEL
 
+=========================================================
+*/
 type StudentQuizAttemptModel struct {
 	// PK teknis
 	StudentQuizAttemptID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:student_quiz_attempt_id" json:"student_quiz_attempt_id"`
@@ -78,6 +80,13 @@ type StudentQuizAttemptModel struct {
 	StudentQuizAttemptSchoolID  uuid.UUID `gorm:"type:uuid;not null;column:student_quiz_attempt_school_id" json:"student_quiz_attempt_school_id"`
 	StudentQuizAttemptQuizID    uuid.UUID `gorm:"type:uuid;not null;column:student_quiz_attempt_quiz_id" json:"student_quiz_attempt_quiz_id"`
 	StudentQuizAttemptStudentID uuid.UUID `gorm:"type:uuid;not null;column:student_quiz_attempt_student_id" json:"student_quiz_attempt_student_id"`
+
+	// Cache user profile & siswa (snapshot, optional)
+	StudentQuizAttemptUserProfileNameSnapshot        *string `gorm:"type:varchar(80);column:student_quiz_attempt_user_profile_name_snapshot" json:"student_quiz_attempt_user_profile_name_snapshot,omitempty"`
+	StudentQuizAttemptUserProfileAvatarURLSnapshot   *string `gorm:"type:varchar(255);column:student_quiz_attempt_user_profile_avatar_url_snapshot" json:"student_quiz_attempt_user_profile_avatar_url_snapshot,omitempty"`
+	StudentQuizAttemptUserProfileWhatsappURLSnapshot *string `gorm:"type:varchar(50);column:student_quiz_attempt_user_profile_whatsapp_url_snapshot" json:"student_quiz_attempt_user_profile_whatsapp_url_snapshot,omitempty"`
+	StudentQuizAttemptUserProfileGenderSnapshot      *string `gorm:"type:varchar(20);column:student_quiz_attempt_user_profile_gender_snapshot" json:"student_quiz_attempt_user_profile_gender_snapshot,omitempty"`
+	StudentQuizAttemptSchoolStudentCodeCache         *string `gorm:"type:varchar(50);column:student_quiz_attempt_school_student_code_cache" json:"student_quiz_attempt_school_student_code_cache,omitempty"`
 
 	// Status attempt saat ini (dipakai di List + filter active_only)
 	StudentQuizAttemptStatus StudentQuizAttemptStatus `gorm:"type:student_quiz_attempt_status_enum;not null;default:'in_progress';column:student_quiz_attempt_status" json:"student_quiz_attempt_status"`
@@ -109,13 +118,9 @@ type StudentQuizAttemptModel struct {
 	StudentQuizAttemptUpdatedAt time.Time `gorm:"type:timestamptz;not null;default:now();autoUpdateTime;column:student_quiz_attempt_updated_at" json:"student_quiz_attempt_updated_at"`
 }
 
-func (StudentQuizAttemptModel) TableName() string {
-	return "student_quiz_attempts"
-}
-
 /* =========================================================
    HISTORY HELPER
-   ========================================================= */
+========================================================= */
 
 // AppendAttemptHistory dipanggil dari service submit,
 // bukan dari controller langsung.

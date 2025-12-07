@@ -206,7 +206,7 @@ CREATE TABLE IF NOT EXISTS classes (
   class_class_parent_name_cache   VARCHAR(80),
   class_class_parent_slug_cache   VARCHAR(160),
   class_class_parent_level_cache  SMALLINT,
-  class_class_parent_url_cache    VARCHAR(160),
+  class_class_parent_image_url_cache    VARCHAR(160),
 
   -- Snapshot Class Term (FIXED)
   class_academic_term_id UUID,

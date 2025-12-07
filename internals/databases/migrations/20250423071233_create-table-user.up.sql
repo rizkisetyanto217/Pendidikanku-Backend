@@ -51,6 +51,7 @@ ALTER TABLE users
     setweight(to_tsvector('simple', coalesce(full_name, '')), 'B')
   ) STORED;
 CREATE INDEX IF NOT EXISTS idx_users_user_search ON users USING gin (user_search);
+BEGIN;
 
 -- ============================ --
 -- TABLE USERS PROFILE --
@@ -61,6 +62,7 @@ CREATE TABLE IF NOT EXISTS user_profiles (
 
   -- Identitas dasar
   user_profile_full_name_cache   VARCHAR(100),
+   user_profile_user_name_cache VARCHAR(50),
   user_profile_slug                 VARCHAR(80),
   user_profile_donation_name        VARCHAR(50),
   user_profile_date_of_birth        DATE,
@@ -146,8 +148,6 @@ BEGIN
   END IF;
 END$$;
 
-
-
 -- Index: filter/list cepat berdasarkan status completed (untuk onboarding)
 CREATE INDEX IF NOT EXISTS ix_up_completed_status_created
   ON user_profiles (user_profile_is_completed, user_profile_created_at DESC)
@@ -157,7 +157,6 @@ CREATE INDEX IF NOT EXISTS ix_up_completed_status_created
 CREATE INDEX IF NOT EXISTS ix_up_completed_verified
   ON user_profiles (user_profile_is_completed, user_profile_is_verified)
   WHERE user_profile_deleted_at IS NULL;
-
 
 -- Indexes (pakai prefix baru)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_user_profile_slug_alive
@@ -180,5 +179,16 @@ CREATE INDEX IF NOT EXISTS idx_user_profile_telegram
 CREATE INDEX IF NOT EXISTS idx_user_profile_avatar_purge_due
   ON user_profiles(user_profile_avatar_delete_pending_until)
   WHERE user_profile_avatar_object_key_old IS NOT NULL;
+
+-- =====================================================
+-- 🆕 Username snapshot (cache dari users.user_name)
+-- =====================================================
+
+
+-- Index buat pencarian username yang masih alive
+CREATE INDEX IF NOT EXISTS idx_user_profile_user_name_cache_alive
+  ON user_profiles (user_profile_user_name_cache)
+  WHERE user_profile_deleted_at IS NULL
+    AND user_profile_user_name_cache IS NOT NULL;
 
 COMMIT;

@@ -2,11 +2,6 @@
 /* =======================================================================
    TABLE: student_quiz_attempts (JSON version)
    1 row = 1 student × 1 quiz (per school)
-   - history: semua attempt dalam JSONB
-   - status : in_progress / submitted / finished / abandoned
-   - best_* : nilai tertinggi
-   - last_* : nilai attempt terakhir
-   - count  : total attempt
    ======================================================================= */
 
 BEGIN;
@@ -37,6 +32,13 @@ CREATE TABLE IF NOT EXISTS student_quiz_attempts (
   student_quiz_attempt_school_id  uuid NOT NULL,
   student_quiz_attempt_quiz_id    uuid NOT NULL,
   student_quiz_attempt_student_id uuid NOT NULL,
+
+  -- Cache user profile & siswa (snapshot, optional)
+  student_quiz_attempt_user_profile_name_snapshot       VARCHAR(80),
+  student_quiz_attempt_user_profile_avatar_url_snapshot VARCHAR(255),
+  student_quiz_attempt_user_profile_whatsapp_url_snapshot VARCHAR(50),
+  student_quiz_attempt_user_profile_gender_snapshot     VARCHAR(20),
+  student_quiz_attempt_school_student_code_cache        VARCHAR(50),
 
   -- Status attempt saat ini (dipakai untuk filter / list)
   student_quiz_attempt_status student_quiz_attempt_status_enum
@@ -123,10 +125,5 @@ CREATE INDEX IF NOT EXISTS brin_sqa_finished_at
 CREATE INDEX IF NOT EXISTS brin_sqa_last_started_at
   ON student_quiz_attempts
   USING BRIN (student_quiz_attempt_last_started_at);
-
--- Opsional: index JSONB kalau nanti sering filter ke dalam history
--- CREATE INDEX IF NOT EXISTS gin_sqa_history
---   ON student_quiz_attempts
---   USING GIN (student_quiz_attempt_history);
 
 COMMIT;

@@ -17,12 +17,13 @@ import (
 func (uc *UserTeacherController) List(c *fiber.Ctx) error {
 	q := strings.TrimSpace(c.Query("q"))
 
-	// Masih pakai helper ParseFiber untuk baca sort_by & order
+	// Pakai helper ParseFiber untuk baca sort_by & order
 	params := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
 
+	// mapping nama sort → kolom DB
 	allowed := map[string]string{
 		"created_at": "user_teacher_created_at",
-		"name":       "user_teacher_name",
+		"name":       "user_teacher_user_full_name_cache", // ✅ pakai kolom yang memang ada
 		"completed":  "user_teacher_is_completed",
 		"verified":   "user_teacher_is_verified",
 	}
@@ -38,7 +39,7 @@ func (uc *UserTeacherController) List(c *fiber.Ctx) error {
 	// 🔒 Hanya data milik user ini (by user_id token)
 	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
-		return err
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 	db = db.Where("user_teacher_user_id = ?", userID)
 
@@ -75,7 +76,12 @@ func (uc *UserTeacherController) List(c *fiber.Ctx) error {
 		if len([]rune(q)) < 2 {
 			return helper.JsonError(c, fiber.StatusBadRequest, "Panjang kata kunci minimal 2 karakter")
 		}
-		db = db.Where("user_teacher_name ILIKE ?", "%"+q+"%")
+
+		// Cari di full_name + username cache
+		db = db.Where(
+			"(user_teacher_user_full_name_cache ILIKE ? OR user_teacher_user_name_cache ILIKE ?)",
+			"%"+q+"%", "%"+q+"%",
+		)
 	}
 
 	// ================== SINGLE RECORD ==================

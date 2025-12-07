@@ -216,13 +216,14 @@ type StudentCSSTItem struct {
 	StudentCSSTGradePoint    *float64 `json:"student_csst_grade_point,omitempty"`
 	StudentCSSTIsPassed      *bool    `json:"student_csst_is_passed,omitempty"`
 
-	StudentCSSTNameCache        *string `json:"student_csst_name_cache,omitempty"`
-	StudentCSSTAvatarURLCache   *string `json:"student_csst_avatar_url_cache,omitempty"`
-	StudentCSSTWAURLCache       *string `json:"student_csst_wa_url_cache,omitempty"`
-	StudentCSSTParentNameCache  *string `json:"student_csst_parent_name_cache,omitempty"`
-	StudentCSSTParentWAURLCache *string `json:"student_csst_parent_wa_url_cache,omitempty"`
-	StudentCSSTGenderCache      *string `json:"student_csst_gender_cache,omitempty"`
-	StudentCSSTStudentCodeCache *string `json:"student_csst_student_code_cache,omitempty"`
+	// 🆕 diselaraskan dengan kolom di migration + model
+	StudentCSSTUserProfileNameCache        *string `json:"student_csst_user_profile_name_cache,omitempty"`
+	StudentCSSTUserProfileAvatarURLCache   *string `json:"student_csst_user_profile_avatar_url_cache,omitempty"`
+	StudentCSSTUserProfileWAURLCache       *string `json:"student_csst_user_profile_wa_url_cache,omitempty"`
+	StudentCSSTUserProfileParentNameCache  *string `json:"student_csst_user_profile_parent_name_cache,omitempty"`
+	StudentCSSTUserProfileParentWAURLCache *string `json:"student_csst_user_profile_parent_wa_url_cache,omitempty"`
+	StudentCSSTUserProfileGenderCache      *string `json:"student_csst_user_profile_gender_cache,omitempty"`
+	StudentCSSTSchoolStudentCodeCache      *string `json:"student_csst_school_student_code_cache,omitempty"`
 
 	StudentCSSTEditsHistory datatypes.JSON `json:"student_csst_edits_history"`
 

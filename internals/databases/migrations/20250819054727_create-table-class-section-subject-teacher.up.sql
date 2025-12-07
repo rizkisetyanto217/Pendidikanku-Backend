@@ -507,13 +507,13 @@ CREATE TABLE IF NOT EXISTS student_class_section_subject_teachers (
   student_csst_is_passed        BOOLEAN,
 
   -- Cache user profile & siswa (pendek)
-  student_csst_name_cache          VARCHAR(80),
-  student_csst_avatar_url_cache    VARCHAR(255),
-  student_csst_wa_url_cache        VARCHAR(50),
-  student_csst_parent_name_cache   VARCHAR(80),
-  student_csst_parent_wa_url_cache VARCHAR(50),
-  student_csst_gender_cache        VARCHAR(20),
-  student_csst_student_code_cache  VARCHAR(50),
+  student_csst_user_profile_name_cache          VARCHAR(80),
+  student_csst_user_profile_avatar_url_cache    VARCHAR(255),
+  student_csst_user_profile_whatsapp_url_cache        VARCHAR(50),
+  student_csst_user_profile_parent_name_cache   VARCHAR(80),
+  student_csst_user_profile_parent_wa_url_cache VARCHAR(50),
+  student_csst_user_profile_gender_cache        VARCHAR(20),
+  student_csst_school_student_code_cache  VARCHAR(50),
 
   -- Riwayat intervensi/remedial
   student_csst_edits_history JSONB NOT NULL DEFAULT '[]'::jsonb,

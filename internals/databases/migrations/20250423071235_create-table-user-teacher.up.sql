@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS user_teachers (
 
   -- Profil ringkas
   user_teacher_user_full_name_cache    VARCHAR(80) NOT NULL,
+  user_teacher_user_name_cache VARCHAR(80),
   user_teacher_field            VARCHAR(80),
   user_teacher_short_bio        VARCHAR(300),
   user_teacher_long_bio         TEXT,

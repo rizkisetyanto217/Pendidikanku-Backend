@@ -62,6 +62,9 @@ type CreateClassScheduleRuleRequest struct {
 	// CSST (WAJIB)
 	ClassScheduleRuleCSSTID uuid.UUID `json:"class_schedule_rule_csst_id" validate:"required,uuid"`
 
+	// ROOM OVERRIDE (opsional; kalau tidak dikirim → pakai room dari CSST)
+	ClassScheduleRuleRoomID *uuid.UUID `json:"class_schedule_rule_room_id" validate:"omitempty,uuid"`
+
 	// opsional (defaults: 1, 0, "all", nil, false)
 	ClassScheduleRuleIntervalWeeks    *int    `json:"class_schedule_rule_interval_weeks"     validate:"omitempty,min=1"`
 	ClassScheduleRuleStartOffsetWeeks *int    `json:"class_schedule_rule_start_offset_weeks" validate:"omitempty,min=0"`
@@ -112,7 +115,7 @@ func (r CreateClassScheduleRuleRequest) ToModel(schoolID uuid.UUID) (model.Class
 		lastWeek = *r.ClassScheduleRuleLastWeekOfMonth
 	}
 
-	return model.ClassScheduleRuleModel{
+	m := model.ClassScheduleRuleModel{
 		ClassScheduleRuleSchoolID:   schoolID,
 		ClassScheduleRuleScheduleID: r.ClassScheduleRuleScheduleID,
 
@@ -128,7 +131,14 @@ func (r CreateClassScheduleRuleRequest) ToModel(schoolID uuid.UUID) (model.Class
 
 		// CSST wajib
 		ClassScheduleRuleCSSTID: r.ClassScheduleRuleCSSTID,
-	}, nil
+	}
+
+	// ROOM override (opsional)
+	if r.ClassScheduleRuleRoomID != nil {
+		m.ClassScheduleRuleRoomID = r.ClassScheduleRuleRoomID
+	}
+
+	return m, nil
 }
 
 type UpdateClassScheduleRuleRequest struct {
@@ -141,8 +151,12 @@ type UpdateClassScheduleRuleRequest struct {
 	// pointer agar bisa bedakan "tidak diubah" (nil) vs "set ke []" (empty slice & non-nil)
 	ClassScheduleRuleWeeksOfMonth    *[]int `json:"class_schedule_rule_weeks_of_month"     validate:"omitempty,dive,min=1,max=5"`
 	ClassScheduleRuleLastWeekOfMonth *bool  `json:"class_schedule_rule_last_week_of_month" validate:"omitempty"`
+
 	// ganti CSST (opsional)
 	ClassScheduleRuleCSSTID *uuid.UUID `json:"class_schedule_rule_csst_id"        validate:"omitempty,uuid"`
+
+	// ganti ROOM override (opsional; tidak mendukung "set NULL" eksplisit)
+	ClassScheduleRuleRoomID *uuid.UUID `json:"class_schedule_rule_room_id"        validate:"omitempty,uuid"`
 }
 
 func (r UpdateClassScheduleRuleRequest) Apply(m *model.ClassScheduleRuleModel) error {
@@ -192,6 +206,9 @@ func (r UpdateClassScheduleRuleRequest) Apply(m *model.ClassScheduleRuleModel) e
 	if r.ClassScheduleRuleCSSTID != nil {
 		m.ClassScheduleRuleCSSTID = *r.ClassScheduleRuleCSSTID
 	}
+	if r.ClassScheduleRuleRoomID != nil {
+		m.ClassScheduleRuleRoomID = r.ClassScheduleRuleRoomID
+	}
 	return nil
 }
 
@@ -240,14 +257,19 @@ type ClassScheduleRuleResponse struct {
 	ClassScheduleRuleLastWeekOfMonth bool    `json:"class_schedule_rule_last_week_of_month"`
 
 	// CSST
-	ClassScheduleRuleCSSTID           uuid.UUID      `json:"class_schedule_rule_csst_id"`
+	ClassScheduleRuleCSSTID        uuid.UUID      `json:"class_schedule_rule_csst_id"`
 	ClassScheduleRuleCSSTSlugCache *string        `json:"class_schedule_rule_csst_slug_cache,omitempty"`
 	ClassScheduleRuleCSSTCache     map[string]any `json:"class_schedule_rule_csst_cache,omitempty"`
+
+	// ROOM override
+	ClassScheduleRuleRoomID        *uuid.UUID     `json:"class_schedule_rule_room_id,omitempty"`
+	ClassScheduleRuleRoomSlugCache *string        `json:"class_schedule_rule_room_slug_cache,omitempty"`
+	ClassScheduleRuleRoomCache     map[string]any `json:"class_schedule_rule_room_cache,omitempty"`
 
 	// Generated columns (tanpa join)
 	ClassScheduleRuleCSSTStudentTeacherID *uuid.UUID `json:"class_schedule_rule_csst_student_teacher_id,omitempty"`
 	ClassScheduleRuleCSSTClassSectionID   *uuid.UUID `json:"class_schedule_rule_csst_class_section_id,omitempty"`
-	ClassScheduleRuleCSSTClassSubjectID   *uuid.UUID `json:"class_schedule_rule_csst_class_subject_id,omitempty"`
+
 	ClassScheduleRuleCSSTClassRoomID      *uuid.UUID `json:"class_schedule_rule_csst_class_room_id,omitempty"`
 
 	ClassScheduleRuleCreatedAt time.Time `json:"class_schedule_rule_created_at"`
@@ -265,10 +287,14 @@ func FromRuleModel(m model.ClassScheduleRuleModel) ClassScheduleRuleResponse {
 		copy(weeks, m.ClassScheduleRuleWeeksOfMonth)
 	}
 
-	var snap map[string]any
+	var csstSnap map[string]any
 	if m.ClassScheduleRuleCSSTCache != nil {
-		// datatypes.JSONMap underlying type is map[string]any, safe to convert
-		snap = map[string]any(m.ClassScheduleRuleCSSTCache)
+		csstSnap = map[string]any(m.ClassScheduleRuleCSSTCache)
+	}
+
+	var roomSnap map[string]any
+	if m.ClassScheduleRuleRoomCache != nil {
+		roomSnap = map[string]any(m.ClassScheduleRuleRoomCache)
 	}
 
 	return ClassScheduleRuleResponse{
@@ -288,18 +314,24 @@ func FromRuleModel(m model.ClassScheduleRuleModel) ClassScheduleRuleResponse {
 		ClassScheduleRuleWeeksOfMonth:    weeks,
 		ClassScheduleRuleLastWeekOfMonth: m.ClassScheduleRuleLastWeekOfMonth,
 
-		ClassScheduleRuleCSSTID:           m.ClassScheduleRuleCSSTID,
+		// CSST
+		ClassScheduleRuleCSSTID:        m.ClassScheduleRuleCSSTID,
 		ClassScheduleRuleCSSTSlugCache: m.ClassScheduleRuleCSSTSlugCache,
-		ClassScheduleRuleCSSTCache:     snap,
+		ClassScheduleRuleCSSTCache:     csstSnap,
 
-		ClassScheduleRuleCreatedAt: m.ClassScheduleRuleCreatedAt,
-		ClassScheduleRuleUpdatedAt: m.ClassScheduleRuleUpdatedAt,
+		// ROOM override
+		ClassScheduleRuleRoomID:        m.ClassScheduleRuleRoomID,
+		ClassScheduleRuleRoomSlugCache: m.ClassScheduleRuleRoomSlugCache,
+		ClassScheduleRuleRoomCache:     roomSnap,
 
 		// generated columns
 		ClassScheduleRuleCSSTStudentTeacherID: m.ClassScheduleRuleCSSTStudentTeacherID,
 		ClassScheduleRuleCSSTClassSectionID:   m.ClassScheduleRuleCSSTClassSectionID,
-		ClassScheduleRuleCSSTClassSubjectID:   m.ClassScheduleRuleCSSTClassSubjectID,
-		ClassScheduleRuleCSSTClassRoomID:      m.ClassScheduleRuleCSSTClassRoomID,
+
+		ClassScheduleRuleCSSTClassRoomID: m.ClassScheduleRuleCSSTClassRoomID,
+
+		ClassScheduleRuleCreatedAt: m.ClassScheduleRuleCreatedAt,
+		ClassScheduleRuleUpdatedAt: m.ClassScheduleRuleUpdatedAt,
 	}
 }
 

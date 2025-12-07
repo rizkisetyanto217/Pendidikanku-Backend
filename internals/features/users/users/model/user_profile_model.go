@@ -24,6 +24,7 @@ type UserProfileModel struct {
 
 	// Snapshot nama user (dari users)
 	UserProfileFullNameCache *string `gorm:"size:100;column:user_profile_full_name_cache" json:"user_profile_full_name_cache,omitempty"`
+	UserProfileUserNameCache *string `gorm:"size:50;column:user_profile_user_name_cache" json:"user_profile_user_name_cache,omitempty"`
 
 	// Identitas dasar
 	UserProfileSlug         *string    `gorm:"size:80;column:user_profile_slug" json:"user_profile_slug,omitempty"`

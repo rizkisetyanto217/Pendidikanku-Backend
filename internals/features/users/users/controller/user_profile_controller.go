@@ -13,28 +13,15 @@ import (
 
 	profileDTO "madinahsalam_backend/internals/features/users/users/dto"
 	profileModel "madinahsalam_backend/internals/features/users/users/model"
+	userService "madinahsalam_backend/internals/features/users/users/service"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 	helperOSS "madinahsalam_backend/internals/helpers/oss"
-
-	snapshotUserSections "madinahsalam_backend/internals/features/school/classes/class_sections/service"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
-
-func (upc *UsersProfileController) ensureOSS() (*helperOSS.OSSService, error) {
-	if upc.OSS != nil {
-		return upc.OSS, nil
-	}
-	svc, err := helperOSS.NewOSSServiceFromEnv("")
-	if err != nil {
-		return nil, err
-	}
-	upc.OSS = svc
-	return svc, nil
-}
 
 // =============================================================
 // UsersProfileController (versi pakai OSSService helper terbaru)
@@ -57,6 +44,18 @@ func NewUsersProfileControllerFromEnv(db *gorm.DB) *UsersProfileController {
 		log.Printf("[WARN] OSS init gagal: %v", err)
 	}
 	return &UsersProfileController{DB: db, OSS: oss}
+}
+
+func (upc *UsersProfileController) ensureOSS() (*helperOSS.OSSService, error) {
+	if upc.OSS != nil {
+		return upc.OSS, nil
+	}
+	svc, err := helperOSS.NewOSSServiceFromEnv("")
+	if err != nil {
+		return nil, err
+	}
+	upc.OSS = svc
+	return svc, nil
 }
 
 func httpErr(c *fiber.Ctx, err error) error {
@@ -179,8 +178,29 @@ func (upc *UsersProfileController) CreateProfile(c *fiber.Ctx) error {
 
 	row := in.ToModel(userID)
 
+	// 🆕 Override snapshot nama & username dari tabel users (authority)
+	type miniUser struct {
+		FullName *string `gorm:"column:full_name"`
+		UserName *string `gorm:"column:user_name"`
+	}
+	var u miniUser
+	if err := upc.DB.WithContext(c.Context()).
+		Table("users").
+		Select("full_name, user_name").
+		Where("id = ?", userID).
+		Take(&u).Error; err == nil {
+		if u.FullName != nil && strings.TrimSpace(*u.FullName) != "" {
+			row.UserProfileFullNameCache = u.FullName
+		}
+		if u.UserName != nil && strings.TrimSpace(*u.UserName) != "" {
+			row.UserProfileUserNameCache = u.UserName
+		}
+	}
+
 	// === LOGIKA AUTO: set is_completed kalau gender + whatsapp sudah terisi ===
-	if row.UserProfileGender != nil && row.UserProfileWhatsappURL != nil && strings.TrimSpace(*row.UserProfileWhatsappURL) != "" {
+	if row.UserProfileGender != nil &&
+		row.UserProfileWhatsappURL != nil &&
+		strings.TrimSpace(*row.UserProfileWhatsappURL) != "" {
 		row.UserProfileIsCompleted = true
 		now := time.Now()
 		row.UserProfileCompletedAt = &now
@@ -219,6 +239,12 @@ func (upc *UsersProfileController) CreateProfile(c *fiber.Ctx) error {
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to create user profile")
 	}
+
+	// Opsional: langsung sync snapshot ke school_* context
+	if err := userService.SyncFromUserProfileModel(c.Context(), upc.DB, row, time.Now()); err != nil {
+		log.Printf("[CreateProfile] SyncFromUserProfileModel error: %v", err)
+	}
+
 	return helper.JsonCreated(c, "User profile created", profileDTO.ToUsersProfileDTO(row))
 }
 
@@ -316,6 +342,11 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 					}
 				}
 			}
+
+			// snapshot nama
+			setIfEmpty(&in.UserProfileFullNameCache, "user_profile_full_name_cache")
+			setIfEmpty(&in.UserProfileUserNameCache, "user_profile_user_name_cache")
+
 			setIfEmpty(&in.UserProfileSlug, "user_profile_slug")
 			setIfEmpty(&in.UserProfileDonationName, "user_profile_donation_name")
 			setIfEmpty(&in.UserProfilePlaceOfBirth, "user_profile_place_of_birth")
@@ -387,7 +418,6 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 	}
 
 	// === LOGIKA AUTO is_completed (berdasarkan gender + whatsapp efektif) ===
-	// Hitung gender & whatsapp SETELAH update (combine from before + updateMap)
 	effectiveGenderPresent := false
 	effectiveWhatsappPresent := false
 
@@ -412,15 +442,11 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 	completedAfter := effectiveGenderPresent && effectiveWhatsappPresent
 
 	if completedAfter {
-		// tandai completed
 		updateMap["user_profile_is_completed"] = true
-		// hanya set completed_at kalau sebelumnya belum completed
 		if !before.UserProfileIsCompleted || before.UserProfileCompletedAt == nil {
 			updateMap["user_profile_completed_at"] = now
 		}
 	} else if hasAnyKey(updateMap, "user_profile_gender", "user_profile_whatsapp_url") {
-		// user menyentuh salah satu field, tapi akhirnya tidak lengkap:
-		// turunkan jadi not-completed supaya aman dari constraint
 		updateMap["user_profile_is_completed"] = false
 		updateMap["user_profile_completed_at"] = nil
 	}
@@ -448,30 +474,24 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 		return helper.JsonUpdated(c, "User profile updated (no refresh)", profileDTO.ToUsersProfileDTO(before))
 	}
 
-	// === SNAPSHOT SYNC → user_class_sections (nama, avatar, WA, orangtua) via service ===
-	// Trigger hanya jika ada field relevan yang berubah
+	// ===== SNAPSHOT SYNC ke SCHOOL CONTEXT (users + school_students + student_xxx) =====
 	if hasAnyKey(updateMap,
-		"user_profile_full_name_cache", // kalau suatu saat kamu isi snapshot nama
-		"user_profile_name",
+		"user_profile_full_name_cache",
+		"user_profile_user_name_cache",
 		"user_profile_avatar_url",
 		"user_profile_whatsapp_url",
 		"user_profile_parent_name",
 		"user_profile_parent_whatsapp_url",
+		"user_profile_gender",
 	) {
-		snapshotUserSections.SyncUCSnapshotsFromUserProfile(
+		if err := userService.SyncFromUserProfileModel(
 			c.Context(),
 			upc.DB,
-			snapshotUserSections.UserProfileCacheInput{
-				UserID:            after.UserProfileUserID,
-				UserProfileID:     &after.UserProfileID,
-				FullNameCache:     after.UserProfileFullNameCache,
-				AvatarURL:         after.UserProfileAvatarURL,
-				WhatsappURL:       after.UserProfileWhatsappURL,
-				ParentName:        after.UserProfileParentName,
-				ParentWhatsappURL: after.UserProfileParentWhatsappURL,
-			},
+			after,
 			now,
-		)
+		); err != nil {
+			log.Printf("[UpdateProfile] SyncFromUserProfileModel error: %v", err)
+		}
 	}
 
 	return helper.JsonUpdated(c, "User profile updated", profileDTO.ToUsersProfileDTO(after))

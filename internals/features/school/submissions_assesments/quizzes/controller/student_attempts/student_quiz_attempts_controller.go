@@ -136,7 +136,8 @@ func (ctl *StudentQuizAttemptsController) resolveScopeForCreate(
 	if err := ctl.DB.Raw(`
 		SELECT EXISTS(
 			SELECT 1 FROM school_students
-			 WHERE school_student_id = ? AND school_id = ?
+			 WHERE school_student_id = ?
+			   AND school_student_school_id = ?
 		)
 	`, *req.StudentQuizAttemptStudentID, qMid).Scan(&ok).Error; err != nil {
 		return uuid.Nil, uuid.Nil, false, err

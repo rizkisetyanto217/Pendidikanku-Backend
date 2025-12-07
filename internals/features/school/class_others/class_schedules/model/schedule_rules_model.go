@@ -13,7 +13,11 @@ import (
 	"gorm.io/gorm"
 )
 
-// TimeOnly menyimpan jam-menit-detik saja (tanggal dummy 2000-01-01)
+/* =========================================================
+   TimeOnly type
+   - Simpan hanya jam-menit-detik ("HH:MM:SS")
+========================================================= */
+
 type TimeOnly struct {
 	time.Time
 }
@@ -26,7 +30,6 @@ func (t *TimeOnly) Scan(value interface{}) error {
 
 	switch v := value.(type) {
 	case time.Time:
-		// Kalau drivernya sudah kasih time.Time, ya sudah
 		t.Time = v
 		return nil
 	case []byte:
@@ -55,7 +58,7 @@ func (t *TimeOnly) parse(s string) error {
 		return err
 	}
 
-	// pakai tanggal dummy 2000-01-01 (atau bebas)
+	// tanggal dummy (nggak dipakai secara bisnis)
 	t.Time = time.Date(2000, 1, 1, parsed.Hour(), parsed.Minute(), parsed.Second(), 0, time.Local)
 	return nil
 }
@@ -68,10 +71,13 @@ func (t TimeOnly) Value() (driver.Value, error) {
 	return t.Format("15:04:05"), nil
 }
 
-// Helper kecil kalau mau
 func (t TimeOnly) HHMM() string {
 	return t.Format("15:04")
 }
+
+/* =========================================================
+   Enum
+========================================================= */
 
 type WeekParityEnum string
 
@@ -81,58 +87,85 @@ const (
 	WeekParityEven WeekParityEnum = "even"
 )
 
-type ClassScheduleRuleModel struct {
-	// PK
-	ClassScheduleRuleID uuid.UUID `gorm:"column:class_schedule_rule_id;type:uuid;default:gen_random_uuid();primaryKey" json:"class_schedule_rule_id"`
+/* =========================================================
+   Main Model
+========================================================= */
 
-	// Tenant & header (FK komposit → tenant-safe di header)
+type ClassScheduleRuleModel struct {
+	/* -----------------------------
+	   PK & Tenant
+	----------------------------- */
+	ClassScheduleRuleID         uuid.UUID `gorm:"column:class_schedule_rule_id;type:uuid;default:gen_random_uuid();primaryKey" json:"class_schedule_rule_id"`
 	ClassScheduleRuleSchoolID   uuid.UUID `gorm:"column:class_schedule_rule_school_id;type:uuid;not null" json:"class_schedule_rule_school_id"`
 	ClassScheduleRuleScheduleID uuid.UUID `gorm:"column:class_schedule_rule_schedule_id;type:uuid;not null" json:"class_schedule_rule_schedule_id"`
 
-	// Pola per pekan
+	/* -----------------------------
+	   Base Weekly Pattern
+	----------------------------- */
 	ClassScheduleRuleDayOfWeek int      `gorm:"column:class_schedule_rule_day_of_week;not null" json:"class_schedule_rule_day_of_week"`
 	ClassScheduleRuleStartTime TimeOnly `gorm:"column:class_schedule_rule_start_time;type:time;not null" json:"class_schedule_rule_start_time"`
 	ClassScheduleRuleEndTime   TimeOnly `gorm:"column:class_schedule_rule_end_time;type:time;not null" json:"class_schedule_rule_end_time"`
 
-	// Opsi pola
+	/* -----------------------------
+	   Advanced Weekly Options
+	----------------------------- */
 	ClassScheduleRuleIntervalWeeks    int            `gorm:"column:class_schedule_rule_interval_weeks;not null;default:1" json:"class_schedule_rule_interval_weeks"`
 	ClassScheduleRuleStartOffsetWeeks int            `gorm:"column:class_schedule_rule_start_offset_weeks;not null;default:0" json:"class_schedule_rule_start_offset_weeks"`
 	ClassScheduleRuleWeekParity       WeekParityEnum `gorm:"column:class_schedule_rule_week_parity;type:week_parity_enum;not null;default:'all'" json:"class_schedule_rule_week_parity"`
 	ClassScheduleRuleWeeksOfMonth     pq.Int64Array  `gorm:"column:class_schedule_rule_weeks_of_month;type:int[]" json:"class_schedule_rule_weeks_of_month,omitempty"`
 	ClassScheduleRuleLastWeekOfMonth  bool           `gorm:"column:class_schedule_rule_last_week_of_month;not null;default:false" json:"class_schedule_rule_last_week_of_month"`
 
-	// Default penugasan CSST (FK single-column)
-	ClassScheduleRuleCSSTID           uuid.UUID `gorm:"column:class_schedule_rule_csst_id;type:uuid;not null" json:"class_schedule_rule_csst_id"`
-	ClassScheduleRuleCSSTSlugCache *string   `gorm:"column:class_schedule_rule_csst_slug_cache;type:varchar(100)" json:"class_schedule_rule_csst_slug_cache,omitempty"`
+	/* =========================================================
+	   CSST Reference (FK + slug + JSONB cache)
+	   - Satu sumber utama penugasan (guru + kelas + mapel + room default)
+	========================================================= */
+	ClassScheduleRuleCSSTID uuid.UUID `gorm:"column:class_schedule_rule_csst_id;type:uuid;not null" json:"class_schedule_rule_csst_id"`
 
-	// Cache CSST (diisi backend, NOT NULL)
-	ClassScheduleRuleCSSTCache datatypes.JSONMap `gorm:"column:class_schedule_rule_csst_cache;type:jsonb;not null" json:"class_schedule_rule_csst_cache"`
+	ClassScheduleRuleCSSTSlugCache *string           `gorm:"column:class_schedule_rule_csst_slug_cache;type:varchar(100)" json:"class_schedule_rule_csst_slug_cache,omitempty"`
+	ClassScheduleRuleCSSTCache     datatypes.JSONMap `gorm:"column:class_schedule_rule_csst_cache;type:jsonb;not null" json:"class_schedule_rule_csst_cache"`
 
-	// Generated columns (read-only) dari cache
+	/* =========================================================
+	   ROOM OVERRIDE (FK + slug + JSONB cache)
+	   - Jika NULL → gunakan room dari CSST (di cache)
+	========================================================= */
+	ClassScheduleRuleRoomID        *uuid.UUID        `gorm:"column:class_schedule_rule_room_id;type:uuid" json:"class_schedule_rule_room_id,omitempty"`
+	ClassScheduleRuleRoomSlugCache *string           `gorm:"column:class_schedule_rule_room_slug_cache;type:varchar(100)" json:"class_schedule_rule_room_slug_cache,omitempty"`
+	ClassScheduleRuleRoomCache     datatypes.JSONMap `gorm:"column:class_schedule_rule_room_cache;type:jsonb" json:"class_schedule_rule_room_cache,omitempty"`
+
+	/* =========================================================
+	   Generated Columns (read-only, dari CSST cache)
+	   - Dipakai untuk query & anti-overlap
+	========================================================= */
 	ClassScheduleRuleCSSTStudentTeacherID *uuid.UUID `gorm:"column:class_schedule_rule_csst_student_teacher_id;type:uuid;->" json:"class_schedule_rule_csst_student_teacher_id,omitempty"`
 	ClassScheduleRuleCSSTClassSectionID   *uuid.UUID `gorm:"column:class_schedule_rule_csst_class_section_id;type:uuid;->" json:"class_schedule_rule_csst_class_section_id,omitempty"`
-	ClassScheduleRuleCSSTClassSubjectID   *uuid.UUID `gorm:"column:class_schedule_rule_csst_class_subject_id;type:uuid;->" json:"class_schedule_rule_csst_class_subject_id,omitempty"`
 	ClassScheduleRuleCSSTClassRoomID      *uuid.UUID `gorm:"column:class_schedule_rule_csst_class_room_id;type:uuid;->" json:"class_schedule_rule_csst_class_room_id,omitempty"`
 
-	// school_id dari cache (read-only, dipakai DB CHECK)
-	ClassScheduleRuleCSSTSchoolIDFromCache *uuid.UUID `gorm:"column:class_schedule_rule_csst_school_id_from_cache;type:uuid;->" json:"class_schedule_rule_csst_school_id_from_cache,omitempty"`
+	/* -----------------------------
+	   Generated Time Range (menit)
+	----------------------------- */
+	ClassScheduleRuleStartMin int16 `gorm:"column:class_schedule_rule_start_min;type:smallint;->" json:"class_schedule_rule_start_min"`
+	ClassScheduleRuleEndMin   int16 `gorm:"column:class_schedule_rule_end_min;type:smallint;->" json:"class_schedule_rule_end_min"`
 
-	// Audit
+	/* -----------------------------
+	   Timestamps
+	----------------------------- */
 	ClassScheduleRuleCreatedAt time.Time      `gorm:"column:class_schedule_rule_created_at;type:timestamptz;not null;autoCreateTime" json:"class_schedule_rule_created_at"`
 	ClassScheduleRuleUpdatedAt time.Time      `gorm:"column:class_schedule_rule_updated_at;type:timestamptz;not null;autoUpdateTime" json:"class_schedule_rule_updated_at"`
 	ClassScheduleRuleDeletedAt gorm.DeletedAt `gorm:"column:class_schedule_rule_deleted_at;index" json:"class_schedule_rule_deleted_at,omitempty"`
-
-	// Generated untuk anti-overlap (read-only)
-	ClassScheduleRuleStartMin int16 `gorm:"column:class_schedule_rule_start_min;type:smallint;->" json:"class_schedule_rule_start_min"`
-	ClassScheduleRuleEndMin   int16 `gorm:"column:class_schedule_rule_end_min;type:smallint;->" json:"class_schedule_rule_end_min"`
 }
 
 func (ClassScheduleRuleModel) TableName() string { return "class_schedule_rules" }
 
-// Optional guard: pastikan cache tidak NULL saat create/update
+/* =========================================================
+   Hooks
+========================================================= */
+
 func (m *ClassScheduleRuleModel) BeforeSave(tx *gorm.DB) error {
 	if m.ClassScheduleRuleCSSTCache == nil {
 		m.ClassScheduleRuleCSSTCache = datatypes.JSONMap{}
+	}
+	if m.ClassScheduleRuleRoomCache == nil {
+		m.ClassScheduleRuleRoomCache = datatypes.JSONMap{}
 	}
 	return nil
 }

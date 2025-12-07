@@ -13,7 +13,7 @@ import (
 
 /* ===========================
    Response DTO (JSON diselaraskan dgn model)
-   =========================== */
+=========================== */
 
 type UsersProfileDTO struct {
 	UserProfileID     uuid.UUID `json:"user_profile_id"`
@@ -21,6 +21,7 @@ type UsersProfileDTO struct {
 
 	// Snapshot dari users
 	UserProfileFullNameCache *string `json:"user_profile_full_name_cache,omitempty"`
+	UserProfileUserNameCache *string `json:"user_profile_user_name_cache,omitempty"`
 
 	// Identitas dasar
 	UserProfileSlug         *string    `json:"user_profile_slug,omitempty"`
@@ -95,42 +96,51 @@ func ToUsersProfileDTO(m profilemodel.UserProfileModel) UsersProfileDTO {
 	}
 
 	return UsersProfileDTO{
-		UserProfileID:                       m.UserProfileID,
-		UserProfileUserID:                   m.UserProfileUserID,
-		UserProfileFullNameCache:            m.UserProfileFullNameCache,
-		UserProfileSlug:                     m.UserProfileSlug,
-		UserProfileDonationName:             m.UserProfileDonationName,
-		UserProfileDateOfBirth:              m.UserProfileDateOfBirth,
-		UserProfilePlaceOfBirth:             m.UserProfilePlaceOfBirth,
-		UserProfileGender:                   genderStr,
-		UserProfileLocation:                 m.UserProfileLocation,
-		UserProfileCity:                     m.UserProfileCity,
-		UserProfileBio:                      m.UserProfileBio,
-		UserProfileBiographyLong:            m.UserProfileBiographyLong,
-		UserProfileExperience:               m.UserProfileExperience,
-		UserProfileCertifications:           m.UserProfileCertifications,
-		UserProfileInstagramURL:             m.UserProfileInstagramURL,
-		UserProfileWhatsappURL:              m.UserProfileWhatsappURL,
-		UserProfileLinkedinURL:              m.UserProfileLinkedinURL,
-		UserProfileGithubURL:                m.UserProfileGithubURL,
-		UserProfileYoutubeURL:               m.UserProfileYoutubeURL,
-		UserProfileTelegramUsername:         m.UserProfileTelegramUsername,
-		UserProfileParentName:               m.UserProfileParentName,
-		UserProfileParentWhatsappURL:        m.UserProfileParentWhatsappURL,
+		UserProfileID:            m.UserProfileID,
+		UserProfileUserID:        m.UserProfileUserID,
+		UserProfileFullNameCache: m.UserProfileFullNameCache,
+		UserProfileUserNameCache: m.UserProfileUserNameCache,
+
+		UserProfileSlug:         m.UserProfileSlug,
+		UserProfileDonationName: m.UserProfileDonationName,
+		UserProfileDateOfBirth:  m.UserProfileDateOfBirth,
+		UserProfilePlaceOfBirth: m.UserProfilePlaceOfBirth,
+		UserProfileGender:       genderStr,
+		UserProfileLocation:     m.UserProfileLocation,
+		UserProfileCity:         m.UserProfileCity,
+		UserProfileBio:          m.UserProfileBio,
+
+		UserProfileBiographyLong:  m.UserProfileBiographyLong,
+		UserProfileExperience:     m.UserProfileExperience,
+		UserProfileCertifications: m.UserProfileCertifications,
+
+		UserProfileInstagramURL:     m.UserProfileInstagramURL,
+		UserProfileWhatsappURL:      m.UserProfileWhatsappURL,
+		UserProfileLinkedinURL:      m.UserProfileLinkedinURL,
+		UserProfileGithubURL:        m.UserProfileGithubURL,
+		UserProfileYoutubeURL:       m.UserProfileYoutubeURL,
+		UserProfileTelegramUsername: m.UserProfileTelegramUsername,
+
+		UserProfileParentName:        m.UserProfileParentName,
+		UserProfileParentWhatsappURL: m.UserProfileParentWhatsappURL,
+
 		UserProfileAvatarURL:                m.UserProfileAvatarURL,
 		UserProfileAvatarObjectKey:          m.UserProfileAvatarObjectKey,
 		UserProfileAvatarURLOld:             m.UserProfileAvatarURLOld,
 		UserProfileAvatarObjectKeyOld:       m.UserProfileAvatarObjectKeyOld,
 		UserProfileAvatarDeletePendingUntil: m.UserProfileAvatarDeletePendingUntil,
-		UserProfileIsPublicProfile:          m.UserProfileIsPublicProfile,
-		UserProfileIsVerified:               m.UserProfileIsVerified,
-		UserProfileVerifiedAt:               m.UserProfileVerifiedAt,
-		UserProfileVerifiedBy:               m.UserProfileVerifiedBy,
-		UserProfileEducation:                m.UserProfileEducation,
-		UserProfileCompany:                  m.UserProfileCompany,
-		UserProfilePosition:                 m.UserProfilePosition,
-		UserProfileInterests:                []string(m.UserProfileInterests),
-		UserProfileSkills:                   []string(m.UserProfileSkills),
+
+		UserProfileIsPublicProfile: m.UserProfileIsPublicProfile,
+		UserProfileIsVerified:      m.UserProfileIsVerified,
+		UserProfileVerifiedAt:      m.UserProfileVerifiedAt,
+		UserProfileVerifiedBy:      m.UserProfileVerifiedBy,
+
+		UserProfileEducation: m.UserProfileEducation,
+		UserProfileCompany:   m.UserProfileCompany,
+		UserProfilePosition:  m.UserProfilePosition,
+
+		UserProfileInterests: []string(m.UserProfileInterests),
+		UserProfileSkills:    []string(m.UserProfileSkills),
 
 		UserProfileIsCompleted: m.UserProfileIsCompleted,
 		UserProfileCompletedAt: m.UserProfileCompletedAt,
@@ -150,10 +160,14 @@ func ToUsersProfileDTOs(list []profilemodel.UserProfileModel) []UsersProfileDTO 
 }
 
 /* ===========================
-   Request DTOs (JSON diselaraskan dgn model)
-   =========================== */
+   Request DTOs
+=========================== */
 
 type CreateUsersProfileRequest struct {
+	// optional snapshot nama dari users
+	UserProfileFullNameCache *string `json:"user_profile_full_name_cache,omitempty" form:"user_profile_full_name_cache" validate:"omitempty,max=100"`
+	UserProfileUserNameCache *string `json:"user_profile_user_name_cache,omitempty" form:"user_profile_user_name_cache" validate:"omitempty,max=50"`
+
 	UserProfileSlug *string `json:"user_profile_slug,omitempty" form:"user_profile_slug" validate:"omitempty,max=80"`
 
 	UserProfileDonationName string  `json:"user_profile_donation_name" form:"user_profile_donation_name" validate:"omitempty,max=50"`
@@ -194,6 +208,10 @@ type CreateUsersProfileRequest struct {
 }
 
 type UpdateUsersProfileRequest struct {
+	// sekarang bisa update snapshot nama juga
+	UserProfileFullNameCache *string `json:"user_profile_full_name_cache" form:"user_profile_full_name_cache" validate:"omitempty,max=100"`
+	UserProfileUserNameCache *string `json:"user_profile_user_name_cache" form:"user_profile_user_name_cache" validate:"omitempty,max=50"`
+
 	UserProfileSlug *string `json:"user_profile_slug" form:"user_profile_slug" validate:"omitempty,max=80"`
 
 	UserProfileDonationName *string `json:"user_profile_donation_name" form:"user_profile_donation_name" validate:"omitempty,max=50"`
@@ -235,25 +253,23 @@ type UpdateUsersProfileRequest struct {
 
 /* ===========================
    Converters / Appliers
-   =========================== */
+=========================== */
 
 func (r CreateUsersProfileRequest) ToModel(userID uuid.UUID) profilemodel.UserProfileModel {
 	m := profilemodel.UserProfileModel{
-		UserProfileUserID:       userID,
-		UserProfileDonationName: stringsPtrOrNil(strings.TrimSpace(r.UserProfileDonationName)),
+		UserProfileUserID:        userID,
+		UserProfileFullNameCache: trimPtr(r.UserProfileFullNameCache),
+		UserProfileUserNameCache: trimPtr(r.UserProfileUserNameCache),
 
-		// dasar
-		UserProfileSlug:     trimPtr(r.UserProfileSlug),
-		UserProfileLocation: trimPtr(r.UserProfileLocation),
-		UserProfileCity:     trimPtr(r.UserProfileCity),
-		UserProfileBio:      trimPtr(r.UserProfileBio),
-
-		// panjang
+		UserProfileDonationName:   stringsPtrOrNil(strings.TrimSpace(r.UserProfileDonationName)),
+		UserProfileSlug:           trimPtr(r.UserProfileSlug),
+		UserProfileLocation:       trimPtr(r.UserProfileLocation),
+		UserProfileCity:           trimPtr(r.UserProfileCity),
+		UserProfileBio:            trimPtr(r.UserProfileBio),
 		UserProfileBiographyLong:  trimPtr(r.UserProfileBiographyLong),
 		UserProfileExperience:     trimPtr(r.UserProfileExperience),
 		UserProfileCertifications: trimPtr(r.UserProfileCertifications),
 
-		// sosmed
 		UserProfileInstagramURL:     trimPtr(r.UserProfileInstagramURL),
 		UserProfileWhatsappURL:      trimPtr(r.UserProfileWhatsappURL),
 		UserProfileLinkedinURL:      trimPtr(r.UserProfileLinkedinURL),
@@ -261,11 +277,9 @@ func (r CreateUsersProfileRequest) ToModel(userID uuid.UUID) profilemodel.UserPr
 		UserProfileYoutubeURL:       trimPtr(r.UserProfileYoutubeURL),
 		UserProfileTelegramUsername: trimPtr(r.UserProfileTelegramUsername),
 
-		// Orang tua / wali
 		UserProfileParentName:        trimPtr(r.UserProfileParentName),
 		UserProfileParentWhatsappURL: trimPtr(r.UserProfileParentWhatsappURL),
 
-		// edu/job
 		UserProfileEducation: trimPtr(r.UserProfileEducation),
 		UserProfileCompany:   trimPtr(r.UserProfileCompany),
 		UserProfilePosition:  trimPtr(r.UserProfilePosition),
@@ -323,6 +337,10 @@ func (in *UpdateUsersProfileRequest) ToUpdateMap() (map[string]interface{}, erro
 			m[key] = *v
 		}
 	}
+
+	// Nama snapshot
+	setStr("user_profile_full_name_cache", in.UserProfileFullNameCache)
+	setStr("user_profile_user_name_cache", in.UserProfileUserNameCache)
 
 	// Basic
 	setStr("user_profile_slug", in.UserProfileSlug)
@@ -408,7 +426,7 @@ func (in *UpdateUsersProfileRequest) ToUpdateMap() (map[string]interface{}, erro
 
 /* ===========================
    Helpers
-   =========================== */
+=========================== */
 
 func parseGenderPtr(s *string) *profilemodel.Gender {
 	if s == nil {

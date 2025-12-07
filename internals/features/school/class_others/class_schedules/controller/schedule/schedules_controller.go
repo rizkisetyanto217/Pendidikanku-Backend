@@ -126,8 +126,6 @@ func ParseBoolLoose(s string) (bool, bool) {
 /* Helper: ambil core CSST (tenant-safe) untuk cache & fallback      */
 /* ==================================================================== */
 
-// --- ganti helper csstCore & getCSSTCore ---
-
 type csstCore struct {
 	ID        uuid.UUID
 	SchoolID  uuid.UUID
@@ -147,16 +145,16 @@ func getCSSTCore(tx *gorm.DB, schoolID, csstID uuid.UUID) (csstCore, error) {
 	err := tx.
 		Table("class_section_subject_teachers AS csst").
 		Select(`
-			csst.class_section_subject_teacher_id                       AS id,
-			csst.class_section_subject_teacher_school_id                AS school_id,
-			csst.class_section_subject_teacher_slug                     AS slug,
-			csst.class_section_subject_teacher_class_section_id         AS section_id,
+			csst.class_section_subject_teacher_id                AS id,
+			csst.class_section_subject_teacher_school_id         AS school_id,
+			csst.class_section_subject_teacher_slug              AS slug,
+			csst.class_section_subject_teacher_class_section_id  AS section_id,
 
 			-- pakai subject_id dari SNAPSHOT (tanpa join ke class_subjects/books)
-			csst.class_section_subject_teacher_subject_id_cache      AS subject_id,
+			csst.class_section_subject_teacher_subject_id_cache  AS subject_id,
 
-			csst.class_section_subject_teacher_school_teacher_id        AS teacher_id,
-			csst.class_section_subject_teacher_class_room_id            AS room_id
+			csst.class_section_subject_teacher_school_teacher_id AS teacher_id,
+			csst.class_section_subject_teacher_class_room_id     AS room_id
 		`).
 		Where(`
 			csst.class_section_subject_teacher_id = ?
@@ -172,8 +170,6 @@ func getCSSTCore(tx *gorm.DB, schoolID, csstID uuid.UUID) (csstCore, error) {
 	}
 	return r, nil
 }
-
-// file: internals/features/school/class_schedules/controller/class_schedule_controller.go
 
 /*
 =========================
@@ -266,13 +262,13 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 				}
 				ruleModels[i].ClassScheduleRuleCSSTSlugCache = core.Slug
 				ruleModels[i].ClassScheduleRuleCSSTCache = datatypes.JSONMap{
-					"school_id":  core.SchoolID.String(),
-					"csst_id":    core.ID.String(),
-					"slug":       core.Slug,
-					"section_id": core.SectionID,
-					"subject_id": core.SubjectID,
-					"teacher_id": core.TeacherID,
-					"room_id":    core.RoomID,
+					"school_id":        core.SchoolID.String(),
+					"csst_id":          core.ID.String(),
+					"slug":             core.Slug,
+					"section_id":       core.SectionID,
+					"class_subject_id": core.SubjectID, // ⬅️ disesuaikan: key sinkron dg generated column
+					"teacher_id":       core.TeacherID,
+					"room_id":          core.RoomID,
 				}
 			}
 			if er := tx.Create(&ruleModels).Error; er != nil {
@@ -310,13 +306,13 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 
 				// Cache CSST (minimal namun cukup)
 				ms[i].ClassAttendanceSessionCSSTSnapshot = datatypes.JSONMap{
-					"school_id":  core.SchoolID.String(),
-					"csst_id":    core.ID.String(),
-					"slug":       core.Slug,
-					"section_id": core.SectionID,
-					"subject_id": core.SubjectID,
-					"teacher_id": core.TeacherID,
-					"room_id":    core.RoomID,
+					"school_id":        core.SchoolID.String(),
+					"csst_id":          core.ID.String(),
+					"slug":             core.Slug,
+					"section_id":       core.SectionID,
+					"class_subject_id": core.SubjectID, // ⬅️ disesuaikan juga
+					"teacher_id":       core.TeacherID,
+					"room_id":          core.RoomID,
 				}
 
 				// Fallback override teacher/room jika payload kosong
@@ -367,7 +363,7 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 			v := *req.DefaultTeacherID
 			defTeacher = &v
 		}
-		// 🔥 NEW: ambil session_type_id dari payload utk default semua sesi hasil generate
+		// session_type_id default untuk hasil generate
 		if req.SessionTypeID != nil {
 			v := *req.SessionTypeID
 			defSessionTypeID = &v
@@ -394,7 +390,7 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 				DefaultCSSTID:           defCSST,
 				DefaultRoomID:           defRoom,
 				DefaultTeacherID:        defTeacher,
-				DefaultSessionTypeID:    defSessionTypeID, // ⬅️ ini yang bikin type & cache keisi
+				DefaultSessionTypeID:    defSessionTypeID,
 				DefaultAttendanceStatus: "open",
 				BatchSize:               500,
 			},

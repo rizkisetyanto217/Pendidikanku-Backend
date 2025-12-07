@@ -1,3 +1,5 @@
+
+
 BEGIN;
 
 -- =========================================================
@@ -6,7 +8,6 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 -- CREATE EXTENSION IF NOT EXISTS btree_gist; -- hanya perlu jika pakai EXCLUDE
-
 
 -- =========================================================
 -- 4) SUBMISSIONS (pengumpulan tugas oleh siswa)
@@ -27,8 +28,15 @@ CREATE TABLE IF NOT EXISTS submissions (
     REFERENCES school_students(school_student_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
+  -- Cache user profile & siswa (snapshot, optional)
+  submission_user_profile_name_snapshot          VARCHAR(80),
+  submission_user_profile_avatar_url_snapshot    VARCHAR(255),
+  submission_user_profile_whatsapp_url_snapshot        VARCHAR(50),
+  submission_user_profile_gender_snapshot        VARCHAR(20),
+  submission_school_student_code_cache        VARCHAR(50),
+
   -- isi & status pengumpulan
-  submission_text TEXT,
+  submission_text   TEXT,
   submission_status VARCHAR(24) NOT NULL DEFAULT 'submitted'
     CHECK (submission_status IN ('draft','submitted','resubmitted','graded','returned')),
 
@@ -40,10 +48,9 @@ CREATE TABLE IF NOT EXISTS submissions (
     CHECK (submission_score >= 0 AND submission_score <= 100),
 
   -- JSON untuk menyimpan detail komponen nilai
-  -- misalnya: list quiz, tugas kecil, sub-section, beserta bobot & skor
   submission_scores JSONB,
 
-  submission_quiz_finished SMALLINT NOT NULL DEFAULT 0, -- berapa yang sudah selesai/skoring
+  submission_quiz_finished SMALLINT NOT NULL DEFAULT 0,
 
   submission_feedback TEXT,
 
@@ -99,22 +106,8 @@ CREATE INDEX IF NOT EXISTS idx_submissions_submitted_at_alive
 CREATE INDEX IF NOT EXISTS brin_submissions_created_at
   ON submissions USING BRIN (submission_created_at);
 
--- (opsional) cari feedback cepat
--- CREATE INDEX IF NOT EXISTS gin_submissions_feedback_trgm_alive
---   ON submissions USING GIN ((LOWER(submission_feedback)) gin_trgm_ops)
---   WHERE submission_deleted_at IS NULL;
-
--- (opsional) index JSON untuk search by komponen/quiz_id
 CREATE INDEX IF NOT EXISTS gin_submissions_scores
   ON submissions USING GIN (submission_scores);
-
--- (opsional) index buat progress bar / query "belum selesai semua"
--- misal: cari yang quiz_finished < quiz_total
--- CREATE INDEX IF NOT EXISTS idx_submissions_quiz_progress_alive
---   ON submissions (submission_quiz_finished, submission_quiz_total)
---   WHERE submission_deleted_at IS NULL;
-
-
 
 
 -- =========================================================

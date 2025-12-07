@@ -1,4 +1,4 @@
-// file: internals/features/school/attendance_assesment/submissions/controller/submission_controller.go
+// file: internals/features/assessments/submissions/controller/submission_controller.go
 package controller
 
 import (
@@ -136,12 +136,6 @@ func resolveTeacherSchoolFromParam(c *fiber.Ctx) (uuid.UUID, error) {
 	}
 	return schoolID, nil
 }
-
-/* =========================
-   Handlers
-========================= */
-
-// POST /submissions  (STUDENT ONLY, school dari token)
 
 /* =========================
    Handlers
@@ -296,6 +290,14 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 			now := time.Now()
 			sub.SubmissionSubmittedAt = &now
 		}
+
+		// TODO: isi snapshot cache user_profile & kode siswa jika mau:
+		// - submission_user_profile_name_snapshot
+		// - submission_user_profile_avatar_url_snapshot
+		// - submission_user_profile_whatsapp_url_snapshot
+		// - submission_user_profile_gender_snapshot
+		// - submission_school_student_code_cache
+		// Bisa diambil dari school_students + user_profiles di sini.
 
 		// submission_scores & submission_quiz_finished dibiarkan default:
 		//   - scores: NULL (nanti diisi saat grading)
