@@ -162,6 +162,7 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 		BookSlug           *string    `json:"book_slug,omitempty"   gorm:"column:book_slug"`
 		BookImageURL       *string    `json:"book_image_url,omitempty"        gorm:"column:book_image_url"`
 		BookImageObjectKey *string    `json:"book_image_object_key,omitempty" gorm:"column:book_image_object_key"`
+		BookPurchaseURL    *string    `json:"book_purchase_url,omitempty"     gorm:"column:book_purchase_url"`
 		BookCreatedAt      time.Time  `json:"book_created_at"       gorm:"column:book_created_at"`
 		BookUpdatedAt      time.Time  `json:"book_updated_at"       gorm:"column:book_updated_at"`
 		BookDeletedAt      *time.Time `json:"-"                     gorm:"column:book_deleted_at"`
@@ -221,6 +222,7 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 			b.book_slug,
 			b.book_image_url,
 			b.book_image_object_key,
+			b.book_purchase_url,
 			b.book_created_at,
 			b.book_updated_at,
 			b.book_deleted_at
@@ -255,7 +257,8 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 				BookDesc:   r.BookDesc,
 				BookSlug:   r.BookSlug,
 
-				BookImageURL: r.BookImageURL,
+				BookImageURL:    r.BookImageURL,
+				BookPurchaseURL: r.BookPurchaseURL,
 
 				BookCreatedAt: r.BookCreatedAt,
 				BookUpdatedAt: r.BookUpdatedAt,

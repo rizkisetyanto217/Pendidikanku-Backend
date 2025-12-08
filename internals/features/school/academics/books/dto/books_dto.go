@@ -74,18 +74,20 @@ func (u *BookURLUpsert) Normalize() {
    ========================================================= */
 
 type BookCreateRequest struct {
-	BookSchoolID uuid.UUID `json:"book_school_id" form:"book_school_id" validate:"required"`
-	BookTitle    string    `json:"book_title"     form:"book_title"     validate:"required,min=1"`
-	BookAuthor   *string   `json:"book_author,omitempty" form:"book_author" validate:"omitempty,min=1"`
-	BookDesc     *string   `json:"book_desc,omitempty"   form:"book_desc"   validate:"omitempty"`
-	BookSlug     *string   `json:"book_slug,omitempty"   form:"book_slug"   validate:"omitempty,max=160"`
+	BookSchoolID    uuid.UUID `json:"book_school_id"      form:"book_school_id"      validate:"required"`
+	BookTitle       string    `json:"book_title"          form:"book_title"          validate:"required,min=1"`
+	BookAuthor      *string   `json:"book_author,omitempty"  form:"book_author"      validate:"omitempty,min=1"`
+	BookDesc        *string   `json:"book_desc,omitempty"    form:"book_desc"        validate:"omitempty"`
+	BookSlug        *string   `json:"book_slug,omitempty"    form:"book_slug"        validate:"omitempty,max=160"`
+	BookPurchaseURL *string   `json:"book_purchase_url,omitempty" form:"book_purchase_url" validate:"omitempty,url"`
 }
 
 type BookUpdateRequest struct {
-	BookTitle  *string `json:"book_title,omitempty"  form:"book_title"  validate:"omitempty,min=1"`
-	BookAuthor *string `json:"book_author,omitempty" form:"book_author" validate:"omitempty,min=1"`
-	BookDesc   *string `json:"book_desc,omitempty"   form:"book_desc"   validate:"omitempty"`
-	BookSlug   *string `json:"book_slug,omitempty"   form:"book_slug"   validate:"omitempty,max=160"`
+	BookTitle       *string `json:"book_title,omitempty"        form:"book_title"        validate:"omitempty,min=1"`
+	BookAuthor      *string `json:"book_author,omitempty"       form:"book_author"       validate:"omitempty,min=1"`
+	BookDesc        *string `json:"book_desc,omitempty"         form:"book_desc"         validate:"omitempty"`
+	BookSlug        *string `json:"book_slug,omitempty"         form:"book_slug"         validate:"omitempty,max=160"`
+	BookPurchaseURL *string `json:"book_purchase_url,omitempty" form:"book_purchase_url" validate:"omitempty,url"`
 
 	// opsional untuk sinkron URL
 	URLs           []BookURLUpsert      `json:"urls,omitempty" validate:"omitempty,dive"`
@@ -113,6 +115,7 @@ func (r *BookCreateRequest) Normalize() {
 	r.BookAuthor = trimPtr(r.BookAuthor)
 	r.BookDesc = trimPtr(r.BookDesc)
 	r.BookSlug = trimPtr(r.BookSlug)
+	r.BookPurchaseURL = trimPtr(r.BookPurchaseURL)
 }
 
 func (r *BookUpdateRequest) Normalize() {
@@ -120,6 +123,7 @@ func (r *BookUpdateRequest) Normalize() {
 	r.BookAuthor = trimPtr(r.BookAuthor)
 	r.BookDesc = trimPtr(r.BookDesc)
 	r.BookSlug = trimPtr(r.BookSlug)
+	r.BookPurchaseURL = trimPtr(r.BookPurchaseURL)
 	for i := range r.URLs {
 		r.URLs[i].Normalize()
 	}
@@ -143,7 +147,10 @@ type BookResponse struct {
 	BookImageURL       *string `json:"book_image_url,omitempty"`
 	BookImageObjectKey *string `json:"book_image_object_key,omitempty"`
 
-	// ⬇⬇⬇ tambahkan ini
+	// link pembelian
+	BookPurchaseURL *string `json:"book_purchase_url,omitempty"`
+
+	// versi lama image (GC)
 	BookImageURLOld             *string    `json:"book_image_url_old,omitempty"`
 	BookImageObjectKeyOld       *string    `json:"book_image_object_key_old,omitempty"`
 	BookImageDeletePendingUntil *time.Time `json:"book_image_delete_pending_until,omitempty"`
@@ -183,6 +190,8 @@ func ToBookResponse(m *model.BookModel) BookResponse {
 		BookImageURL:       m.BookImageURL,
 		BookImageObjectKey: m.BookImageObjectKey,
 
+		BookPurchaseURL: m.BookPurchaseURL,
+
 		BookImageURLOld:             m.BookImageURLOld,
 		BookImageObjectKeyOld:       m.BookImageObjectKeyOld,
 		BookImageDeletePendingUntil: m.BookImageDeletePendingUntil,
@@ -195,11 +204,12 @@ func ToBookResponse(m *model.BookModel) BookResponse {
 
 func (r *BookCreateRequest) ToModel() *model.BookModel {
 	return &model.BookModel{
-		BookSchoolID: r.BookSchoolID,
-		BookTitle:    r.BookTitle,
-		BookAuthor:   r.BookAuthor,
-		BookDesc:     r.BookDesc,
-		BookSlug:     r.BookSlug,
+		BookSchoolID:    r.BookSchoolID,
+		BookTitle:       r.BookTitle,
+		BookAuthor:      r.BookAuthor,
+		BookDesc:        r.BookDesc,
+		BookSlug:        r.BookSlug,
+		BookPurchaseURL: r.BookPurchaseURL,
 	}
 }
 
@@ -215,6 +225,9 @@ func (r *BookUpdateRequest) ApplyToModel(m *model.BookModel) {
 	}
 	if r.BookSlug != nil {
 		m.BookSlug = r.BookSlug
+	}
+	if r.BookPurchaseURL != nil {
+		m.BookPurchaseURL = r.BookPurchaseURL
 	}
 }
 
@@ -250,6 +263,9 @@ type BookWithUsagesResponse struct {
 	BookURL      *string `json:"book_url,omitempty"`       // bila ada URL utama
 	BookImageURL *string `json:"book_image_url,omitempty"` // bila ada gambar
 
+	// link pembelian khusus
+	BookPurchaseURL *string `json:"book_purchase_url,omitempty"`
+
 	Usages []BookUsage `json:"usages"`
 }
 
@@ -282,7 +298,8 @@ type BookCompact struct {
 	BookDesc   *string `json:"book_desc,omitempty"`
 	BookSlug   *string `json:"book_slug,omitempty"`
 
-	BookImageURL *string `json:"book_image_url,omitempty"`
+	BookImageURL    *string `json:"book_image_url,omitempty"`
+	BookPurchaseURL *string `json:"book_purchase_url,omitempty"`
 
 	BookCreatedAt time.Time `json:"book_created_at"`
 	BookUpdatedAt time.Time `json:"book_updated_at"`
@@ -299,7 +316,8 @@ func ToBookCompact(m *model.BookModel) BookCompact {
 		BookDesc:   m.BookDesc,
 		BookSlug:   m.BookSlug,
 
-		BookImageURL: m.BookImageURL,
+		BookImageURL:    m.BookImageURL,
+		BookPurchaseURL: m.BookPurchaseURL,
 
 		BookCreatedAt: m.BookCreatedAt,
 		BookUpdatedAt: m.BookUpdatedAt,

@@ -19,14 +19,17 @@ type BookModel struct {
 	BookSlug *string `gorm:"column:book_slug;type:varchar(160)" json:"book_slug,omitempty"`
 
 	// lokasi file/link (sinkron dengan DDL)
-	BookImageURL                *string    `gorm:"column:book_image_url;type:text"                    json:"book_image_url,omitempty"`
-	BookImageObjectKey          *string    `gorm:"column:book_image_object_key;type:text"             json:"book_image_object_key,omitempty"`
-	BookImageURLOld             *string    `gorm:"column:book_image_url_old;type:text"                json:"book_image_url_old,omitempty"`
-	BookImageObjectKeyOld       *string    `gorm:"column:book_image_object_key_old;type:text"         json:"book_image_object_key_old,omitempty"`
+	BookImageURL                *string    `gorm:"column:book_image_url;type:text"                        json:"book_image_url,omitempty"`
+	BookImageObjectKey          *string    `gorm:"column:book_image_object_key;type:text"                 json:"book_image_object_key,omitempty"`
+	BookImageURLOld             *string    `gorm:"column:book_image_url_old;type:text"                    json:"book_image_url_old,omitempty"`
+	BookImageObjectKeyOld       *string    `gorm:"column:book_image_object_key_old;type:text"             json:"book_image_object_key_old,omitempty"`
 	BookImageDeletePendingUntil *time.Time `gorm:"column:book_image_delete_pending_until;type:timestamptz" json:"book_image_delete_pending_until,omitempty"`
 
+	// link pembelian (opsional)
+	BookPurchaseURL *string `gorm:"column:book_purchase_url;type:text" json:"book_purchase_url,omitempty"`
+
 	// bibliographic (opsional)
-	BookPublisher       *string `gorm:"column:book_publisher;type:text"         json:"book_publisher,omitempty"`
+	BookPublisher       *string `gorm:"column:book_publisher;type:text"            json:"book_publisher,omitempty"`
 	BookPublicationYear *int16  `gorm:"column:book_publication_year;type:smallint" json:"book_publication_year,omitempty"`
 
 	// timestamps (explicit)

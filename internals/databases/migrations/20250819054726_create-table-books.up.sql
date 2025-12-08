@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS books (
   book_image_url_old               TEXT,
   book_image_object_key_old      TEXT,
   book_image_delete_pending_until TIMESTAMPTZ,
+  book_purchase_url TEXT,
   
   -- bibliographic (optional)
   book_publisher        TEXT,
