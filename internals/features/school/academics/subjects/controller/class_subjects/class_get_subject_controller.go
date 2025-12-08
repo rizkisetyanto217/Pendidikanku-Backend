@@ -16,23 +16,57 @@ import (
 	"gorm.io/gorm"
 )
 
+// =========================
+// small helpers
+// =========================
+
+// nested param bisa:
+// - "1", "true", "yes" → all (ikut include)
+// - "class_subject_books"
+// - "books"
+// - "class_subject_books,books"
+func parseNested(raw string) (nestedAny, nestedCSB, nestedBooks bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return
+	}
+
+	parts := strings.Split(raw, ",")
+	for _, p := range parts {
+		t := strings.ToLower(strings.TrimSpace(p))
+		switch t {
+		case "1", "true", "yes", "all":
+			nestedAny = true
+		case "class_subject_books", "csb":
+			nestedCSB = true
+		case "books", "book":
+			nestedBooks = true
+		}
+	}
+
+	return
+}
+
+// struct untuk data + nested di dalam "data"
+type classSubjectWithNested struct {
+	classSubjectDTO.ClassSubjectResponse
+	ClassSubjectBooks []bookModel.ClassSubjectBookModel `json:"class_subject_books,omitempty"`
+	Books             []bookModel.BookModel             `json:"books,omitempty"`
+}
+
 func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 	// Kalau helper lain butuh DB di Locals
 	c.Locals("DB", h.DB)
 
 	// =====================================================
-	// 1) Tentukan schoolID:
-	//    - Prioritas: dari token (GetSchoolIDFromTokenPreferTeacher)
-	//    - Fallback: dari ResolveSchoolContext (id / slug)
+	// 1) Tentukan schoolID (token → context)
 	// =====================================================
 
 	var schoolID uuid.UUID
 
-	// 1. Coba dulu dari token (kalau user login & token punya school)
 	if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
 		schoolID = id
 	} else {
-		// 2. Kalau tidak ada / gagal dari token → pakai konteks umum (path/header/query/host)
 		mc, err := helperAuth.ResolveSchoolContext(c)
 		if err != nil {
 			return err
@@ -51,7 +85,6 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 			}
 			schoolID = id
 		default:
-			// bener-bener nggak dapat apapun
 			return helperAuth.ErrSchoolContextMissing
 		}
 	}
@@ -77,12 +110,29 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// ===== Paging (jsonresponse helper; dukung page/per_page & limit/offset) =====
-	// default per_page = 20, max = 200 sesuai kebutuhan endpoint ini
+	// ===== Param nested=... =====
+	nestedRaw := c.Query("nested", "")
+	nestedAny, nestedCSB, nestedBooks := parseNested(nestedRaw)
+
+	// Kalau nested=1/true/all dan belum spesifik CSB/books,
+	// anggap "nested semua include yang aktif".
+	if nestedAny && !nestedCSB && !nestedBooks {
+		nestedCSB = includeCSB
+		nestedBooks = includeBooks
+	}
+
+	// Kalau user minta nested spesifik, otomatis aktifkan include sumber datanya
+	if nestedCSB {
+		includeCSB = true
+	}
+	if nestedBooks {
+		includeBooks = true
+	}
+
+	// ===== Paging =====
 	p := helper.ResolvePaging(c, 20, 200)
 	limit, offset := p.Limit, p.Offset
 
-	// Override dari DTO kalau ada (dan masih dalam batas wajar)
 	if q.Limit != nil {
 		if *q.Limit < 1 {
 			limit = 1
@@ -100,7 +150,7 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 	tx := h.DB.Model(&csModel.ClassSubjectModel{}).
 		Where("class_subject_school_id = ?", schoolID)
 
-	// ===== Soft delete (default exclude) =====
+	// ===== Soft delete =====
 	withDeleted := q.WithDeleted != nil && *q.WithDeleted
 	if !withDeleted {
 		tx = tx.Where("class_subject_deleted_at IS NULL")
@@ -121,9 +171,9 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 	if q.Q != nil && strings.TrimSpace(*q.Q) != "" {
 		kw := "%" + strings.ToLower(strings.TrimSpace(*q.Q)) + "%"
 		tx = tx.Where(`
-		LOWER(COALESCE(class_subject_desc, '')) LIKE ? OR
-		LOWER(COALESCE(class_subject_subject_name_cache, '')) LIKE ?
-	`, kw, kw)
+			LOWER(COALESCE(class_subject_desc, '')) LIKE ? OR
+			LOWER(COALESCE(class_subject_subject_name_cache, '')) LIKE ?
+		`, kw, kw)
 	}
 
 	// 🔍 Filter spesifik by subject name: ?name=
@@ -132,24 +182,10 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 		tx = tx.Where("LOWER(COALESCE(class_subject_subject_name_cache,'')) LIKE ?", kw)
 	}
 
-	// (opsional) Kalau di DTO kamu nanti ada field khusus untuk nama mapel, misalnya:
-	//   SubjectName *string `query:"subject_name"`
-	// bisa tambahin blok terpisah seperti ini:
-	/*
-		if q.SubjectName != nil && strings.TrimSpace(*q.SubjectName) != "" {
-			kw := "%" + strings.ToLower(strings.TrimSpace(*q.SubjectName)) + "%"
-			tx = tx.Where("LOWER(COALESCE(class_subject_subject_name_cache,'')) LIKE ?", kw)
-		}
-	*/
-
-	// ===== Sorting whitelist =====
-	// Dukungan:
-	//   - DTO.Sort (enum): order_index_asc|order_index_desc|created_at_asc|created_at_desc|updated_at_asc|updated_at_desc
-	//   - Query: sort_by=order_index|created_at|updated_at + order=asc|desc
+	// ===== Sorting =====
 	sortBy := strings.ToLower(strings.TrimSpace(c.Query("sort_by", "created_at")))
 	order := strings.ToLower(strings.TrimSpace(c.Query("order", "asc")))
 
-	// DTO.Sort (enum) override kalau diisi
 	if q.Sort != nil {
 		switch strings.ToLower(strings.TrimSpace(*q.Sort)) {
 		case "order_index_asc":
@@ -182,7 +218,7 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 	}
 	orderExpr := col + " " + strings.ToUpper(order)
 
-	// ===== Count sebelum limit/offset =====
+	// ===== Count =====
 	var total int64
 	if err := tx.Session(&gorm.Session{}).Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total data")
@@ -198,29 +234,25 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// ===== Pagination meta (jsonresponse) =====
+	// ===== Pagination meta =====
 	pg := helper.BuildPaginationFromOffset(total, offset, limit)
 
-	// =====================================================
-	// 2A) TANPA include apapun → simple list
-	// =====================================================
-	if !includeCSB && !includeBooks {
-		if len(rows) == 0 {
-			return helper.JsonList(c, "ok", []classSubjectDTO.ClassSubjectResponse{}, pg)
-		}
-		out := classSubjectDTO.FromClassSubjectModels(rows)
-		return helper.JsonList(c, "ok", out, pg)
-	}
-
-	// =====================================================
-	// 2B) Ada include → pakai jsonresponse + include
-	// =====================================================
-
-	// Primary data tetap basic: ClassSubjectResponse
+	// Primary data: DTO biasa
 	data := classSubjectDTO.FromClassSubjectModels(rows)
 
-	// Kalau tidak ada class_subject sama sekali, balikin include kosong sesuai yang diminta
+	// Kalau benar-benar nggak ada include & nggak ada nested → simple list
+	if !includeCSB && !includeBooks {
+		return helper.JsonList(c, "ok", data, pg)
+	}
+
+	// Kalau nggak ada rows tapi include diminta:
 	if len(rows) == 0 {
+		// kalau nested diminta, FOKUS ke nested → data kosong tanpa include
+		if nestedCSB || nestedBooks {
+			return helper.JsonList(c, "ok", []classSubjectWithNested{}, pg)
+		}
+
+		// else: include kosong (flat mode)
 		include := fiber.Map{}
 		if includeCSB {
 			include["class_subject_books"] = []bookModel.ClassSubjectBookModel{}
@@ -231,13 +263,17 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 		return helper.JsonListWithInclude(c, "ok", data, include, pg)
 	}
 
-	// Kumpulkan semua class_subject_id dari class_subjects
+	// =====================================================
+	// Ambil relasi (CSB & Books)
+	// =====================================================
+
+	// Kumpulkan semua class_subject_id
 	classSubjectIDs := make([]uuid.UUID, 0, len(rows))
 	for _, r := range rows {
 		classSubjectIDs = append(classSubjectIDs, r.ClassSubjectID)
 	}
 
-	// a) Ambil semua link class_subject_books (kalau butuh CSB atau books)
+	// a) link class_subject_books
 	var links []bookModel.ClassSubjectBookModel
 	if includeCSB || includeBooks {
 		if err := h.DB.
@@ -253,8 +289,10 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// b) Ambil semua books yang dipakai (kalau diminta)
+	// b) books
 	var books []bookModel.BookModel
+	bookByID := make(map[uuid.UUID]bookModel.BookModel)
+
 	if includeBooks && len(links) > 0 {
 		bookIDsSet := make(map[uuid.UUID]struct{})
 		for _, l := range links {
@@ -278,11 +316,82 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data buku")
 			}
+
+			for _, b := range books {
+				bookByID[b.BookID] = b
+			}
 		}
 	}
 
 	// =====================================================
-	// 3) Build include payload (hanya yang diminta)
+	// Build nested maps (kalau diminta)
+	// =====================================================
+
+	var nestedCSBMap map[string][]bookModel.ClassSubjectBookModel
+	if nestedCSB {
+		nestedCSBMap = make(map[string][]bookModel.ClassSubjectBookModel)
+		for _, l := range links {
+			csid := l.ClassSubjectBookClassSubjectID.String()
+			nestedCSBMap[csid] = append(nestedCSBMap[csid], l)
+		}
+	}
+
+	var nestedBooksMap map[string][]bookModel.BookModel
+	if nestedBooks {
+		nestedBooksMap = make(map[string][]bookModel.BookModel)
+		for _, l := range links {
+			b, ok := bookByID[l.ClassSubjectBookBookID]
+			if !ok {
+				continue
+			}
+			csid := l.ClassSubjectBookClassSubjectID.String()
+
+			// hindari duplikat buku di satu class_subject
+			existing := nestedBooksMap[csid]
+			dup := false
+			for _, ex := range existing {
+				if ex.BookID == b.BookID {
+					dup = true
+					break
+				}
+			}
+			if !dup {
+				nestedBooksMap[csid] = append(existing, b)
+			}
+		}
+	}
+
+	// =====================================================
+	// MODE 1: NESTED → data[] sudah berisi relasi, TANPA include
+	// =====================================================
+	if nestedCSB || nestedBooks {
+		outNested := make([]classSubjectWithNested, 0, len(data))
+		for _, d := range data {
+			item := classSubjectWithNested{
+				ClassSubjectResponse: d,
+			}
+			csid := d.ID.String()
+
+			if nestedCSB && nestedCSBMap != nil {
+				if list, ok := nestedCSBMap[csid]; ok {
+					item.ClassSubjectBooks = list
+				}
+			}
+			if nestedBooks && nestedBooksMap != nil {
+				if list, ok := nestedBooksMap[csid]; ok {
+					item.Books = list
+				}
+			}
+
+			outNested = append(outNested, item)
+		}
+
+		// 🔑 Sesuai permintaan: kalau sudah nested → JANGAN kirim include lagi
+		return helper.JsonList(c, "ok", outNested, pg)
+	}
+
+	// =====================================================
+	// MODE 2: FLAT + INCLUDE
 	// =====================================================
 
 	include := fiber.Map{}

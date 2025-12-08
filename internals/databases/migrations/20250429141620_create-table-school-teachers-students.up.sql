@@ -187,7 +187,7 @@ CREATE INDEX IF NOT EXISTS ix_mtj_total_csst_active
 
 -- Name search (trigram)
 CREATE INDEX IF NOT EXISTS gin_mtj_name_snap_trgm_alive
-  ON school_teachers USING GIN (lower(school_teacher_user_teacher_user_full_name_cache) gin_trgm_ops)
+  ON school_teachers USING GIN (lower(school_teacher_user_teacher_full_name_cache) gin_trgm_ops)
   WHERE school_teacher_deleted_at IS NULL;
 
 -- Listing cepat

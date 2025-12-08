@@ -9,10 +9,40 @@ CREATE EXTENSION IF NOT EXISTS btree_gin;  -- opsional; untuk kombinasi tertentu
 -- =========================================
 -- ENUMS (idempotent)
 -- =========================================
+
+-- Status session (kalau nanti dipakai di tabel sessions)
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'session_status_enum') THEN
     CREATE TYPE session_status_enum AS ENUM ('scheduled','ongoing','completed','canceled');
+  END IF;
+END$$;
+
+-- Mode window absensi
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'attendance_window_mode_enum') THEN
+    CREATE TYPE attendance_window_mode_enum AS ENUM (
+      'anytime',        -- bebas kapan saja
+      'same_day',       -- hanya di hari H
+      'three_days',     -- H-1, H, H+1
+      'session_time',   -- hanya saat sesi berlangsung
+      'relative_window' -- pakai offset menit dari jam sesi
+    );
+  END IF;
+END$$;
+
+-- State absensi (kalau belum ada; bisa dipakai banyak tabel)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'attendance_state_enum') THEN
+    CREATE TYPE attendance_state_enum AS ENUM (
+      'unmarked',
+      'present',
+      'absent',
+      'late',
+      'excused'
+    );
   END IF;
 END$$;
 
@@ -35,9 +65,26 @@ CREATE TABLE IF NOT EXISTS class_attendance_session_types (
   class_attendance_session_type_color       TEXT,  -- hex / tailwind token / bebas
   class_attendance_session_type_icon        TEXT,  -- nama icon di FE
 
-  -- control
+  -- control umum
   class_attendance_session_type_is_active   BOOLEAN NOT NULL DEFAULT TRUE,
-  class_attendance_session_type_sort_order  INT NOT NULL DEFAULT 0,
+  class_attendance_session_type_sort_order  INT     NOT NULL DEFAULT 0,
+
+  -- konfigurasi attendance (flag dasar)
+  class_attendance_session_type_allow_student_self_attendance BOOLEAN NOT NULL DEFAULT TRUE,
+  class_attendance_session_type_allow_teacher_mark_attendance BOOLEAN NOT NULL DEFAULT TRUE,
+  class_attendance_session_type_require_teacher_attendance    BOOLEAN NOT NULL DEFAULT TRUE,
+
+  -- window absensi (waktu boleh absen)
+  class_attendance_session_type_attendance_window_mode         attendance_window_mode_enum NOT NULL DEFAULT 'same_day',
+  class_attendance_session_type_attendance_open_offset_minutes  INT,
+  class_attendance_session_type_attendance_close_offset_minutes INT,
+
+  -- state mana yang WAJIB isi alasan (attendance_state_enum[])
+  class_attendance_session_type_require_attendance_reason attendance_state_enum[]
+      NOT NULL DEFAULT ARRAY['unmarked']::attendance_state_enum[],
+
+  -- meta fleksibel (JSONB)
+  class_attendance_session_type_meta JSONB,
 
   -- audit
   class_attendance_session_type_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -81,6 +128,7 @@ CREATE INDEX IF NOT EXISTS idx_castype_school_sort_alive
 CREATE INDEX IF NOT EXISTS brin_castype_created_at
   ON class_attendance_session_types
   USING BRIN (class_attendance_session_type_created_at);
+
 
 
 -- =========================================

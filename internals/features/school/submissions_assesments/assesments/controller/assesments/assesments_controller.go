@@ -3,6 +3,7 @@ package controller
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -565,6 +566,10 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 
+	// DEBUG
+	fmt.Println("==== PATCH /assessment-types/:id called ====")
+	fmt.Printf("RAW BODY: %s\n", string(c.Body()))
+
 	id, err := helper.ParseUUIDParam(c, "id")
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "assessment_id tidak valid")
@@ -574,6 +579,9 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
+
+	fmt.Printf("PARSED REQ: %+v\n", req)
+
 	req.Normalize()
 	if err := ctl.Validator.Struct(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())

@@ -35,9 +35,9 @@ BEGIN
     DROP TYPE teacher_role_enum;
   END IF;
 
-  IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'attendance_state_enum') THEN
-    DROP TYPE attendance_state_enum;
-  END IF;
+  -- IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'attendance_state_enum') THEN
+  --   DROP TYPE attendance_state_enum;
+  -- END IF;
 END$$;
 
 COMMIT;

@@ -155,10 +155,11 @@ type ClassSectionModel struct {
 	ClassSectionClassRoomSlugCache *string `gorm:"type:varchar(160);column:class_section_class_room_slug_cache" json:"class_section_class_room_slug_cache,omitempty"`
 	// JSONB utama (schema didefinisikan di helper RoomCache)
 	ClassSectionClassRoomCache datatypes.JSONMap `gorm:"type:jsonb;column:class_section_class_room_cache" json:"class_section_class_room_cache,omitempty"`
+
 	// kolom generated (read-only dari DB)
-	ClassSectionClassRoomNameCache     *string `gorm:"type:text;column:class_section_class_room_name_cache" json:"class_section_class_room_name_cache,omitempty"`
-	ClassSectionClassRoomSlugCacheGen  *string `gorm:"type:text;column:class_section_class_room_slug_cache_gen" json:"class_section_class_room_slug_cache_gen,omitempty"`
-	ClassSectionClassRoomLocationCache *string `gorm:"type:text;column:class_section_class_room_location_cache" json:"class_section_class_room_location_cache,omitempty"`
+	ClassSectionClassRoomNameCache     *string `gorm:"->;type:text;column:class_section_class_room_name_cache" json:"class_section_class_room_name_cache,omitempty"`
+	ClassSectionClassRoomSlugCacheGen  *string `gorm:"->;type:text;column:class_section_class_room_slug_cache_gen" json:"class_section_class_room_slug_cache_gen,omitempty"`
+	ClassSectionClassRoomLocationCache *string `gorm:"->;type:text;column:class_section_class_room_location_cache" json:"class_section_class_room_location_cache,omitempty"`
 
 	// TERM
 	ClassSectionAcademicTermID                *uuid.UUID `gorm:"type:uuid;column:class_section_academic_term_id" json:"class_section_academic_term_id,omitempty"`

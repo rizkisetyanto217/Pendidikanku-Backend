@@ -1,3 +1,4 @@
+// file: internals/features/users/auth/route/auth_routes.go
 package route
 
 import (
@@ -15,6 +16,31 @@ func AuthRoutes(app *fiber.App, db *gorm.DB) {
 	app.Use(rateLimiter.GlobalRateLimiter())
 
 	// ==========================
+	// GLOBAL AUTH (TANPA school_slug)
+	// Base: /api/auth
+	// ==========================
+	baseAuth := app.Group("/api/auth")
+
+	// CSRF & refresh tetap di sini (sesuai cookie path)
+	baseAuth.Get("/csrf", authController.CSRF)
+	baseAuth.Post("/refresh-token", authController.RefreshToken)
+
+	// 🔓 Public global (owner / user biasa, belum tentu punya school)
+	baseAuth.Post("/login", rateLimiter.LoginRateLimiter(), authController.Login)
+	baseAuth.Post("/register", rateLimiter.RegisterRateLimiter(), authController.Register)
+	baseAuth.Post("/forgot-password/reset", authController.ResetPassword)
+	// Kalau nanti login-google mau global juga, bisa taruh di sini:
+	// baseAuth.Post("/login-google", authController.LoginGoogle)
+
+	// (Opsional, tapi enak punya versi global juga)
+	baseAuth.Post("/logout", authController.Logout)
+	baseAuth.Post("/change-password", authController.ChangePassword)
+	baseAuth.Put("/update-user-name", authController.UpdateUserName)
+	baseAuth.Get("/me/context", authController.GetMyContext)
+	baseAuth.Get("/me/simple-context", authController.GetMySimpleContext)
+	baseAuth.Get("/me/profile-completion", authController.GetMyProfileCompletion)
+
+	// ==========================
 	// PUBLIC (SCOPED BY school_slug)
 	// Base: /api/:school_slug/auth
 	// ==========================
@@ -24,14 +50,6 @@ func AuthRoutes(app *fiber.App, db *gorm.DB) {
 	publicAuth.Post("/register", rateLimiter.RegisterRateLimiter(), authController.Register)
 	publicAuth.Post("/forgot-password/reset", authController.ResetPassword)
 	// publicAuth.Post("/login-google", authController.LoginGoogle) // kalau nanti diaktifin, juga ikut slug
-
-	// ==========================
-	// CSRF & REFRESH TOKEN (GLOBAL)
-	// Tetap di /api/auth supaya cocok dengan cookie path
-	// ==========================
-	baseAuth := app.Group("/api/auth")
-	baseAuth.Get("/csrf", authController.CSRF)
-	baseAuth.Post("/refresh-token", authController.RefreshToken)
 
 	// ==========================
 	// PROTECTED (SCOPED BY school_slug)
@@ -44,7 +62,5 @@ func AuthRoutes(app *fiber.App, db *gorm.DB) {
 	protectedAuth.Put("/update-user-name", authController.UpdateUserName)
 	protectedAuth.Get("/me/context", authController.GetMyContext)
 	protectedAuth.Get("/me/simple-context", authController.GetMySimpleContext)
-	// di AuthRoutes, setelah protectedAuth := app.Group("/api/:school_slug/auth")
 	protectedAuth.Get("/me/profile-completion", authController.GetMyProfileCompletion)
-
 }

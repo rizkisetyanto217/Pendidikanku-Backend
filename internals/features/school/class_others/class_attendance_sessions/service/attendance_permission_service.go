@@ -381,18 +381,19 @@ func (svc *AttendancePermissionService) CheckSelfAttendancePermission(
 		}
 
 		// cek mapping student ↔ CSST
+		// cek mapping student ↔ CSST
 		var cnt int64
 		if err := svc.DB.WithContext(ctx).
 			Table("student_class_section_subject_teachers").
 			Where(`
-				student_class_section_subject_teacher_school_id = ?
-				AND student_class_section_subject_teacher_student_id = ?
-				AND student_class_section_subject_teacher_csst_id = ?
-				AND student_class_section_subject_teacher_is_active = TRUE
-				AND student_class_section_subject_teacher_deleted_at IS NULL
-				AND (student_class_section_subject_teacher_from IS NULL OR student_class_section_subject_teacher_from <= ?)
-				AND (student_class_section_subject_teacher_to   IS NULL OR student_class_section_subject_teacher_to   >= ?)
-			`,
+		student_csst_school_id = ?
+		AND student_csst_student_id = ?
+		AND student_csst_csst_id = ?
+		AND student_csst_is_active = TRUE
+		AND student_csst_deleted_at IS NULL
+		AND (student_csst_from IS NULL OR student_csst_from <= ?)
+		AND (student_csst_to   IS NULL OR student_csst_to   >= ?)
+	`,
 				schoolID,
 				*studentID,
 				*row.CSSTID,

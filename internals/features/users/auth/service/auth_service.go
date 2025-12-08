@@ -939,6 +939,9 @@ func getUserRolesClaim(ctx context.Context, db *gorm.DB, userID uuid.UUID) (help
 
 ==========================
 */
+// Login (username/email + password)
+// - Versi tanpa school_slug: login global (owner, user biasa, dll)
+// - Versi dengan :school_slug: login ter-scope ke 1 sekolah
 func Login(db *gorm.DB, c *fiber.Ctx) error {
 	var input struct {
 		Identifier string `json:"identifier"`
@@ -954,10 +957,8 @@ func Login(db *gorm.DB, c *fiber.Ctx) error {
 	}
 
 	// ⬇️ Ambil slug dari URL params: /api/:school_slug/auth/login
+	//    SEKARANG OPSIONAL: kalau kosong → login global
 	schoolSlug := strings.TrimSpace(c.Params("school_slug"))
-	if schoolSlug == "" {
-		return helpers.JsonError(c, fiber.StatusBadRequest, "school_slug wajib ada di URL")
-	}
 
 	// Ambil minimal user (include kolom password)
 	userLight, err := authRepo.FindUserByEmailOrUsernameLight(db, input.Identifier)
@@ -991,7 +992,27 @@ func Login(db *gorm.DB, c *fiber.Ctx) error {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil roles user")
 	}
 
-	// ⬇️ Resolve slug → school_id
+	// ===========================
+	// 2 MODE LOGIN:
+	//  - Dengan school_slug  → token di-scope ke 1 sekolah
+	//  - Tanpa school_slug   → login global (owner bisa belum punya school)
+	// ===========================
+	if schoolSlug == "" {
+		// 👇 LOGIN GLOBAL (tanpa slug)
+		// Buang semua role per-sekolah → token jadi benar-benar "global only"
+		rolesClaim.SchoolRoles = nil
+
+		// (opsional, kalau mau benar-benar fresh)
+		// rolesClaim = helpersAuth.RolesClaim{
+		// 	RolesGlobal: rolesClaim.RolesGlobal,
+		// 	SchoolRoles: nil,
+		// }
+
+		// forcedSchoolID = nil → TIDAK ada school_id di token
+		return issueTokensWithRoles(c, db, *userFull, rolesClaim, nil)
+	}
+
+	// 👇 LOGIN DENGAN SLUG (tenant-scope)
 	schoolID, err := findSchoolIDBySlug(c.Context(), db, schoolSlug)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
@@ -1001,8 +1022,8 @@ func Login(db *gorm.DB, c *fiber.Ctx) error {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data sekolah")
 	}
 
-	// ⬇️ Filter rolesClaim hanya untuk sekolah ini.
-	//    BEDANYA: sekarang walaupun tidak punya role, kita TETAP lanjut (tidak 403).
+	// Filter rolesClaim hanya untuk sekolah ini.
+	// Bedanya dengan yang lama: walaupun tidak punya role di sekolah tsb, tetap lanjut (roles per-school bisa kosong).
 	filteredClaim, _ := filterRolesClaimToSchool(rolesClaim, schoolID)
 
 	// Terbitkan token:

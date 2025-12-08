@@ -94,6 +94,7 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 	// =====================================================
 	// 3) Build filter & validate
 	// =====================================================
+
 	var filt dto.ListAssessmentTypeFilter
 	filt.AssessmentTypeSchoolID = schoolID
 
@@ -104,6 +105,16 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 	}
 	if q := strings.TrimSpace(c.Query("q")); q != "" {
 		filt.Q = &q
+	}
+
+	// 🔹 NEW: filter by ID (?id=...)
+	var filterID *uuid.UUID
+	if idStr := strings.TrimSpace(c.Query("id")); idStr != "" {
+		id, err := uuid.Parse(idStr)
+		if err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "assessment_type_id tidak valid")
+		}
+		filterID = &id
 	}
 
 	// Paging & sorting
@@ -130,6 +141,12 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 	if filt.Active != nil {
 		qry = qry.Where("assessment_type_is_active = ?", *filt.Active)
 	}
+
+	// 🔹 kalau id diisi → langsung filter exact id
+	if filterID != nil {
+		qry = qry.Where("assessment_type_id = ?", *filterID)
+	}
+
 	if filt.Q != nil {
 		like := "%" + strings.ToLower(strings.TrimSpace(*filt.Q)) + "%"
 		qry = qry.Where(
@@ -137,6 +154,7 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 			like, like,
 		)
 	}
+
 	// 🔍 filter khusus by name: ?name=...
 	if nameParam := strings.TrimSpace(c.Query("name")); nameParam != "" {
 		like := "%" + strings.ToLower(nameParam) + "%"

@@ -393,14 +393,15 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 	// SCOPE TIMELINE
 	if isStudentTimeline {
 		qry = qry.Joins(`
-			JOIN student_class_section_subject_teachers scst
-			  ON scst.student_class_section_subject_teacher_school_id = assessment_school_id
-			 AND scst.student_class_section_subject_teacher_csst_id = assessment_class_section_subject_teacher_id
-			 AND scst.student_class_section_subject_teacher_student_id = ?
-			 AND scst.student_class_section_subject_teacher_is_active = TRUE
-			 AND scst.student_class_section_subject_teacher_deleted_at IS NULL
-		`, studentID)
+		JOIN student_class_section_subject_teachers scst
+		  ON scst.student_csst_school_id = assessment_school_id
+		 AND scst.student_csst_csst_id = assessment_class_section_subject_teacher_id
+		 AND scst.student_csst_student_id = ?
+		 AND scst.student_csst_is_active = TRUE
+		 AND scst.student_csst_deleted_at IS NULL
+	`, studentID)
 	}
+
 	if isTeacherTimeline {
 		qry = qry.Joins(`
 			JOIN class_section_subject_teachers csst

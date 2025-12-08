@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -370,6 +371,8 @@ func (g *Generator) GenerateSessionsForScheduleWithOpts(
 	// 1.5) Siapkan default Session Type untuk semua sesi hasil generate
 	var defTypeID *uuid.UUID
 
+	var defTypeRow *sessionTypeRow
+
 	// Prioritas: DefaultSessionTypeID dari caller (schedule payload)
 	if opts.DefaultSessionTypeID != nil && *opts.DefaultSessionTypeID != uuid.Nil {
 		st, er := g.getSessionTypeByID(ctx, sch.ClassScheduleSchoolID, *opts.DefaultSessionTypeID)
@@ -396,6 +399,22 @@ func (g *Generator) GenerateSessionsForScheduleWithOpts(
 
 		if st != nil {
 			defTypeID = &st.ID
+			defTypeRow = st
+		}
+	}
+
+	// Kalau belum ada dari payload → fallback ke default auto ("kbm-regular")
+	if defTypeID == nil {
+		if st, er := g.ensureDefaultSessionType(ctx, sch.ClassScheduleSchoolID); er == nil && st != nil {
+			defTypeID = &st.ID
+			defTypeRow = st
+		} else if er != nil {
+			log.Printf(
+				"[Generator.GenerateSessionsForSchedule] ensureDefaultSessionType failed for schedule=%s school=%s: %v",
+				scheduleID,
+				sch.ClassScheduleSchoolID,
+				er,
+			)
 		}
 	}
 
@@ -631,10 +650,40 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time`
 			}
 		}
 
-		// TYPE default (tanpa snapshot JSON)
+		// TYPE default + SNAPSHOT
 		if defTypeID != nil {
 			row.ClassAttendanceSessionTypeID = defTypeID
 		}
+
+		// ✅ SNAPSHOT TYPE (JSONB) — kalau defTypeRow tersedia
+		if defTypeRow != nil {
+			// convert pq.StringArray -> []string biar bersih
+			requireStates := []string{}
+			if len(defTypeRow.RequireAttendanceReason) > 0 {
+				requireStates = append(requireStates, defTypeRow.RequireAttendanceReason...)
+			}
+
+			snap := datatypes.JSONMap{
+				"id":          defTypeRow.ID,
+				"slug":        defTypeRow.Slug,
+				"name":        defTypeRow.Name,
+				"description": defTypeRow.Description,
+				"color":       defTypeRow.Color,
+				"icon":        defTypeRow.Icon,
+
+				"allow_student_self_attendance": defTypeRow.AllowStudentSelfAttendance,
+				"allow_teacher_mark_attendance": defTypeRow.AllowTeacherMarkAttendance,
+				"require_teacher_attendance":    defTypeRow.RequireTeacherAttendance,
+				"require_attendance_reason":     requireStates,
+
+				"attendance_window_mode":          defTypeRow.AttendanceWindowMode,
+				"attendance_open_offset_minutes":  defTypeRow.AttendanceOpenOffsetMinutes,
+				"attendance_close_offset_minutes": defTypeRow.AttendanceCloseOffsetMinutes,
+			}
+
+			row.ClassAttendanceSessionTypeSnapshot = snap
+		}
+
 	}
 
 	// Tanpa rule → satu sesi di start date

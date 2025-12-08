@@ -562,7 +562,7 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 		}
 
 		// Guard opsional: kalau migrasinya belum naik, jangan bikin 500.
-		if !uc.DB.Migrator().HasColumn(&schoolTeacherModel.SchoolTeacherModel{}, "school_teacher_user_teacher_user_full_name_cache") {
+		if !uc.DB.Migrator().HasColumn(&schoolTeacherModel.SchoolTeacherModel{}, "school_teacher_user_teacher_full_name_cache") {
 			log.Printf("[user-teacher#patch] snapshot columns not found — skip sync to school_teachers")
 		} else {
 			if err := uc.DB.Model(&schoolTeacherModel.SchoolTeacherModel{}).

@@ -12,9 +12,9 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	dto "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/dto"
 	assessmentModel "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/model"
 	assessSvc "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/service"
-	dto "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/dto"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
@@ -65,6 +65,9 @@ func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
+
+	// DEBUG
+	fmt.Printf("DEBUG CreateAssessmentTypeRequest: %+v\n", req)
 	req = req.Normalize()
 
 	// 🔒 School context: STRICT dari token active_school

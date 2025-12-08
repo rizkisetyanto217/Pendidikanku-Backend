@@ -280,11 +280,11 @@ func (ctrl *ClassAttendanceSessionController) listStudentTimeline(
 		Where("cas.class_attendance_session_deleted_at IS NULL").
 		Joins(`
         JOIN student_class_section_subject_teachers scst
-          ON scst.student_class_section_subject_teacher_school_id = cas.class_attendance_session_school_id
-         AND scst.student_class_section_subject_teacher_csst_id = cas.class_attendance_session_csst_id
-         AND scst.student_class_section_subject_teacher_student_id = ?
-         AND scst.student_class_section_subject_teacher_is_active = TRUE
-         AND scst.student_class_section_subject_teacher_deleted_at IS NULL
+          ON scst.student_csst_school_id = cas.class_attendance_session_school_id
+         AND scst.student_csst_csst_id      = cas.class_attendance_session_csst_id
+         AND scst.student_csst_student_id   = ?
+         AND scst.student_csst_is_active    = TRUE
+         AND scst.student_csst_deleted_at IS NULL
     `, studentID)
 
 	// Filter tanggal di level session

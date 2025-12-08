@@ -371,8 +371,8 @@ CONSTRAINT fk_student_class_material_progress_student_same_school
 CONSTRAINT fk_student_class_material_progress_scsst_same_school
   FOREIGN KEY (student_class_material_progress_scsst_id, student_class_material_progress_school_id)
   REFERENCES student_class_section_subject_teachers (
-    student_class_section_subject_teacher_id,
-    student_class_section_subject_teacher_school_id
+    student_csst_id,
+    student_csst_school_id
   )
   ON UPDATE CASCADE ON DELETE CASCADE,
 
