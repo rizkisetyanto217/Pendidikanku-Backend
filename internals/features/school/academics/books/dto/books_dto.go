@@ -6,6 +6,7 @@ import (
 	"time"
 
 	model "madinahsalam_backend/internals/features/school/academics/books/model"
+	classSubjectDTO "madinahsalam_backend/internals/features/school/academics/subjects/dto"
 
 	"github.com/google/uuid"
 )
@@ -289,6 +290,17 @@ type BooksWithUsagesListQuery struct {
 
 // BookCompact dipakai sebagai bentuk ringkas di tempat lain
 // (misal embed di materials, CSST, dsb)
+type BookClassSubjectItem struct {
+	ClassSubjectBookID         uuid.UUID `json:"class_subject_book_id"`
+	ClassSubjectBookIsPrimary  bool      `json:"class_subject_book_is_primary"`
+	ClassSubjectBookIsRequired bool      `json:"class_subject_book_is_required"`
+	ClassSubjectBookOrder      *int      `json:"class_subject_book_order,omitempty"`
+
+	// detail class_subject (compact: sudah ada caches subject + class_parent)
+	ClassSubject classSubjectDTO.ClassSubjectCompactResponse `json:"class_subject"`
+}
+
+// existing
 type BookCompact struct {
 	BookID       uuid.UUID `json:"book_id"`
 	BookSchoolID uuid.UUID `json:"book_school_id"`
@@ -304,6 +316,9 @@ type BookCompact struct {
 	BookCreatedAt time.Time `json:"book_created_at"`
 	BookUpdatedAt time.Time `json:"book_updated_at"`
 	BookIsDeleted bool      `json:"book_is_deleted"`
+
+	// 🔥 baru: daftar mapel lengkap (class_subject compact)
+	ClassSubjectBooks []BookClassSubjectItem `json:"class_subject_books,omitempty"`
 }
 
 func ToBookCompact(m *model.BookModel) BookCompact {
