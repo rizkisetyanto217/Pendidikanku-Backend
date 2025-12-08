@@ -135,9 +135,6 @@ func pickAvatarFile(c *fiber.Ctx) (fh *multipart.FileHeader, which string) {
 }
 
 // multipart TANPA payload: baca per-field manual (tanpa BodyParser)
-// - angka harus murni (tanpa komentar)
-// - JSON harus valid
-// - field time & slot-avatar lama diabaikan saat create
 func parseMultipartNoPayload(c *fiber.Ctx, rid string, req *userdto.CreateUserTeacherRequest) error {
 	get := func(k string) string { return strings.TrimSpace(c.FormValue(k)) }
 
@@ -226,9 +223,6 @@ func parseMultipartNoPayload(c *fiber.Ctx, rid string, req *userdto.CreateUserTe
 
 // ========================= CREATE =========================
 // POST /api/user-teachers
-// - multipart: file "avatar" + field "payload" (JSON CreateUserTeacherRequest)  ➜ rekomendasi
-// - multipart: per-field text (tanpa "payload"), angka murni & JSON valid        ➜ juga didukung
-// - json: body langsung CreateUserTeacherRequest
 func (uc *UserTeacherController) Create(c *fiber.Ctx) error {
 	rid := reqID(c)
 	ct := strings.ToLower(strings.TrimSpace(c.Get(fiber.HeaderContentType)))
@@ -297,7 +291,6 @@ func (uc *UserTeacherController) Create(c *fiber.Ctx) error {
 
 	// --- upload avatar (opsional, hanya multipart) ---
 	if ctIsMultipart(ct) {
-		// 1) coba cari file dengan beberapa alias key
 		if fh, which := pickAvatarFile(c); fh != nil {
 			log.Printf("[user-teacher#create] reqid=%s avatar file found key=%q filename=%q size=%d",
 				rid, which, fh.Filename, fh.Size)
@@ -327,18 +320,15 @@ func (uc *UserTeacherController) Create(c *fiber.Ctx) error {
 			log.Printf("[user-teacher#create] reqid=%s avatar uploaded url=%s key=%s", rid, url, key)
 
 		} else {
-			// 2) fallback: kalau tidak ada file, cek apakah ada URL tekstual yang valid
 			if raw := strings.TrimSpace(c.FormValue("user_teacher_avatar_url")); raw != "" &&
 				(strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://")) {
 
 				if key, err := helperOSS.KeyFromPublicURL(raw); err == nil {
-					// gunakan URL yang sudah publik dan berasal dari bucket yang sama
 					m.UserTeacherAvatarURL = &raw
 					m.UserTeacherAvatarObjectKey = &key
 					log.Printf("[user-teacher#create] reqid=%s no file, reuse avatar url=%s key=%s", rid, raw, key)
 				} else {
 					log.Printf("[user-teacher#create] reqid=%s provided avatar_url not recognized: %v", rid, err)
-					// tidak fatal — lanjut tanpa avatar
 				}
 			} else {
 				log.Printf("[user-teacher#create] reqid=%s no avatar file or reusable url provided", rid)
@@ -353,11 +343,9 @@ func (uc *UserTeacherController) Create(c *fiber.Ctx) error {
 	}
 	log.Printf("[user-teacher#create] reqid=%s created id=%s", rid, m.UserTeacherID)
 
-	// --- respon ---
+	// --- respon: langsung objek, tanpa wrapper "item" ---
 	log.Printf("[user-teacher#create] reqid=%s success", rid)
-	return helper.JsonOK(c, "Berhasil", fiber.Map{
-		"item": userdto.ToUserTeacherResponse(m),
-	})
+	return helper.JsonOK(c, "Berhasil", userdto.ToUserTeacherResponse(m))
 }
 
 // ========================= PATCH (CORE) =========================
@@ -377,12 +365,10 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 
 	// --- parse payload ---
 	if strings.HasPrefix(ct, "multipart/form-data") {
-		// bodyparser akan mapping langsung semua field dengan tag form/json
 		if err := c.BodyParser(&req); err != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "payload tidak valid")
 		}
 
-		// OSS svc
 		svc := uc.OSS
 		if svc == nil {
 			tmp, e := helperOSS.NewOSSServiceFromEnv("")
@@ -392,7 +378,6 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 			svc = tmp
 		}
 
-		// file avatar
 		if fh, err := c.FormFile("avatar"); err == nil && fh != nil {
 			url, upErr := helperOSS.UploadImageToOSS(c.Context(), svc, m.UserTeacherID, "avatar", fh)
 			if upErr != nil {
@@ -403,7 +388,6 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 				return helper.JsonError(c, fiber.StatusBadRequest, "Gagal ekstrak object key (avatar)")
 			}
 
-			// 2-slot
 			if m.UserTeacherAvatarURL != nil && *m.UserTeacherAvatarURL != "" {
 				m.UserTeacherAvatarURLOld = m.UserTeacherAvatarURL
 				m.UserTeacherAvatarObjectKeyOld = m.UserTeacherAvatarObjectKey
@@ -432,7 +416,6 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 	prevCompleted := before.UserTeacherIsCompleted
 	newCompleted := m.UserTeacherIsCompleted
 
-	// Kalau profil ingin/masih completed, pastikan minimal gender + whatsapp terisi
 	if newCompleted {
 		genderOK := m.UserTeacherGender != nil && strings.TrimSpace(*m.UserTeacherGender) != ""
 		waOK := m.UserTeacherWhatsappURL != nil && strings.TrimSpace(*m.UserTeacherWhatsappURL) != ""
@@ -446,9 +429,6 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 		}
 	}
 
-	// Atur completed_at:
-	// - false -> true : set sekarang (jika belum pernah)
-	// - true  -> false : kosongkan (optional, di sini kita reset)
 	if !prevCompleted && newCompleted {
 		if m.UserTeacherCompletedAt == nil {
 			m.UserTeacherCompletedAt = &now
@@ -463,7 +443,6 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 		"user_teacher_updated_at": m.UserTeacherUpdatedAt,
 	}
 
-	// helper inline
 	applyIfChanged := func(col string, beforeVal, afterVal any) {
 		if beforeVal != afterVal {
 			updates[col] = afterVal
@@ -526,15 +505,13 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 	applyIfChanged("user_teacher_is_verified", before.UserTeacherIsVerified, m.UserTeacherIsVerified)
 	applyIfChanged("user_teacher_is_active", before.UserTeacherIsActive, m.UserTeacherIsActive)
 
-	// NEW: completion flags
+	// completion flags
 	applyIfChanged("user_teacher_is_completed", before.UserTeacherIsCompleted, m.UserTeacherIsCompleted)
 	applyIfChanged("user_teacher_completed_at", before.UserTeacherCompletedAt, m.UserTeacherCompletedAt)
 
 	// tidak ada perubahan nyata
 	if len(updates) == 1 {
-		return helper.JsonOK(c, "Tidak ada perubahan", fiber.Map{
-			"item": userdto.ToUserTeacherResponse(*m),
-		})
+		return helper.JsonOK(c, "Tidak ada perubahan", userdto.ToUserTeacherResponse(*m))
 	}
 
 	// simpan perubahan ke user_teachers
@@ -717,16 +694,11 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 		}
 	}
 
-	return helper.JsonOK(c, "Berhasil", fiber.Map{
-		"item": userdto.ToUserTeacherResponse(*m),
-	})
+	return helper.JsonOK(c, "Berhasil", userdto.ToUserTeacherResponse(*m))
 }
 
 // PATCH /user-teachers/me
 // - Selalu update profil pengajar milik user dari token (user_teacher_user_id)
-// - Mendukung:
-//   - JSON biasa (Content-Type: application/json)
-//   - multipart/form-data dengan field "payload" (JSON string) + file image (avatar)
 func (uc *UserTeacherController) PatchMe(c *fiber.Ctx) error {
 	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
@@ -749,19 +721,17 @@ func (uc *UserTeacherController) PatchMe(c *fiber.Ctx) error {
 
 	// =========== PARSE PAYLOAD ===========
 	if isMultipart {
-		// Prioritas: payload JSON string (sama pola dengan user profile)
+		// Prioritas: payload JSON string
 		if s := strings.TrimSpace(c.FormValue("payload")); s != "" {
 			if err := c.App().Config().JSONDecoder([]byte(s), &in); err != nil {
 				return helper.JsonError(c, fiber.StatusBadRequest, "Invalid payload JSON")
 			}
 		} else {
-			// Langsung bind form-data → struct (pakai tag form:"...")
 			if err := c.BodyParser(&in); err != nil {
 				log.Println("[WARN] multipart BodyParser error:", err)
 			}
 		}
 	} else {
-		// JSON biasa
 		if err := c.BodyParser(&in); err != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "Invalid request format")
 		}
@@ -771,10 +741,7 @@ func (uc *UserTeacherController) PatchMe(c *fiber.Ctx) error {
 	after := before
 	in.ApplyPatch(&after)
 
-	now := time.Time{}
-	if now.IsZero() {
-		now = time.Now()
-	}
+	now := time.Now()
 	after.UserTeacherUpdatedAt = now
 
 	// =========== HANDLE AVATAR (FILE) via MULTIPART ===========
@@ -784,12 +751,11 @@ func (uc *UserTeacherController) PatchMe(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "OSS belum terkonfigurasi")
 		}
 
-		// Asumsi getImageFormFile akan ambil file dari field standar (misal: "avatar")
 		if fh, err := getImageFormFile(c); err == nil && fh != nil {
 			ctx, cancel := context.WithTimeout(c.Context(), 30*time.Second)
 			defer cancel()
 
-			// folder/category pakai "teacher-avatar" biar beda dengan user profile
+			// folder/category pakai "teacher-avatar"
 			url, upErr := helperOSS.UploadImageToOSS(ctx, svc, userID, "teacher-avatar", fh)
 			if upErr != nil {
 				return helper.JsonError(c, fiber.StatusBadRequest, upErr.Error())
@@ -815,7 +781,7 @@ func (uc *UserTeacherController) PatchMe(c *fiber.Ctx) error {
 
 	// =========== AUTO FLAG: is_completed & completed_at ===========
 	wasCompleted := before.UserTeacherIsCompleted
-	nowCompleted := isTeacherProfileCompleted(&after) // helper di atas
+	nowCompleted := isTeacherProfileCompleted(&after)
 
 	if nowCompleted && !wasCompleted {
 		after.UserTeacherIsCompleted = true
@@ -823,11 +789,9 @@ func (uc *UserTeacherController) PatchMe(c *fiber.Ctx) error {
 			after.UserTeacherCompletedAt = &now
 		}
 	} else if !nowCompleted && wasCompleted {
-		// turun kasta: profil jadi tidak lengkap lagi
 		after.UserTeacherIsCompleted = false
 		after.UserTeacherCompletedAt = nil
 	}
-	// kalau sama-sama true atau sama-sama false → biarkan timestamp apa adanya
 
 	// =========== SAVE ===========
 	if err := uc.DB.Save(&after).Error; err != nil {

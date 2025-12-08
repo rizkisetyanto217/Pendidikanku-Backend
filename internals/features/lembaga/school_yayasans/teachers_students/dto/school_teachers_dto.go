@@ -98,7 +98,6 @@ type SchoolTeacher struct {
 // ========================
 // 📦 Compact DTO (untuk embed di tempat lain)
 // ========================
-
 type SchoolTeacherCompact struct {
 	SchoolTeacherID            string `json:"school_teacher_id"`
 	SchoolTeacherSchoolID      string `json:"school_teacher_school_id"`
@@ -108,6 +107,9 @@ type SchoolTeacherCompact struct {
 	SchoolTeacherCode       *string `json:"school_teacher_code,omitempty"`
 	SchoolTeacherEmployment *string `json:"school_teacher_employment,omitempty"` // enum as string
 	SchoolTeacherIsActive   bool    `json:"school_teacher_is_active"`
+
+	// Periode kerja ringkas
+	SchoolTeacherJoinedAt *time.Time `json:"school_teacher_joined_at,omitempty"`
 
 	// Snapshot dari user_teachers
 	SchoolTeacherUserTeacherFullNameCache    *string `json:"school_teacher_user_teacher_full_name_cache,omitempty"`
@@ -542,6 +544,8 @@ func NewSchoolTeacherCompact(m *teacherModel.SchoolTeacherModel) *SchoolTeacherC
 		SchoolTeacherCode:       m.SchoolTeacherCode,
 		SchoolTeacherEmployment: emp,
 		SchoolTeacherIsActive:   m.SchoolTeacherIsActive,
+
+		SchoolTeacherJoinedAt: m.SchoolTeacherJoinedAt,
 
 		SchoolTeacherUserTeacherFullNameCache:    m.SchoolTeacherUserTeacherFullNameCache,
 		SchoolTeacherUserTeacherAvatarURLCache:   m.SchoolTeacherUserTeacherAvatarURLCache,

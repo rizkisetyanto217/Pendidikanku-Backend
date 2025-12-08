@@ -33,6 +33,9 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 		return er
 	}
 
+	// --- mode: all / compact ---
+	mode := strings.ToLower(strings.TrimSpace(c.Query("mode"))) // "", "all", "compact"
+
 	// 3) Sorting + Pagination
 	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
 	allowedSort := map[string]string{
@@ -116,13 +119,14 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 		q = q.Where("school_student_created_at <= ?", t)
 	}
 
-	// search code/note
+	// search code/note/name
 	if search != "" {
 		like := "%" + strings.ToLower(search) + "%"
 		q = q.Where(`
 			LOWER(COALESCE(school_student_code, '')) LIKE ? OR
-			LOWER(COALESCE(school_student_note, '')) LIKE ?
-		`, like, like)
+			LOWER(COALESCE(school_student_note, '')) LIKE ? OR
+			LOWER(COALESCE(school_student_user_profile_name_cache, '')) LIKE ?
+		`, like, like, like)
 	}
 
 	// 5) Count
@@ -137,6 +141,25 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
+	// pagination info
+	pg := helper.BuildPaginationFromOffset(total, p.Offset(), p.Limit())
+
+	// =========================
+	// MODE: COMPACT
+	// =========================
+	if mode == "compact" {
+		comp := make([]dto.SchoolStudentCompact, 0, len(rows))
+		for i := range rows {
+			comp = append(comp, dto.ToSchoolStudentCompact(&rows[i]))
+		}
+		// compact tidak butuh join user_profile lagi: sudah pakai cache
+		return helper.JsonList(c, "ok", comp, pg)
+	}
+
+	// =========================
+	// MODE: ALL (default)
+	// =========================
+
 	// include=user_profile ?
 	include := strings.ToLower(strings.TrimSpace(c.Query("include")))
 	wantProfile := false
@@ -149,9 +172,6 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 			}
 		}
 	}
-
-	// pagination info
-	pg := helper.BuildPaginationFromOffset(total, p.Offset(), p.Limit())
 
 	// base response
 	baseResp := make([]dto.SchoolStudentResp, 0, len(rows))
@@ -173,7 +193,7 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 		WhatsappURL       *string   `json:"whatsapp_url,omitempty"`
 		ParentName        *string   `json:"parent_name,omitempty"`
 		ParentWhatsappURL *string   `json:"parent_whatsapp_url,omitempty"`
-		Gender            *string   `json:"gender,omitempty"` // NEW
+		Gender            *string   `json:"gender,omitempty"`
 	}
 
 	type SchoolStudentWithProfileResp struct {
@@ -203,7 +223,7 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 			WhatsappURL       *string   `gorm:"column:user_profile_whatsapp_url"`
 			ParentName        *string   `gorm:"column:user_profile_parent_name"`
 			ParentWhatsappURL *string   `gorm:"column:user_profile_parent_whatsapp_url"`
-			Gender            *string   `gorm:"column:user_profile_gender"` // NEW
+			Gender            *string   `gorm:"column:user_profile_gender"`
 		}
 
 		if err := h.DB.

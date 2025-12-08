@@ -32,6 +32,8 @@ import (
 
 	// ✅ Cache guru versi baru (school_teachers)
 	teachersnap "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/service"
+
+	classSectionService "madinahsalam_backend/internals/features/school/classes/class_sections/service"
 )
 
 /* =========================================================
@@ -311,6 +313,16 @@ func pickImageFile(c *fiber.Ctx, names ...string) *multipart.FileHeader {
 		}
 	}
 	return nil
+}
+
+func equalUUIDPtr(a, b *uuid.UUID) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
 }
 
 /* =========================================================
@@ -612,6 +624,45 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat section")
 	}
 
+	// ==== Sync ke school_teachers (JSONB sections + stats) ====
+
+	// Ambil lagi section terbaru dari DB, supaya flag is_active, dst sudah sesuai default DB
+	var freshSec secModel.ClassSectionModel
+	if err := tx.
+		Where("class_section_id = ?", m.ClassSectionID).
+		First(&freshSec).Error; err != nil {
+		_ = tx.Rollback()
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil section untuk update stats guru")
+	}
+
+	// Homeroom teacher
+	if freshSec.ClassSectionSchoolTeacherID != nil {
+		if err := classSectionService.AddSectionToTeacher(
+			tx,
+			schoolID,
+			*freshSec.ClassSectionSchoolTeacherID,
+			&freshSec,
+			"homeroom",
+		); err != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal update stats guru (homeroom)")
+		}
+	}
+
+	// Assistant teacher
+	if freshSec.ClassSectionAssistantSchoolTeacherID != nil {
+		if err := classSectionService.AddSectionToTeacher(
+			tx,
+			schoolID,
+			*freshSec.ClassSectionAssistantSchoolTeacherID,
+			&freshSec,
+			"assistant",
+		); err != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal update stats guru (assistant)")
+		}
+	}
+
 	if err := tx.Commit().Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
@@ -669,6 +720,10 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
+
+	// Simpan guru lama (sebelum patch)
+	oldHomeroomID := existing.ClassSectionSchoolTeacherID
+	oldAssistantID := existing.ClassSectionAssistantSchoolTeacherID
 
 	// 🔒 Tenant guard: section harus milik school di token
 	if existing.ClassSectionSchoolID != schoolID {
@@ -937,6 +992,92 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 	}
 	if asstTeacherSnapRequested {
 		existing.ClassSectionAssistantSchoolTeacherCache = asstTeacherSnapJSON
+	}
+
+	// ==== Sync ke school_teachers (JSONB sections + stats) ====
+
+	// Homeroom: remove dari guru lama jika berubah / dihapus
+	if oldHomeroomID != nil && !equalUUIDPtr(oldHomeroomID, existing.ClassSectionSchoolTeacherID) {
+		if err := classSectionService.RemoveSectionFromTeacher(
+			tx,
+			schoolID,
+			*oldHomeroomID,
+			&existing,
+			"homeroom",
+		); err != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal update stats guru (remove homeroom)")
+		}
+	}
+
+	// Homeroom: add ke guru baru jika ada dan berbeda dari lama
+	if existing.ClassSectionSchoolTeacherID != nil && !equalUUIDPtr(oldHomeroomID, existing.ClassSectionSchoolTeacherID) {
+		if err := classSectionService.AddSectionToTeacher(
+			tx,
+			schoolID,
+			*existing.ClassSectionSchoolTeacherID,
+			&existing,
+			"homeroom",
+		); err != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal update stats guru (add homeroom)")
+		}
+	}
+
+	// Assistant: remove dari guru lama jika berubah / dihapus
+	if oldAssistantID != nil && !equalUUIDPtr(oldAssistantID, existing.ClassSectionAssistantSchoolTeacherID) {
+		if err := classSectionService.RemoveSectionFromTeacher(
+			tx,
+			schoolID,
+			*oldAssistantID,
+			&existing,
+			"assistant",
+		); err != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal update stats guru (remove assistant)")
+		}
+	}
+
+	// Assistant: add ke guru baru jika ada dan berbeda dari lama
+	if existing.ClassSectionAssistantSchoolTeacherID != nil && !equalUUIDPtr(oldAssistantID, existing.ClassSectionAssistantSchoolTeacherID) {
+		if err := classSectionService.AddSectionToTeacher(
+			tx,
+			schoolID,
+			*existing.ClassSectionAssistantSchoolTeacherID,
+			&existing,
+			"assistant",
+		); err != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal update stats guru (add assistant)")
+		}
+	}
+
+	// ✅ Refresh snapshot guru aktif WALAU ID-nya tidak berubah.
+	//    Jadi kalau name / slug / image / stats / academic term / parent berubah,
+	//    JSON di school_teacher_sections ikut ke-update.
+	if existing.ClassSectionSchoolTeacherID != nil {
+		if err := classSectionService.AddSectionToTeacher(
+			tx,
+			schoolID,
+			*existing.ClassSectionSchoolTeacherID,
+			&existing,
+			"homeroom",
+		); err != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal sinkron snapshot guru (homeroom)")
+		}
+	}
+	if existing.ClassSectionAssistantSchoolTeacherID != nil {
+		if err := classSectionService.AddSectionToTeacher(
+			tx,
+			schoolID,
+			*existing.ClassSectionAssistantSchoolTeacherID,
+			&existing,
+			"assistant",
+		); err != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal sinkron snapshot guru (assistant)")
+		}
 	}
 
 	// Save

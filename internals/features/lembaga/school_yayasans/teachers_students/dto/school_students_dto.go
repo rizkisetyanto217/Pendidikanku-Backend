@@ -473,3 +473,34 @@ func FromModel(m *studentmodel.SchoolStudentModel) SchoolStudentResp {
 		SchoolStudentDeletedAt: delAt,
 	}
 }
+
+// =========================================================
+//   COMPACT RESPONSE (untuk embed di tempat lain)
+// =========================================================
+
+type SchoolStudentCompact struct {
+	SchoolStudentCode   *string                          `json:"school_student_code,omitempty"`
+	SchoolStudentStatus studentmodel.SchoolStudentStatus `json:"school_student_status"`
+
+	SchoolStudentJoinedAt *time.Time `json:"school_student_joined_at,omitempty"`
+
+	SchoolStudentUserProfileNameCache        *string `json:"school_student_user_profile_name_cache,omitempty"`
+	SchoolStudentUserProfileAvatarURLCache   *string `json:"school_student_user_profile_avatar_url_cache,omitempty"`
+	SchoolStudentUserProfileWhatsappURLCache *string `json:"school_student_user_profile_whatsapp_url_cache,omitempty"`
+	SchoolStudentUserProfileGenderCache      *string `json:"school_student_user_profile_gender_cache,omitempty"`
+}
+
+// Helper: mapping dari model ke compact
+func ToSchoolStudentCompact(m *studentmodel.SchoolStudentModel) SchoolStudentCompact {
+	return SchoolStudentCompact{
+		SchoolStudentCode:   m.SchoolStudentCode,
+		SchoolStudentStatus: m.SchoolStudentStatus,
+
+		SchoolStudentJoinedAt: m.SchoolStudentJoinedAt,
+
+		SchoolStudentUserProfileNameCache:        m.SchoolStudentUserProfileNameCache,
+		SchoolStudentUserProfileAvatarURLCache:   m.SchoolStudentUserProfileAvatarURLCache,
+		SchoolStudentUserProfileWhatsappURLCache: m.SchoolStudentUserProfileWhatsappURLCache,
+		SchoolStudentUserProfileGenderCache:      m.SchoolStudentUserProfileGenderCache,
+	}
+}
