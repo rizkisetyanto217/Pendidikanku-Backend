@@ -74,7 +74,7 @@ type SchoolTeacher struct {
 	SchoolTeacherUserTeacherWhatsappURLCache *string `json:"school_teacher_user_teacher_whatsapp_url_cache,omitempty"`
 	SchoolTeacherUserTeacherTitlePrefixCache *string `json:"school_teacher_user_teacher_title_prefix_cache,omitempty"`
 	SchoolTeacherUserTeacherTitleSuffixCache *string `json:"school_teacher_user_teacher_title_suffix_cache,omitempty"`
-	SchoolTeacherUserTeacherGenderCache     *string `json:"school_teacher_user_teacher_gender_cache,omitempty"`
+	SchoolTeacherUserTeacherGenderCache      *string `json:"school_teacher_user_teacher_gender_cache,omitempty"`
 
 	// JSONB: sections & csst
 	SchoolTeacherSections []DTOTeacherSectionItem `json:"school_teacher_sections"`
@@ -93,6 +93,29 @@ type SchoolTeacher struct {
 	SchoolTeacherCreatedAt time.Time  `json:"school_teacher_created_at"`
 	SchoolTeacherUpdatedAt time.Time  `json:"school_teacher_updated_at"`
 	SchoolTeacherDeletedAt *time.Time `json:"school_teacher_deleted_at,omitempty"`
+}
+
+// ========================
+// 📦 Compact DTO (untuk embed di tempat lain)
+// ========================
+
+type SchoolTeacherCompact struct {
+	SchoolTeacherID            string `json:"school_teacher_id"`
+	SchoolTeacherSchoolID      string `json:"school_teacher_school_id"`
+	SchoolTeacherUserTeacherID string `json:"school_teacher_user_teacher_id"`
+
+	// Identitas/kepegawaian ringkas
+	SchoolTeacherCode       *string `json:"school_teacher_code,omitempty"`
+	SchoolTeacherEmployment *string `json:"school_teacher_employment,omitempty"` // enum as string
+	SchoolTeacherIsActive   bool    `json:"school_teacher_is_active"`
+
+	// Snapshot dari user_teachers
+	SchoolTeacherUserTeacherFullNameCache    *string `json:"school_teacher_user_teacher_full_name_cache,omitempty"`
+	SchoolTeacherUserTeacherAvatarURLCache   *string `json:"school_teacher_user_teacher_avatar_url_cache,omitempty"`
+	SchoolTeacherUserTeacherWhatsappURLCache *string `json:"school_teacher_user_teacher_whatsapp_url_cache,omitempty"`
+	SchoolTeacherUserTeacherTitlePrefixCache *string `json:"school_teacher_user_teacher_title_prefix_cache,omitempty"`
+	SchoolTeacherUserTeacherTitleSuffixCache *string `json:"school_teacher_user_teacher_title_suffix_cache,omitempty"`
+	SchoolTeacherUserTeacherGenderCache      *string `json:"school_teacher_user_teacher_gender_cache,omitempty"`
 }
 
 /* ========================
@@ -259,7 +282,7 @@ func NewSchoolTeacherResponse(m *teacherModel.SchoolTeacherModel) *SchoolTeacher
 		SchoolTeacherUserTeacherWhatsappURLCache: m.SchoolTeacherUserTeacherWhatsappURLCache,
 		SchoolTeacherUserTeacherTitlePrefixCache: m.SchoolTeacherUserTeacherTitlePrefixCache,
 		SchoolTeacherUserTeacherTitleSuffixCache: m.SchoolTeacherUserTeacherTitleSuffixCache,
-		SchoolTeacherUserTeacherGenderCache:   m.SchoolTeacherUserTeacherGenderCache,
+		SchoolTeacherUserTeacherGenderCache:      m.SchoolTeacherUserTeacherGenderCache,
 
 		// JSONB
 		SchoolTeacherSections: sections,
@@ -498,4 +521,41 @@ func (r UpdateSchoolTeacherRequest) ApplyToModel(m *teacherModel.SchoolTeacherMo
 	}
 
 	return nil
+}
+
+func NewSchoolTeacherCompact(m *teacherModel.SchoolTeacherModel) *SchoolTeacherCompact {
+	if m == nil {
+		return nil
+	}
+
+	var emp *string
+	if m.SchoolTeacherEmployment != nil {
+		s := string(*m.SchoolTeacherEmployment)
+		emp = &s
+	}
+
+	return &SchoolTeacherCompact{
+		SchoolTeacherID:            m.SchoolTeacherID.String(),
+		SchoolTeacherSchoolID:      m.SchoolTeacherSchoolID.String(),
+		SchoolTeacherUserTeacherID: m.SchoolTeacherUserTeacherID.String(),
+
+		SchoolTeacherCode:       m.SchoolTeacherCode,
+		SchoolTeacherEmployment: emp,
+		SchoolTeacherIsActive:   m.SchoolTeacherIsActive,
+
+		SchoolTeacherUserTeacherFullNameCache:    m.SchoolTeacherUserTeacherFullNameCache,
+		SchoolTeacherUserTeacherAvatarURLCache:   m.SchoolTeacherUserTeacherAvatarURLCache,
+		SchoolTeacherUserTeacherWhatsappURLCache: m.SchoolTeacherUserTeacherWhatsappURLCache,
+		SchoolTeacherUserTeacherTitlePrefixCache: m.SchoolTeacherUserTeacherTitlePrefixCache,
+		SchoolTeacherUserTeacherTitleSuffixCache: m.SchoolTeacherUserTeacherTitleSuffixCache,
+		SchoolTeacherUserTeacherGenderCache:      m.SchoolTeacherUserTeacherGenderCache,
+	}
+}
+
+func NewSchoolTeacherCompacts(items []teacherModel.SchoolTeacherModel) []*SchoolTeacherCompact {
+	out := make([]*SchoolTeacherCompact, 0, len(items))
+	for i := range items {
+		out = append(out, NewSchoolTeacherCompact(&items[i]))
+	}
+	return out
 }

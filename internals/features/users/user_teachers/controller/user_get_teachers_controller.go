@@ -17,13 +17,18 @@ import (
 func (uc *UserTeacherController) List(c *fiber.Ctx) error {
 	q := strings.TrimSpace(c.Query("q"))
 
+	// Pastikan DB ada di Locals (kalau ada helper lain yang butuh)
+	if c.Locals("DB") == nil {
+		c.Locals("DB", uc.DB)
+	}
+
 	// Pakai helper ParseFiber untuk baca sort_by & order
 	params := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
 
 	// mapping nama sort → kolom DB
 	allowed := map[string]string{
 		"created_at": "user_teacher_created_at",
-		"name":       "user_teacher_user_full_name_cache", // ✅ pakai kolom yang memang ada
+		"name":       "user_teacher_user_full_name_cache",
 		"completed":  "user_teacher_is_completed",
 		"verified":   "user_teacher_is_verified",
 	}
@@ -44,6 +49,7 @@ func (uc *UserTeacherController) List(c *fiber.Ctx) error {
 	db = db.Where("user_teacher_user_id = ?", userID)
 
 	// ================== FILTER OPSIONAL: STATUS ==================
+
 	// is_active
 	if raw := strings.TrimSpace(c.Query("is_active")); raw != "" {
 		val, err := strconv.ParseBool(raw)
@@ -88,8 +94,16 @@ func (uc *UserTeacherController) List(c *fiber.Ctx) error {
 	var row model.UserTeacherModel
 	if err := db.Order(orderBy).Limit(1).First(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// Konsisten: kalau belum punya profil teacher
-			return helper.JsonError(c, fiber.StatusNotFound, "Profil guru belum ditemukan")
+			// ❗ BUKAN 404 lagi
+			// Balikkan struktur lengkap dengan nilai default/kosong
+			empty := model.UserTeacherModel{
+				UserTeacherUserID:     userID,
+				UserTeacherIsActive:   true, // samain dengan default di create
+				UserTeacherIsVerified: false,
+				// kolom lain akan zero value (string "", nil, false, dsb)
+			}
+			resp := userdto.ToUserTeacherResponse(empty)
+			return helper.JsonOK(c, "Profil guru belum dibuat", resp)
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}

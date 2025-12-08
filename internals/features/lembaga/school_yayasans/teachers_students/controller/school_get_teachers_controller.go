@@ -7,6 +7,7 @@ import (
 
 	teacherDTO "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/dto"
 	teacherModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
+	userTeacherModel "madinahsalam_backend/internals/features/users/user_teachers/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
@@ -41,7 +42,6 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 		order = "desc"
 	}
 
-	// tambahkan kolom sorting berbasis stats baru
 	colMap := map[string]string{
 		"created_at":            "school_teacher_created_at",
 		"updated_at":            "school_teacher_updated_at",
@@ -56,10 +56,13 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 	}
 	orderExpr := col + " " + strings.ToUpper(order)
 
+	// 🔁 Mode: compact / full (default)
+	mode := strings.ToLower(strings.TrimSpace(c.Query("mode")))
+	isCompact := mode == "compact" || mode == "lite"
+
 	// 3) Filters
 	idStr := strings.TrimSpace(c.Query("id"))
 
-	// ⬇️ alias untuk FK user_teacher:
 	userTeacherIDStr := strings.TrimSpace(
 		c.Query("user_teacher_id",
 			c.Query("user_id",
@@ -67,7 +70,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 					c.Query("school_teacher_user_teacher_id")))),
 	)
 
-	userProfileIDStr := strings.TrimSpace(c.Query("user_profile_id")) // tetap
+	userProfileIDStr := strings.TrimSpace(c.Query("user_profile_id"))
 
 	employment := strings.ToLower(strings.TrimSpace(c.Query("employment")))
 	activeStr := strings.TrimSpace(c.Query("active"))
@@ -109,15 +112,15 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 		Model(&teacherModel.SchoolTeacherModel{}).
 		Where("school_teacher_school_id = ? AND school_teacher_deleted_at IS NULL", schoolID)
 
-	// ⬇️ filter by PK teacher
+	// filter by PK teacher
 	if rowID != uuid.Nil {
 		tx = tx.Where("school_teacher_id = ?", rowID)
 	}
-	// ⬇️ filter by FK user_teacher
+	// filter by FK user_teacher
 	if userTeacherID != uuid.Nil {
 		tx = tx.Where("school_teacher_user_teacher_id = ?", userTeacherID)
 	}
-	// ⬇️ filter by user_profile_id (via join ke user_teachers & user_profiles)
+	// filter by user_profile_id (via join ke user_profiles lewat user_teachers)
 	if userProfileID != uuid.Nil {
 		tx = tx.Joins(`
 			JOIN user_teachers ut
@@ -163,10 +166,12 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 	}
 	if q != "" {
 		pat := "%" + q + "%"
-		tx = tx.Where(`(school_teacher_notes ILIKE ? 
+		tx = tx.Where(`(
+			school_teacher_notes ILIKE ? 
 			OR school_teacher_code ILIKE ? 
 			OR school_teacher_slug ILIKE ?
-			OR school_teacher_user_teacher_full_name_cache ILIKE ?)`, pat, pat, pat, pat)
+			OR school_teacher_user_teacher_full_name_cache ILIKE ?
+		)`, pat, pat, pat, pat)
 	}
 
 	// 4) Count + data
@@ -184,6 +189,17 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
+	// 🔁 Mode COMPACT: langsung pulang pakai DTO compact
+	if isCompact {
+		compacts := teacherDTO.NewSchoolTeacherCompacts(rows)
+		pg := helper.BuildPaginationFromPage(total, p.Page, p.PerPage)
+		return helper.JsonList(c, "ok", compacts, pg)
+	}
+
+	// ========================
+	// Mode FULL (default)
+	// ========================
+
 	// 5) include flags
 	inc := strings.ToLower(strings.TrimSpace(c.Query("include")))
 	wantTeacher := false
@@ -193,11 +209,11 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 	if inc != "" {
 		for _, part := range strings.Split(inc, ",") {
 			switch strings.TrimSpace(part) {
-			case "teacher", "teachers", "user-teachers":
+			case "teacher", "teachers", "user-teachers", "user_teacher", "user_teachers":
 				wantTeacher = true
 			case "user", "users":
 				wantUser = true
-			case "user-profile", "profile", "profiles":
+			case "user-profile", "profile", "profiles", "user_profiles":
 				wantProfile = true
 			case "all":
 				wantTeacher = true
@@ -207,7 +223,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 6) base responses + kumpulkan IDs
+	// 6) base responses + kumpulkan IDs user_teacher
 	base := make([]*teacherDTO.SchoolTeacher, 0, len(rows))
 	teacherIDsSet := make(map[uuid.UUID]struct{}, len(rows))
 	for i := range rows {
@@ -217,68 +233,27 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// ==== include: teacher (user_teachers) ====
-	type TeacherLite struct {
-		ID         uuid.UUID `json:"id"`
-		UserID     uuid.UUID `json:"user_id"`
-		Name       string    `json:"name"`
-		Whatsapp   *string   `json:"whatsapp_url,omitempty"`
-		AvatarURL  *string   `json:"avatar_url,omitempty"`
-		TitlePref  *string   `json:"title_prefix,omitempty"`
-		TitleSuf   *string   `json:"title_suffix,omitempty"`
-		IsActive   bool      `json:"is_active"`
-		IsVerified bool      `json:"is_verified"`
-	}
+	// ==== include: teacher (user_teachers) – full model ====
 	teacherIDs := make([]uuid.UUID, 0, len(teacherIDsSet))
 	for id := range teacherIDsSet {
 		teacherIDs = append(teacherIDs, id)
 	}
 
-	teacherMap := make(map[uuid.UUID]TeacherLite, len(teacherIDs))
+	teacherMap := make(map[uuid.UUID]userTeacherModel.UserTeacherModel, len(teacherIDs))
 	userIDsSet := make(map[uuid.UUID]struct{}, len(teacherIDs))
 
 	if wantTeacher || wantUser || wantProfile {
 		if len(teacherIDs) > 0 {
-			var trows []struct {
-				UserTeacherID        uuid.UUID `gorm:"column:user_teacher_id"`
-				UserTeacherUserID    uuid.UUID `gorm:"column:user_teacher_user_id"`
-				UserTeacherFullName  string    `gorm:"column:user_teacher_user_full_name_cache"`
-				UserTeacherWhatsapp  *string   `gorm:"column:user_teacher_whatsapp_url"`
-				UserTeacherAvatarURL *string   `gorm:"column:user_teacher_avatar_url"`
-				TitlePrefix          *string   `gorm:"column:user_teacher_title_prefix"`
-				TitleSuffix          *string   `gorm:"column:user_teacher_title_suffix"`
-				IsActive             bool      `gorm:"column:user_teacher_is_active"`
-				IsVerified           bool      `gorm:"column:user_teacher_is_verified"`
-			}
-			if err := ctrl.DB.Table("user_teachers").
-				Select(`
-					user_teacher_id,
-					user_teacher_user_id,
-					user_teacher_full_name_cache,
-					user_teacher_whatsapp_url,
-					user_teacher_avatar_url,
-					user_teacher_title_prefix,
-					user_teacher_title_suffix,
-					user_teacher_is_active,
-					user_teacher_is_verified`,
-				).
+			var trows []userTeacherModel.UserTeacherModel
+			if err := ctrl.DB.WithContext(c.Context()).
+				Table("user_teachers").
 				Where("user_teacher_id IN ?", teacherIDs).
 				Where("user_teacher_deleted_at IS NULL").
 				Find(&trows).Error; err != nil {
 				return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 			}
 			for _, t := range trows {
-				teacherMap[t.UserTeacherID] = TeacherLite{
-					ID:         t.UserTeacherID,
-					UserID:     t.UserTeacherUserID,
-					Name:       t.UserTeacherFullName,
-					Whatsapp:   t.UserTeacherWhatsapp,
-					AvatarURL:  t.UserTeacherAvatarURL,
-					TitlePref:  t.TitlePrefix,
-					TitleSuf:   t.TitleSuffix,
-					IsActive:   t.IsActive,
-					IsVerified: t.IsVerified,
-				}
+				teacherMap[t.UserTeacherID] = t
 				if (wantUser || wantProfile) && t.UserTeacherUserID != uuid.Nil {
 					userIDsSet[t.UserTeacherUserID] = struct{}{}
 				}
@@ -294,6 +269,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 		Email    string    `json:"email"`
 		IsActive bool      `json:"is_active"`
 	}
+
 	userIDs := make([]uuid.UUID, 0, len(userIDsSet))
 	for id := range userIDsSet {
 		userIDs = append(userIDs, id)
@@ -301,7 +277,8 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 	userMap := make(map[uuid.UUID]UserLite, len(userIDs))
 	if wantUser && len(userIDs) > 0 {
 		var urows []UserLite
-		if err := ctrl.DB.Table("users").
+		if err := ctrl.DB.WithContext(c.Context()).
+			Table("users").
 			Select("id, user_name, full_name, email, is_active").
 			Where("id IN ?", userIDs).
 			Where("deleted_at IS NULL").
@@ -313,7 +290,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// ==== include: user_profile (user_profiles) ====
+	// ==== include: user_profile (user_profiles) – optional ====
 	type UserProfileLite struct {
 		ID                uuid.UUID `json:"id"`
 		UserID            uuid.UUID `json:"user_id"`
@@ -325,7 +302,7 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 		GenderSnapshot    *string   `json:"gender_snapshot,omitempty"`
 	}
 
-	profileMap := make(map[uuid.UUID]UserProfileLite, len(userIDs)) // key: user_id
+	profileMap := make(map[uuid.UUID]UserProfileLite, len(userIDs))
 	if wantProfile && len(userIDs) > 0 {
 		var prows []struct {
 			ID                uuid.UUID `gorm:"column:user_profile_id"`
@@ -337,7 +314,8 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 			ParentWhatsappURL *string   `gorm:"column:user_profile_parent_whatsapp_url"`
 			GenderSnapshot    *string   `gorm:"column:user_profile_gender_snapshot"`
 		}
-		if err := ctrl.DB.Table("user_profiles").
+		if err := ctrl.DB.WithContext(c.Context()).
+			Table("user_profiles").
 			Select(`
 				user_profile_id,
 				user_profile_user_id,
@@ -370,30 +348,32 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 	// 7) Susun output
 	type Item struct {
 		*teacherDTO.SchoolTeacher `json:",inline"`
-		Teacher                   *TeacherLite     `json:"user_teacher,omitempty"`
-		User                      *UserLite        `json:"user,omitempty"`
-		UserProfile               *UserProfileLite `json:"user_profile,omitempty"`
+		Teacher                   *userTeacherModel.UserTeacherModel `json:"user_teacher,omitempty"`
+		User                      *UserLite                          `json:"user,omitempty"`
+		UserProfile               *UserProfileLite                   `json:"user_profile,omitempty"`
 	}
 
 	out := make([]Item, 0, len(base))
 	for i := range rows {
-		var t *TeacherLite
+		var t *userTeacherModel.UserTeacherModel
 		if wantTeacher {
 			if v, ok := teacherMap[rows[i].SchoolTeacherUserTeacherID]; ok {
 				tmp := v
 				t = &tmp
 			}
 		}
+
 		var u *UserLite
 		if wantUser && t != nil {
-			if v, ok := userMap[t.UserID]; ok {
+			if v, ok := userMap[t.UserTeacherUserID]; ok {
 				tmp := v
 				u = &tmp
 			}
 		}
+
 		var up *UserProfileLite
 		if wantProfile && t != nil {
-			if v, ok := profileMap[t.UserID]; ok {
+			if v, ok := profileMap[t.UserTeacherUserID]; ok {
 				tmp := v
 				up = &tmp
 			}
