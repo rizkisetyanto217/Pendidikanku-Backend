@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS quizzes (
   quiz_description    TEXT,
   quiz_is_published   BOOLEAN NOT NULL DEFAULT FALSE,
   quiz_time_limit_sec INT,
+  quiz_total_questions INT NOT NULL DEFAULT 0,
 
   -- ==============================
   -- Snapshot quiz behaviour & scoring

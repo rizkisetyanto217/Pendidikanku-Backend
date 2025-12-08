@@ -401,3 +401,55 @@ func mustObjectsFromJSON(j datatypes.JSON) []AnyObject {
 	}
 	return out
 }
+
+type ClassRoomCompact struct {
+	ClassRoomID   uuid.UUID `json:"class_room_id"`
+	ClassRoomName string    `json:"class_room_name"`
+	ClassRoomSlug *string   `json:"class_room_slug,omitempty"`
+
+	ClassRoomIsActive  bool `json:"class_room_is_active"`
+	ClassRoomIsVirtual bool `json:"class_room_is_virtual"`
+
+	// Online (optional)
+	ClassRoomPlatform  *string `json:"class_room_platform,omitempty"`
+	ClassRoomJoinURL   *string `json:"class_room_join_url,omitempty"`
+	ClassRoomMeetingID *string `json:"class_room_meeting_id,omitempty"`
+	ClassRoomPasscode  *string `json:"class_room_passcode,omitempty"`
+
+	// Lokasi fisik & kode (optional)
+	ClassRoomLocation *string `json:"class_room_location,omitempty"`
+	ClassRoomCode     *string `json:"class_room_code,omitempty"`
+
+	// Audit
+	ClassRoomCreatedAt string `json:"class_room_created_at"`
+	ClassRoomUpdatedAt string `json:"class_room_updated_at"`
+}
+
+func ToClassRoomCompact(m model.ClassRoomModel) ClassRoomCompact {
+	return ClassRoomCompact{
+		ClassRoomID:        m.ClassRoomID,
+		ClassRoomName:      m.ClassRoomName,
+		ClassRoomSlug:      m.ClassRoomSlug,
+		ClassRoomIsActive:  m.ClassRoomIsActive,
+		ClassRoomIsVirtual: m.ClassRoomIsVirtual,
+
+		ClassRoomPlatform:  m.ClassRoomPlatform,
+		ClassRoomJoinURL:   m.ClassRoomJoinURL,
+		ClassRoomMeetingID: m.ClassRoomMeetingID,
+		ClassRoomPasscode:  m.ClassRoomPasscode,
+
+		ClassRoomLocation: m.ClassRoomLocation,
+		ClassRoomCode:     m.ClassRoomCode,
+
+		ClassRoomCreatedAt: m.ClassRoomCreatedAt.Format(time.RFC3339),
+		ClassRoomUpdatedAt: m.ClassRoomUpdatedAt.Format(time.RFC3339),
+	}
+}
+
+func ToClassRoomCompactList(models []model.ClassRoomModel) []ClassRoomCompact {
+	out := make([]ClassRoomCompact, 0, len(models))
+	for _, m := range models {
+		out = append(out, ToClassRoomCompact(m))
+	}
+	return out
+}

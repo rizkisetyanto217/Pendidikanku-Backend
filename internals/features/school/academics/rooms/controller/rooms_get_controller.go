@@ -17,9 +17,7 @@ import (
 )
 
 /* ============================ LIST ============================ */
-// file: internals/features/school/class_rooms/controller/class_room_controller.go
 
-/* ============================ LIST ============================ */
 func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	// Kalau helper lain butuh DB dari Locals
 	c.Locals("DB", ctl.DB)
@@ -48,6 +46,8 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	isActivePtr := parseBoolPtr(c.Query("is_active"))
 	isVirtualPtr := parseBoolPtr(c.Query("is_virtual"))
 	hasCodeOnly := parseBoolTrue(c.Query("has_code_only"))
+	mode := strings.ToLower(strings.TrimSpace(c.Query("mode"))) // "compact" | "full" (default full)
+	isCompact := mode == "compact"
 
 	// =====================================================
 	// 3) INCLUDE flags: ?include=class_sections,csst
@@ -112,7 +112,7 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	db := ctl.DB.WithContext(reqCtx(c)).Model(&model.ClassRoomModel{}).
 		Where("class_room_school_id = ? AND class_room_deleted_at IS NULL", schoolID)
 
-	// filter by id
+	// filter by id (jadi bisa dipakai sebagai "GET" juga)
 	if roomID := strings.TrimSpace(c.Query("class_room_id", c.Query("id"))); roomID != "" {
 		id, err := uuid.Parse(roomID)
 		if err != nil {
@@ -179,9 +179,21 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	}
 
 	// =========================================================
-	// Payload utama (data) + include
+	// Precompute roomIDs & include (class_sections + csst)
 	// =========================================================
 
+	// Precompute roomIDs
+	roomIDs := make([]uuid.UUID, 0, len(rooms))
+	for i := range rooms {
+		roomIDs = append(roomIDs, rooms[i].ClassRoomID)
+	}
+
+	// include map: akan dikirim di "include": { ... }
+	includeMap := fiber.Map{}
+	// untuk inject count ke payload utama
+	classSectionsCount := make(map[uuid.UUID]int)
+
+	// --- type lite utk include ---
 	type sectionLite struct {
 		ID            uuid.UUID  `json:"id"`
 		ClassID       *uuid.UUID `json:"class_id,omitempty"`
@@ -210,38 +222,10 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 		UpdatedAt       time.Time  `json:"updated_at"`
 	}
 
-	// room utama + optional count
-	type roomWithCounts struct {
-		dto.ClassRoomResponse
-		ClassSectionsCount *int `json:"class_sections_count,omitempty"`
-		// bisa ditambah nanti: CSSTCount *int `json:"csst_count,omitempty"`
-	}
-
-	out := make([]roomWithCounts, 0, len(rooms))
-	for _, m := range rooms {
-		out = append(out, roomWithCounts{
-			ClassRoomResponse: dto.ToClassRoomResponse(m),
-		})
-	}
-
-	// Precompute roomIDs
-	roomIDs := make([]uuid.UUID, 0, len(rooms))
-	for i := range rooms {
-		roomIDs = append(roomIDs, rooms[i].ClassRoomID)
-	}
-
-	// include map: akan dikirim di "include": { ... }
-	includeMap := fiber.Map{}
-
 	// =========================================================
 	// INCLUDE: class_sections (flat array) → include.class_sections
 	// =========================================================
 	if includeClassSections && len(roomIDs) > 0 {
-		indexByID := make(map[uuid.UUID]int, len(rooms))
-		for i := range rooms {
-			indexByID[rooms[i].ClassRoomID] = i
-		}
-
 		var secs []sectionLite
 		if err := ctl.DB.WithContext(reqCtx(c)).
 			Table("class_sections").
@@ -254,8 +238,8 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 				class_section_name              AS name,
 				class_section_code              AS code,
 				class_section_schedule          AS schedule,
-				class_section_quota_total          AS capacity,
-				class_section_total_students_active    AS total_students,
+				class_section_quota_total       AS capacity,
+				class_section_total_students_active AS total_students,
 				class_section_group_url         AS group_url,
 				class_section_is_active         AS is_active,
 				class_section_created_at        AS created_at,
@@ -269,21 +253,14 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 		}
 
 		if len(secs) > 0 {
-			// hitung count per room di payload utama
-			byRoom := make(map[uuid.UUID][]sectionLite, len(roomIDs))
+			// hitung count per room di map
 			for i := range secs {
 				if secs[i].ClassRoomID == nil || *secs[i].ClassRoomID == uuid.Nil {
 					continue
 				}
-				byRoom[*secs[i].ClassRoomID] = append(byRoom[*secs[i].ClassRoomID], secs[i])
+				rid := *secs[i].ClassRoomID
+				classSectionsCount[rid] = classSectionsCount[rid] + 1
 			}
-			for rid, arr := range byRoom {
-				if idx, ok := indexByID[rid]; ok {
-					n := len(arr)
-					out[idx].ClassSectionsCount = &n
-				}
-			}
-
 			includeMap["class_sections"] = secs
 		} else {
 			includeMap["class_sections"] = []sectionLite{}
@@ -321,17 +298,61 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 🔹 Pagination final
+	// =========================================================
+	// Build payload utama (full / compact) + inject counts
+	// =========================================================
+
 	pg := helper.BuildPaginationFromOffset(total, p.Offset(), p.Limit())
 
-	// 🔹 Response final:
-	// - kalau ada sesuatu di includeMap → JsonListWithInclude (pakai key "include")
-	// - kalau tidak, JsonList biasa
-	if len(includeMap) > 0 {
-		return helper.JsonListWithInclude(c, "ok", out, includeMap, pg)
+	if isCompact {
+		// ====== mode: COMPACT ======
+		type roomCompactWithCounts struct {
+			dto.ClassRoomCompact
+			ClassSectionsCount *int `json:"class_sections_count,omitempty"`
+		}
+
+		out := make([]roomCompactWithCounts, 0, len(rooms))
+		for _, m := range rooms {
+			item := roomCompactWithCounts{
+				ClassRoomCompact: dto.ToClassRoomCompact(m),
+			}
+			if n, ok := classSectionsCount[m.ClassRoomID]; ok {
+				nn := n
+				item.ClassSectionsCount = &nn
+			}
+			out = append(out, item)
+		}
+
+		if len(includeMap) > 0 {
+			return helper.JsonListWithInclude(c, "ok", out, includeMap, pg)
+		}
+		return helper.JsonList(c, "ok", out, pg)
 	}
 
-	return helper.JsonList(c, "ok", out, pg)
+	// ====== mode: FULL (default) ======
+	type roomWithCounts struct {
+		dto.ClassRoomResponse
+		ClassSectionsCount *int `json:"class_sections_count,omitempty"`
+		// bisa ditambah nanti: CSSTCount *int `json:"csst_count,omitempty"`
+	}
+
+	outFull := make([]roomWithCounts, 0, len(rooms))
+	for _, m := range rooms {
+		item := roomWithCounts{
+			ClassRoomResponse: dto.ToClassRoomResponse(m),
+		}
+		if n, ok := classSectionsCount[m.ClassRoomID]; ok {
+			nn := n
+			item.ClassSectionsCount = &nn
+		}
+		outFull = append(outFull, item)
+	}
+
+	if len(includeMap) > 0 {
+		return helper.JsonListWithInclude(c, "ok", outFull, includeMap, pg)
+	}
+
+	return helper.JsonList(c, "ok", outFull, pg)
 }
 
 /* ============================ helpers (local) ============================ */

@@ -42,6 +42,12 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 	}
 
 	// =====================================================
+	// 0.5) mode=compact|full (default: full)
+	// =====================================================
+	mode := strings.ToLower(strings.TrimSpace(c.Query("mode")))
+	isCompact := mode == "compact"
+
+	// =====================================================
 	// 1) Tentukan schoolID:
 	//    - Prioritas: dari token (GetSchoolIDFromTokenPreferTeacher)
 	//    - Fallback: dari ResolveSchoolContext (id / slug)
@@ -127,8 +133,9 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 	// ----- filter by ids (multiple, comma-separated) -----
 	//   prefer: ?ids=UUID1,UUID2
 	//   legacy: ?class_parent_ids=UUID1,UUID2
-	if raw := strings.TrimSpace(c.Query("ids")); raw != "" || strings.TrimSpace(c.Query("class_parent_ids")) != "" {
-		s := raw
+	rawIDs := strings.TrimSpace(c.Query("ids"))
+	if rawIDs != "" || strings.TrimSpace(c.Query("class_parent_ids")) != "" {
+		s := rawIDs
 		if s == "" {
 			s = strings.TrimSpace(c.Query("class_parent_ids"))
 		}
@@ -230,13 +237,17 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
-	resps := cpdto.ToClassParentResponses(rows)
-
 	// ✅ pagination jsonresponse (pakai helper standar)
 	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)
 
-	// ====== Tanpa include → tetap JsonList (behavior lama) ======
+	// ====== Build payload utama (compact vs full) ======
 	if !includeMeta {
+		// tanpa include (behavior lama, tapi sekarang bisa compact)
+		if isCompact {
+			compacts := cpdto.ToClassParentCompactList(rows)
+			return helper.JsonList(c, "ok", compacts, pg)
+		}
+		resps := cpdto.ToClassParentResponses(rows)
 		return helper.JsonList(c, "ok", resps, pg)
 	}
 
@@ -258,5 +269,11 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 		},
 	}
 
+	if isCompact {
+		compacts := cpdto.ToClassParentCompactList(rows)
+		return helper.JsonListWithInclude(c, "ok", compacts, include, pg)
+	}
+
+	resps := cpdto.ToClassParentResponses(rows)
 	return helper.JsonListWithInclude(c, "ok", resps, include, pg)
 }

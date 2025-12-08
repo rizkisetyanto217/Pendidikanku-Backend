@@ -403,3 +403,72 @@ func (r *CreateAssessmentWithQuizzesRequest) FlattenQuizzes() []CreateQuizInline
 	}
 	return nil
 }
+
+/* ========================================================
+   COMPACT DTO (untuk list / dropdown / kartu ringan)
+======================================================== */
+
+type AssessmentCompactResponse struct {
+	AssessmentID       uuid.UUID `json:"assessment_id"`
+	AssessmentSchoolID uuid.UUID `json:"assessment_school_id"`
+
+	AssessmentClassSectionSubjectTeacherID *uuid.UUID `json:"assessment_class_section_subject_teacher_id,omitempty"`
+	AssessmentTypeID                       *uuid.UUID `json:"assessment_type_id,omitempty"`
+
+	AssessmentSlug  *string `json:"assessment_slug,omitempty"`
+	AssessmentTitle string  `json:"assessment_title"`
+	AssessmentKind  string  `json:"assessment_kind"`
+
+	AssessmentStartAt *time.Time `json:"assessment_start_at,omitempty"`
+	AssessmentDueAt   *time.Time `json:"assessment_due_at,omitempty"`
+
+	AssessmentMaxScore        float64 `json:"assessment_max_score"`
+	AssessmentQuizTotal       int     `json:"assessment_quiz_total"`
+	AssessmentIsPublished     bool    `json:"assessment_is_published"`
+	AssessmentAllowSubmission bool    `json:"assessment_allow_submission"`
+
+	// Ringkas tapi tetap ada info progress
+	AssessmentSubmissionsTotal       int `json:"assessment_submissions_total"`
+	AssessmentSubmissionsGradedTotal int `json:"assessment_submissions_graded_total"`
+
+	AssessmentCreatedAt time.Time `json:"assessment_created_at"`
+	AssessmentUpdatedAt time.Time `json:"assessment_updated_at"`
+}
+
+// Single mapper: Model → Compact DTO
+func FromAssessmentModelCompact(m assessModel.AssessmentModel) AssessmentCompactResponse {
+	return AssessmentCompactResponse{
+		AssessmentID:       m.AssessmentID,
+		AssessmentSchoolID: m.AssessmentSchoolID,
+
+		AssessmentClassSectionSubjectTeacherID: m.AssessmentClassSectionSubjectTeacherID,
+		AssessmentTypeID:                       m.AssessmentTypeID,
+
+		AssessmentSlug:  m.AssessmentSlug,
+		AssessmentTitle: m.AssessmentTitle,
+		AssessmentKind:  string(m.AssessmentKind),
+
+		AssessmentStartAt: m.AssessmentStartAt,
+		AssessmentDueAt:   m.AssessmentDueAt,
+
+		AssessmentMaxScore:        m.AssessmentMaxScore,
+		AssessmentQuizTotal:       m.AssessmentQuizTotal,
+		AssessmentIsPublished:     m.AssessmentIsPublished,
+		AssessmentAllowSubmission: m.AssessmentAllowSubmission,
+
+		AssessmentSubmissionsTotal:       m.AssessmentSubmissionsTotal,
+		AssessmentSubmissionsGradedTotal: m.AssessmentSubmissionsGradedTotal,
+
+		AssessmentCreatedAt: m.AssessmentCreatedAt,
+		AssessmentUpdatedAt: m.AssessmentUpdatedAt,
+	}
+}
+
+// Slice mapper: []Model → []Compact DTO
+func FromAssessmentModelsCompact(rows []assessModel.AssessmentModel) []AssessmentCompactResponse {
+	out := make([]AssessmentCompactResponse, 0, len(rows))
+	for i := range rows {
+		out = append(out, FromAssessmentModelCompact(rows[i]))
+	}
+	return out
+}

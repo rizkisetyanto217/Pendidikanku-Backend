@@ -2,7 +2,8 @@ package route
 
 import (
 	"madinahsalam_backend/internals/constants"
-	adminTeacherCtrl "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/controller"
+	teacherController "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/controller/teachers"
+	studentController "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/controller/students"
 	authMiddleware "madinahsalam_backend/internals/middlewares/auth"
 	schoolkuMiddleware "madinahsalam_backend/internals/middlewares/features"
 
@@ -13,9 +14,9 @@ import (
 
 func LembagaTeacherStudentAdminRoutes(api fiber.Router, db *gorm.DB) {
 	// ===== CONTROLLERS =====
-	ctrlTeacher := adminTeacherCtrl.NewSchoolTeacherController(db) // teacher (sudah pakai school dari token)
+	ctrlTeacher := teacherController.NewSchoolTeacherController(db) // teacher (sudah pakai school dari token)
 	v := validator.New()
-	ctrlStudent := adminTeacherCtrl.New(db, v) // student controller
+	ctrlStudent := studentController.NewSchoolStudentController(db, v) // student controller
 
 	// 🎓 /school-teachers → DKM + Admin + Owner
 	// Controller akan:

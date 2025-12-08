@@ -266,3 +266,54 @@ type BooksWithUsagesListQuery struct {
 	Offset      *int    `query:"offset"`
 	WithDeleted *bool   `query:"with_deleted"`
 }
+
+/* =========================================================
+   COMPACT DTO
+   ========================================================= */
+
+// BookCompact dipakai sebagai bentuk ringkas di tempat lain
+// (misal embed di materials, CSST, dsb)
+type BookCompact struct {
+	BookID       uuid.UUID `json:"book_id"`
+	BookSchoolID uuid.UUID `json:"book_school_id"`
+
+	BookTitle  string  `json:"book_title"`
+	BookAuthor *string `json:"book_author,omitempty"`
+	BookDesc   *string `json:"book_desc,omitempty"`
+	BookSlug   *string `json:"book_slug,omitempty"`
+
+	BookImageURL *string `json:"book_image_url,omitempty"`
+
+	BookCreatedAt time.Time `json:"book_created_at"`
+	BookUpdatedAt time.Time `json:"book_updated_at"`
+	BookIsDeleted bool      `json:"book_is_deleted"`
+}
+
+func ToBookCompact(m *model.BookModel) BookCompact {
+	return BookCompact{
+		BookID:       m.BookID,
+		BookSchoolID: m.BookSchoolID,
+
+		BookTitle:  m.BookTitle,
+		BookAuthor: m.BookAuthor,
+		BookDesc:   m.BookDesc,
+		BookSlug:   m.BookSlug,
+
+		BookImageURL: m.BookImageURL,
+
+		BookCreatedAt: m.BookCreatedAt,
+		BookUpdatedAt: m.BookUpdatedAt,
+		BookIsDeleted: !m.BookDeletedAt.Time.IsZero(),
+	}
+}
+
+func ToBookCompactList(models []*model.BookModel) []BookCompact {
+	out := make([]BookCompact, 0, len(models))
+	for _, m := range models {
+		if m == nil {
+			continue
+		}
+		out = append(out, ToBookCompact(m))
+	}
+	return out
+}

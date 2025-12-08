@@ -424,7 +424,7 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 	}
 
 	// ---------- Build compact DTO ----------
-	compacts := secDTO.FromModelsClassSectionCompact(rows)
+	compacts := secDTO.FromSectionModelsToCompact(rows)
 
 	idsInPage := make([]uuid.UUID, 0, len(compacts))
 	for _, it := range compacts {

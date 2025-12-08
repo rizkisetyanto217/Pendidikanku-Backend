@@ -58,10 +58,10 @@ type CreateSubjectRequest struct {
 
 	IsActive *bool `json:"subject_is_active" form:"subject_is_active"`
 
-	ImageURL                *string    `json:"subject_image_url"                 form:"subject_image_url"`
-	ImageObjectKey          *string    `json:"subject_image_object_key"          form:"subject_image_object_key"`
-	ImageURLOld             *string    `json:"subject_image_url_old"             form:"subject_image_url_old"`
-	ImageObjectKeyOld       *string    `json:"subject_image_object_key_old"      form:"subject_image_object_key_old"`
+	ImageURL                *string    `json:"subject_image_url"                  form:"subject_image_url"`
+	ImageObjectKey          *string    `json:"subject_image_object_key"           form:"subject_image_object_key"`
+	ImageURLOld             *string    `json:"subject_image_url_old"              form:"subject_image_url_old"`
+	ImageObjectKeyOld       *string    `json:"subject_image_object_key_old"       form:"subject_image_object_key_old"`
 	ImageDeletePendingUntil *time.Time `json:"subject_image_delete_pending_until" form:"subject_image_delete_pending_until"`
 }
 
@@ -492,6 +492,7 @@ func parseBoolLoose(s string) (bool, error) {
 func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
 
 /* ================= Queries & Responses ================= */
+
 type ListSubjectQuery struct {
 	Limit       *int    `query:"limit"`
 	Offset      *int    `query:"offset"`
@@ -550,6 +551,40 @@ func FromSubjectModels(rows []m.SubjectModel) []SubjectResponse {
 	out := make([]SubjectResponse, 0, len(rows))
 	for i := range rows {
 		out = append(out, FromSubjectModel(rows[i]))
+	}
+	return out
+}
+
+/* ================= COMPACT DTO ================= */
+
+type SubjectCompactResponse struct {
+	SubjectID       uuid.UUID `json:"subject_id"`
+	SubjectSchoolID uuid.UUID `json:"subject_school_id"`
+	SubjectCode     string    `json:"subject_code"`
+	SubjectName     string    `json:"subject_name"`
+	SubjectSlug     string    `json:"subject_slug"`
+	SubjectDesc     *string   `json:"subject_desc,omitempty"`
+	SubjectImageURL *string   `json:"subject_image_url,omitempty"`
+	SubjectIsActive bool      `json:"subject_is_active"`
+}
+
+func FromSubjectModelToCompact(mo m.SubjectModel) SubjectCompactResponse {
+	return SubjectCompactResponse{
+		SubjectID:       mo.SubjectID,
+		SubjectSchoolID: mo.SubjectSchoolID,
+		SubjectCode:     mo.SubjectCode,
+		SubjectName:     mo.SubjectName,
+		SubjectSlug:     mo.SubjectSlug,
+		SubjectDesc:     mo.SubjectDesc,
+		SubjectImageURL: mo.SubjectImageURL,
+		SubjectIsActive: mo.SubjectIsActive,
+	}
+}
+
+func FromSubjectModelsToCompact(rows []m.SubjectModel) []SubjectCompactResponse {
+	out := make([]SubjectCompactResponse, 0, len(rows))
+	for i := range rows {
+		out = append(out, FromSubjectModelToCompact(rows[i]))
 	}
 	return out
 }

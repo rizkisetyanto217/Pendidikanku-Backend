@@ -381,10 +381,12 @@ type ListQuizzesQuery struct {
 	WithQuestionsCount bool   `query:"with_questions_count"`
 }
 
-/* ==============================
-   RESPONSE DTOs
-============================== */
+/*
+	==============================
+	  RESPONSE DTOs
 
+==============================
+*/
 type QuizResponse struct {
 	QuizID           uuid.UUID  `json:"quiz_id"`
 	QuizSchoolID     uuid.UUID  `json:"quiz_school_id"`
@@ -396,6 +398,9 @@ type QuizResponse struct {
 	QuizDescription  *string `json:"quiz_description,omitempty"`
 	QuizIsPublished  bool    `json:"quiz_is_published"`
 	QuizTimeLimitSec *int    `json:"quiz_time_limit_sec,omitempty"`
+
+	// ⬇️ NEW: denorm jumlah soal
+	QuizTotalQuestions int `json:"quiz_total_questions"`
 
 	// behaviour & scoring snapshot
 	QuizShuffleQuestionsSnapshot            bool   `json:"quiz_shuffle_questions_snapshot"`
@@ -425,10 +430,12 @@ type ListQuizResponse struct {
 	Pagination any            `json:"pagination"`
 }
 
-/* ==============================
-   MAPPERS
-============================== */
+/*
+	==============================
+	  MAPPERS
 
+==============================
+*/
 func FromModel(m *model.QuizModel) QuizResponse {
 	var deletedAt *time.Time
 	if m.QuizDeletedAt.Valid {
@@ -445,6 +452,9 @@ func FromModel(m *model.QuizModel) QuizResponse {
 		QuizDescription:  m.QuizDescription,
 		QuizIsPublished:  m.QuizIsPublished,
 		QuizTimeLimitSec: m.QuizTimeLimitSec,
+
+		// ⬇️ NEW
+		QuizTotalQuestions: m.QuizTotalQuestions,
 
 		QuizShuffleQuestionsSnapshot:            m.QuizShuffleQuestionsSnapshot,
 		QuizShuffleOptionsSnapshot:              m.QuizShuffleOptionsSnapshot,

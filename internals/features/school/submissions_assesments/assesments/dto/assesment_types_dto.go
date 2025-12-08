@@ -387,3 +387,42 @@ func FromModels(items []model.AssessmentTypeModel) []AssessmentTypeResponse {
 	}
 	return out
 }
+
+// ==============================
+//  COMPACT DTO
+// ==============================
+
+// Dipakai untuk mode=compact (dropdown / list ringan)
+type AssessmentTypeCompactResponse struct {
+	AssessmentTypeID       uuid.UUID `json:"assessment_type_id"`
+	AssessmentTypeSchoolID uuid.UUID `json:"assessment_type_school_id"`
+
+	AssessmentTypeKey           string  `json:"assessment_type_key"`
+	AssessmentTypeName          string  `json:"assessment_type_name"`
+	AssessmentTypeWeightPercent float64 `json:"assessment_type_weight_percent"`
+
+	AssessmentTypeIsActive bool `json:"assessment_type_is_active"`
+	AssessmentTypeIsGraded bool `json:"assessment_type_is_graded"`
+}
+
+// Single model → compact
+func FromModelCompact(m model.AssessmentTypeModel) AssessmentTypeCompactResponse {
+	return AssessmentTypeCompactResponse{
+		AssessmentTypeID:            m.AssessmentTypeID,
+		AssessmentTypeSchoolID:      m.AssessmentTypeSchoolID,
+		AssessmentTypeKey:           strings.TrimSpace(m.AssessmentTypeKey),
+		AssessmentTypeName:          strings.TrimSpace(m.AssessmentTypeName),
+		AssessmentTypeWeightPercent: m.AssessmentTypeWeightPercent,
+		AssessmentTypeIsActive:      m.AssessmentTypeIsActive,
+		AssessmentTypeIsGraded:      m.AssessmentTypeIsGraded,
+	}
+}
+
+// Slice model → slice compact
+func FromModelsCompact(items []model.AssessmentTypeModel) []AssessmentTypeCompactResponse {
+	out := make([]AssessmentTypeCompactResponse, 0, len(items))
+	for _, it := range items {
+		out = append(out, FromModelCompact(it))
+	}
+	return out
+}

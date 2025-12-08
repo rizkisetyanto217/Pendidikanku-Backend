@@ -677,3 +677,51 @@ func decodePatchClassParentMultipart(c *fiber.Ctx, r *ClassParentPatchRequest) e
 
 	return nil
 }
+
+/* =========================================================
+   COMPACT DTO
+   ========================================================= */
+
+type ClassParentCompact struct {
+	ClassParentID       uuid.UUID `json:"class_parent_id"`
+	ClassParentSchoolID uuid.UUID `json:"class_parent_school_id"`
+
+	ClassParentName     string  `json:"class_parent_name"`
+	ClassParentCode     *string `json:"class_parent_code,omitempty"`
+	ClassParentSlug     *string `json:"class_parent_slug,omitempty"`
+	ClassParentLevel    *int16  `json:"class_parent_level,omitempty"`
+	ClassParentIsActive bool    `json:"class_parent_is_active"`
+
+	ClassParentImageURL *string `json:"class_parent_image_url,omitempty"`
+
+	ClassParentCreatedAt time.Time `json:"class_parent_created_at"`
+	ClassParentUpdatedAt time.Time `json:"class_parent_updated_at"`
+	ClassParentIsDeleted bool      `json:"class_parent_is_deleted"`
+}
+
+func ToClassParentCompact(cp *m.ClassParentModel) ClassParentCompact {
+	return ClassParentCompact{
+		ClassParentID:       cp.ClassParentID,
+		ClassParentSchoolID: cp.ClassParentSchoolID,
+
+		ClassParentName:     cp.ClassParentName,
+		ClassParentCode:     cp.ClassParentCode,
+		ClassParentSlug:     cp.ClassParentSlug,
+		ClassParentLevel:    cp.ClassParentLevel,
+		ClassParentIsActive: cp.ClassParentIsActive,
+
+		ClassParentImageURL: cp.ClassParentImageURL,
+
+		ClassParentCreatedAt: cp.ClassParentCreatedAt,
+		ClassParentUpdatedAt: cp.ClassParentUpdatedAt,
+		ClassParentIsDeleted: cp.ClassParentDeletedAt.Valid,
+	}
+}
+
+func ToClassParentCompactList(rows []m.ClassParentModel) []ClassParentCompact {
+	out := make([]ClassParentCompact, 0, len(rows))
+	for i := range rows {
+		out = append(out, ToClassParentCompact(&rows[i]))
+	}
+	return out
+}

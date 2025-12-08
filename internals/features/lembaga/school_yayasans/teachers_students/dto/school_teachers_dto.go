@@ -19,8 +19,8 @@ import (
 
 type DTOTeacherSectionItem struct {
 	ClassSectionID             uuid.UUID `json:"class_section_id"`
-	Role                       string    `json:"role"` // "homeroom" | "teacher" | "assistant"
-	IsActive                   bool      `json:"is_active"`
+	ClassSectionRole           string    `json:"class_section_role"` // "homeroom" | "teacher" | "assistant"
+	ClassSectionIsActive       bool      `json:"class_section_is_active"`
 	From                       *string   `json:"from,omitempty"` // "YYYY-MM-DD"
 	To                         *string   `json:"to,omitempty"`   // "YYYY-MM-DD"
 	ClassSectionName           *string   `json:"class_section_name,omitempty"`
@@ -30,15 +30,15 @@ type DTOTeacherSectionItem struct {
 }
 
 type DTOTeacherCSSTItem struct {
-	CSSTID           uuid.UUID  `json:"csst_id"`
-	IsActive         bool       `json:"is_active"`
-	From             *string    `json:"from,omitempty"`
-	To               *string    `json:"to,omitempty"`
-	SubjectName      *string    `json:"subject_name,omitempty"`
-	SubjectSlug      *string    `json:"subject_slug,omitempty"`
-	ClassSectionID   *uuid.UUID `json:"class_section_id,omitempty"`
-	ClassSectionName *string    `json:"class_section_name,omitempty"`
-	ClassSectionSlug *string    `json:"class_section_slug,omitempty"`
+	CSSTID               uuid.UUID  `json:"csst_id"`
+	ClassSectionIsActive bool       `json:"class_section_is_active"`
+	From                 *string    `json:"from,omitempty"`
+	To                   *string    `json:"to,omitempty"`
+	SubjectName          *string    `json:"subject_name,omitempty"`
+	SubjectSlug          *string    `json:"subject_slug,omitempty"`
+	ClassSectionID       *uuid.UUID `json:"class_section_id,omitempty"`
+	ClassSectionName     *string    `json:"class_section_name,omitempty"`
+	ClassSectionSlug     *string    `json:"class_section_slug,omitempty"`
 }
 
 /* ========================
@@ -77,8 +77,9 @@ type SchoolTeacher struct {
 	SchoolTeacherUserTeacherGenderCache      *string `json:"school_teacher_user_teacher_gender_cache,omitempty"`
 
 	// JSONB: sections & csst
-	SchoolTeacherSections []DTOTeacherSectionItem `json:"school_teacher_sections"`
-	SchoolTeacherCSST     []DTOTeacherCSSTItem    `json:"school_teacher_csst"`
+	// Full mode → tampilkan seada-adanya dari snapshot JSONB di DB
+	SchoolTeacherSections json.RawMessage `json:"school_teacher_sections,omitempty"`
+	SchoolTeacherCSST     json.RawMessage `json:"school_teacher_csst,omitempty"`
 
 	// ========================
 	// Stats (ALL + ACTIVE)
@@ -100,7 +101,6 @@ type SchoolTeacher struct {
 // ========================
 type SchoolTeacherCompact struct {
 	SchoolTeacherID            string `json:"school_teacher_id"`
-	SchoolTeacherSchoolID      string `json:"school_teacher_school_id"`
 	SchoolTeacherUserTeacherID string `json:"school_teacher_user_teacher_id"`
 
 	// Identitas/kepegawaian ringkas
@@ -243,23 +243,6 @@ func NewSchoolTeacherResponse(m *teacherModel.SchoolTeacherModel) *SchoolTeacher
 		delAt = &m.SchoolTeacherDeletedAt.Time
 	}
 
-	// Unmarshal JSONB (sections & csst)
-	var sections []DTOTeacherSectionItem
-	if len(m.SchoolTeacherSections) > 0 {
-		_ = json.Unmarshal(m.SchoolTeacherSections, &sections)
-	}
-	if sections == nil {
-		sections = []DTOTeacherSectionItem{}
-	}
-
-	var cssts []DTOTeacherCSSTItem
-	if len(m.SchoolTeacherCSST) > 0 {
-		_ = json.Unmarshal(m.SchoolTeacherCSST, &cssts)
-	}
-	if cssts == nil {
-		cssts = []DTOTeacherCSSTItem{}
-	}
-
 	return &SchoolTeacher{
 		SchoolTeacherID:            m.SchoolTeacherID.String(),
 		SchoolTeacherSchoolID:      m.SchoolTeacherSchoolID.String(),
@@ -286,9 +269,9 @@ func NewSchoolTeacherResponse(m *teacherModel.SchoolTeacherModel) *SchoolTeacher
 		SchoolTeacherUserTeacherTitleSuffixCache: m.SchoolTeacherUserTeacherTitleSuffixCache,
 		SchoolTeacherUserTeacherGenderCache:      m.SchoolTeacherUserTeacherGenderCache,
 
-		// JSONB
-		SchoolTeacherSections: sections,
-		SchoolTeacherCSST:     cssts,
+		// JSONB: kirim raw snapshot seada-adanya
+		SchoolTeacherSections: json.RawMessage(m.SchoolTeacherSections),
+		SchoolTeacherCSST:     json.RawMessage(m.SchoolTeacherCSST),
 
 		// Stats
 		SchoolTeacherTotalClassSections:                     m.SchoolTeacherTotalClassSections,
@@ -538,7 +521,6 @@ func NewSchoolTeacherCompact(m *teacherModel.SchoolTeacherModel) *SchoolTeacherC
 
 	return &SchoolTeacherCompact{
 		SchoolTeacherID:            m.SchoolTeacherID.String(),
-		SchoolTeacherSchoolID:      m.SchoolTeacherSchoolID.String(),
 		SchoolTeacherUserTeacherID: m.SchoolTeacherUserTeacherID.String(),
 
 		SchoolTeacherCode:       m.SchoolTeacherCode,

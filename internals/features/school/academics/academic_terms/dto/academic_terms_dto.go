@@ -322,3 +322,51 @@ type OpeningWithClass struct {
 		ClassIsActive    bool       `json:"class_is_active"   gorm:"column:class_is_active"`
 	} `json:"class"`
 }
+
+// ===================== COMPACT DTO =====================
+
+// Dipakai untuk embed di tempat lain (class_sections, CSST, dsb)
+// tanpa semua stats berat.
+type AcademicTermCompactDTO struct {
+	AcademicTermID           uuid.UUID `json:"academic_term_id"`
+	AcademicTermSchoolID     uuid.UUID `json:"academic_term_school_id"`
+	AcademicTermAcademicYear string    `json:"academic_term_academic_year"`
+	AcademicTermName         string    `json:"academic_term_name"`
+
+	AcademicTermStartDate time.Time `json:"academic_term_start_date"`
+	AcademicTermEndDate   time.Time `json:"academic_term_end_date"`
+	AcademicTermIsActive  bool      `json:"academic_term_is_active"`
+
+	AcademicTermAngkatan *int    `json:"academic_term_angkatan,omitempty"`
+	AcademicTermCode     *string `json:"academic_term_code,omitempty"`
+	AcademicTermSlug     *string `json:"academic_term_slug,omitempty"`
+
+	// Read-only ringkas dari DB (kalau mau ditampilkan di FE)
+	AcademicTermPeriod *string `json:"academic_term_period,omitempty"`
+}
+
+// Mapper dari model penuh → compact
+func FromModelToCompact(ent model.AcademicTermModel) AcademicTermCompactDTO {
+	return AcademicTermCompactDTO{
+		AcademicTermID:           ent.AcademicTermID,
+		AcademicTermSchoolID:     ent.AcademicTermSchoolID,
+		AcademicTermAcademicYear: ent.AcademicTermAcademicYear,
+		AcademicTermName:         ent.AcademicTermName,
+		AcademicTermStartDate:    ent.AcademicTermStartDate,
+		AcademicTermEndDate:      ent.AcademicTermEndDate,
+		AcademicTermIsActive:     ent.AcademicTermIsActive,
+		AcademicTermAngkatan:     ent.AcademicTermAngkatan,
+		AcademicTermCode:         ent.AcademicTermCode,
+		AcademicTermSlug:         ent.AcademicTermSlug,
+		AcademicTermPeriod:       ent.AcademicTermPeriod,
+	}
+}
+
+// Mapper slice model → slice compact DTO
+func FromModelsToCompact(list []model.AcademicTermModel) []AcademicTermCompactDTO {
+	out := make([]AcademicTermCompactDTO, 0, len(list))
+	for _, it := range list {
+		out = append(out, FromModelToCompact(it))
+	}
+	return out
+}

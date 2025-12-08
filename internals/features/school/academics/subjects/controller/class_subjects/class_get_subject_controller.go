@@ -47,9 +47,16 @@ func parseNested(raw string) (nestedAny, nestedCSB, nestedBooks bool) {
 	return
 }
 
-// struct untuk data + nested di dalam "data"
-type classSubjectWithNested struct {
+// struct untuk data + nested di dalam "data" (FULL)
+type classSubjectWithNestedFull struct {
 	classSubjectDTO.ClassSubjectResponse
+	ClassSubjectBooks []bookModel.ClassSubjectBookModel `json:"class_subject_books,omitempty"`
+	Books             []bookModel.BookModel             `json:"books,omitempty"`
+}
+
+// struct untuk data + nested versi COMPACT
+type classSubjectWithNestedCompact struct {
+	classSubjectDTO.ClassSubjectCompactResponse
 	ClassSubjectBooks []bookModel.ClassSubjectBookModel `json:"class_subject_books,omitempty"`
 	Books             []bookModel.BookModel             `json:"books,omitempty"`
 }
@@ -57,6 +64,12 @@ type classSubjectWithNested struct {
 func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 	// Kalau helper lain butuh DB di Locals
 	c.Locals("DB", h.DB)
+
+	// =====================================================
+	// 0) Mode response: full / compact
+	// =====================================================
+	mode := strings.ToLower(strings.TrimSpace(c.Query("mode", "full")))
+	isCompact := mode == "compact"
 
 	// =====================================================
 	// 1) Tentukan schoolID (token → context)
@@ -237,19 +250,32 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 	// ===== Pagination meta =====
 	pg := helper.BuildPaginationFromOffset(total, offset, limit)
 
-	// Primary data: DTO biasa
-	data := classSubjectDTO.FromClassSubjectModels(rows)
+	// Primary data: DTO full / compact
+	var dataFull []classSubjectDTO.ClassSubjectResponse
+	var dataCompact []classSubjectDTO.ClassSubjectCompactResponse
+
+	if isCompact {
+		dataCompact = classSubjectDTO.FromClassSubjectModelsToCompact(rows)
+	} else {
+		dataFull = classSubjectDTO.FromClassSubjectModels(rows)
+	}
 
 	// Kalau benar-benar nggak ada include & nggak ada nested → simple list
 	if !includeCSB && !includeBooks {
-		return helper.JsonList(c, "ok", data, pg)
+		if isCompact {
+			return helper.JsonList(c, "ok", dataCompact, pg)
+		}
+		return helper.JsonList(c, "ok", dataFull, pg)
 	}
 
 	// Kalau nggak ada rows tapi include diminta:
 	if len(rows) == 0 {
-		// kalau nested diminta, FOKUS ke nested → data kosong tanpa include
+		// kalau nested diminta, kirim array nested kosong
 		if nestedCSB || nestedBooks {
-			return helper.JsonList(c, "ok", []classSubjectWithNested{}, pg)
+			if isCompact {
+				return helper.JsonList(c, "ok", []classSubjectWithNestedCompact{}, pg)
+			}
+			return helper.JsonList(c, "ok", []classSubjectWithNestedFull{}, pg)
 		}
 
 		// else: include kosong (flat mode)
@@ -260,7 +286,11 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 		if includeBooks {
 			include["books"] = []bookModel.BookModel{}
 		}
-		return helper.JsonListWithInclude(c, "ok", data, include, pg)
+
+		if isCompact {
+			return helper.JsonListWithInclude(c, "ok", dataCompact, include, pg)
+		}
+		return helper.JsonListWithInclude(c, "ok", dataFull, include, pg)
 	}
 
 	// =====================================================
@@ -365,9 +395,35 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 	// MODE 1: NESTED → data[] sudah berisi relasi, TANPA include
 	// =====================================================
 	if nestedCSB || nestedBooks {
-		outNested := make([]classSubjectWithNested, 0, len(data))
-		for _, d := range data {
-			item := classSubjectWithNested{
+		if isCompact {
+			outNested := make([]classSubjectWithNestedCompact, 0, len(dataCompact))
+			for _, d := range dataCompact {
+				item := classSubjectWithNestedCompact{
+					ClassSubjectCompactResponse: d,
+				}
+				csid := d.ClassSubjectID.String()
+
+				if nestedCSB && nestedCSBMap != nil {
+					if list, ok := nestedCSBMap[csid]; ok {
+						item.ClassSubjectBooks = list
+					}
+				}
+				if nestedBooks && nestedBooksMap != nil {
+					if list, ok := nestedBooksMap[csid]; ok {
+						item.Books = list
+					}
+				}
+
+				outNested = append(outNested, item)
+			}
+
+			// nested → tanpa include
+			return helper.JsonList(c, "ok", outNested, pg)
+		}
+
+		outNested := make([]classSubjectWithNestedFull, 0, len(dataFull))
+		for _, d := range dataFull {
+			item := classSubjectWithNestedFull{
 				ClassSubjectResponse: d,
 			}
 			csid := d.ID.String()
@@ -386,7 +442,7 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 			outNested = append(outNested, item)
 		}
 
-		// 🔑 Sesuai permintaan: kalau sudah nested → JANGAN kirim include lagi
+		// nested → tanpa include
 		return helper.JsonList(c, "ok", outNested, pg)
 	}
 
@@ -402,5 +458,8 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 		include["books"] = books
 	}
 
-	return helper.JsonListWithInclude(c, "ok", data, include, pg)
+	if isCompact {
+		return helper.JsonListWithInclude(c, "ok", dataCompact, include, pg)
+	}
+	return helper.JsonListWithInclude(c, "ok", dataFull, include, pg)
 }

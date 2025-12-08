@@ -3,11 +3,12 @@ package controller
 
 import (
 	"errors"
+	"strings"
+
 	subjectDTO "madinahsalam_backend/internals/features/school/academics/subjects/dto"
 	subjectModel "madinahsalam_backend/internals/features/school/academics/subjects/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
-	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -17,14 +18,23 @@ import (
 /*
 =========================================================
 LIST
-GET /admin/subjects?q=&is_active=&order_by=&sort=&limit=&offset=&with_deleted=&id=&ids=
+GET /admin/subjects?q=&is_active=&order_by=&sort=&limit=&offset=&with_deleted=&id=&ids=&mode=
 order_by: code|name|created_at|updated_at
 sort: asc|desc
+mode: full|compact (default: full)
 =========================================================
 */
 func (h *SubjectsController) List(c *fiber.Ctx) error {
 	// Kalau ada helper lain yang butuh DB di Locals
 	c.Locals("DB", h.DB)
+
+	// =====================================================
+	// 0) Mode response: full vs compact
+	// =====================================================
+	mode := strings.ToLower(strings.TrimSpace(c.Query("mode", "full")))
+	if mode != "compact" {
+		mode = "full"
+	}
 
 	// =====================================================
 	// 1) Tentukan schoolID:
@@ -165,7 +175,12 @@ func (h *SubjectsController) List(c *fiber.Ctx) error {
 	// --- pagination meta konsisten ---
 	meta := helper.BuildPaginationFromOffset(total, *q.Offset, *q.Limit)
 
-	// --- response standar ---
+	// --- response sesuai mode ---
+	if mode == "compact" {
+		return helper.JsonList(c, "ok", subjectDTO.FromSubjectModelsToCompact(rows), meta)
+	}
+
+	// default: full
 	return helper.JsonList(c, "ok", subjectDTO.FromSubjectModels(rows), meta)
 }
 

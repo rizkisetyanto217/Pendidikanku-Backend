@@ -603,3 +603,86 @@ func CSSTLiteSliceFromModels(rows []csstModel.ClassSectionSubjectTeacherModel) [
 	}
 	return out
 }
+
+// Bentuk compact disesuaikan dengan contoh JSON
+type ClassSectionSubjectTeacherCompactResponse struct {
+	ClassSectionSubjectTeacherID              uuid.UUID  `json:"class_section_subject_teacher_id"`
+	ClassSectionSubjectTeacherSchoolID        uuid.UUID  `json:"class_section_subject_teacher_school_id"`
+	ClassSectionSubjectTeacherClassSectionID  uuid.UUID  `json:"class_section_subject_teacher_class_section_id"`
+	ClassSectionSubjectTeacherClassSubjectID  uuid.UUID  `json:"class_section_subject_teacher_class_subject_id"`
+	ClassSectionSubjectTeacherSchoolTeacherID *uuid.UUID `json:"class_section_subject_teacher_school_teacher_id,omitempty"`
+
+	ClassSectionSubjectTeacherSlug string `json:"class_section_subject_teacher_slug"`
+
+
+	ClassSectionSubjectTeacherDeliveryMode csstModel.ClassDeliveryMode `json:"class_section_subject_teacher_delivery_mode"`
+
+
+	// SECTION cache
+	ClassSectionSubjectTeacherClassSectionSlugCache *string `json:"class_section_subject_teacher_class_section_slug_cache,omitempty"`
+	ClassSectionSubjectTeacherClassSectionNameCache *string `json:"class_section_subject_teacher_class_section_name_cache,omitempty"`
+	ClassSectionSubjectTeacherClassSectionCodeCache *string `json:"class_section_subject_teacher_class_section_code_cache,omitempty"`
+
+	// TEACHER cache
+	ClassSectionSubjectTeacherSchoolTeacherSlugCache *string         `json:"class_section_subject_teacher_school_teacher_slug_cache,omitempty"`
+	ClassSectionSubjectTeacherSchoolTeacherCache     *datatypes.JSON `json:"class_section_subject_teacher_school_teacher_cache,omitempty"`
+	ClassSectionSubjectTeacherSchoolTeacherNameCache *string         `json:"class_section_subject_teacher_school_teacher_name_cache,omitempty"`
+
+	// SUBJECT cache
+	ClassSectionSubjectTeacherSubjectID        *uuid.UUID `json:"class_section_subject_teacher_subject_id,omitempty"`
+	ClassSectionSubjectTeacherSubjectNameCache *string    `json:"class_section_subject_teacher_subject_name_cache,omitempty"`
+	ClassSectionSubjectTeacherSubjectCodeCache *string    `json:"class_section_subject_teacher_subject_code_cache,omitempty"`
+	ClassSectionSubjectTeacherSubjectSlugCache *string    `json:"class_section_subject_teacher_subject_slug_cache,omitempty"`
+
+	ClassSectionSubjectTeacherIsActive  bool      `json:"class_section_subject_teacher_is_active"`
+	ClassSectionSubjectTeacherCreatedAt time.Time `json:"class_section_subject_teacher_created_at"`
+	ClassSectionSubjectTeacherUpdatedAt time.Time `json:"class_section_subject_teacher_updated_at"`
+}
+
+// mapping single
+func FromClassSectionSubjectTeacherModelCompact(mo csstModel.ClassSectionSubjectTeacherModel) ClassSectionSubjectTeacherCompactResponse {
+	// manual safe-string (ganti helper.SafeStrPtr)
+	slug := ""
+	if mo.ClassSectionSubjectTeacherSlug != nil {
+		slug = *mo.ClassSectionSubjectTeacherSlug
+	}
+
+	return ClassSectionSubjectTeacherCompactResponse{
+		ClassSectionSubjectTeacherID:              mo.ClassSectionSubjectTeacherID,
+		ClassSectionSubjectTeacherSchoolID:        mo.ClassSectionSubjectTeacherSchoolID,
+		ClassSectionSubjectTeacherClassSectionID:  mo.ClassSectionSubjectTeacherClassSectionID,
+		ClassSectionSubjectTeacherClassSubjectID:  mo.ClassSectionSubjectTeacherClassSubjectID,
+		ClassSectionSubjectTeacherSchoolTeacherID: mo.ClassSectionSubjectTeacherSchoolTeacherID,
+
+		ClassSectionSubjectTeacherSlug: slug,
+
+
+		ClassSectionSubjectTeacherDeliveryMode: mo.ClassSectionSubjectTeacherDeliveryMode,
+
+		ClassSectionSubjectTeacherClassSectionSlugCache: mo.ClassSectionSubjectTeacherClassSectionSlugCache,
+		ClassSectionSubjectTeacherClassSectionNameCache: mo.ClassSectionSubjectTeacherClassSectionNameCache,
+		ClassSectionSubjectTeacherClassSectionCodeCache: mo.ClassSectionSubjectTeacherClassSectionCodeCache,
+
+		ClassSectionSubjectTeacherSchoolTeacherSlugCache: mo.ClassSectionSubjectTeacherSchoolTeacherSlugCache,
+		ClassSectionSubjectTeacherSchoolTeacherCache:     mo.ClassSectionSubjectTeacherSchoolTeacherCache,
+		ClassSectionSubjectTeacherSchoolTeacherNameCache: mo.ClassSectionSubjectTeacherSchoolTeacherNameCache,
+
+		ClassSectionSubjectTeacherSubjectID:        mo.ClassSectionSubjectTeacherSubjectID,
+		ClassSectionSubjectTeacherSubjectNameCache: mo.ClassSectionSubjectTeacherSubjectNameCache,
+		ClassSectionSubjectTeacherSubjectCodeCache: mo.ClassSectionSubjectTeacherSubjectCodeCache,
+		ClassSectionSubjectTeacherSubjectSlugCache: mo.ClassSectionSubjectTeacherSubjectSlugCache,
+
+		ClassSectionSubjectTeacherIsActive:  mo.ClassSectionSubjectTeacherIsActive,
+		ClassSectionSubjectTeacherCreatedAt: mo.ClassSectionSubjectTeacherCreatedAt,
+		ClassSectionSubjectTeacherUpdatedAt: mo.ClassSectionSubjectTeacherUpdatedAt,
+	}
+}
+
+// mapping list
+func FromClassSectionSubjectTeacherModelsCompact(rows []csstModel.ClassSectionSubjectTeacherModel) []ClassSectionSubjectTeacherCompactResponse {
+	out := make([]ClassSectionSubjectTeacherCompactResponse, 0, len(rows))
+	for i := range rows {
+		out = append(out, FromClassSectionSubjectTeacherModelCompact(rows[i]))
+	}
+	return out
+}

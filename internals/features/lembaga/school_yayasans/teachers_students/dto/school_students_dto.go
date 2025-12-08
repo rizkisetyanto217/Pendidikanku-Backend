@@ -479,6 +479,7 @@ func FromModel(m *studentmodel.SchoolStudentModel) SchoolStudentResp {
 // =========================================================
 
 type SchoolStudentCompact struct {
+	SchoolStudentID     uuid.UUID                        `json:"school_student_id"`
 	SchoolStudentCode   *string                          `json:"school_student_code,omitempty"`
 	SchoolStudentStatus studentmodel.SchoolStudentStatus `json:"school_student_status"`
 
@@ -493,6 +494,7 @@ type SchoolStudentCompact struct {
 // Helper: mapping dari model ke compact
 func ToSchoolStudentCompact(m *studentmodel.SchoolStudentModel) SchoolStudentCompact {
 	return SchoolStudentCompact{
+		SchoolStudentID:     m.SchoolStudentID,
 		SchoolStudentCode:   m.SchoolStudentCode,
 		SchoolStudentStatus: m.SchoolStudentStatus,
 

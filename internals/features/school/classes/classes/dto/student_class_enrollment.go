@@ -109,7 +109,7 @@ type StudentClassEnrollmentResponse struct {
 	ClassID uuid.UUID `json:"-"`
 
 	// include=class_sections → akan diisi di enrichEnrollmentClassSections
-	ClassSections []csDTO.ClassSectionCompact `json:"class_sections,omitempty"`
+	ClassSections []csDTO.ClassSectionCompactResponse `json:"class_sections,omitempty"`
 
 	StudentClassEnrollmentStatus      m.ClassEnrollmentStatus `json:"student_class_enrollments_status"`
 	StudentClassEnrollmentTotalDueIDR int64                   `json:"student_class_enrollments_total_due_idr"`

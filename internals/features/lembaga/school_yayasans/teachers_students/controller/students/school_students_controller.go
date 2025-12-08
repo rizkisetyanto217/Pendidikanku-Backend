@@ -28,7 +28,7 @@ type SchoolStudentController struct {
 	Validate *validator.Validate
 }
 
-func New(db *gorm.DB, v *validator.Validate) *SchoolStudentController {
+func NewSchoolStudentController(db *gorm.DB, v *validator.Validate) *SchoolStudentController {
 	return &SchoolStudentController{DB: db, Validate: v}
 }
 

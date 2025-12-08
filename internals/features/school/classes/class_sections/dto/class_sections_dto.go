@@ -968,9 +968,41 @@ func teacherLiteFromJSON(raw datatypes.JSON) *TeacherPersonLite {
 	return &t
 }
 
-/* ----------------- COMPACT MAPPER UNTUK LIST ----------------- */
+// ----------------- COMPACT RESPONSE (untuk list, dropdown, dsb) -----------------
 
-// Batch mapper: dari slice by-value
+type ClassSectionCompactResponse struct {
+	// Identitas & relasi utama
+	ClassSectionID       uuid.UUID `json:"class_section_id"`
+
+	ClassSectionAcademicTermID *uuid.UUID `json:"class_section_academic_term_id,omitempty"`
+
+	// Basic info
+	ClassSectionSlug string  `json:"class_section_slug"`
+	ClassSectionName string  `json:"class_section_name"`
+	ClassSectionCode *string `json:"class_section_code,omitempty"`
+
+	ClassSectionImageURL *string `json:"class_section_image_url,omitempty"`
+
+	// Kuota & status singkat
+	ClassSectionQuotaTotal          *int `json:"class_section_quota_total,omitempty"`
+	ClassSectionTotalStudentsActive int  `json:"class_section_total_students_active"`
+
+	ClassSectionIsActive bool `json:"class_section_is_active"`
+
+	// Cache: term
+	ClassSectionAcademicTermNameCache         *string `json:"class_section_academic_term_name_cache,omitempty"`
+	ClassSectionAcademicTermSlugCache         *string `json:"class_section_academic_term_slug_cache,omitempty"`
+
+	// Homeroom & assistant (versi lite hasil parse JSON cache)
+	ClassSectionSchoolTeacherID          *uuid.UUID         `json:"class_section_school_teacher_id,omitempty"`
+	ClassSectionSchoolTeacher            *TeacherPersonLite `json:"class_section_school_teacher,omitempty"`
+	ClassSectionAssistantSchoolTeacherID *uuid.UUID         `json:"class_section_assistant_school_teacher_id,omitempty"`
+	ClassSectionAssistantSchoolTeacher   *TeacherPersonLite `json:"class_section_assistant_school_teacher,omitempty"`
+}
+
+/* ----------------- MAPPERS: FULL & COMPACT UNTUK LIST ----------------- */
+
+// FULL: tetap seperti sebelumnya
 func FromSectionModels(list []m.ClassSectionModel) []ClassSectionResponse {
 	out := make([]ClassSectionResponse, 0, len(list))
 	for i := range list {
@@ -979,7 +1011,6 @@ func FromSectionModels(list []m.ClassSectionModel) []ClassSectionResponse {
 	return out
 }
 
-// (optional, kalau suatu saat kamu pakai []*m.ClassSectionModel)
 func FromSectionModelPtrs(list []*m.ClassSectionModel) []ClassSectionResponse {
 	out := make([]ClassSectionResponse, 0, len(list))
 	for _, cs := range list {
@@ -987,6 +1018,61 @@ func FromSectionModelPtrs(list []*m.ClassSectionModel) []ClassSectionResponse {
 			continue
 		}
 		out = append(out, FromModelClassSection(cs))
+	}
+	return out
+}
+
+// COMPACT: single
+func FromModelClassSectionToCompact(cs *m.ClassSectionModel) ClassSectionCompactResponse {
+	// teacher lite dari JSON cache (kalau struktur cocok)
+	homeroom := teacherLiteFromJSON(cs.ClassSectionSchoolTeacherCache)
+	asst := teacherLiteFromJSON(cs.ClassSectionAssistantSchoolTeacherCache)
+
+	return ClassSectionCompactResponse{
+		ClassSectionID:       cs.ClassSectionID,
+
+		ClassSectionAcademicTermID: cs.ClassSectionAcademicTermID,
+
+		ClassSectionSlug: cs.ClassSectionSlug,
+		ClassSectionName: cs.ClassSectionName,
+		ClassSectionCode: cs.ClassSectionCode,
+
+		ClassSectionImageURL: cs.ClassSectionImageURL,
+
+		ClassSectionQuotaTotal:          cs.ClassSectionQuotaTotal,
+		ClassSectionTotalStudentsActive: cs.ClassSectionTotalStudentsActive,
+
+		ClassSectionIsActive: cs.ClassSectionIsActive,
+
+		// caches: term
+		ClassSectionAcademicTermNameCache:         cs.ClassSectionAcademicTermNameCache,
+		ClassSectionAcademicTermSlugCache:         cs.ClassSectionAcademicTermSlugCache,
+
+		// teachers (lite)
+		ClassSectionSchoolTeacherID:          cs.ClassSectionSchoolTeacherID,
+		ClassSectionSchoolTeacher:            homeroom,
+		ClassSectionAssistantSchoolTeacherID: cs.ClassSectionAssistantSchoolTeacherID,
+		ClassSectionAssistantSchoolTeacher:   asst,
+	}
+}
+
+// COMPACT: batch by-value
+func FromSectionModelsToCompact(list []m.ClassSectionModel) []ClassSectionCompactResponse {
+	out := make([]ClassSectionCompactResponse, 0, len(list))
+	for i := range list {
+		out = append(out, FromModelClassSectionToCompact(&list[i]))
+	}
+	return out
+}
+
+// COMPACT: batch []*Model (kalau suatu saat dipakai)
+func FromSectionModelPtrsToCompact(list []*m.ClassSectionModel) []ClassSectionCompactResponse {
+	out := make([]ClassSectionCompactResponse, 0, len(list))
+	for _, cs := range list {
+		if cs == nil {
+			continue
+		}
+		out = append(out, FromModelClassSectionToCompact(cs))
 	}
 	return out
 }

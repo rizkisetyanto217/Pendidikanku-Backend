@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	bookdto "madinahsalam_backend/internals/features/school/academics/books/dto"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
@@ -82,6 +83,10 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 	author := strings.TrimSpace(c.Query("author"))
 	name := strings.TrimSpace(c.Query("name")) // 🔍 filter spesifik judul buku
 	withDeleted := strings.EqualFold(strings.TrimSpace(c.Query("with_deleted")), "true")
+
+	// mode: compact | full (default: full)
+	mode := strings.ToLower(strings.TrimSpace(c.Query("mode")))
+	isCompact := mode == "compact"
 
 	// ===== Pagination & sorting =====
 	// default: sort_by=created_at, order=desc (helper.AdminOpts)
@@ -235,6 +240,31 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 	// ===== Pagination meta (pakai helper standar) =====
 	pg := helper.BuildPaginationFromOffset(total, p.Offset(), p.Limit())
 
-	// ===== Response (seragam) =====
+	// ===== mode compact vs full =====
+
+	if isCompact {
+		// Map ke DTO compact
+		out := make([]bookdto.BookCompact, 0, len(rows))
+		for _, r := range rows {
+			out = append(out, bookdto.BookCompact{
+				BookID:       r.BookID,
+				BookSchoolID: r.BookSchoolID,
+
+				BookTitle:  r.BookTitle,
+				BookAuthor: r.BookAuthor,
+				BookDesc:   r.BookDesc,
+				BookSlug:   r.BookSlug,
+
+				BookImageURL: r.BookImageURL,
+
+				BookCreatedAt: r.BookCreatedAt,
+				BookUpdatedAt: r.BookUpdatedAt,
+				BookIsDeleted: r.BookIsDeleted,
+			})
+		}
+		return helper.JsonList(c, "ok", out, pg)
+	}
+
+	// ===== mode full (behavior lama, raw rows) =====
 	return helper.JsonList(c, "ok", rows, pg)
 }

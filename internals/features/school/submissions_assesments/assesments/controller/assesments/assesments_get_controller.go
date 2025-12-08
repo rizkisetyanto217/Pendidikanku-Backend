@@ -317,6 +317,38 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 	urlsLimitPer := atoiOr(0, c.Query("urls_limit_per"))
 	urlsOrder := strings.ToLower(strings.TrimSpace(c.Query("urls_order")))
 
+	// ============================
+	// include & nested (comma separated)
+	// ============================
+	includeRaw := strings.ToLower(strings.TrimSpace(c.Query("include")))
+	nestedRaw := strings.ToLower(strings.TrimSpace(c.Query("nested")))
+
+	hasToken := func(raw, token string) bool {
+		if raw == "" {
+			return false
+		}
+		parts := strings.Split(raw, ",")
+		for _, p := range parts {
+			if strings.TrimSpace(p) == token {
+				return true
+			}
+		}
+		return false
+	}
+
+	includeQuizzes := hasToken(includeRaw, "quizzes")
+	nestedQuizzes := hasToken(nestedRaw, "quizzes")
+
+	// alias lama: with_quizzes=1/true → ikut nyalain
+	legacyWithQuizzes := eqTrue(c.Query("with_quizzes"))
+
+	// flag utama untuk load quizzes dari DB
+	withQuizzes := includeQuizzes || nestedQuizzes || legacyWithQuizzes
+
+	// mode=compact | full (default: full)
+	modeParam := strings.ToLower(strings.TrimSpace(c.Query("mode")))
+	isCompactMode := modeParam == "compact"
+
 	// parse filter type & csst
 	var typeID, csstID *uuid.UUID
 	if typeIDStr != "" {
@@ -525,7 +557,31 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// 5) Build response DTO
+	meta := helper.BuildPaginationFromOffset(total, offset, limit)
+
+	// ============================
+	// MODE = COMPACT (non-timeline)
+	// ============================
+	if !isStudentTimeline && !isTeacherTimeline && isCompactMode {
+		compactItems := dto.FromAssessmentModelsCompact(rows)
+		return helper.JsonListEx(
+			c,
+			"OK",
+			compactItems,
+			meta,
+			fiber.Map{
+				"with_urls":           withURLs,
+				"urls_published_only": urlsPublishedOnly,
+				"urls_limit_per":      urlsLimitPer,
+				"urls_order":          urlsOrder,
+				"include":             includeRaw,
+				"nested":              nestedRaw,
+				"mode":                "compact",
+			},
+		)
+	}
+
+	// 5) Build response DTO (FULL + timeline + quizzes)
 	type assessmentWithExpand struct {
 		dto.AssessmentResponse
 		URLsCount       *int              `json:"urls_count,omitempty"`
@@ -719,9 +775,9 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 	}
 
 	// ================================
-	// SELALU: QUIZZES + STUDENT ATTEMPTS (per-quiz)
+	// OPTIONAL: QUIZZES + STUDENT ATTEMPTS (per-quiz)
 	// ================================
-	if len(rows) > 0 {
+	if withQuizzes && len(rows) > 0 {
 		aIDs := make([]uuid.UUID, 0, len(rows))
 		for i := range rows {
 			aIDs = append(aIDs, rows[i].AssessmentID)
@@ -818,9 +874,11 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 				continue
 			}
 
-			// Kalau bukan student_timeline → tinggal assign saja
+			// Kalau bukan student_timeline → nested tergantung nestedQuizzes / legacyWithQuizzes
 			if !isStudentTimeline {
-				out[i].Quizzes = qs
+				if nestedQuizzes || legacyWithQuizzes {
+					out[i].Quizzes = qs
+				}
 				continue
 			}
 
@@ -846,21 +904,28 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 			log.Printf("[AssessmentList] ATTACH ATTEMPTS: assessment=%s attached_attempts=%d",
 				aid.String(), attachedCount)
 
-			out[i].Quizzes = qs
+			// Student timeline: juga nested tergantung nestedQuizzes / legacy alias
+			if nestedQuizzes || legacyWithQuizzes {
+				out[i].Quizzes = qs
+			}
 		}
 	}
 
-	// 6) Return response
+	// 6) Return response (FULL)
 	return helper.JsonListEx(
 		c,
 		"OK",
 		out,
-		helper.BuildPaginationFromOffset(total, offset, limit),
+		meta,
 		fiber.Map{
 			"with_urls":           withURLs,
 			"urls_published_only": urlsPublishedOnly,
 			"urls_limit_per":      urlsLimitPer,
 			"urls_order":          urlsOrder,
+			"include":             includeRaw,
+			"nested":              nestedRaw,
+			"with_quizzes":        withQuizzes,
+			"mode":                "full",
 		},
 	)
 }

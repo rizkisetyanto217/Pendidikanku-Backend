@@ -31,24 +31,17 @@ type SectionSnapshot struct {
 	ClassSectionImageObjectKey *string   `json:"class_section_image_object_key,omitempty"`
 
 	// ===== Stats penting dari class_sections =====
-	ClassSectionTotalStudentsActive       int `json:"class_section_total_students_active"`
-	ClassSectionTotalStudentsMale         int `json:"class_section_total_students_male"`
-	ClassSectionTotalStudentsFemale       int `json:"class_section_total_students_female"`
-	ClassSectionTotalStudentsMaleActive   int `json:"class_section_total_students_male_active"`
-	ClassSectionTotalStudentsFemaleActive int `json:"class_section_total_students_female_active"`
+	ClassSectionTotalStudentsActive int `json:"class_section_total_students_active"`
 
 	// ===== Academic term cache =====
-	ClassSectionAcademicTermID                *uuid.UUID `json:"class_section_academic_term_id,omitempty"`
-	ClassSectionAcademicTermNameCache         *string    `json:"class_section_academic_term_name_cache,omitempty"`
-	ClassSectionAcademicTermSlugCache         *string    `json:"class_section_academic_term_slug_cache,omitempty"`
-	ClassSectionAcademicTermAcademicYearCache *string    `json:"class_section_academic_term_academic_year_cache,omitempty"`
-	ClassSectionAcademicTermAngkatanCache     *int       `json:"class_section_academic_term_angkatan_cache,omitempty"`
+	ClassSectionAcademicTermID        *uuid.UUID `json:"class_section_academic_term_id,omitempty"`
+	ClassSectionAcademicTermNameCache *string    `json:"class_section_academic_term_name_cache,omitempty"`
+	ClassSectionAcademicTermSlugCache *string    `json:"class_section_academic_term_slug_cache,omitempty"`
 
 	// ===== Class parent cache =====
-	ClassSectionClassParentID         *uuid.UUID `json:"class_section_class_parent_id,omitempty"`
-	ClassSectionClassParentNameCache  *string    `json:"class_section_class_parent_name_cache,omitempty"`
-	ClassSectionClassParentSlugCache  *string    `json:"class_section_class_parent_slug_cache,omitempty"`
-	ClassSectionClassParentLevelCache *int16     `json:"class_section_class_parent_level_cache,omitempty"`
+	ClassSectionClassParentID        *uuid.UUID `json:"class_section_class_parent_id,omitempty"`
+	ClassSectionClassParentNameCache *string    `json:"class_section_class_parent_name_cache,omitempty"`
+	ClassSectionClassParentSlugCache *string    `json:"class_section_class_parent_slug_cache,omitempty"`
 }
 
 // decode JSONB → slice
@@ -96,24 +89,17 @@ func buildSectionSnapshot(sec *secModel.ClassSectionModel, role string) SectionS
 		ClassSectionImageObjectKey: sec.ClassSectionImageObjectKey,
 
 		// Stats
-		ClassSectionTotalStudentsActive:       sec.ClassSectionTotalStudentsActive,
-		ClassSectionTotalStudentsMale:         sec.ClassSectionTotalStudentsMale,
-		ClassSectionTotalStudentsFemale:       sec.ClassSectionTotalStudentsFemale,
-		ClassSectionTotalStudentsMaleActive:   sec.ClassSectionTotalStudentsMaleActive,
-		ClassSectionTotalStudentsFemaleActive: sec.ClassSectionTotalStudentsFemaleActive,
+		ClassSectionTotalStudentsActive: sec.ClassSectionTotalStudentsActive,
 
 		// Academic term
-		ClassSectionAcademicTermID:                sec.ClassSectionAcademicTermID,
-		ClassSectionAcademicTermNameCache:         sec.ClassSectionAcademicTermNameCache,
-		ClassSectionAcademicTermSlugCache:         sec.ClassSectionAcademicTermSlugCache,
-		ClassSectionAcademicTermAcademicYearCache: sec.ClassSectionAcademicTermAcademicYearCache,
-		ClassSectionAcademicTermAngkatanCache:     sec.ClassSectionAcademicTermAngkatanCache,
+		ClassSectionAcademicTermID:        sec.ClassSectionAcademicTermID,
+		ClassSectionAcademicTermNameCache: sec.ClassSectionAcademicTermNameCache,
+		ClassSectionAcademicTermSlugCache: sec.ClassSectionAcademicTermSlugCache,
 
 		// Class parent
-		ClassSectionClassParentID:         sec.ClassSectionClassParentID,
-		ClassSectionClassParentNameCache:  sec.ClassSectionClassParentNameCache,
-		ClassSectionClassParentSlugCache:  sec.ClassSectionClassParentSlugCache,
-		ClassSectionClassParentLevelCache: sec.ClassSectionClassParentLevelCache,
+		ClassSectionClassParentID:        sec.ClassSectionClassParentID,
+		ClassSectionClassParentNameCache: sec.ClassSectionClassParentNameCache,
+		ClassSectionClassParentSlugCache: sec.ClassSectionClassParentSlugCache,
 	}
 }
 

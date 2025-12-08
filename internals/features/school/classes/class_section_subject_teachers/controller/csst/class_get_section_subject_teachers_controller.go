@@ -434,13 +434,23 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	}
 
 	// ================= DTO MAPPING =================
-	resp := csstDTO.FromClassSectionSubjectTeacherModelsWithOptions(
-		rows,
-		csstDTO.FromCSSTOptions{
-			// nested academic_term HANYA kalau query ?nested=academic_term
-			IncludeAcademicTerm: nestedAcademicTerm,
-		},
-	)
+	mode := strings.ToLower(strings.TrimSpace(c.Query("mode")))
+	isCompact := mode == "compact"
+
+	var resp any
+	if isCompact {
+		// versi compact (sesuai contoh JSON dari FE)
+		resp = csstDTO.FromClassSectionSubjectTeacherModelsCompact(rows)
+	} else {
+		// default: full response (pakai options untuk nested academic_term)
+		resp = csstDTO.FromClassSectionSubjectTeacherModelsWithOptions(
+			rows,
+			csstDTO.FromCSSTOptions{
+				// nested academic_term HANYA kalau query ?nested=academic_term
+				IncludeAcademicTerm: nestedAcademicTerm,
+			},
+		)
+	}
 
 	pg := helper.BuildPaginationFromOffset(total, offset, limit)
 

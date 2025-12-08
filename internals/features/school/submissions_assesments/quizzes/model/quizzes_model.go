@@ -32,7 +32,6 @@ type QuizModel struct {
 
 	// ==============================
 	// Snapshot quiz behaviour & scoring
-	// (dipindah dari AssessmentType/assessments)
 	// ==============================
 
 	// tampilan & UX pengerjaan
@@ -51,6 +50,9 @@ type QuizModel struct {
 	// attempts & agregasi nilai (final score dari attempts quiz)
 	QuizAttemptsAllowedSnapshot      int    `gorm:"type:int;not null;default:1;column:quiz_attempts_allowed_snapshot" json:"quiz_attempts_allowed_snapshot"`
 	QuizScoreAggregationModeSnapshot string `gorm:"type:varchar(20);not null;default:'latest';column:quiz_score_aggregation_mode_snapshot" json:"quiz_score_aggregation_mode_snapshot"`
+
+	// 🔢 snapshot jumlah soal (denorm)
+	QuizTotalQuestions int `gorm:"type:int;not null;default:0;column:quiz_total_questions" json:"quiz_total_questions"`
 
 	// Timestamps (custom names)
 	QuizCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();autoCreateTime;column:quiz_created_at" json:"quiz_created_at"`

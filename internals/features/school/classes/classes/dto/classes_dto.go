@@ -897,3 +897,116 @@ type CreateClassSectionInlineRequest struct {
 	SchoolTeacherID          *uuid.UUID `json:"school_teacher_id,omitempty"              validate:"omitempty"`
 	AssistantSchoolTeacherID *uuid.UUID `json:"assistant_school_teacher_id,omitempty"    validate:"omitempty"`
 }
+
+/*
+=========================================================
+RESPONSE: COMPACT VERSION
+=========================================================
+*/
+
+// Versi ringkas untuk list (tanpa fee_meta, stats JSON detail, dsb)
+type ClassCompact struct {
+	// PK & relasi inti
+	ClassID       uuid.UUID `json:"class_id"`
+	ClassSchoolID uuid.UUID `json:"class_school_id"`
+
+	// Relasi
+	ClassClassParentID  uuid.UUID  `json:"class_class_parent_id"`
+	ClassAcademicTermID *uuid.UUID `json:"class_academic_term_id,omitempty"`
+
+	// Identitas
+	ClassSlug string `json:"class_slug"`
+	ClassName string `json:"class_name"`
+
+	// Periode & registrasi (basic)
+	ClassStartDate *time.Time `json:"class_start_date,omitempty"`
+	ClassEndDate   *time.Time `json:"class_end_date,omitempty"`
+
+	// Kuota
+	ClassQuotaTotal *int `json:"class_quota_total,omitempty"`
+	ClassQuotaTaken int  `json:"class_quota_taken"`
+
+	// Mode & status
+	ClassDeliveryMode *string    `json:"class_delivery_mode,omitempty"`
+	ClassStatus       string     `json:"class_status"`
+	ClassCompletedAt  *time.Time `json:"class_completed_at,omitempty"`
+
+	// Snapshots Parent (yang sering dipakai di list)
+	ClassClassParentNameCache  *string `json:"class_class_parent_name_cache,omitempty"`
+	ClassClassParentSlugCache  *string `json:"class_class_parent_slug_cache,omitempty"`
+	ClassClassParentLevelCache *int16  `json:"class_class_parent_level_cache,omitempty"`
+
+	// Snapshots Term (singkat)
+	ClassTermNameCache *string `json:"class_academic_term_name_cache,omitempty"`
+	ClassTermSlugCache *string `json:"class_academic_term_slug_cache,omitempty"`
+
+	// Stats aktif (sering dipakai di UI list)
+	ClassTotalClassSectionsActive    int `json:"class_total_class_sections_active"`
+	ClassTotalStudentsActive         int `json:"class_total_students_active"`
+	ClassTotalTeachersActive         int `json:"class_total_teachers_active"`
+	ClassTotalClassEnrollmentsActive int `json:"class_total_class_enrollments_active"`
+
+	// Audit
+	ClassCreatedAt time.Time `json:"class_created_at"`
+	ClassUpdatedAt time.Time `json:"class_updated_at"`
+}
+
+// Mapper compact (ambil dari model yang sama dengan FromModel)
+func FromModelCompact(m *model.ClassModel) ClassCompact {
+	// sama seperti FromModel: kalau ClassName nil, compose dari parent + term
+	name := ""
+	if m.ClassName != nil {
+		name = *m.ClassName
+	} else {
+		var parentName string
+		if m.ClassClassParentNameCache != nil {
+			parentName = *m.ClassClassParentNameCache
+		}
+		name = ComposeClassName(parentName, m.ClassAcademicTermNameCache)
+	}
+
+	return ClassCompact{
+		ClassID:       m.ClassID,
+		ClassSchoolID: m.ClassSchoolID,
+
+		ClassClassParentID:  m.ClassClassParentID,
+		ClassAcademicTermID: m.ClassAcademicTermID,
+
+		ClassSlug: m.ClassSlug,
+		ClassName: name,
+
+		ClassStartDate: m.ClassStartDate,
+		ClassEndDate:   m.ClassEndDate,
+
+		ClassQuotaTotal: m.ClassQuotaTotal,
+		ClassQuotaTaken: m.ClassQuotaTaken,
+
+		ClassDeliveryMode: m.ClassDeliveryMode,
+		ClassStatus:       m.ClassStatus,
+		ClassCompletedAt:  m.ClassCompletedAt,
+
+		ClassClassParentNameCache:  m.ClassClassParentNameCache,
+		ClassClassParentSlugCache:  m.ClassClassParentSlugCache,
+		ClassClassParentLevelCache: m.ClassClassParentLevelCache,
+
+		ClassTermNameCache: m.ClassAcademicTermNameCache,
+		ClassTermSlugCache: m.ClassAcademicTermSlugCache,
+
+		ClassTotalClassSectionsActive:    m.ClassClassSectionActiveCount,
+		ClassTotalStudentsActive:         m.ClassStudentActiveCount,
+		ClassTotalTeachersActive:         m.ClassTeacherActiveCount,
+		ClassTotalClassEnrollmentsActive: m.ClassClassEnrollmentActiveCount,
+
+		ClassCreatedAt: m.ClassCreatedAt,
+		ClassUpdatedAt: m.ClassUpdatedAt,
+	}
+}
+
+// Helper untuk list
+func ToClassCompactList(rows []model.ClassModel) []ClassCompact {
+	out := make([]ClassCompact, 0, len(rows))
+	for i := range rows {
+		out = append(out, FromModelCompact(&rows[i]))
+	}
+	return out
+}

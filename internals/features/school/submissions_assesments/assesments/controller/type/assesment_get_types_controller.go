@@ -98,6 +98,10 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 	var filt dto.ListAssessmentTypeFilter
 	filt.AssessmentTypeSchoolID = schoolID
 
+	// mode=compact|full (default: full)
+	mode := strings.ToLower(strings.TrimSpace(c.Query("mode")))
+	isCompact := mode == "compact"
+
 	// Filters opsional
 	if v := strings.TrimSpace(c.Query("active")); v != "" {
 		b := strings.EqualFold(v, "true") || v == "1"
@@ -192,12 +196,18 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	out := make([]dto.AssessmentTypeResponse, 0, len(rows))
-	for i := range rows {
-		out = append(out, mapToResponse(&rows[i]))
+	// =========================
+	// 5) Mapping full vs compact
+	// =========================
+	meta := helper.BuildPaginationFromOffset(total, filt.Offset, filt.Limit)
+
+	if isCompact {
+		// mode=compact → pakai DTO ringan
+		data := dto.FromModelsCompact(rows)
+		return helper.JsonList(c, "ok", data, meta)
 	}
 
-	// meta offset-based
-	meta := helper.BuildPaginationFromOffset(total, filt.Offset, filt.Limit)
-	return helper.JsonList(c, "ok", out, meta)
+	// default: mode full
+	data := dto.FromModels(rows)
+	return helper.JsonList(c, "ok", data, meta)
 }

@@ -29,7 +29,6 @@ var fallbackValidator = validator.New()
 /* ================= Handlers ================= */
 
 // List academic terms + optional include
-// List academic terms + optional include
 func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	// Biar helper lain yang baca dari Locals("DB") tetap bisa jalan
 	if c.Locals("DB") == nil {
@@ -57,6 +56,12 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 			}
 		}
 	}
+
+	/* ========= 0a) Parse mode: compact | full ========= */
+	// ?mode=compact → AcademicTermCompactDTO
+	// default: full (AcademicTermResponseDTO)
+	mode := strings.ToLower(strings.TrimSpace(c.Query("mode", "full")))
+	useCompact := mode == "compact"
 
 	/* ========= 1) Coba dari TOKEN dulu (jika ada) ========= */
 	if id, err := helperAuth.GetActiveSchoolID(c); err == nil && id != uuid.Nil {
@@ -200,8 +205,13 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	// ===== Pagination =====
 	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)
 
-	// Konversi ke DTO sekali
-	termDTOs := academicsDTO.FromModels(list)
+	// Konversi ke DTO (compact / full)
+	var termDTOs interface{}
+	if useCompact {
+		termDTOs = academicsDTO.FromModelsToCompact(list)
+	} else {
+		termDTOs = academicsDTO.FromModels(list)
+	}
 
 	// ✅ 1) Kalau tidak request include sama sekali → pure list tanpa include
 	if !includeClasses && !includeSections && !includeFeeRules {

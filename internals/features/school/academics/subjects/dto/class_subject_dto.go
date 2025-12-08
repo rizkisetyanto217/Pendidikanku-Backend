@@ -393,3 +393,65 @@ func NewClassSubjectWithBooksResponse(
 		ClassSubjectBooks:    out,
 	}
 }
+
+// =========================================================
+// 2b) COMPACT RESPONSE DTO
+// =========================================================
+
+type ClassSubjectCompactResponse struct {
+	// IDs & relasi dasar
+	ClassSubjectID            uuid.UUID `json:"class_subject_id"`
+	ClassSubjectSchoolID      uuid.UUID `json:"class_subject_school_id"`
+	ClassSubjectClassParentID uuid.UUID `json:"class_subject_class_parent_id"`
+	ClassSubjectSubjectID     uuid.UUID `json:"class_subject_subject_id"`
+
+	// Info kurikulum ringkas
+	ClassSubjectSlug       *string `json:"class_subject_slug,omitempty"`
+	ClassSubjectOrderIndex *int    `json:"class_subject_order_index,omitempty"`
+	ClassSubjectMinScore   *int    `json:"class_subject_min_passing_score,omitempty"`
+	ClassSubjectIsCore     bool    `json:"class_subject_is_core"`
+	ClassSubjectIsActive   bool    `json:"class_subject_is_active"`
+
+	// Caches SUBJEK (buat label di FE)
+	ClassSubjectSubjectNameCache *string `json:"class_subject_subject_name_cache,omitempty"`
+	ClassSubjectSubjectCodeCache *string `json:"class_subject_subject_code_cache,omitempty"`
+	ClassSubjectSubjectSlugCache *string `json:"class_subject_subject_slug_cache,omitempty"`
+
+	// Caches CLASS PARENT (singkat, cukup buat grouping/label)
+	ClassSubjectClassParentNameCache  *string `json:"class_subject_class_parent_name_cache,omitempty"`
+	ClassSubjectClassParentCodeCache  *string `json:"class_subject_class_parent_code_cache,omitempty"`
+	ClassSubjectClassParentLevelCache *int16  `json:"class_subject_class_parent_level_cache,omitempty"`
+}
+
+// Mapper: model → compact DTO
+func FromClassSubjectModelToCompact(m csModel.ClassSubjectModel) ClassSubjectCompactResponse {
+	return ClassSubjectCompactResponse{
+		ClassSubjectID:            m.ClassSubjectID,
+		ClassSubjectSchoolID:      m.ClassSubjectSchoolID,
+		ClassSubjectClassParentID: m.ClassSubjectClassParentID,
+		ClassSubjectSubjectID:     m.ClassSubjectSubjectID,
+
+		ClassSubjectSlug:       m.ClassSubjectSlug,
+		ClassSubjectOrderIndex: m.ClassSubjectOrderIndex,
+		ClassSubjectMinScore:   m.ClassSubjectMinPassingScore,
+		ClassSubjectIsCore:     m.ClassSubjectIsCore,
+		ClassSubjectIsActive:   m.ClassSubjectIsActive,
+
+		ClassSubjectSubjectNameCache: m.ClassSubjectSubjectNameCache,
+		ClassSubjectSubjectCodeCache: m.ClassSubjectSubjectCodeCache,
+		ClassSubjectSubjectSlugCache: m.ClassSubjectSubjectSlugCache,
+
+		ClassSubjectClassParentNameCache:  m.ClassSubjectClassParentNameCache,
+		ClassSubjectClassParentCodeCache:  m.ClassSubjectClassParentCodeCache,
+		ClassSubjectClassParentLevelCache: m.ClassSubjectClassParentLevelCache,
+	}
+}
+
+// Mapper slice: []model → []compact DTO
+func FromClassSubjectModelsToCompact(list []csModel.ClassSubjectModel) []ClassSubjectCompactResponse {
+	out := make([]ClassSubjectCompactResponse, 0, len(list))
+	for _, m := range list {
+		out = append(out, FromClassSubjectModelToCompact(m))
+	}
+	return out
+}

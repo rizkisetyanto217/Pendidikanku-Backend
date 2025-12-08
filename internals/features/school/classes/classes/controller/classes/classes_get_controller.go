@@ -286,6 +286,10 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		}
 	}
 
+	// ===== MODE: compact / full =====
+	mode := strings.ToLower(strings.TrimSpace(c.Query("mode")))
+	isCompact := mode == "compact"
+
 	// ===== INCLUDE & NESTED TOKENS =====
 	includeStr := strings.ToLower(strings.TrimSpace(c.Query("include")))
 	includeAll := includeStr == "all"
@@ -305,17 +309,29 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		}
 	}
 
-	wantSubjects := includeAll || includes["subject"] || includes["subjects"]
-	wantSections := includeAll || includes["class_sections"]
-	// subject_books selalu ikut kalau subjects diminta dan user minta "books/subject_books"
-	wantSubjectBooks := wantSubjects && (includeAll || includes["books"] || includes["subject_books"] || includes["class_subject_books"])
+	// NOTE:
+	// - di mode compact → kita abaikan include/nested untuk menghindari expand berat.
+	// - di mode full → pakai logika lama.
+	wantSubjects := false
+	wantSections := false
+	wantSubjectBooks := false
+	wantTermInclude := false
+	wantTermNested := false
+	wantParents := false
 
-	// 🆕 academic_terms flags
-	wantTermInclude := includeAll || includes["academic_term"] || includes["academic_terms"]
-	wantTermNested := nestedTokens["academic_term"] || nestedTokens["academic_terms"]
+	if !isCompact {
+		wantSubjects = includeAll || includes["subject"] || includes["subjects"]
+		wantSections = includeAll || includes["class_sections"]
+		// subject_books selalu ikut kalau subjects diminta dan user minta "books/subject_books"
+		wantSubjectBooks = wantSubjects && (includeAll || includes["books"] || includes["subject_books"] || includes["class_subject_books"])
 
-	// 🆕 class_parents nested optional (default: off — kecuali include=all)
-	wantParents := includeAll || includes["class_parent"] || includes["class_parents"]
+		// 🆕 academic_terms flags
+		wantTermInclude = includeAll || includes["academic_term"] || includes["academic_terms"]
+		wantTermNested = nestedTokens["academic_term"] || nestedTokens["academic_terms"]
+
+		// 🆕 class_parents nested optional (default: off — kecuali include=all)
+		wantParents = includeAll || includes["class_parent"] || includes["class_parents"]
+	}
 
 	sectionsOnlyActive := strings.EqualFold(strings.TrimSpace(c.Query("sections_active")), "true")
 
@@ -324,7 +340,8 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	if q.Search != nil && strings.TrimSpace(*q.Search) != "" {
 		searchQ = strings.ToLower(strings.TrimSpace(*q.Search))
 	}
-	if searchQ != "" {
+	if searchQ != "" && !isCompact {
+		// Kalau ada search, di mode full kita otomatis ikutkan subjects
 		wantSubjects = true
 	}
 	like := "%" + searchQ + "%"
@@ -493,6 +510,21 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil detail kelas")
 	}
 
+	// 6) Pagination meta
+	pagination := helper.BuildPaginationFromOffset(total, pg.Offset, pg.Limit)
+
+	// ==============================
+	// MODE COMPACT: langsung pulang
+	// ==============================
+	if isCompact {
+		compactList := dto.ToClassCompactList(rows)
+		return helper.JsonList(c, "ok", compactList, pagination)
+	}
+
+	// ==============================
+	// MODE FULL: expand nested data
+	// ==============================
+
 	// 6) Prefetch term & parent
 	type termLite struct {
 		ID           uuid.UUID  `json:"academic_terms_id"`
@@ -628,6 +660,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		// kumpulkan parent_id dari kelas pada halaman ini
 		parentSet := map[uuid.UUID]struct{}{}
 		classToParent := make(map[uuid.UUID]uuid.UUID, len(rows))
+
 		for i := range rows {
 			p := rows[i].ClassClassParentID
 			classToParent[rows[i].ClassID] = p
@@ -652,6 +685,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 			WeightOnReport *int       `gorm:"column:weight_on_report"`
 			CreatedAt      *time.Time `gorm:"column:class_subject_created_at"`
 		}
+
 		var sjRows []subjRow
 
 		if len(parentIDs) > 0 {
@@ -929,12 +963,8 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		includePayload["academic_terms"] = terms
 	}
 
-	// ✅ Pagination
-	pagination := helper.BuildPaginationFromOffset(total, pg.Offset, pg.Limit)
-
 	if len(includePayload) > 0 {
 		return helper.JsonListWithInclude(c, "ok", out, includePayload, pagination)
 	}
 	return helper.JsonList(c, "ok", out, pagination)
-
 }

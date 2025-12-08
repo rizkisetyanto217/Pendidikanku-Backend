@@ -2,7 +2,8 @@
 package route
 
 import (
-	teacherController "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/controller"
+	studentController "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/controller/students"
+	teacherController "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/controller/teachers"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -14,8 +15,8 @@ func LembagaTeacherStudentUserRoutes(userRoute fiber.Router, db *gorm.DB) {
 	v := validator.New()
 
 	// Controllers
-	tch := teacherController.NewSchoolTeacherController(db) // school_teachers
-	std := teacherController.New(db, v)                     // school_students
+	tch := teacherController.NewSchoolTeacherController(db)    // school_teachers
+	std := studentController.NewSchoolStudentController(db, v) // school_students
 
 	// ====== JOIN TEACHER (GLOBAL, tanpa school_id di path) ======
 	// Body: { "code": "XXXXXX" } -> controller resolve school dari kode
