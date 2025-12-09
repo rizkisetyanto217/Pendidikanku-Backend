@@ -24,6 +24,26 @@ BEGIN
   END IF;
 END$$;
 
+-- =========================================================
+-- ENUM: assessment_type_enum
+--   - training    : latihan / practice
+--   - daily_exam  : ulangan harian / quiz harian
+--   - exam        : ujian besar (UTS/UAS/dsb.)
+-- =========================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_type WHERE typname = 'assessment_type_enum'
+  ) THEN
+    CREATE TYPE assessment_type_enum AS ENUM (
+      'training',
+      'daily_exam',
+      'exam'
+    );
+  END IF;
+END$$;
+
+
 -- ======================================================================
 -- 1) TABLE: assessment_types
 --    - Master setting / preset
@@ -45,6 +65,8 @@ CREATE TABLE IF NOT EXISTS assessment_types (
       assessment_type_weight_percent >= 0
       AND assessment_type_weight_percent <= 100
     ),
+  assessment_type assessment_type_enum
+  NOT NULL DEFAULT 'training',
 
   -- ============================
   -- DEFAULT QUIZ SETTINGS
@@ -191,6 +213,8 @@ CREATE TABLE IF NOT EXISTS assessments (
 
   -- Flag apakah assessment type ini menghasilkan nilai (graded) — snapshot
   assessment_type_is_graded_snapshot BOOLEAN NOT NULL DEFAULT FALSE,
+
+  assessment_type_category_snapshot assessment_type_enum,
 
   -- ======================================================
   -- Snapshot aturan dari AssessmentType (per assessment)

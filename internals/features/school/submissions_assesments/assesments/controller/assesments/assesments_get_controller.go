@@ -312,6 +312,13 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		sortDir  = strings.TrimSpace(c.Query("sort_dir"))
 	)
 
+	// 🔹 filter kategori type snapshot: training / daily_exam / exam
+	typeCategoryRaw := strings.TrimSpace(c.Query("type_category"))
+	if typeCategoryRaw == "" {
+		// alias: ?category=
+		typeCategoryRaw = strings.TrimSpace(c.Query("category"))
+	}
+
 	withURLs := eqTrue(c.Query("with_urls"))
 	urlsPublishedOnly := eqTrue(c.Query("urls_published_only"))
 	urlsLimitPer := atoiOr(0, c.Query("urls_limit_per"))
@@ -363,6 +370,26 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 			csstID = &u
 		} else {
 			return helper.JsonError(c, fiber.StatusBadRequest, "csst_id tidak valid")
+		}
+	}
+
+	// parse filter kategori type snapshot
+	var typeCategory *model.AssessmentTypeCategory
+	if typeCategoryRaw != "" {
+		v := strings.ToLower(typeCategoryRaw)
+
+		switch v {
+		case string(model.AssessmentTypeCategoryTraining),
+			string(model.AssessmentTypeCategoryDailyExam),
+			string(model.AssessmentTypeCategoryExam):
+			tc := model.AssessmentTypeCategory(v)
+			typeCategory = &tc
+		default:
+			return helper.JsonError(
+				c,
+				fiber.StatusBadRequest,
+				"type_category tidak valid (harus salah satu dari: training, daily_exam, exam)",
+			)
 		}
 	}
 
@@ -527,6 +554,10 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		// pakai snapshot scalar bool
 		qry = qry.Where("assessment_type_is_graded_snapshot = ?", *isGraded)
 	}
+	if typeCategory != nil {
+		// pakai snapshot kategori type (enum assessment_type_enum)
+		qry = qry.Where("assessment_type_category_snapshot = ?", *typeCategory)
+	}
 	if qStr != "" {
 		q := "%" + strings.ToLower(qStr) + "%"
 		qry = qry.Where(
@@ -577,6 +608,7 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 				"include":             includeRaw,
 				"nested":              nestedRaw,
 				"mode":                "compact",
+				"type_category":       typeCategoryRaw,
 			},
 		)
 	}
@@ -926,6 +958,7 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 			"nested":              nestedRaw,
 			"with_quizzes":        withQuizzes,
 			"mode":                "full",
+			"type_category":       typeCategoryRaw,
 		},
 	)
 }

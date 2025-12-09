@@ -211,6 +211,11 @@ func (ctl *AssessmentController) hydrateAssessmentTypeSnapshot(
 	a.AssessmentLatePenaltyPercentSnapshot = at.AssessmentTypeLatePenaltyPercent
 	a.AssessmentPassingScorePercentSnapshot = at.AssessmentTypePassingScorePercent
 
+	// Snapshot: kategori besar (training / daily_exam / exam)
+	// asumsi field di AssessmentModel:
+	//   AssessmentTypeCategorySnapshot string `gorm:"column:assessment_type_category_snapshot"`
+	a.AssessmentTypeCategorySnapshot = model.AssessmentTypeCategory(at.AssessmentTypeCategory)
+
 	return nil
 }
 

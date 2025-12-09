@@ -269,7 +269,6 @@ func (r *PatchAssessmentRequest) Apply(m *assessModel.AssessmentModel) {
 
 ========================================================
 */
-
 type AssessmentResponse struct {
 	AssessmentID       uuid.UUID `json:"assessment_id"`
 	AssessmentSchoolID uuid.UUID `json:"assessment_school_id"`
@@ -302,6 +301,9 @@ type AssessmentResponse struct {
 
 	// flag hasil grading tipe assessment (snapshot dari AssessmentType)
 	AssessmentTypeIsGradedSnapshot bool `json:"assessment_type_is_graded_snapshot"`
+
+	// 🔹 Snapshot kategori type (training / daily_exam / exam)
+	AssessmentTypeCategorySnapshot string `json:"assessment_type_category_snapshot"`
 
 	// Snapshot aturan dari AssessmentType (sesuai SQL terbaru: hanya late policy & passing score)
 	AssessmentAllowLateSubmissionSnapshot bool    `json:"assessment_allow_late_submission_snapshot"`
@@ -351,6 +353,9 @@ func FromModelAssesment(m assessModel.AssessmentModel) AssessmentResponse {
 
 		// flag hasil grading type
 		AssessmentTypeIsGradedSnapshot: m.AssessmentTypeIsGradedSnapshot,
+
+		// 🔹 snapshot kategori type
+		AssessmentTypeCategorySnapshot: string(m.AssessmentTypeCategorySnapshot),
 
 		// snapshot aturan dari AssessmentType (late policy + passing score)
 		AssessmentAllowLateSubmissionSnapshot: m.AssessmentAllowLateSubmissionSnapshot,
@@ -404,10 +409,12 @@ func (r *CreateAssessmentWithQuizzesRequest) FlattenQuizzes() []CreateQuizInline
 	return nil
 }
 
-/* ========================================================
-   COMPACT DTO (untuk list / dropdown / kartu ringan)
-======================================================== */
+/*
+	========================================================
+	  COMPACT DTO (untuk list / dropdown / kartu ringan)
 
+========================================================
+*/
 type AssessmentCompactResponse struct {
 	AssessmentID       uuid.UUID `json:"assessment_id"`
 	AssessmentSchoolID uuid.UUID `json:"assessment_school_id"`
@@ -430,6 +437,9 @@ type AssessmentCompactResponse struct {
 	// Ringkas tapi tetap ada info progress
 	AssessmentSubmissionsTotal       int `json:"assessment_submissions_total"`
 	AssessmentSubmissionsGradedTotal int `json:"assessment_submissions_graded_total"`
+
+	// 🔹 kategori type snapshot (training / daily_exam / exam)
+	AssessmentTypeCategorySnapshot string `json:"assessment_type_category_snapshot"`
 
 	AssessmentCreatedAt time.Time `json:"assessment_created_at"`
 	AssessmentUpdatedAt time.Time `json:"assessment_updated_at"`
@@ -458,6 +468,8 @@ func FromAssessmentModelCompact(m assessModel.AssessmentModel) AssessmentCompact
 
 		AssessmentSubmissionsTotal:       m.AssessmentSubmissionsTotal,
 		AssessmentSubmissionsGradedTotal: m.AssessmentSubmissionsGradedTotal,
+
+		AssessmentTypeCategorySnapshot: string(m.AssessmentTypeCategorySnapshot),
 
 		AssessmentCreatedAt: m.AssessmentCreatedAt,
 		AssessmentUpdatedAt: m.AssessmentUpdatedAt,

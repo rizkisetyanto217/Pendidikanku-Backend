@@ -22,6 +22,10 @@ type CreateAssessmentTypeRequest struct {
 	AssessmentTypeName          string    `json:"assessment_type_name" validate:"required,max=120"`
 	AssessmentTypeWeightPercent float64   `json:"assessment_type_weight_percent" validate:"gte=0,lte=100"`
 
+	// Jenis besar assessment: training / daily_exam / exam
+	// Optional di payload, default = "training"
+	AssessmentTypeCategory *string `json:"assessment_type" validate:"omitempty,oneof=training daily_exam exam"`
+
 	AssessmentTypeIsActive *bool `json:"assessment_type_is_active" validate:"omitempty"`
 	AssessmentTypeIsGraded *bool `json:"assessment_type_is_graded" validate:"omitempty"`
 
@@ -61,6 +65,9 @@ type PatchAssessmentTypeRequest struct {
 	AssessmentTypeIsActive      *bool    `json:"assessment_type_is_active" validate:"omitempty"`
 
 	AssessmentTypeIsGraded *bool `json:"assessment_type_is_graded" validate:"omitempty"`
+
+	// Ubah kategori besar assessment (training / daily_exam / exam)
+	AssessmentTypeCategory *string `json:"assessment_type" validate:"omitempty,oneof=training daily_exam exam"`
 
 	AssessmentTypeShuffleQuestions       *bool `json:"assessment_type_shuffle_questions" validate:"omitempty"`
 	AssessmentTypeShuffleOptions         *bool `json:"assessment_type_shuffle_options" validate:"omitempty"`
@@ -105,6 +112,9 @@ type AssessmentTypeResponse struct {
 	AssessmentTypeKey           string    `json:"assessment_type_key"`
 	AssessmentTypeName          string    `json:"assessment_type_name"`
 	AssessmentTypeWeightPercent float64   `json:"assessment_type_weight_percent"`
+
+	// Jenis besar assessment: training / daily_exam / exam
+	AssessmentTypeCategory string `json:"assessment_type"`
 
 	// Default quiz settings
 	AssessmentTypeShuffleQuestions       bool `json:"assessment_type_shuffle_questions"`
@@ -247,11 +257,22 @@ func (r CreateAssessmentTypeRequest) ToModel() model.AssessmentTypeModel {
 		showDetailsAfterAllAttempts = *r.AssessmentTypeShowDetailsAfterAllAttempts
 	}
 
+	// ====== Category (training / daily_exam / exam) ======
+	category := model.AssessmentTypeEnumTraining
+	if r.AssessmentTypeCategory != nil {
+		cat := strings.ToLower(strings.TrimSpace(*r.AssessmentTypeCategory))
+		if cat != "" {
+			category = cat
+		}
+	}
+
 	return model.AssessmentTypeModel{
 		AssessmentTypeSchoolID:      r.AssessmentTypeSchoolID,
 		AssessmentTypeKey:           r.AssessmentTypeKey,
 		AssessmentTypeName:          r.AssessmentTypeName,
 		AssessmentTypeWeightPercent: r.AssessmentTypeWeightPercent,
+
+		AssessmentTypeCategory: category,
 
 		AssessmentTypeShuffleQuestions:       shuffleQuestions,
 		AssessmentTypeShuffleOptions:         shuffleOptions,
@@ -289,6 +310,14 @@ func (p PatchAssessmentTypeRequest) Apply(m *model.AssessmentTypeModel) {
 	}
 	if p.AssessmentTypeIsGraded != nil {
 		m.AssessmentTypeIsGraded = *p.AssessmentTypeIsGraded
+	}
+
+	// Update category (training / daily_exam / exam)
+	if p.AssessmentTypeCategory != nil {
+		cat := strings.ToLower(strings.TrimSpace(*p.AssessmentTypeCategory))
+		if cat != "" {
+			m.AssessmentTypeCategory = cat
+		}
 	}
 
 	if p.AssessmentTypeShuffleQuestions != nil {
@@ -354,6 +383,8 @@ func FromModel(m model.AssessmentTypeModel) AssessmentTypeResponse {
 		AssessmentTypeName:          m.AssessmentTypeName,
 		AssessmentTypeWeightPercent: m.AssessmentTypeWeightPercent,
 
+		AssessmentTypeCategory: m.AssessmentTypeCategory,
+
 		AssessmentTypeShuffleQuestions:       m.AssessmentTypeShuffleQuestions,
 		AssessmentTypeShuffleOptions:         m.AssessmentTypeShuffleOptions,
 		AssessmentTypeShowCorrectAfterSubmit: m.AssessmentTypeShowCorrectAfterSubmit,
@@ -401,6 +432,8 @@ type AssessmentTypeCompactResponse struct {
 	AssessmentTypeName          string  `json:"assessment_type_name"`
 	AssessmentTypeWeightPercent float64 `json:"assessment_type_weight_percent"`
 
+	AssessmentTypeCategory string `json:"assessment_type"`
+
 	AssessmentTypeIsActive bool `json:"assessment_type_is_active"`
 	AssessmentTypeIsGraded bool `json:"assessment_type_is_graded"`
 }
@@ -413,6 +446,7 @@ func FromModelCompact(m model.AssessmentTypeModel) AssessmentTypeCompactResponse
 		AssessmentTypeKey:           strings.TrimSpace(m.AssessmentTypeKey),
 		AssessmentTypeName:          strings.TrimSpace(m.AssessmentTypeName),
 		AssessmentTypeWeightPercent: m.AssessmentTypeWeightPercent,
+		AssessmentTypeCategory:      m.AssessmentTypeCategory,
 		AssessmentTypeIsActive:      m.AssessmentTypeIsActive,
 		AssessmentTypeIsGraded:      m.AssessmentTypeIsGraded,
 	}

@@ -33,6 +33,19 @@ const (
 )
 
 // =========================
+// Enum: Assessment Type Category
+// (training / daily_exam / exam)
+// =========================
+
+type AssessmentTypeCategory string
+
+const (
+	AssessmentTypeCategoryTraining  AssessmentTypeCategory = "training"
+	AssessmentTypeCategoryDailyExam AssessmentTypeCategory = "daily_exam"
+	AssessmentTypeCategoryExam      AssessmentTypeCategory = "exam"
+)
+
+// =========================
 // Model: assessments
 // =========================
 
@@ -46,6 +59,9 @@ type AssessmentModel struct {
 
 	// Tipe penilaian (kategori akademik)
 	AssessmentTypeID *uuid.UUID `gorm:"type:uuid;column:assessment_type_id" json:"assessment_type_id,omitempty"`
+
+	// Snapshot kategori type (training / daily_exam / exam)
+	AssessmentTypeCategorySnapshot AssessmentTypeCategory `gorm:"type:assessment_type_enum;column:assessment_type_category_snapshot" json:"assessment_type_category_snapshot"`
 
 	// Identitas
 	AssessmentSlug        *string `gorm:"type:varchar(160);column:assessment_slug" json:"assessment_slug,omitempty"`

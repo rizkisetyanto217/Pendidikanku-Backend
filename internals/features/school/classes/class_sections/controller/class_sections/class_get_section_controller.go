@@ -113,6 +113,7 @@ func buildAcademicTermInclude(list []secModel.ClassSectionModel) []AcademicTermL
 }
 
 // GET /api/{a|u}/:school_id/class-sections/list
+// GET /api/{a|u}/:school_id/class-sections/list
 func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 	// ---------- School context: token > slug/id ----------
 	var schoolID uuid.UUID
@@ -274,11 +275,6 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 	}
 
 	// ------------ INCLUDE / NESTED FLAGS ------------
-	// include=csst           -> include["csst"] (global pool, tanpa nested)
-	// nested=csst            -> nested per class_section: class_section_subject_teacher (tanpa include.csst)
-	// with_csst=1            -> legacy, dianggap nested=csst
-	// include=academic_term  -> include["academic_term"] (unique list dari cache)
-	// nested=academic_term   -> nested per class_section: class_section_academic_term = {id,name,slug,year,angkatan}
 	includeRaw := strings.TrimSpace(c.Query("include"))
 	nestedRaw := strings.TrimSpace(c.Query("nested"))
 
@@ -426,11 +422,24 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// ---------- Build compact DTO ----------
-	compacts := secDTO.FromSectionModelsToCompact(rows)
+	// ============================
+	//  Build base DTO (compact/full)
+	// ============================
+	var (
+		compactItems []secDTO.ClassSectionCompactResponse // ganti dengan tipe kamu
+		fullItems    []secDTO.ClassSectionResponse        // ganti dengan tipe kamu
+	)
 
-	idsInPage := make([]uuid.UUID, 0, len(compacts))
-	for _, it := range compacts {
+	if isCompact {
+		compactItems = secDTO.FromSectionModelsToCompact(rows)
+	} else {
+		// NOTE: sesuaikan dengan fungsi DTO "full" yang kamu punya
+		fullItems = secDTO.FromSectionModels(rows)
+	}
+
+	// idsInPage: pakai urutan dari rows (common untuk kedua mode)
+	idsInPage := make([]uuid.UUID, 0, len(rows))
+	for _, it := range rows {
 		idsInPage = append(idsInPage, it.ClassSectionID)
 	}
 
@@ -445,9 +454,12 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 	}
 
 	// Kalau nggak perlu CSST sama sekali, nggak perlu student sections,
-	// dan nggak perlu nested academic_term → langsung balikin compact DTO + include
+	// dan nggak perlu nested academic_term → langsung balikin DTO base
 	if !queryCSST && !withStudentSections && !nestedAcademicTerm {
-		return helper.JsonListWithInclude(c, "ok", compacts, includePayload, pagination)
+		if isCompact {
+			return helper.JsonListWithInclude(c, "ok", compactItems, includePayload, pagination)
+		}
+		return helper.JsonListWithInclude(c, "ok", fullItems, includePayload, pagination)
 	}
 
 	// =========================================================
@@ -469,13 +481,22 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 	}
 
 	// Base: konversi item ke map + index by section_id
-	out := make([]fiber.Map, 0, len(compacts))
-	indexBySection := make(map[uuid.UUID]int, len(compacts))
+	out := make([]fiber.Map, 0, len(rows))
+	indexBySection := make(map[uuid.UUID]int, len(rows))
 
-	for i := range compacts {
-		b, _ := json.Marshal(compacts[i])
+	for i := range rows {
+		var b []byte
+		var err error
 
-		// pastikan map-nya selalu non-nil
+		if isCompact {
+			b, err = json.Marshal(compactItems[i])
+		} else {
+			b, err = json.Marshal(fullItems[i])
+		}
+		if err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memproses data")
+		}
+
 		m := fiber.Map{}
 		_ = json.Unmarshal(b, &m)
 
@@ -499,7 +520,7 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		}
 
 		out = append(out, m)
-		indexBySection[compacts[i].ClassSectionID] = i
+		indexBySection[rows[i].ClassSectionID] = i
 	}
 
 	// ---------- Inject CSST ----------
@@ -511,9 +532,8 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 			Where("class_section_subject_teacher_school_id = ?", schoolID).
 			Where("class_section_subject_teacher_class_section_id IN ?", targetIDs)
 
-		// ⚙️ BEDANYA DI SINI:
-		// - mode=compact  → hormati filter is_active (hanya aktif / hanya non-aktif)
-		// - mode=full     → kirim SEMUA CSST terkait section, abaikan filter is_active
+		// mode=compact → hormati filter is_active
+		// mode=full    → kirim semua CSST terkait
 		if activeOnly != nil && isCompact {
 			csstQ = csstQ.Where("class_section_subject_teacher_is_active = ?", *activeOnly)
 		}
@@ -570,9 +590,8 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 			Where("student_class_section_school_id = ?", schoolID).
 			Where("student_class_section_section_id IN ?", targetIDs)
 
-		// ⚙️ BEDANYA DI SINI:
-		// - mode=compact + is_active=true → hanya enrolment status=active
-		// - mode=full                     → kirim semua enrolment (active/non-active)
+		// mode=compact + is_active=true → hanya enrolment status=active
+		// mode=full                    → kirim semua enrolment
 		if activeOnly != nil && *activeOnly && isCompact {
 			scsQ = scsQ.Where("student_class_section_status = ?", secModel.StudentClassSectionActive)
 		}

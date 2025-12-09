@@ -19,12 +19,26 @@ const (
 	AssessmentScoreAggAverage = "average" // rata-rata semua attempt
 )
 
+/* ================================
+   Const: Assessment Type Enum
+   (training / daily_exam / exam)
+================================ */
+
+const (
+	AssessmentTypeEnumTraining  = "training"
+	AssessmentTypeEnumDailyExam = "daily_exam"
+	AssessmentTypeEnumExam      = "exam"
+)
+
 type AssessmentTypeModel struct {
 	AssessmentTypeID       uuid.UUID `gorm:"type:uuid;primaryKey;column:assessment_type_id" json:"assessment_type_id"`
 	AssessmentTypeSchoolID uuid.UUID `gorm:"type:uuid;not null;column:assessment_type_school_id" json:"assessment_type_school_id"`
 
 	AssessmentTypeKey  string `gorm:"type:varchar(32);not null;column:assessment_type_key" json:"assessment_type_key"`
 	AssessmentTypeName string `gorm:"type:varchar(120);not null;column:assessment_type_name" json:"assessment_type_name"`
+
+	// Jenis besar assessment: training / daily_exam / exam
+	AssessmentTypeCategory string `gorm:"type:assessment_type_enum;not null;column:assessment_type" json:"assessment_type"`
 
 	// Bobot nilai akhir (0–100, boleh >100 kalau mau over-weight)
 	AssessmentTypeWeightPercent float64 `gorm:"type:numeric(5,2);not null;column:assessment_type_weight_percent" json:"assessment_type_weight_percent"`

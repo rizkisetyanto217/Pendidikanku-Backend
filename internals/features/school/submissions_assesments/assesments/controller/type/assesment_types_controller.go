@@ -112,9 +112,6 @@ func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
 	row.AssessmentTypeCreatedAt = now
 	row.AssessmentTypeUpdatedAt = now
 
-	// ❌ Dulu: AUTO override is_graded berdasarkan weight
-	// ✅ Sekarang: hormati flag dari request / default DTO
-
 	// Validasi agregat aktif ≤ 100
 	if row.AssessmentTypeIsActive {
 		sum, err := assessSvc.New().SumActiveWeights(
@@ -297,6 +294,10 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 		updates["assessment_type_show_details_after_all_attempts"] = *req.AssessmentTypeShowDetailsAfterAllAttempts
 	}
 
+	// NOTE: kalau nanti DTO Patch ditambah field kategori (training/daily_exam/exam),
+	// cukup tambahkan di sini:
+	// if req.AssessmentTypeCategory != nil { ... }
+
 	if len(updates) == 0 {
 		// Tidak ada perubahan: balikin data existing saja
 		return helper.JsonOK(c, "OK", mapToResponse(&existing))
@@ -322,19 +323,14 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// ⬇ Sinkronkan assessment_type_is_graded_snapshot di semua assessment yang pakai type ini
-	isGraded := after.AssessmentTypeIsGraded
-
-	if err := ctl.DB.WithContext(c.Context()).
-		Model(&assessmentModel.AssessmentModel{}).
-		Where(`
-			assessment_school_id = ?
-			AND assessment_type_id = ?
-			AND assessment_deleted_at IS NULL
-		`, schoolID, id).
-		Update("assessment_type_is_graded_snapshot", isGraded).Error; err != nil {
-
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyinkronkan flag graded pada assessment")
+	// ⬇ Sinkronkan seluruh snapshot scalar di assessments
+	//    (graded, late_policy, passing_score, category)
+	if err := assessSvc.New().SyncAssessmentTypeSnapshot(
+		ctl.DB.WithContext(c.Context()),
+		schoolID,
+		&after,
+	); err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyinkronkan snapshot tipe pada assessment")
 	}
 
 	return helper.JsonUpdated(c, "Assessment type diperbarui", mapToResponse(&after))

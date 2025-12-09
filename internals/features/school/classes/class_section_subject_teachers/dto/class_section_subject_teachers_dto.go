@@ -511,122 +511,54 @@ func FromCSSTModels(rows []csstModel.ClassSectionSubjectTeacherModel) []ClassSec
 	return FromClassSectionSubjectTeacherModels(rows)
 }
 
-/* =========================================================
-   4) LITE DTO
-========================================================= */
+/*
+	=========================================================
+	  4) COMPACT / LITE DTO (digabung)
 
-type CSSTItemLite struct {
-	ID       string `json:"id"`
-	IsActive bool   `json:"is_active"`
+	- Compact jadi bentuk utama
+	- CSSTItemLite dijadikan alias ke compact
+=========================================================
+*/
 
-	Teacher struct {
-		ID string `json:"id"`
-	} `json:"teacher"`
-
-	ClassSubject struct {
-		ID      string `json:"id"`
-		Subject struct {
-			ID   string  `json:"id"`
-			Name *string `json:"name,omitempty"`
-		} `json:"subject"`
-	} `json:"class_subject"`
-
-	Room *struct {
-		ID string `json:"id"`
-	} `json:"room,omitempty"`
-
-	GroupURL *string `json:"group_url,omitempty"`
-
-	Stats *struct {
-		TotalAttendance *int32 `json:"total_attendance,omitempty"`
-	} `json:"stats,omitempty"`
-}
-
-func CSSTLiteFromModel(row csstModel.ClassSectionSubjectTeacherModel) CSSTItemLite {
-	out := CSSTItemLite{
-		ID:       row.ClassSectionSubjectTeacherID.String(),
-		IsActive: row.ClassSectionSubjectTeacherIsActive,
-		Teacher: struct {
-			ID string `json:"id"`
-		}{
-			ID: func() string {
-				if row.ClassSectionSubjectTeacherSchoolTeacherID != nil {
-					return row.ClassSectionSubjectTeacherSchoolTeacherID.String()
-				}
-				return ""
-			}(),
-		},
-		ClassSubject: struct {
-			ID      string `json:"id"`
-			Subject struct {
-				ID   string  `json:"id"`
-				Name *string `json:"name,omitempty"`
-			} `json:"subject"`
-		}{
-			ID: row.ClassSectionSubjectTeacherClassSubjectID.String(),
-		},
-		GroupURL: nil,
-		Stats: &struct {
-			TotalAttendance *int32 `json:"total_attendance,omitempty"`
-		}{
-			TotalAttendance: func(v int) *int32 {
-				iv := int32(v)
-				return &iv
-			}(row.ClassSectionSubjectTeacherTotalAttendance),
-		},
-	}
-
-	if row.ClassSectionSubjectTeacherClassRoomID != nil {
-		out.Room = &struct {
-			ID string `json:"id"`
-		}{
-			ID: row.ClassSectionSubjectTeacherClassRoomID.String(),
-		}
-	}
-
-	if row.ClassSectionSubjectTeacherGroupURL != nil {
-		g := strings.TrimSpace(*row.ClassSectionSubjectTeacherGroupURL)
-		if g != "" {
-			out.GroupURL = &g
-		}
-	}
-
-	out.ClassSubject.Subject.Name = row.ClassSectionSubjectTeacherSubjectNameCache
-
-	return out
-}
-
-func CSSTLiteSliceFromModels(rows []csstModel.ClassSectionSubjectTeacherModel) []CSSTItemLite {
-	out := make([]CSSTItemLite, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, CSSTLiteFromModel(r))
-	}
-	return out
-}
-
-// Bentuk compact disesuaikan dengan contoh JSON
+// Bentuk compact utama (dipakai di semua tempat: list, nested csst, dll)
 type ClassSectionSubjectTeacherCompactResponse struct {
+	// IDs & relations
 	ClassSectionSubjectTeacherID              uuid.UUID  `json:"class_section_subject_teacher_id"`
 	ClassSectionSubjectTeacherSchoolID        uuid.UUID  `json:"class_section_subject_teacher_school_id"`
 	ClassSectionSubjectTeacherClassSectionID  uuid.UUID  `json:"class_section_subject_teacher_class_section_id"`
 	ClassSectionSubjectTeacherClassSubjectID  uuid.UUID  `json:"class_section_subject_teacher_class_subject_id"`
 	ClassSectionSubjectTeacherSchoolTeacherID *uuid.UUID `json:"class_section_subject_teacher_school_teacher_id,omitempty"`
+	// asisten
+	ClassSectionSubjectTeacherAssistantSchoolTeacherID *uuid.UUID `json:"class_section_subject_teacher_assistant_school_teacher_id,omitempty"`
 
+	// slug (selalu string, aman buat FE)
 	ClassSectionSubjectTeacherSlug string `json:"class_section_subject_teacher_slug"`
 
-
+	// delivery mode (enum string)
 	ClassSectionSubjectTeacherDeliveryMode csstModel.ClassDeliveryMode `json:"class_section_subject_teacher_delivery_mode"`
 
+	// Agregat & kapasitas (diambil dari model)
+	ClassSectionSubjectTeacherTotalAttendance          int  `json:"class_section_subject_teacher_total_attendance"`
+	ClassSectionSubjectTeacherTotalMeetingsTarget      *int `json:"class_section_subject_teacher_total_meetings_target,omitempty"`
+	ClassSectionSubjectTeacherTotalAssessments         int  `json:"class_section_subject_teacher_total_assessments"`
+	ClassSectionSubjectTeacherTotalAssessmentsGraded   int  `json:"class_section_subject_teacher_total_assessments_graded"`
+	ClassSectionSubjectTeacherTotalAssessmentsUngraded int  `json:"class_section_subject_teacher_total_assessments_ungraded"`
+	ClassSectionSubjectTeacherTotalStudentsPassed      int  `json:"class_section_subject_teacher_total_students_passed"`
 
 	// SECTION cache
 	ClassSectionSubjectTeacherClassSectionSlugCache *string `json:"class_section_subject_teacher_class_section_slug_cache,omitempty"`
 	ClassSectionSubjectTeacherClassSectionNameCache *string `json:"class_section_subject_teacher_class_section_name_cache,omitempty"`
 	ClassSectionSubjectTeacherClassSectionCodeCache *string `json:"class_section_subject_teacher_class_section_code_cache,omitempty"`
 
-	// TEACHER cache
+	// TEACHER cache (JSONB – tetap datatypes.JSON, sesuai permintaan JSONB)
 	ClassSectionSubjectTeacherSchoolTeacherSlugCache *string         `json:"class_section_subject_teacher_school_teacher_slug_cache,omitempty"`
 	ClassSectionSubjectTeacherSchoolTeacherCache     *datatypes.JSON `json:"class_section_subject_teacher_school_teacher_cache,omitempty"`
 	ClassSectionSubjectTeacherSchoolTeacherNameCache *string         `json:"class_section_subject_teacher_school_teacher_name_cache,omitempty"`
+
+	// Assistant teacher cache
+	ClassSectionSubjectTeacherAssistantSchoolTeacherSlugCache *string         `json:"class_section_subject_teacher_assistant_school_teacher_slug_cache,omitempty"`
+	ClassSectionSubjectTeacherAssistantSchoolTeacherCache     *datatypes.JSON `json:"class_section_subject_teacher_assistant_school_teacher_cache,omitempty"`
+	ClassSectionSubjectTeacherAssistantSchoolTeacherNameCache *string         `json:"class_section_subject_teacher_assistant_school_teacher_name_cache,omitempty"`
 
 	// SUBJECT cache
 	ClassSectionSubjectTeacherSubjectID        *uuid.UUID `json:"class_section_subject_teacher_subject_id,omitempty"`
@@ -634,12 +566,13 @@ type ClassSectionSubjectTeacherCompactResponse struct {
 	ClassSectionSubjectTeacherSubjectCodeCache *string    `json:"class_section_subject_teacher_subject_code_cache,omitempty"`
 	ClassSectionSubjectTeacherSubjectSlugCache *string    `json:"class_section_subject_teacher_subject_slug_cache,omitempty"`
 
+	// Status & audit
 	ClassSectionSubjectTeacherIsActive  bool      `json:"class_section_subject_teacher_is_active"`
 	ClassSectionSubjectTeacherCreatedAt time.Time `json:"class_section_subject_teacher_created_at"`
 	ClassSectionSubjectTeacherUpdatedAt time.Time `json:"class_section_subject_teacher_updated_at"`
 }
 
-// mapping single
+// mapping single → compact
 func FromClassSectionSubjectTeacherModelCompact(mo csstModel.ClassSectionSubjectTeacherModel) ClassSectionSubjectTeacherCompactResponse {
 	// manual safe-string (ganti helper.SafeStrPtr)
 	slug := ""
@@ -648,16 +581,22 @@ func FromClassSectionSubjectTeacherModelCompact(mo csstModel.ClassSectionSubject
 	}
 
 	return ClassSectionSubjectTeacherCompactResponse{
-		ClassSectionSubjectTeacherID:              mo.ClassSectionSubjectTeacherID,
-		ClassSectionSubjectTeacherSchoolID:        mo.ClassSectionSubjectTeacherSchoolID,
-		ClassSectionSubjectTeacherClassSectionID:  mo.ClassSectionSubjectTeacherClassSectionID,
-		ClassSectionSubjectTeacherClassSubjectID:  mo.ClassSectionSubjectTeacherClassSubjectID,
-		ClassSectionSubjectTeacherSchoolTeacherID: mo.ClassSectionSubjectTeacherSchoolTeacherID,
+		ClassSectionSubjectTeacherID:                       mo.ClassSectionSubjectTeacherID,
+		ClassSectionSubjectTeacherSchoolID:                 mo.ClassSectionSubjectTeacherSchoolID,
+		ClassSectionSubjectTeacherClassSectionID:           mo.ClassSectionSubjectTeacherClassSectionID,
+		ClassSectionSubjectTeacherClassSubjectID:           mo.ClassSectionSubjectTeacherClassSubjectID,
+		ClassSectionSubjectTeacherSchoolTeacherID:          mo.ClassSectionSubjectTeacherSchoolTeacherID,
+		ClassSectionSubjectTeacherAssistantSchoolTeacherID: mo.ClassSectionSubjectTeacherAssistantSchoolTeacherID,
 
-		ClassSectionSubjectTeacherSlug: slug,
-
-
+		ClassSectionSubjectTeacherSlug:         slug,
 		ClassSectionSubjectTeacherDeliveryMode: mo.ClassSectionSubjectTeacherDeliveryMode,
+
+		ClassSectionSubjectTeacherTotalAttendance:          mo.ClassSectionSubjectTeacherTotalAttendance,
+		ClassSectionSubjectTeacherTotalMeetingsTarget:      mo.ClassSectionSubjectTeacherTotalMeetingsTarget,
+		ClassSectionSubjectTeacherTotalAssessments:         mo.ClassSectionSubjectTeacherTotalAssessments,
+		ClassSectionSubjectTeacherTotalAssessmentsGraded:   mo.ClassSectionSubjectTeacherTotalAssessmentsGraded,
+		ClassSectionSubjectTeacherTotalAssessmentsUngraded: mo.ClassSectionSubjectTeacherTotalAssessmentsUngraded,
+		ClassSectionSubjectTeacherTotalStudentsPassed:      mo.ClassSectionSubjectTeacherTotalStudentsPassed,
 
 		ClassSectionSubjectTeacherClassSectionSlugCache: mo.ClassSectionSubjectTeacherClassSectionSlugCache,
 		ClassSectionSubjectTeacherClassSectionNameCache: mo.ClassSectionSubjectTeacherClassSectionNameCache,
@@ -666,6 +605,10 @@ func FromClassSectionSubjectTeacherModelCompact(mo csstModel.ClassSectionSubject
 		ClassSectionSubjectTeacherSchoolTeacherSlugCache: mo.ClassSectionSubjectTeacherSchoolTeacherSlugCache,
 		ClassSectionSubjectTeacherSchoolTeacherCache:     mo.ClassSectionSubjectTeacherSchoolTeacherCache,
 		ClassSectionSubjectTeacherSchoolTeacherNameCache: mo.ClassSectionSubjectTeacherSchoolTeacherNameCache,
+
+		ClassSectionSubjectTeacherAssistantSchoolTeacherSlugCache: mo.ClassSectionSubjectTeacherAssistantSchoolTeacherSlugCache,
+		ClassSectionSubjectTeacherAssistantSchoolTeacherCache:     mo.ClassSectionSubjectTeacherAssistantSchoolTeacherCache,
+		ClassSectionSubjectTeacherAssistantSchoolTeacherNameCache: mo.ClassSectionSubjectTeacherAssistantSchoolTeacherNameCache,
 
 		ClassSectionSubjectTeacherSubjectID:        mo.ClassSectionSubjectTeacherSubjectID,
 		ClassSectionSubjectTeacherSubjectNameCache: mo.ClassSectionSubjectTeacherSubjectNameCache,
@@ -678,11 +621,33 @@ func FromClassSectionSubjectTeacherModelCompact(mo csstModel.ClassSectionSubject
 	}
 }
 
-// mapping list
+// mapping list → compact
 func FromClassSectionSubjectTeacherModelsCompact(rows []csstModel.ClassSectionSubjectTeacherModel) []ClassSectionSubjectTeacherCompactResponse {
 	out := make([]ClassSectionSubjectTeacherCompactResponse, 0, len(rows))
 	for i := range rows {
 		out = append(out, FromClassSectionSubjectTeacherModelCompact(rows[i]))
+	}
+	return out
+}
+
+// ===============================
+// Alias: "lite" = compact
+// ===============================
+
+// Semua pemanggilan lama yang pakai CSSTItemLite akan mendapatkan bentuk compact ini
+type CSSTItemLite = ClassSectionSubjectTeacherCompactResponse
+
+func CSSTLiteFromModel(m *csstModel.ClassSectionSubjectTeacherModel) CSSTItemLite {
+	if m == nil {
+		return CSSTItemLite{}
+	}
+	return FromClassSectionSubjectTeacherModelCompact(*m)
+}
+
+func CSSTLiteSliceFromModels(list []csstModel.ClassSectionSubjectTeacherModel) []CSSTItemLite {
+	out := make([]CSSTItemLite, 0, len(list))
+	for i := range list {
+		out = append(out, FromClassSectionSubjectTeacherModelCompact(list[i]))
 	}
 	return out
 }

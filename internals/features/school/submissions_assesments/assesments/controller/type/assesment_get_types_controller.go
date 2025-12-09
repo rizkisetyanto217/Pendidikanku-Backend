@@ -38,7 +38,13 @@ func atoiOr(def int, s string) int {
 
 /* ======================================================
    HANDLER: GET /assessment-types
-   Query: ?active=&q=&limit=&offset=&sort_by=&sort_dir=
+   Query:
+     ?active=
+     &q=
+     &id=
+     &name=
+     &type_category=training|daily_exam|exam (alias: category)
+     &limit=&offset=&sort_by=&sort_dir=
 ====================================================== */
 
 func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
@@ -121,6 +127,31 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 		filterID = &id
 	}
 
+	// 🔹 NEW: filter by type_category snapshot (training / daily_exam / exam)
+	typeCategoryRaw := strings.TrimSpace(c.Query("type_category"))
+	if typeCategoryRaw == "" {
+		// alias: ?category=
+		typeCategoryRaw = strings.TrimSpace(c.Query("category"))
+	}
+
+	var typeCategory *assessmentModel.AssessmentTypeCategory
+	if typeCategoryRaw != "" {
+		v := strings.ToLower(typeCategoryRaw)
+		switch v {
+		case string(assessmentModel.AssessmentTypeCategoryTraining),
+			string(assessmentModel.AssessmentTypeCategoryDailyExam),
+			string(assessmentModel.AssessmentTypeCategoryExam):
+			tc := assessmentModel.AssessmentTypeCategory(v)
+			typeCategory = &tc
+		default:
+			return helper.JsonError(
+				c,
+				fiber.StatusBadRequest,
+				"type_category tidak valid (harus salah satu dari: training, daily_exam, exam)",
+			)
+		}
+	}
+
 	// Paging & sorting
 	filt.Limit = atoiOr(20, c.Query("limit"))
 	filt.Offset = atoiOr(0, c.Query("offset"))
@@ -149,6 +180,11 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 	// 🔹 kalau id diisi → langsung filter exact id
 	if filterID != nil {
 		qry = qry.Where("assessment_type_id = ?", *filterID)
+	}
+
+	// 🔹 filter kategori type (enum assessment_type_enum)
+	if typeCategory != nil {
+		qry = qry.Where("assessment_type_category = ?", *typeCategory)
 	}
 
 	if filt.Q != nil {
