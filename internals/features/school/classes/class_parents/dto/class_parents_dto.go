@@ -686,6 +686,11 @@ type ClassParentCompact struct {
 	ClassParentID       uuid.UUID `json:"class_parent_id"`
 	ClassParentSchoolID uuid.UUID `json:"class_parent_school_id"`
 
+	ClassParentClassSectionActiveCount int32 `json:"class_parent_class_section_active_count"`
+	ClassParentClassSectionCount       int32 `json:"class_parent_class_section_count"`
+	ClassParentStudentActiveCount      int32 `json:"class_parent_student_active_count"`
+	ClassParentStudentCount            int32 `json:"class_parent_student_count"`
+
 	ClassParentName     string  `json:"class_parent_name"`
 	ClassParentCode     *string `json:"class_parent_code,omitempty"`
 	ClassParentSlug     *string `json:"class_parent_slug,omitempty"`
@@ -701,8 +706,12 @@ type ClassParentCompact struct {
 
 func ToClassParentCompact(cp *m.ClassParentModel) ClassParentCompact {
 	return ClassParentCompact{
-		ClassParentID:       cp.ClassParentID,
-		ClassParentSchoolID: cp.ClassParentSchoolID,
+		ClassParentID:                      cp.ClassParentID,
+		ClassParentSchoolID:                cp.ClassParentSchoolID,
+		ClassParentClassSectionActiveCount: cp.ClassParentClassSectionActiveCount,
+		ClassParentClassSectionCount:       cp.ClassParentClassSectionCount,
+		ClassParentStudentActiveCount:      cp.ClassParentStudentActiveCount,
+		ClassParentStudentCount:            cp.ClassParentStudentCount,
 
 		ClassParentName:     cp.ClassParentName,
 		ClassParentCode:     cp.ClassParentCode,

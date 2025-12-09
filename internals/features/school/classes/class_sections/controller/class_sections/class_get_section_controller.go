@@ -160,6 +160,10 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		}
 	}
 
+	// ---------- Mode (compact vs full) ----------
+	rawMode := strings.ToLower(strings.TrimSpace(c.Query("mode")))
+	isCompact := rawMode == "compact" || rawMode == "lite" || rawMode == "simple"
+
 	// ---------- Paging & sorting ----------
 	defaultSortBy := "created_at"
 	defaultOrder := "desc"
@@ -184,14 +188,13 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 	orderExpr := col + " " + strings.ToUpper(order)
 
 	// ---------- Filters ----------
-	// ---------- Filters ----------
 	var (
 		sectionIDs []uuid.UUID
 		classIDs   []uuid.UUID
-		parentIDs  []uuid.UUID // 🆕 filter by class_parent
+		parentIDs  []uuid.UUID // filter by class_parent
 		teacherIDs []uuid.UUID // filter by school_teacher (wali / asisten)
-		termIDs    []uuid.UUID // 🆕 filter by academic_term
-		roomIDs    []uuid.UUID // 🆕 filter by class_room
+		termIDs    []uuid.UUID // filter by academic_term
+		roomIDs    []uuid.UUID // filter by class_room
 		activeOnly *bool
 	)
 
@@ -213,7 +216,7 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		classIDs = ids
 	}
 
-	// 🆕 filter by academic_term_id / term_id (mendukung multi)
+	// filter by academic_term_id / term_id (mendukung multi)
 	rawTerm := strings.TrimSpace(c.Query("academic_term_id"))
 	if rawTerm == "" {
 		rawTerm = strings.TrimSpace(c.Query("term_id"))
@@ -226,7 +229,7 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		termIDs = ids
 	}
 
-	// 🆕 filter by class_room_id / room_id (mendukung multi)
+	// filter by class_room_id / room_id (mendukung multi)
 	rawRoom := strings.TrimSpace(c.Query("class_room_id"))
 	if rawRoom == "" {
 		rawRoom = strings.TrimSpace(c.Query("room_id"))
@@ -252,7 +255,7 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		teacherIDs = ids
 	}
 
-	// 🆕 filter by class_parent_id / parent_id (mendukung multi) via tabel classes
+	// filter by class_parent_id / parent_id (mendukung multi) via tabel classes
 	rawParent := strings.TrimSpace(c.Query("class_parent_id"))
 	if rawParent == "" {
 		rawParent = strings.TrimSpace(c.Query("parent_id"))
@@ -372,12 +375,12 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		tx = tx.Where("class_section_class_id IN ?", classIDs)
 	}
 
-	// 🆕 filter by academic_term
+	// filter by academic_term
 	if len(termIDs) > 0 {
 		tx = tx.Where("class_section_academic_term_id IN ?", termIDs)
 	}
 
-	// 🆕 filter by class_room
+	// filter by class_room
 	if len(roomIDs) > 0 {
 		tx = tx.Where("class_section_class_room_id IN ?", roomIDs)
 	}
@@ -472,7 +475,7 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 	for i := range compacts {
 		b, _ := json.Marshal(compacts[i])
 
-		// ✅ pastikan map-nya selalu non-nil
+		// pastikan map-nya selalu non-nil
 		m := fiber.Map{}
 		_ = json.Unmarshal(b, &m)
 
@@ -508,7 +511,10 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 			Where("class_section_subject_teacher_school_id = ?", schoolID).
 			Where("class_section_subject_teacher_class_section_id IN ?", targetIDs)
 
-		if activeOnly != nil {
+		// ⚙️ BEDANYA DI SINI:
+		// - mode=compact  → hormati filter is_active (hanya aktif / hanya non-aktif)
+		// - mode=full     → kirim SEMUA CSST terkait section, abaikan filter is_active
+		if activeOnly != nil && isCompact {
 			csstQ = csstQ.Where("class_section_subject_teacher_is_active = ?", *activeOnly)
 		}
 
@@ -564,8 +570,10 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 			Where("student_class_section_school_id = ?", schoolID).
 			Where("student_class_section_section_id IN ?", targetIDs)
 
-		// kalau is_active=true → hanya enrolment status=active
-		if activeOnly != nil && *activeOnly {
+		// ⚙️ BEDANYA DI SINI:
+		// - mode=compact + is_active=true → hanya enrolment status=active
+		// - mode=full                     → kirim semua enrolment (active/non-active)
+		if activeOnly != nil && *activeOnly && isCompact {
 			scsQ = scsQ.Where("student_class_section_status = ?", secModel.StudentClassSectionActive)
 		}
 

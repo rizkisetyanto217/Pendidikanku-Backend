@@ -1,10 +1,10 @@
 package controller
 
 import (
-	dto "madinahsalam_backend/internals/features/school/class_others/class_attendance_sessions/dto"
-	model "madinahsalam_backend/internals/features/school/class_others/class_attendance_sessions/model"
 	"strings"
 
+	dto "madinahsalam_backend/internals/features/school/class_others/class_attendance_sessions/dto"
+	model "madinahsalam_backend/internals/features/school/class_others/class_attendance_sessions/model"
 	helper "madinahsalam_backend/internals/helpers"
 
 	"github.com/gofiber/fiber/v2"
@@ -12,14 +12,17 @@ import (
 )
 
 /*
-	======================================================
-	  List
-	  GET /api/.../class-attendance-session-types
-	  Query:
-	    - q          : optional, search by name / slug
-	    - is_active  : optional, true/false
-	    - page       : default 1
-	    - per_page   : default 20, max 100
+======================================================
+
+	List
+	GET /api/.../class-attendance-session-types
+	Query:
+	  - q          : optional, search by name / slug
+	  - name       : optional, filter spesifik by name
+	  - is_active  : optional, true/false
+	  - mode       : optional, "full" (default) | "compact"
+	  - page       : default 1
+	  - per_page   : default 20, max 100
 
 ======================================================
 */
@@ -27,6 +30,12 @@ func (ctl *ClassAttendanceSessionTypeController) List(c *fiber.Ctx) error {
 	schoolID, err := getSchoolIDFromCtx(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
+
+	// mode response: full (default) | compact
+	mode := strings.ToLower(strings.TrimSpace(c.Query("mode")))
+	if mode != "" && mode != "full" && mode != "compact" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid mode, must be 'full' or 'compact'")
 	}
 
 	isActive, err := parseBoolQuery(c, "is_active")
@@ -48,6 +57,7 @@ func (ctl *ClassAttendanceSessionTypeController) List(c *fiber.Ctx) error {
 		dbq = dbq.Where("class_attendance_session_type_is_active = ?", *isActive)
 	}
 
+	// filter by id (optional)
 	idStr := strings.TrimSpace(c.Query("id"))
 	if idStr != "" {
 		id, err := uuid.Parse(idStr)
@@ -92,5 +102,24 @@ func (ctl *ClassAttendanceSessionTypeController) List(c *fiber.Ctx) error {
 	}
 
 	pagination := helper.BuildPaginationFromPage(total, paging.Page, paging.PerPage)
-	return helper.JsonList(c, "attendance session types list", dto.NewClassAttendanceSessionTypeDTOs(rows), pagination)
+
+	// =========================
+	//  Response by mode
+	// =========================
+	if mode == "compact" {
+		return helper.JsonList(
+			c,
+			"attendance session types list (compact)",
+			dto.NewClassAttendanceSessionTypeCompactDTOs(rows),
+			pagination,
+		)
+	}
+
+	// default: full
+	return helper.JsonList(
+		c,
+		"attendance session types list",
+		dto.NewClassAttendanceSessionTypeDTOs(rows),
+		pagination,
+	)
 }

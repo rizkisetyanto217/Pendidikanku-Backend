@@ -329,9 +329,13 @@ type OpeningWithClass struct {
 // tanpa semua stats berat.
 type AcademicTermCompactDTO struct {
 	AcademicTermID           uuid.UUID `json:"academic_term_id"`
-	AcademicTermSchoolID     uuid.UUID `json:"academic_term_school_id"`
 	AcademicTermAcademicYear string    `json:"academic_term_academic_year"`
 	AcademicTermName         string    `json:"academic_term_name"`
+
+	AcademicTermClassSectionCount       int `json:"academic_term_class_section_count"`
+	AcademicTermStudentCount            int `json:"academic_term_student_count"`
+	AcademicTermClassSectionActiveCount int `json:"academic_term_class_section_active_count"`
+	AcademicTermStudentActiveCount      int `json:"academic_term_student_active_count"`
 
 	AcademicTermStartDate time.Time `json:"academic_term_start_date"`
 	AcademicTermEndDate   time.Time `json:"academic_term_end_date"`
@@ -348,17 +352,20 @@ type AcademicTermCompactDTO struct {
 // Mapper dari model penuh → compact
 func FromModelToCompact(ent model.AcademicTermModel) AcademicTermCompactDTO {
 	return AcademicTermCompactDTO{
-		AcademicTermID:           ent.AcademicTermID,
-		AcademicTermSchoolID:     ent.AcademicTermSchoolID,
-		AcademicTermAcademicYear: ent.AcademicTermAcademicYear,
-		AcademicTermName:         ent.AcademicTermName,
-		AcademicTermStartDate:    ent.AcademicTermStartDate,
-		AcademicTermEndDate:      ent.AcademicTermEndDate,
-		AcademicTermIsActive:     ent.AcademicTermIsActive,
-		AcademicTermAngkatan:     ent.AcademicTermAngkatan,
-		AcademicTermCode:         ent.AcademicTermCode,
-		AcademicTermSlug:         ent.AcademicTermSlug,
-		AcademicTermPeriod:       ent.AcademicTermPeriod,
+		AcademicTermID:                      ent.AcademicTermID,
+		AcademicTermAcademicYear:            ent.AcademicTermAcademicYear,
+		AcademicTermName:                    ent.AcademicTermName,
+		AcademicTermClassSectionCount:       ent.AcademicTermClassSectionCount,
+		AcademicTermStudentCount:            ent.AcademicTermStudentCount,
+		AcademicTermClassSectionActiveCount: ent.AcademicTermClassSectionActiveCount,
+		AcademicTermStudentActiveCount:      ent.AcademicTermStudentActiveCount,
+		AcademicTermStartDate:               ent.AcademicTermStartDate,
+		AcademicTermEndDate:                 ent.AcademicTermEndDate,
+		AcademicTermIsActive:                ent.AcademicTermIsActive,
+		AcademicTermAngkatan:                ent.AcademicTermAngkatan,
+		AcademicTermCode:                    ent.AcademicTermCode,
+		AcademicTermSlug:                    ent.AcademicTermSlug,
+		AcademicTermPeriod:                  ent.AcademicTermPeriod,
 	}
 }
 

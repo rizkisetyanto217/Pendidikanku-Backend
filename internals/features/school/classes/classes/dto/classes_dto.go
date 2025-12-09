@@ -908,11 +908,6 @@ RESPONSE: COMPACT VERSION
 type ClassCompact struct {
 	// PK & relasi inti
 	ClassID       uuid.UUID `json:"class_id"`
-	ClassSchoolID uuid.UUID `json:"class_school_id"`
-
-	// Relasi
-	ClassClassParentID  uuid.UUID  `json:"class_class_parent_id"`
-	ClassAcademicTermID *uuid.UUID `json:"class_academic_term_id,omitempty"`
 
 	// Identitas
 	ClassSlug string `json:"class_slug"`
@@ -930,15 +925,6 @@ type ClassCompact struct {
 	ClassDeliveryMode *string    `json:"class_delivery_mode,omitempty"`
 	ClassStatus       string     `json:"class_status"`
 	ClassCompletedAt  *time.Time `json:"class_completed_at,omitempty"`
-
-	// Snapshots Parent (yang sering dipakai di list)
-	ClassClassParentNameCache  *string `json:"class_class_parent_name_cache,omitempty"`
-	ClassClassParentSlugCache  *string `json:"class_class_parent_slug_cache,omitempty"`
-	ClassClassParentLevelCache *int16  `json:"class_class_parent_level_cache,omitempty"`
-
-	// Snapshots Term (singkat)
-	ClassTermNameCache *string `json:"class_academic_term_name_cache,omitempty"`
-	ClassTermSlugCache *string `json:"class_academic_term_slug_cache,omitempty"`
 
 	// Stats aktif (sering dipakai di UI list)
 	ClassTotalClassSectionsActive    int `json:"class_total_class_sections_active"`
@@ -967,10 +953,6 @@ func FromModelCompact(m *model.ClassModel) ClassCompact {
 
 	return ClassCompact{
 		ClassID:       m.ClassID,
-		ClassSchoolID: m.ClassSchoolID,
-
-		ClassClassParentID:  m.ClassClassParentID,
-		ClassAcademicTermID: m.ClassAcademicTermID,
 
 		ClassSlug: m.ClassSlug,
 		ClassName: name,
@@ -984,13 +966,6 @@ func FromModelCompact(m *model.ClassModel) ClassCompact {
 		ClassDeliveryMode: m.ClassDeliveryMode,
 		ClassStatus:       m.ClassStatus,
 		ClassCompletedAt:  m.ClassCompletedAt,
-
-		ClassClassParentNameCache:  m.ClassClassParentNameCache,
-		ClassClassParentSlugCache:  m.ClassClassParentSlugCache,
-		ClassClassParentLevelCache: m.ClassClassParentLevelCache,
-
-		ClassTermNameCache: m.ClassAcademicTermNameCache,
-		ClassTermSlugCache: m.ClassAcademicTermSlugCache,
 
 		ClassTotalClassSectionsActive:    m.ClassClassSectionActiveCount,
 		ClassTotalStudentsActive:         m.ClassStudentActiveCount,

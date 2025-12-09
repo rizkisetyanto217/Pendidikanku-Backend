@@ -972,7 +972,7 @@ func teacherLiteFromJSON(raw datatypes.JSON) *TeacherPersonLite {
 
 type ClassSectionCompactResponse struct {
 	// Identitas & relasi utama
-	ClassSectionID       uuid.UUID `json:"class_section_id"`
+	ClassSectionID uuid.UUID `json:"class_section_id"`
 
 	ClassSectionAcademicTermID *uuid.UUID `json:"class_section_academic_term_id,omitempty"`
 
@@ -984,14 +984,14 @@ type ClassSectionCompactResponse struct {
 	ClassSectionImageURL *string `json:"class_section_image_url,omitempty"`
 
 	// Kuota & status singkat
-	ClassSectionQuotaTotal          *int `json:"class_section_quota_total,omitempty"`
-	ClassSectionTotalStudentsActive int  `json:"class_section_total_students_active"`
+	ClassSectionQuotaTotal *int `json:"class_section_quota_total,omitempty"`
+	ClassSectionQuotaTaken int  `json:"class_section_quota_taken"`
 
 	ClassSectionIsActive bool `json:"class_section_is_active"`
 
 	// Cache: term
-	ClassSectionAcademicTermNameCache         *string `json:"class_section_academic_term_name_cache,omitempty"`
-	ClassSectionAcademicTermSlugCache         *string `json:"class_section_academic_term_slug_cache,omitempty"`
+	ClassSectionAcademicTermNameCache *string `json:"class_section_academic_term_name_cache,omitempty"`
+	ClassSectionAcademicTermSlugCache *string `json:"class_section_academic_term_slug_cache,omitempty"`
 
 	// Homeroom & assistant (versi lite hasil parse JSON cache)
 	ClassSectionSchoolTeacherID          *uuid.UUID         `json:"class_section_school_teacher_id,omitempty"`
@@ -1029,7 +1029,7 @@ func FromModelClassSectionToCompact(cs *m.ClassSectionModel) ClassSectionCompact
 	asst := teacherLiteFromJSON(cs.ClassSectionAssistantSchoolTeacherCache)
 
 	return ClassSectionCompactResponse{
-		ClassSectionID:       cs.ClassSectionID,
+		ClassSectionID: cs.ClassSectionID,
 
 		ClassSectionAcademicTermID: cs.ClassSectionAcademicTermID,
 
@@ -1039,14 +1039,13 @@ func FromModelClassSectionToCompact(cs *m.ClassSectionModel) ClassSectionCompact
 
 		ClassSectionImageURL: cs.ClassSectionImageURL,
 
-		ClassSectionQuotaTotal:          cs.ClassSectionQuotaTotal,
-		ClassSectionTotalStudentsActive: cs.ClassSectionTotalStudentsActive,
-
-		ClassSectionIsActive: cs.ClassSectionIsActive,
+		ClassSectionQuotaTotal: cs.ClassSectionQuotaTotal,
+		ClassSectionQuotaTaken: cs.ClassSectionQuotaTaken,
+		ClassSectionIsActive:   cs.ClassSectionIsActive,
 
 		// caches: term
-		ClassSectionAcademicTermNameCache:         cs.ClassSectionAcademicTermNameCache,
-		ClassSectionAcademicTermSlugCache:         cs.ClassSectionAcademicTermSlugCache,
+		ClassSectionAcademicTermNameCache: cs.ClassSectionAcademicTermNameCache,
+		ClassSectionAcademicTermSlugCache: cs.ClassSectionAcademicTermSlugCache,
 
 		// teachers (lite)
 		ClassSectionSchoolTeacherID:          cs.ClassSectionSchoolTeacherID,

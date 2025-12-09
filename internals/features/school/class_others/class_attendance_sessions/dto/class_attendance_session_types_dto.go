@@ -112,3 +112,81 @@ func NewClassAttendanceSessionTypeDTOs(list []*attendanceModel.ClassAttendanceSe
 	}
 	return out
 }
+
+// file: internals/features/school/classes/attendance/dto/class_attendance_session_type_dto.go
+// (lanjutan dari kode yang sudah ada)
+
+/* ======================================================
+   DTO: COMPACT versi (tanpa tenant, meta, audit)
+====================================================== */
+
+type ClassAttendanceSessionTypeCompactDTO struct {
+	// PK
+	ClassAttendanceSessionTypeID uuid.UUID `json:"class_attendance_session_type_id"`
+
+	// identitas
+	ClassAttendanceSessionTypeSlug        string  `json:"class_attendance_session_type_slug"`
+	ClassAttendanceSessionTypeName        string  `json:"class_attendance_session_type_name"`
+	ClassAttendanceSessionTypeDescription *string `json:"class_attendance_session_type_description,omitempty"`
+
+	// tampilan
+	ClassAttendanceSessionTypeColor *string `json:"class_attendance_session_type_color,omitempty"`
+	ClassAttendanceSessionTypeIcon  *string `json:"class_attendance_session_type_icon,omitempty"`
+
+	// control umum
+	ClassAttendanceSessionTypeIsActive  bool `json:"class_attendance_session_type_is_active"`
+	ClassAttendanceSessionTypeSortOrder int  `json:"class_attendance_session_type_sort_order"`
+
+	// konfigurasi attendance (flag dasar)
+	ClassAttendanceSessionTypeAllowStudentSelfAttendance bool `json:"class_attendance_session_type_allow_student_self_attendance"`
+
+	// window absensi
+	ClassAttendanceSessionTypeAttendanceWindowMode         string `json:"class_attendance_session_type_attendance_window_mode"`
+	ClassAttendanceSessionTypeAttendanceOpenOffsetMinutes  *int   `json:"class_attendance_session_type_attendance_open_offset_minutes,omitempty"`
+	ClassAttendanceSessionTypeAttendanceCloseOffsetMinutes *int   `json:"class_attendance_session_type_attendance_close_offset_minutes,omitempty"`
+}
+
+/* ======================================================
+   Mapper: Model -> Compact DTO
+====================================================== */
+
+func NewClassAttendanceSessionTypeCompactDTO(m *attendanceModel.ClassAttendanceSessionTypeModel) *ClassAttendanceSessionTypeCompactDTO {
+	if m == nil {
+		return nil
+	}
+
+	return &ClassAttendanceSessionTypeCompactDTO{
+		ClassAttendanceSessionTypeID:          m.ClassAttendanceSessionTypeID,
+		ClassAttendanceSessionTypeSlug:        m.ClassAttendanceSessionTypeSlug,
+		ClassAttendanceSessionTypeName:        m.ClassAttendanceSessionTypeName,
+		ClassAttendanceSessionTypeDescription: m.ClassAttendanceSessionTypeDescription,
+
+		ClassAttendanceSessionTypeColor: m.ClassAttendanceSessionTypeColor,
+		ClassAttendanceSessionTypeIcon:  m.ClassAttendanceSessionTypeIcon,
+
+		ClassAttendanceSessionTypeIsActive:  m.ClassAttendanceSessionTypeIsActive,
+		ClassAttendanceSessionTypeSortOrder: m.ClassAttendanceSessionTypeSortOrder,
+
+		ClassAttendanceSessionTypeAllowStudentSelfAttendance: m.ClassAttendanceSessionTypeAllowStudentSelfAttendance,
+
+		ClassAttendanceSessionTypeAttendanceWindowMode:         string(m.ClassAttendanceSessionTypeAttendanceWindowMode),
+		ClassAttendanceSessionTypeAttendanceOpenOffsetMinutes:  m.ClassAttendanceSessionTypeAttendanceOpenOffsetMinutes,
+		ClassAttendanceSessionTypeAttendanceCloseOffsetMinutes: m.ClassAttendanceSessionTypeAttendanceCloseOffsetMinutes,
+	}
+}
+
+/* ======================================================
+   Mapper: Slice Model -> Slice Compact DTO
+====================================================== */
+
+func NewClassAttendanceSessionTypeCompactDTOs(list []*attendanceModel.ClassAttendanceSessionTypeModel) []*ClassAttendanceSessionTypeCompactDTO {
+	if len(list) == 0 {
+		return []*ClassAttendanceSessionTypeCompactDTO{}
+	}
+
+	out := make([]*ClassAttendanceSessionTypeCompactDTO, 0, len(list))
+	for _, m := range list {
+		out = append(out, NewClassAttendanceSessionTypeCompactDTO(m))
+	}
+	return out
+}
