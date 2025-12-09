@@ -15,8 +15,8 @@ import (
 
 // GET /quizzes
 // Catatan:
-//   - Semua config snapshot (shuffle, attempts, aggregation, dsb.)
-//     sudah ikut ter-serialize lewat dto.FromModel / FromModelWithQuestions.
+//   - Semua config + total soal (quiz_total_questions) sudah ikut ter-serialize
+//     lewat dto.FromModel (kalau Questions di-preload, dia ikut dimap).
 func (ctrl *QuizController) List(c *fiber.Ctx) error {
 	// Inject DB buat helper slug→id
 	c.Locals("DB", ctrl.DB)
@@ -124,55 +124,21 @@ func (ctrl *QuizController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// 10) Optional: count questions
-	var countMap map[uuid.UUID]int
-	if q.WithQuestionsCount && len(rows) > 0 {
-		countMap = make(map[uuid.UUID]int, len(rows))
-		ids := make([]uuid.UUID, 0, len(rows))
-		for i := range rows {
-			ids = append(ids, rows[i].QuizID)
-		}
-
-		type pair struct {
-			QuizID uuid.UUID `gorm:"column:quiz_id"`
-			N      int       `gorm:"column:n"`
-		}
-
-		var tmp []pair
-		if err := ctrl.DB.WithContext(c.Context()).
-			Table("quiz_questions").
-			Select("quiz_questions_quiz_id AS quiz_id, COUNT(*) AS n").
-			Where("quiz_questions_quiz_id IN ?", ids).
-			Group("quiz_questions_quiz_id").
-			Scan(&tmp).Error; err != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-		}
-		for _, t := range tmp {
-			countMap[t.QuizID] = t.N
-		}
-	}
-
-	// 11) DTO mapping
+	// 10) DTO mapping
 	out := make([]dto.QuizResponse, 0, len(rows))
 	for i := range rows {
-		var resp dto.QuizResponse
-		if q.WithQuestions {
-			resp = dto.FromModelWithQuestions(&rows[i])
-		} else {
-			resp = dto.FromModel(&rows[i])
-		}
+		resp := dto.FromModel(&rows[i]) // ⬅️ cukup satu fungsi ini saja
+
+		// WithQuestionsCount → pakai denorm quiz_total_questions
 		if q.WithQuestionsCount {
-			if n, ok := countMap[rows[i].QuizID]; ok {
-				resp.QuestionsCount = &n
-			} else {
-				z := 0
-				resp.QuestionsCount = &z
-			}
+			n := rows[i].QuizTotalQuestions
+			resp.QuestionsCount = &n
 		}
+
 		out = append(out, resp)
 	}
 
-	// 12) Response
+	// 11) Response
 	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)
 	return helper.JsonList(c, "ok", out, pg)
 }

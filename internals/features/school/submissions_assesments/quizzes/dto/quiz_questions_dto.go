@@ -196,6 +196,9 @@ type QuizLiteResponse struct {
 	QuizSchoolID     uuid.UUID  `json:"quiz_school_id"`
 	QuizAssessmentID *uuid.UUID `json:"quiz_assessment_id,omitempty"`
 
+	// NEW: relasi langsung ke assessment type
+	QuizAssessmentTypeID *uuid.UUID `json:"quiz_assessment_type_id,omitempty"`
+
 	QuizSlug *string `json:"quiz_slug,omitempty"`
 
 	QuizTitle        string  `json:"quiz_title"`
@@ -203,20 +206,8 @@ type QuizLiteResponse struct {
 	QuizIsPublished  bool    `json:"quiz_is_published"`
 	QuizTimeLimitSec *int    `json:"quiz_time_limit_sec,omitempty"`
 
-	// behaviour & scoring snapshot
-	QuizShuffleQuestionsSnapshot            bool   `json:"quiz_shuffle_questions_snapshot"`
-	QuizShuffleOptionsSnapshot              bool   `json:"quiz_shuffle_options_snapshot"`
-	QuizShowCorrectAfterSubmitSnapshot      bool   `json:"quiz_show_correct_after_submit_snapshot"`
-	QuizStrictModeSnapshot                  bool   `json:"quiz_strict_mode_snapshot"`
-	QuizTimeLimitMinSnapshot                *int   `json:"quiz_time_limit_min_snapshot,omitempty"`
-	QuizRequireLoginSnapshot                bool   `json:"quiz_require_login_snapshot"`
-	QuizShowScoreAfterSubmitSnapshot        bool   `json:"quiz_show_score_after_submit_snapshot"`
-	QuizShowCorrectAfterClosedSnapshot      bool   `json:"quiz_show_correct_after_closed_snapshot"`
-	QuizAllowReviewBeforeSubmitSnapshot     bool   `json:"quiz_allow_review_before_submit_snapshot"`
-	QuizRequireCompleteAttemptSnapshot      bool   `json:"quiz_require_complete_attempt_snapshot"`
-	QuizShowDetailsAfterAllAttemptsSnapshot bool   `json:"quiz_show_details_after_all_attempts_snapshot"`
-	QuizAttemptsAllowedSnapshot             int    `json:"quiz_attempts_allowed_snapshot"`
-	QuizScoreAggregationModeSnapshot        string `json:"quiz_score_aggregation_mode_snapshot"`
+	// denorm jumlah soal
+	QuizTotalQuestions int `json:"quiz_total_questions"`
 
 	QuizCreatedAt time.Time  `json:"quiz_created_at"`
 	QuizUpdatedAt time.Time  `json:"quiz_updated_at"`
@@ -267,7 +258,6 @@ func FromModelQuizQuestion(m *qmodel.QuizQuestionModel) *QuizQuestionResponse {
 	}
 
 	// Build lite quiz jika di-preload
-	// Build lite quiz jika di-preload (tapi sekarang "lite"-nya lumayan lengkap 😄)
 	var quizLite *QuizLiteResponse
 	if m.Quiz != nil {
 		var deletedAt *time.Time
@@ -277,9 +267,10 @@ func FromModelQuizQuestion(m *qmodel.QuizQuestionModel) *QuizQuestionResponse {
 		}
 
 		quizLite = &QuizLiteResponse{
-			QuizID:           m.Quiz.QuizID,
-			QuizSchoolID:     m.Quiz.QuizSchoolID,
-			QuizAssessmentID: m.Quiz.QuizAssessmentID,
+			QuizID:               m.Quiz.QuizID,
+			QuizSchoolID:         m.Quiz.QuizSchoolID,
+			QuizAssessmentID:     m.Quiz.QuizAssessmentID,
+			QuizAssessmentTypeID: m.Quiz.QuizAssessmentTypeID,
 
 			QuizSlug:         m.Quiz.QuizSlug,
 			QuizTitle:        m.Quiz.QuizTitle,
@@ -287,19 +278,7 @@ func FromModelQuizQuestion(m *qmodel.QuizQuestionModel) *QuizQuestionResponse {
 			QuizIsPublished:  m.Quiz.QuizIsPublished,
 			QuizTimeLimitSec: m.Quiz.QuizTimeLimitSec,
 
-			QuizShuffleQuestionsSnapshot:            m.Quiz.QuizShuffleQuestionsSnapshot,
-			QuizShuffleOptionsSnapshot:              m.Quiz.QuizShuffleOptionsSnapshot,
-			QuizShowCorrectAfterSubmitSnapshot:      m.Quiz.QuizShowCorrectAfterSubmitSnapshot,
-			QuizStrictModeSnapshot:                  m.Quiz.QuizStrictModeSnapshot,
-			QuizTimeLimitMinSnapshot:                m.Quiz.QuizTimeLimitMinSnapshot,
-			QuizRequireLoginSnapshot:                m.Quiz.QuizRequireLoginSnapshot,
-			QuizShowScoreAfterSubmitSnapshot:        m.Quiz.QuizShowScoreAfterSubmitSnapshot,
-			QuizShowCorrectAfterClosedSnapshot:      m.Quiz.QuizShowCorrectAfterClosedSnapshot,
-			QuizAllowReviewBeforeSubmitSnapshot:     m.Quiz.QuizAllowReviewBeforeSubmitSnapshot,
-			QuizRequireCompleteAttemptSnapshot:      m.Quiz.QuizRequireCompleteAttemptSnapshot,
-			QuizShowDetailsAfterAllAttemptsSnapshot: m.Quiz.QuizShowDetailsAfterAllAttemptsSnapshot,
-			QuizAttemptsAllowedSnapshot:             m.Quiz.QuizAttemptsAllowedSnapshot,
-			QuizScoreAggregationModeSnapshot:        m.Quiz.QuizScoreAggregationModeSnapshot,
+			QuizTotalQuestions: m.Quiz.QuizTotalQuestions,
 
 			QuizCreatedAt: m.Quiz.QuizCreatedAt,
 			QuizUpdatedAt: m.Quiz.QuizUpdatedAt,

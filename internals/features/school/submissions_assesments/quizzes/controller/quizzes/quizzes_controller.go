@@ -80,7 +80,7 @@ func applyFiltersQuizzes(db *gorm.DB, q *dto.ListQuizzesQuery) *gorm.DB {
 
 func preloadQuestions(tx *gorm.DB, q *dto.ListQuizzesQuery) *gorm.DB {
 	return tx.Preload("Questions", func(db *gorm.DB) *gorm.DB {
-		// HAPUS filter deleted_at
+		// HAPUS filter deleted_at (ikutin catatan lama)
 		if q.SchoolID != nil && *q.SchoolID != uuid.Nil {
 			db = db.Where("quiz_question_school_id = ?", *q.SchoolID)
 		}
@@ -175,7 +175,7 @@ func (ctrl *QuizController) Create(c *fiber.Ctx) error {
 	}
 	body.QuizSchoolID = mid
 
-	// Build model dari DTO (sudah termasuk snapshot behaviour & scoring)
+	// Build model dari DTO (relasi ke assessment & type diisi dari DTO)
 	m := body.ToModel()
 
 	// Generate slug (pakai body jika ada; else dari title) → pastikan unik per tenant (alive only)

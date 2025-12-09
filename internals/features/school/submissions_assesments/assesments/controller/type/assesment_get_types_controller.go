@@ -117,7 +117,7 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 		filt.Q = &q
 	}
 
-	// 🔹 NEW: filter by ID (?id=...)
+	// 🔹 filter by ID (?id=...)
 	var filterID *uuid.UUID
 	if idStr := strings.TrimSpace(c.Query("id")); idStr != "" {
 		id, err := uuid.Parse(idStr)
@@ -127,21 +127,21 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 		filterID = &id
 	}
 
-	// 🔹 NEW: filter by type_category snapshot (training / daily_exam / exam)
+	// 🔹 filter by type_category snapshot (training / daily_exam / exam)
 	typeCategoryRaw := strings.TrimSpace(c.Query("type_category"))
 	if typeCategoryRaw == "" {
 		// alias: ?category=
 		typeCategoryRaw = strings.TrimSpace(c.Query("category"))
 	}
 
-	var typeCategory *assessmentModel.AssessmentTypeCategory
+	var typeCategory *string
 	if typeCategoryRaw != "" {
 		v := strings.ToLower(typeCategoryRaw)
 		switch v {
-		case string(assessmentModel.AssessmentTypeCategoryTraining),
-			string(assessmentModel.AssessmentTypeCategoryDailyExam),
-			string(assessmentModel.AssessmentTypeCategoryExam):
-			tc := assessmentModel.AssessmentTypeCategory(v)
+		case assessmentModel.AssessmentTypeEnumTraining,
+			assessmentModel.AssessmentTypeEnumDailyExam,
+			assessmentModel.AssessmentTypeEnumExam:
+			tc := v
 			typeCategory = &tc
 		default:
 			return helper.JsonError(
@@ -182,9 +182,9 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 		qry = qry.Where("assessment_type_id = ?", *filterID)
 	}
 
-	// 🔹 filter kategori type (enum assessment_type_enum)
+	// 🔹 filter kategori type (enum assessment_type_enum, kolom: assessment_type)
 	if typeCategory != nil {
-		qry = qry.Where("assessment_type_category = ?", *typeCategory)
+		qry = qry.Where("assessment_type = ?", *typeCategory)
 	}
 
 	if filt.Q != nil {

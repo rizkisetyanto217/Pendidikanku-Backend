@@ -1,6 +1,6 @@
 -- +migrate Up
 -- =========================================
--- UP Migration — Assessments (3 tabel, final)
+-- UP Migration — Assessments (bagian ENUM + assessment_types)
 -- =========================================
 BEGIN;
 
@@ -65,12 +65,25 @@ CREATE TABLE IF NOT EXISTS assessment_types (
       assessment_type_weight_percent >= 0
       AND assessment_type_weight_percent <= 100
     ),
+
   assessment_type assessment_type_enum
-  NOT NULL DEFAULT 'training',
+    NOT NULL DEFAULT 'training',
 
   -- ============================
   -- DEFAULT QUIZ SETTINGS
   -- ============================
+
+  -- Batas waktu per soal (dalam DETIK).
+  -- NULL = tidak ada batas waktu.
+  assessment_type_time_per_question_sec INTEGER
+    CHECK (
+      assessment_type_time_per_question_sec IS NULL
+      OR assessment_type_time_per_question_sec >= 0
+    ),
+
+  -- Maksimal percobaan (attempts); minimal 1
+  assessment_type_attempts_allowed INTEGER NOT NULL DEFAULT 1
+    CHECK (assessment_type_attempts_allowed >= 1),
 
   -- Acak urutan pertanyaan & opsi
   assessment_type_shuffle_questions BOOLEAN NOT NULL DEFAULT FALSE,
@@ -85,14 +98,6 @@ CREATE TABLE IF NOT EXISTS assessment_types (
   --   - tidak boleh back,
   --   - dll
   assessment_type_strict_mode BOOLEAN NOT NULL DEFAULT FALSE,
-
-  -- Batas waktu (menit); NULL = tanpa batas
-  assessment_type_time_limit_min INTEGER
-    CHECK (assessment_type_time_limit_min IS NULL OR assessment_type_time_limit_min >= 0),
-
-  -- Maksimal percobaan (attempts); minimal 1
-  assessment_type_attempts_allowed INTEGER NOT NULL DEFAULT 1
-    CHECK (assessment_type_attempts_allowed >= 1),
 
   -- Wajib login saat mengerjakan
   assessment_type_require_login BOOLEAN NOT NULL DEFAULT TRUE,
@@ -152,6 +157,7 @@ CREATE INDEX IF NOT EXISTS idx_assessment_types_school_active
 CREATE INDEX IF NOT EXISTS brin_assessment_types_created_at
   ON assessment_types USING BRIN (assessment_type_created_at);
 
+COMMIT;
 
 -- =========================================================
 -- ENUM: assessment_kind_enum

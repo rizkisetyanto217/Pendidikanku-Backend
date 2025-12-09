@@ -40,7 +40,7 @@ type AssessmentTypeModel struct {
 	// Jenis besar assessment: training / daily_exam / exam
 	AssessmentTypeCategory string `gorm:"type:assessment_type_enum;not null;column:assessment_type" json:"assessment_type"`
 
-	// Bobot nilai akhir (0–100, boleh >100 kalau mau over-weight)
+	// Bobot nilai akhir (0–100)
 	AssessmentTypeWeightPercent float64 `gorm:"type:numeric(5,2);not null;column:assessment_type_weight_percent" json:"assessment_type_weight_percent"`
 
 	// ============== Default Quiz Settings (dari QuizSettings React) ==============
@@ -57,8 +57,8 @@ type AssessmentTypeModel struct {
 	// Strict mode
 	AssessmentTypeStrictMode bool `gorm:"not null;column:assessment_type_strict_mode" json:"assessment_type_strict_mode"`
 
-	// Batas waktu (menit); NULL = tanpa batas
-	AssessmentTypeTimeLimitMin *int `gorm:"type:int;column:assessment_type_time_limit_min" json:"assessment_type_time_limit_min"`
+	// Batas waktu per soal (detik); NULL = tanpa batas
+	AssessmentTypeTimePerQuestionSec *int `gorm:"type:int;column:assessment_type_time_per_question_sec" json:"assessment_type_time_per_question_sec"`
 
 	// Maksimal percobaan (min 1)
 	AssessmentTypeAttemptsAllowed int `gorm:"type:int;not null;column:assessment_type_attempts_allowed" json:"assessment_type_attempts_allowed"`

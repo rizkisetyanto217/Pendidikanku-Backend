@@ -38,7 +38,9 @@ type CreateAssessmentTypeRequest struct {
 	// ✅ ganti 2 flag jadi satu strict mode
 	AssessmentTypeStrictMode *bool `json:"assessment_type_strict_mode" validate:"omitempty"`
 
-	AssessmentTypeTimeLimitMin    *int  `json:"assessment_type_time_limit_min" validate:"omitempty,min=0"`
+	// Waktu per soal (dalam detik); NULL = tanpa batas
+	AssessmentTypeTimePerQuestionSec *int `json:"assessment_type_time_per_question_sec" validate:"omitempty,min=0"`
+
 	AssessmentTypeAttemptsAllowed *int  `json:"assessment_type_attempts_allowed" validate:"omitempty,min=1"`
 	AssessmentTypeRequireLogin    *bool `json:"assessment_type_require_login" validate:"omitempty"`
 
@@ -73,9 +75,12 @@ type PatchAssessmentTypeRequest struct {
 	AssessmentTypeShuffleOptions         *bool `json:"assessment_type_shuffle_options" validate:"omitempty"`
 	AssessmentTypeShowCorrectAfterSubmit *bool `json:"assessment_type_show_correct_after_submit" validate:"omitempty"`
 	AssessmentTypeStrictMode             *bool `json:"assessment_type_strict_mode" validate:"omitempty"`
-	AssessmentTypeTimeLimitMin           *int  `json:"assessment_type_time_limit_min" validate:"omitempty,min=0"`
-	AssessmentTypeAttemptsAllowed        *int  `json:"assessment_type_attempts_allowed" validate:"omitempty,min=1"`
-	AssessmentTypeRequireLogin           *bool `json:"assessment_type_require_login" validate:"omitempty"`
+
+	// Waktu per soal (detik); NULL = tanpa batas
+	AssessmentTypeTimePerQuestionSec *int `json:"assessment_type_time_per_question_sec" validate:"omitempty,min=0"`
+
+	AssessmentTypeAttemptsAllowed *int  `json:"assessment_type_attempts_allowed" validate:"omitempty,min=1"`
+	AssessmentTypeRequireLogin    *bool `json:"assessment_type_require_login" validate:"omitempty"`
 
 	AssessmentTypeAllowLateSubmission *bool    `json:"assessment_type_allow_late_submission" validate:"omitempty"`
 	AssessmentTypeLatePenaltyPercent  *float64 `json:"assessment_type_late_penalty_percent" validate:"omitempty,gte=0,lte=100"`
@@ -117,27 +122,26 @@ type AssessmentTypeResponse struct {
 	AssessmentTypeCategory string `json:"assessment_type"`
 
 	// Default quiz settings
-	AssessmentTypeShuffleQuestions       bool `json:"assessment_type_shuffle_questions"`
-	AssessmentTypeShuffleOptions         bool `json:"assessment_type_shuffle_options"`
-	AssessmentTypeShowCorrectAfterSubmit bool `json:"assessment_type_show_correct_after_submit"`
-	AssessmentTypeStrictMode             bool `json:"assessment_type_strict_mode"`
-	AssessmentTypeTimeLimitMin           *int `json:"assessment_type_time_limit_min,omitempty"`
-	AssessmentTypeAttemptsAllowed        int  `json:"assessment_type_attempts_allowed"`
-	AssessmentTypeRequireLogin           bool `json:"assessment_type_require_login"`
+	AssessmentTypeShuffleQuestions       bool    `json:"assessment_type_shuffle_questions"`
+	AssessmentTypeShuffleOptions         bool    `json:"assessment_type_shuffle_options"`
+	AssessmentTypeShowCorrectAfterSubmit bool    `json:"assessment_type_show_correct_after_submit"`
+	AssessmentTypeStrictMode             bool    `json:"assessment_type_strict_mode"`
+	AssessmentTypeTimePerQuestionSec     *int    `json:"assessment_type_time_per_question_sec,omitempty"`
+	AssessmentTypeAttemptsAllowed        int     `json:"assessment_type_attempts_allowed"`
+	AssessmentTypeRequireLogin           bool    `json:"assessment_type_require_login"`
+	AssessmentTypeIsActive               bool    `json:"assessment_type_is_active"`
+	AssessmentTypeIsGraded               bool    `json:"assessment_type_is_graded"`
+	AssessmentTypeAllowLateSubmission    bool    `json:"assessment_type_allow_late_submission"`
+	AssessmentTypeLatePenaltyPercent     float64 `json:"assessment_type_late_penalty_percent"`
+	AssessmentTypePassingScorePercent    float64 `json:"assessment_type_passing_score_percent"`
 
-	// Late & scoring policy
-	AssessmentTypeAllowLateSubmission         bool    `json:"assessment_type_allow_late_submission"`
-	AssessmentTypeLatePenaltyPercent          float64 `json:"assessment_type_late_penalty_percent"`
-	AssessmentTypePassingScorePercent         float64 `json:"assessment_type_passing_score_percent"`
-	AssessmentTypeScoreAggregationMode        string  `json:"assessment_type_score_aggregation_mode"`
-	AssessmentTypeShowScoreAfterSubmit        bool    `json:"assessment_type_show_score_after_submit"`
-	AssessmentTypeShowCorrectAfterClosed      bool    `json:"assessment_type_show_correct_after_closed"`
-	AssessmentTypeAllowReviewBeforeSubmit     bool    `json:"assessment_type_allow_review_before_submit"`
-	AssessmentTypeRequireCompleteAttempt      bool    `json:"assessment_type_require_complete_attempt"`
-	AssessmentTypeShowDetailsAfterAllAttempts bool    `json:"assessment_type_show_details_after_all_attempts"`
-
-	AssessmentTypeIsActive bool `json:"assessment_type_is_active"`
-	AssessmentTypeIsGraded bool `json:"assessment_type_is_graded"`
+	// Scoring & review behavior
+	AssessmentTypeScoreAggregationMode        string `json:"assessment_type_score_aggregation_mode"`
+	AssessmentTypeShowScoreAfterSubmit        bool   `json:"assessment_type_show_score_after_submit"`
+	AssessmentTypeShowCorrectAfterClosed      bool   `json:"assessment_type_show_correct_after_closed"`
+	AssessmentTypeAllowReviewBeforeSubmit     bool   `json:"assessment_type_allow_review_before_submit"`
+	AssessmentTypeRequireCompleteAttempt      bool   `json:"assessment_type_require_complete_attempt"`
+	AssessmentTypeShowDetailsAfterAllAttempts bool   `json:"assessment_type_show_details_after_all_attempts"`
 
 	AssessmentTypeCreatedAt time.Time `json:"assessment_type_created_at"`
 	AssessmentTypeUpdatedAt time.Time `json:"assessment_type_updated_at"`
@@ -195,9 +199,9 @@ func (r CreateAssessmentTypeRequest) ToModel() model.AssessmentTypeModel {
 		strictMode = *r.AssessmentTypeStrictMode
 	}
 
-	var timeLimit *int
-	if r.AssessmentTypeTimeLimitMin != nil {
-		timeLimit = r.AssessmentTypeTimeLimitMin
+	var timePerQuestion *int
+	if r.AssessmentTypeTimePerQuestionSec != nil {
+		timePerQuestion = r.AssessmentTypeTimePerQuestionSec
 	}
 
 	attempts := 1
@@ -278,7 +282,7 @@ func (r CreateAssessmentTypeRequest) ToModel() model.AssessmentTypeModel {
 		AssessmentTypeShuffleOptions:         shuffleOptions,
 		AssessmentTypeShowCorrectAfterSubmit: showCorrect,
 		AssessmentTypeStrictMode:             strictMode,
-		AssessmentTypeTimeLimitMin:           timeLimit,
+		AssessmentTypeTimePerQuestionSec:     timePerQuestion,
 		AssessmentTypeAttemptsAllowed:        attempts,
 		AssessmentTypeRequireLogin:           requireLogin,
 
@@ -332,10 +336,13 @@ func (p PatchAssessmentTypeRequest) Apply(m *model.AssessmentTypeModel) {
 	if p.AssessmentTypeStrictMode != nil {
 		m.AssessmentTypeStrictMode = *p.AssessmentTypeStrictMode
 	}
-	if p.AssessmentTypeTimeLimitMin != nil {
-		// Catatan: belum bisa clear ke NULL, hanya overwrite nilai.
-		m.AssessmentTypeTimeLimitMin = p.AssessmentTypeTimeLimitMin
+
+	if p.AssessmentTypeTimePerQuestionSec != nil {
+		// Catatan: sama seperti sebelumnya, ini hanya overwrite nilai.
+		// Kalau mau clear ke NULL via PATCH perlu pattern khusus (mis. flag explicit).
+		m.AssessmentTypeTimePerQuestionSec = p.AssessmentTypeTimePerQuestionSec
 	}
+
 	if p.AssessmentTypeAttemptsAllowed != nil {
 		m.AssessmentTypeAttemptsAllowed = *p.AssessmentTypeAttemptsAllowed
 	}
@@ -389,7 +396,7 @@ func FromModel(m model.AssessmentTypeModel) AssessmentTypeResponse {
 		AssessmentTypeShuffleOptions:         m.AssessmentTypeShuffleOptions,
 		AssessmentTypeShowCorrectAfterSubmit: m.AssessmentTypeShowCorrectAfterSubmit,
 		AssessmentTypeStrictMode:             m.AssessmentTypeStrictMode,
-		AssessmentTypeTimeLimitMin:           m.AssessmentTypeTimeLimitMin,
+		AssessmentTypeTimePerQuestionSec:     m.AssessmentTypeTimePerQuestionSec,
 		AssessmentTypeAttemptsAllowed:        m.AssessmentTypeAttemptsAllowed,
 		AssessmentTypeRequireLogin:           m.AssessmentTypeRequireLogin,
 

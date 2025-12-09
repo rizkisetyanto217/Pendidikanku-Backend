@@ -238,6 +238,14 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 		updates["assessment_type_is_graded"] = *req.AssessmentTypeIsGraded
 	}
 
+	// Ubah kategori besar assessment (training / daily_exam / exam)
+	if req.AssessmentTypeCategory != nil {
+		cat := strings.ToLower(strings.TrimSpace(*req.AssessmentTypeCategory))
+		if cat != "" {
+			updates["assessment_type"] = cat
+		}
+	}
+
 	// ===== quiz settings =====
 	if req.AssessmentTypeShuffleQuestions != nil {
 		updates["assessment_type_shuffle_questions"] = *req.AssessmentTypeShuffleQuestions
@@ -251,9 +259,10 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 	if req.AssessmentTypeStrictMode != nil {
 		updates["assessment_type_strict_mode"] = *req.AssessmentTypeStrictMode
 	}
-	if req.AssessmentTypeTimeLimitMin != nil {
-		// Catatan: dengan desain ini kita belum bisa clear ke NULL (tanpa batas) via PATCH.
-		updates["assessment_type_time_limit_min"] = *req.AssessmentTypeTimeLimitMin
+	if req.AssessmentTypeTimePerQuestionSec != nil {
+		// Catatan: dengan desain ini kita belum bisa clear ke NULL (tanpa batas) via PATCH
+		// kecuali pakai pola khusus (mis. payload khusus untuk "clear").
+		updates["assessment_type_time_per_question_sec"] = *req.AssessmentTypeTimePerQuestionSec
 	}
 	if req.AssessmentTypeAttemptsAllowed != nil {
 		updates["assessment_type_attempts_allowed"] = *req.AssessmentTypeAttemptsAllowed
@@ -293,10 +302,6 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 	if req.AssessmentTypeShowDetailsAfterAllAttempts != nil {
 		updates["assessment_type_show_details_after_all_attempts"] = *req.AssessmentTypeShowDetailsAfterAllAttempts
 	}
-
-	// NOTE: kalau nanti DTO Patch ditambah field kategori (training/daily_exam/exam),
-	// cukup tambahkan di sini:
-	// if req.AssessmentTypeCategory != nil { ... }
 
 	if len(updates) == 0 {
 		// Tidak ada perubahan: balikin data existing saja

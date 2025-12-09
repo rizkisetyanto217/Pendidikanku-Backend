@@ -1,6 +1,5 @@
 -- =========================================
--- UP Migration — TABLES + STRONG FKs (no selected_option_id)
--- Fresh create (tanpa ALTER / DO blocks)
+-- UP Migration — QUIZZES (FINAL, no snapshot behaviour)
 -- =========================================
 
 -- +migrate Up
@@ -8,54 +7,41 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- =========================================
--- 1) QUIZZES (FINAL)
+-- 1) QUIZZES
 -- =========================================
 CREATE TABLE IF NOT EXISTS quizzes (
   quiz_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   quiz_school_id UUID NOT NULL
     REFERENCES schools(school_id) ON DELETE CASCADE,
 
+  -- Relasi ke assessment (optional)
   quiz_assessment_id UUID
     REFERENCES assessments(assessment_id)
+    ON UPDATE CASCADE ON DELETE SET NULL,
+
+  -- 🔗 Relasi langsung ke assessment_types (optional, untuk menghindari double join)
+  quiz_assessment_type_id UUID
+    REFERENCES assessment_types(assessment_type_id)
     ON UPDATE CASCADE ON DELETE SET NULL,
 
   -- SLUG (opsional; unik per tenant saat alive)
   quiz_slug VARCHAR(160),
 
-  quiz_title          VARCHAR(180) NOT NULL,
-  quiz_description    TEXT,
-  quiz_is_published   BOOLEAN NOT NULL DEFAULT FALSE,
-  quiz_time_limit_sec INT,
+  quiz_title           VARCHAR(180) NOT NULL,
+  quiz_description     TEXT,
+  quiz_is_published    BOOLEAN NOT NULL DEFAULT FALSE,
+  quiz_time_limit_sec  INT,
   quiz_total_questions INT NOT NULL DEFAULT 0,
 
-  -- ==============================
-  -- Snapshot quiz behaviour & scoring
-  -- (dipindah dari AssessmentType/assessments)
-  -- ==============================
-
-  -- tampilan & UX pengerjaan
-  quiz_shuffle_questions_snapshot               BOOLEAN      NOT NULL DEFAULT FALSE,
-  quiz_shuffle_options_snapshot                 BOOLEAN      NOT NULL DEFAULT FALSE,
-  quiz_show_correct_after_submit_snapshot       BOOLEAN      NOT NULL DEFAULT TRUE,
-  quiz_strict_mode_snapshot                     BOOLEAN      NOT NULL DEFAULT FALSE,
-  quiz_time_limit_min_snapshot                  INT,
-  quiz_require_login_snapshot                   BOOLEAN      NOT NULL DEFAULT TRUE,
-  quiz_show_score_after_submit_snapshot         BOOLEAN      NOT NULL DEFAULT TRUE,
-  quiz_show_correct_after_closed_snapshot       BOOLEAN      NOT NULL DEFAULT FALSE,
-  quiz_allow_review_before_submit_snapshot      BOOLEAN      NOT NULL DEFAULT TRUE,
-  quiz_require_complete_attempt_snapshot        BOOLEAN      NOT NULL DEFAULT TRUE,
-  quiz_show_details_after_all_attempts_snapshot BOOLEAN      NOT NULL DEFAULT FALSE,
-
-  -- attempts & agregasi nilai (final score dari attempts quiz)
-  quiz_attempts_allowed_snapshot                INT          NOT NULL DEFAULT 1,
-  quiz_score_aggregation_mode_snapshot          VARCHAR(20)  NOT NULL DEFAULT 'latest',
-
+  -- Timestamps & soft delete
   quiz_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   quiz_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   quiz_deleted_at TIMESTAMPTZ
 );
 
+-- =========================================
 -- Indexes / Optimizations (quizzes)
+-- =========================================
 
 -- SLUG unik per tenant (alive only, case-insensitive)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_quizzes_slug_per_tenant_alive
@@ -83,6 +69,11 @@ CREATE INDEX IF NOT EXISTS idx_quizzes_assessment
   ON quizzes (quiz_assessment_id)
   WHERE quiz_deleted_at IS NULL;
 
+-- 🔗 Relasi langsung ke assessment_types (alive only)
+CREATE INDEX IF NOT EXISTS idx_quizzes_assessment_type
+  ON quizzes (quiz_assessment_type_id)
+  WHERE quiz_deleted_at IS NULL;
+
 -- Time-range besar (BRIN)
 CREATE INDEX IF NOT EXISTS brin_quizzes_created_at
   ON quizzes USING BRIN (quiz_created_at);
@@ -105,7 +96,6 @@ CREATE INDEX IF NOT EXISTS idx_quizzes_school_assessment
 CREATE INDEX IF NOT EXISTS idx_quizzes_school_created_desc
   ON quizzes (quiz_school_id, quiz_created_at DESC)
   WHERE quiz_deleted_at IS NULL;
-
 
 
 -- =========================================
