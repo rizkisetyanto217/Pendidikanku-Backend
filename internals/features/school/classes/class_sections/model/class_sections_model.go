@@ -72,7 +72,8 @@ func (e *ClassSectionSubjectTeachersEnrollmentMode) Scan(v any) error {
 }
 
 /* ===========================================
-   ENUM (DB): class_status_enum
+   ENUM (DB): class_s
+   tatus_enum
    =========================================== */
 
 type ClassSectionStatus string

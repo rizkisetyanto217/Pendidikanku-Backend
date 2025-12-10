@@ -119,6 +119,9 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	teacherIDStr := strings.TrimSpace(c.Query("teacher_id"))
 	subjectIDStr := strings.TrimSpace(c.Query("subject_id"))
 
+	// 🆕 teacher=me
+	teacherFlag := strings.TrimSpace(strings.ToLower(c.Query("teacher")))
+
 	// 🆕 filter by subject_name (LIKE, case-insensitive)
 	subjectName := strings.TrimSpace(strings.ToLower(c.Query("subject_name")))
 
@@ -205,7 +208,21 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 
 	// parse teacher & subject ID
 	var teacherID *uuid.UUID
-	if teacherIDStr != "" {
+
+	// 🆕 Prioritas: teacher=me → ambil dari token
+	if teacherFlag == "me" {
+		// pastikan user memang guru di school ini
+		if err := helperAuth.EnsureTeacherSchool(c, schoolID); err != nil {
+			return err
+		}
+
+		tid, err := helperAuth.GetTeacherIDFromToken(c)
+		if err != nil || tid == uuid.Nil {
+			return helper.JsonError(c, fiber.StatusUnauthorized, "teacher context not found in token")
+		}
+		teacherID = &tid
+
+	} else if teacherIDStr != "" {
 		if id, err := uuid.Parse(teacherIDStr); err == nil {
 			teacherID = &id
 		} else {

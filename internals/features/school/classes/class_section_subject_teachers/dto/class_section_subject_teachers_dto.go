@@ -574,26 +574,11 @@ func FromCSSTModels(rows []csstModel.ClassSectionSubjectTeacherModel) []ClassSec
 type ClassSectionSubjectTeacherCompactResponse struct {
 	// IDs & relations
 	ClassSectionSubjectTeacherID              uuid.UUID  `json:"class_section_subject_teacher_id"`
-	ClassSectionSubjectTeacherSchoolID        uuid.UUID  `json:"class_section_subject_teacher_school_id"`
-	ClassSectionSubjectTeacherClassSectionID  uuid.UUID  `json:"class_section_subject_teacher_class_section_id"`
 	ClassSectionSubjectTeacherClassSubjectID  uuid.UUID  `json:"class_section_subject_teacher_class_subject_id"`
 	ClassSectionSubjectTeacherSchoolTeacherID *uuid.UUID `json:"class_section_subject_teacher_school_teacher_id,omitempty"`
-	// asisten
-	ClassSectionSubjectTeacherAssistantSchoolTeacherID *uuid.UUID `json:"class_section_subject_teacher_assistant_school_teacher_id,omitempty"`
-
-	// slug (selalu string, aman buat FE)
-	ClassSectionSubjectTeacherSlug string `json:"class_section_subject_teacher_slug"`
 
 	// delivery mode (enum string)
 	ClassSectionSubjectTeacherDeliveryMode csstModel.ClassDeliveryMode `json:"class_section_subject_teacher_delivery_mode"`
-
-	// Agregat & kapasitas (diambil dari model)
-	ClassSectionSubjectTeacherTotalAttendance          int  `json:"class_section_subject_teacher_total_attendance"`
-	ClassSectionSubjectTeacherTotalMeetingsTarget      *int `json:"class_section_subject_teacher_total_meetings_target,omitempty"`
-	ClassSectionSubjectTeacherTotalAssessments         int  `json:"class_section_subject_teacher_total_assessments"`
-	ClassSectionSubjectTeacherTotalAssessmentsGraded   int  `json:"class_section_subject_teacher_total_assessments_graded"`
-	ClassSectionSubjectTeacherTotalAssessmentsUngraded int  `json:"class_section_subject_teacher_total_assessments_ungraded"`
-	ClassSectionSubjectTeacherTotalStudentsPassed      int  `json:"class_section_subject_teacher_total_students_passed"`
 
 	// SECTION cache
 	ClassSectionSubjectTeacherClassSectionSlugCache *string `json:"class_section_subject_teacher_class_section_slug_cache,omitempty"`
@@ -603,12 +588,6 @@ type ClassSectionSubjectTeacherCompactResponse struct {
 	// TEACHER cache (JSONB – tetap datatypes.JSON, sesuai permintaan JSONB)
 	ClassSectionSubjectTeacherSchoolTeacherSlugCache *string         `json:"class_section_subject_teacher_school_teacher_slug_cache,omitempty"`
 	ClassSectionSubjectTeacherSchoolTeacherCache     *datatypes.JSON `json:"class_section_subject_teacher_school_teacher_cache,omitempty"`
-	ClassSectionSubjectTeacherSchoolTeacherNameCache *string         `json:"class_section_subject_teacher_school_teacher_name_cache,omitempty"`
-
-	// Assistant teacher cache
-	ClassSectionSubjectTeacherAssistantSchoolTeacherSlugCache *string         `json:"class_section_subject_teacher_assistant_school_teacher_slug_cache,omitempty"`
-	ClassSectionSubjectTeacherAssistantSchoolTeacherCache     *datatypes.JSON `json:"class_section_subject_teacher_assistant_school_teacher_cache,omitempty"`
-	ClassSectionSubjectTeacherAssistantSchoolTeacherNameCache *string         `json:"class_section_subject_teacher_assistant_school_teacher_name_cache,omitempty"`
 
 	// SUBJECT cache
 	ClassSectionSubjectTeacherSubjectID        *uuid.UUID `json:"class_section_subject_teacher_subject_id,omitempty"`
@@ -618,7 +597,6 @@ type ClassSectionSubjectTeacherCompactResponse struct {
 
 	// Status & audit
 	ClassSectionSubjectTeacherStatus      string     `json:"class_section_subject_teacher_status"`
-	ClassSectionSubjectTeacherIsActive    bool       `json:"class_section_subject_teacher_is_active"`
 	ClassSectionSubjectTeacherCompletedAt *time.Time `json:"class_section_subject_teacher_completed_at,omitempty"`
 	ClassSectionSubjectTeacherCreatedAt   time.Time  `json:"class_section_subject_teacher_created_at"`
 	ClassSectionSubjectTeacherUpdatedAt   time.Time  `json:"class_section_subject_teacher_updated_at"`
@@ -626,36 +604,18 @@ type ClassSectionSubjectTeacherCompactResponse struct {
 
 // mapping single → compact
 func FromClassSectionSubjectTeacherModelCompact(mo csstModel.ClassSectionSubjectTeacherModel) ClassSectionSubjectTeacherCompactResponse {
-	// manual safe-string (ganti helper.SafeStrPtr)
-	slug := ""
-	if mo.ClassSectionSubjectTeacherSlug != nil {
-		slug = *mo.ClassSectionSubjectTeacherSlug
-	}
 
 	// status & aktif (derived)
 	statusStr := string(mo.ClassSectionSubjectTeacherStatus)
 	if statusStr == "" {
 		statusStr = "active"
 	}
-	isActive := mo.ClassSectionSubjectTeacherStatus == csstModel.ClassStatusActive
 
 	return ClassSectionSubjectTeacherCompactResponse{
-		ClassSectionSubjectTeacherID:                       mo.ClassSectionSubjectTeacherID,
-		ClassSectionSubjectTeacherSchoolID:                 mo.ClassSectionSubjectTeacherSchoolID,
-		ClassSectionSubjectTeacherClassSectionID:           mo.ClassSectionSubjectTeacherClassSectionID,
-		ClassSectionSubjectTeacherClassSubjectID:           mo.ClassSectionSubjectTeacherClassSubjectID,
-		ClassSectionSubjectTeacherSchoolTeacherID:          mo.ClassSectionSubjectTeacherSchoolTeacherID,
-		ClassSectionSubjectTeacherAssistantSchoolTeacherID: mo.ClassSectionSubjectTeacherAssistantSchoolTeacherID,
-
-		ClassSectionSubjectTeacherSlug:         slug,
-		ClassSectionSubjectTeacherDeliveryMode: mo.ClassSectionSubjectTeacherDeliveryMode,
-
-		ClassSectionSubjectTeacherTotalAttendance:          mo.ClassSectionSubjectTeacherTotalAttendance,
-		ClassSectionSubjectTeacherTotalMeetingsTarget:      mo.ClassSectionSubjectTeacherTotalMeetingsTarget,
-		ClassSectionSubjectTeacherTotalAssessments:         mo.ClassSectionSubjectTeacherTotalAssessments,
-		ClassSectionSubjectTeacherTotalAssessmentsGraded:   mo.ClassSectionSubjectTeacherTotalAssessmentsGraded,
-		ClassSectionSubjectTeacherTotalAssessmentsUngraded: mo.ClassSectionSubjectTeacherTotalAssessmentsUngraded,
-		ClassSectionSubjectTeacherTotalStudentsPassed:      mo.ClassSectionSubjectTeacherTotalStudentsPassed,
+		ClassSectionSubjectTeacherID:              mo.ClassSectionSubjectTeacherID,
+		ClassSectionSubjectTeacherClassSubjectID:  mo.ClassSectionSubjectTeacherClassSubjectID,
+		ClassSectionSubjectTeacherSchoolTeacherID: mo.ClassSectionSubjectTeacherSchoolTeacherID,
+		ClassSectionSubjectTeacherDeliveryMode:    mo.ClassSectionSubjectTeacherDeliveryMode,
 
 		ClassSectionSubjectTeacherClassSectionSlugCache: mo.ClassSectionSubjectTeacherClassSectionSlugCache,
 		ClassSectionSubjectTeacherClassSectionNameCache: mo.ClassSectionSubjectTeacherClassSectionNameCache,
@@ -663,11 +623,6 @@ func FromClassSectionSubjectTeacherModelCompact(mo csstModel.ClassSectionSubject
 
 		ClassSectionSubjectTeacherSchoolTeacherSlugCache: mo.ClassSectionSubjectTeacherSchoolTeacherSlugCache,
 		ClassSectionSubjectTeacherSchoolTeacherCache:     mo.ClassSectionSubjectTeacherSchoolTeacherCache,
-		ClassSectionSubjectTeacherSchoolTeacherNameCache: mo.ClassSectionSubjectTeacherSchoolTeacherNameCache,
-
-		ClassSectionSubjectTeacherAssistantSchoolTeacherSlugCache: mo.ClassSectionSubjectTeacherAssistantSchoolTeacherSlugCache,
-		ClassSectionSubjectTeacherAssistantSchoolTeacherCache:     mo.ClassSectionSubjectTeacherAssistantSchoolTeacherCache,
-		ClassSectionSubjectTeacherAssistantSchoolTeacherNameCache: mo.ClassSectionSubjectTeacherAssistantSchoolTeacherNameCache,
 
 		ClassSectionSubjectTeacherSubjectID:        mo.ClassSectionSubjectTeacherSubjectID,
 		ClassSectionSubjectTeacherSubjectNameCache: mo.ClassSectionSubjectTeacherSubjectNameCache,
@@ -675,7 +630,6 @@ func FromClassSectionSubjectTeacherModelCompact(mo csstModel.ClassSectionSubject
 		ClassSectionSubjectTeacherSubjectSlugCache: mo.ClassSectionSubjectTeacherSubjectSlugCache,
 
 		ClassSectionSubjectTeacherStatus:      statusStr,
-		ClassSectionSubjectTeacherIsActive:    isActive,
 		ClassSectionSubjectTeacherCompletedAt: mo.ClassSectionSubjectTeacherCompletedAt,
 		ClassSectionSubjectTeacherCreatedAt:   mo.ClassSectionSubjectTeacherCreatedAt,
 		ClassSectionSubjectTeacherUpdatedAt:   mo.ClassSectionSubjectTeacherUpdatedAt,

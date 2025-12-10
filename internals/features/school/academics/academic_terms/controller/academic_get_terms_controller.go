@@ -3,7 +3,6 @@ package controller
 
 import (
 	"errors"
-	"strconv"
 	"strings"
 
 	"github.com/go-playground/validator/v10"
@@ -281,14 +280,32 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 			Where("class_section_school_id = ? AND class_section_deleted_at IS NULL", schoolID).
 			Where("class_section_academic_term_id IN ?", termIDs)
 
-		// Tambahan filter untuk class_sections:
-		if v := strings.TrimSpace(c.Query("class_section_is_active")); v != "" {
-			if b, err := strconv.ParseBool(v); err == nil {
-				dbSec = dbSec.Where("class_section_is_active = ?", b)
-			} else {
-				return helper.JsonError(c, fiber.StatusBadRequest, "class_section_is_active invalid (bool)")
+			// Tambahan filter untuk class_sections:
+		if v := strings.TrimSpace(c.Query("class_section_status")); v != "" {
+			status := strings.ToLower(v)
+			switch status {
+			case "active", "inactive", "completed":
+				dbSec = dbSec.Where("class_section_status = ?", status)
+			default:
+				return helper.JsonError(
+					c,
+					fiber.StatusBadRequest,
+					"class_section_status invalid (allowed: active|inactive|completed)",
+				)
 			}
 		}
+
+		if v := strings.TrimSpace(c.Query("class_section_class_id")); v != "" {
+			if id, err := uuid.Parse(v); err == nil {
+				dbSec = dbSec.Where("class_section_class_id = ?", id)
+			}
+		}
+		if v := strings.TrimSpace(c.Query("class_section_class_parent_id")); v != "" {
+			if id, err := uuid.Parse(v); err == nil {
+				dbSec = dbSec.Where("class_section_class_parent_id = ?", id)
+			}
+		}
+
 		if v := strings.TrimSpace(c.Query("class_section_class_id")); v != "" {
 			if id, err := uuid.Parse(v); err == nil {
 				dbSec = dbSec.Where("class_section_class_id = ?", id)

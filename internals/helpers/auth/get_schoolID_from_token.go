@@ -585,15 +585,6 @@ func getUUIDFromLocalsOrClaim(c *fiber.Ctx, localsKey, claimKey, humanName strin
 	return uuid.Nil, fiber.NewError(fiber.StatusUnauthorized, humanName+" tidak ditemukan di token")
 }
 
-func GetTeacherIDFromToken(c *fiber.Ctx) (uuid.UUID, error) {
-	return getUUIDFromLocalsOrClaim(c, LocTeacherID, "teacher_id", "teacher_id")
-}
-
-// NOTE: schoolID di-ignore karena 1 sesi = 1 sekolah.
-func GetStudentIDFromToken(c *fiber.Ctx, _ uuid.UUID) (uuid.UUID, error) {
-	return getUUIDFromLocalsOrClaim(c, LocStudentID, "student_id", "student_id")
-}
-
 /* ============================================
    Teacher / Student “records” (compat, 1 sekolah)
    ============================================ */
@@ -989,6 +980,15 @@ func ResolveSchoolForDKMOrTeacher(c *fiber.Ctx) (uuid.UUID, error) {
 	}
 
 	return schoolID, nil
+}
+
+func GetTeacherIDFromToken(c *fiber.Ctx) (uuid.UUID, error) {
+	return getUUIDFromLocalsOrClaim(c, LocTeacherID, "teacher_id", "teacher_id")
+}
+
+// NOTE: schoolID di-ignore karena 1 sesi = 1 sekolah.
+func GetStudentIDFromToken(c *fiber.Ctx, _ uuid.UUID) (uuid.UUID, error) {
+	return getUUIDFromLocalsOrClaim(c, LocStudentID, "student_id", "student_id")
 }
 
 /* ============================================

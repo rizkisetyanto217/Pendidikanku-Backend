@@ -14,6 +14,18 @@ import (
 	dto "madinahsalam_backend/internals/features/school/classes/classes/dto"
 	classmodel "madinahsalam_backend/internals/features/school/classes/classes/model"
 
+	sectionmodel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
+
+	subjectmodel "madinahsalam_backend/internals/features/school/academics/subjects/model"
+
+	subjectdto "madinahsalam_backend/internals/features/school/academics/subjects/dto"
+
+	classparentdto "madinahsalam_backend/internals/features/school/classes/class_parents/dto"
+
+	classparentmodel "madinahsalam_backend/internals/features/school/classes/class_parents/model"
+
+	sectiondto "madinahsalam_backend/internals/features/school/classes/class_sections/dto"
+
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
@@ -314,16 +326,14 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	// - di mode full → pakai logika lama.
 	wantSubjects := false
 	wantSections := false
-	wantSubjectBooks := false
 	wantTermInclude := false
 	wantTermNested := false
 	wantParents := false
 
 	if !isCompact {
-		wantSubjects = includeAll || includes["subject"] || includes["subjects"]
+		// tambahin juga alias "class_subjects" biar konsisten
+		wantSubjects = includeAll || includes["subject"] || includes["subjects"] || includes["class_subjects"]
 		wantSections = includeAll || includes["class_sections"]
-		// subject_books selalu ikut kalau subjects diminta dan user minta "books/subject_books"
-		wantSubjectBooks = wantSubjects && (includeAll || includes["books"] || includes["subject_books"] || includes["class_subject_books"])
 
 		// 🆕 academic_terms flags
 		wantTermInclude = includeAll || includes["academic_term"] || includes["academic_terms"]
@@ -535,18 +545,9 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		IsActive     bool       `json:"academic_terms_is_active"`
 		Angkatan     *int       `json:"academic_terms_angkatan,omitempty"`
 	}
-	type parentLite struct {
-		ID        uuid.UUID  `json:"class_parent_id"                   gorm:"column:class_parent_id"`
-		Name      string     `json:"class_parent_name"                 gorm:"column:class_parent_name"`
-		Code      *string    `json:"class_parent_code,omitempty"       gorm:"column:class_parent_code"`
-		Level     *int16     `json:"class_parent_level,omitempty"      gorm:"column:class_parent_level"`
-		ImageURL  *string    `json:"class_parent_image_url,omitempty"  gorm:"column:class_parent_image_url"`
-		IsActive  bool       `json:"class_parent_is_active"            gorm:"column:class_parent_is_active"`
-		CreatedAt *time.Time `json:"class_parent_created_at,omitempty" gorm:"column:class_parent_created_at"`
-	}
 
 	termMap := map[uuid.UUID]termLite{}
-	parentMap := map[uuid.UUID]parentLite{}
+	parentMap := map[uuid.UUID]classparentdto.ClassParentCompact{}
 
 	if len(rows) > 0 {
 		tSet := map[uuid.UUID]struct{}{}
@@ -606,55 +607,26 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 			for id := range pSet {
 				ids = append(ids, id)
 			}
-			var ps []parentLite
-			parentTbl := detectParentTable(ctrl.DB)
-			if parentTbl != "" {
-				if err := ctrl.DB.
-					Table(parentTbl).
-					Select(`class_parent_id, class_parent_name, class_parent_code, class_parent_level,
-							class_parent_image_url, class_parent_is_active, class_parent_created_at`).
-					Where("class_parent_id IN ? AND class_parent_deleted_at IS NULL", ids).
-					Find(&ps).Error; err != nil {
-					return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil class_parent")
-				}
-				for _, r := range ps {
-					parentMap[r.ID] = r
-				}
+
+			var ps []classparentmodel.ClassParentModel
+			if err := ctrl.DB.
+				Model(&classparentmodel.ClassParentModel{}).
+				Where("class_parent_id IN ?", ids).
+				Where("class_parent_deleted_at IS NULL").
+				Find(&ps).Error; err != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil class_parent")
+			}
+
+			for i := range ps {
+				cpCompact := classparentdto.ToClassParentCompact(&ps[i])
+				parentMap[cpCompact.ClassParentID] = cpCompact
 			}
 		}
+
 	}
 
 	// 7) Prefetch subjects (opsional) — via class_parent (bukan class_id)
-	type BookLite struct {
-		ClassSubjectBookID uuid.UUID  `json:"class_subject_book_id"             gorm:"column:class_subject_book_id"`
-		BookID             uuid.UUID  `json:"book_id"                           gorm:"column:book_id"`
-		BookTitle          string     `json:"book_title"                        gorm:"column:book_title"`
-		BookAuthor         *string    `json:"book_author,omitempty"             gorm:"column:book_author"`
-		BookSlug           *string    `json:"book_slug,omitempty"               gorm:"column:book_slug"`
-		BookPublisher      *string    `json:"book_publisher,omitempty"          gorm:"column:book_publisher"`
-		BookYear           *int16     `json:"book_publication_year,omitempty"   gorm:"column:book_publication_year"`
-		BookImageURL       *string    `json:"book_image_url,omitempty"          gorm:"column:book_image_url"`
-		IsActive           bool       `json:"is_active"                         gorm:"column:is_active"`
-		Desc               *string    `json:"desc,omitempty"                    gorm:"column:desc"`
-		CreatedAt          *time.Time `json:"class_subject_book_created_at,omitempty" gorm:"column:class_subject_book_created_at"`
-	}
-
-	type SubjectLite struct {
-		ClassSubjectID uuid.UUID  `json:"class_subject_id"                     gorm:"column:class_subject_id"`
-		SubjectID      uuid.UUID  `json:"subject_id"                           gorm:"column:subject_id"`
-		SubjectName    string     `json:"subject_name"                         gorm:"column:subject_name"`
-		SubjectCode    *string    `json:"subject_code,omitempty"               gorm:"column:subject_code"`
-		SubjectSlug    *string    `json:"subject_slug,omitempty"               gorm:"column:subject_slug"`
-		IsCore         bool       `json:"is_core"                              gorm:"column:is_core"`
-		OrderIndex     *int       `json:"order_index,omitempty"                gorm:"column:order_index"`
-		MinPassing     *int       `json:"min_passing_score,omitempty"          gorm:"column:min_passing_score"`
-		WeightOnReport *int       `json:"weight_on_report,omitempty"           gorm:"column:weight_on_report"`
-		CreatedAt      *time.Time `json:"class_subject_created_at,omitempty"   gorm:"column:class_subject_created_at"`
-
-		Books []BookLite `json:"books,omitempty"`
-	}
-
-	subjectsMap := map[uuid.UUID][]SubjectLite{} // key: class_id
+	subjectsMap := map[uuid.UUID][]subjectdto.ClassSubjectCompactResponse{} // key: class_id
 
 	if wantSubjects && len(rows) > 0 {
 		// kumpulkan parent_id dari kelas pada halaman ini
@@ -663,179 +635,51 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 
 		for i := range rows {
 			p := rows[i].ClassClassParentID
+			// kalau class_parent_id kosong (uuid.Nil), skip aja
+			if p == uuid.Nil {
+				continue
+			}
 			classToParent[rows[i].ClassID] = p
 			parentSet[p] = struct{}{}
 		}
 
-		parentIDs := make([]uuid.UUID, 0, len(parentSet))
-		for id := range parentSet {
-			parentIDs = append(parentIDs, id)
-		}
+		if len(classToParent) == 0 || len(parentSet) == 0 {
+			// gak ada parent yang valid → gak ada subject juga
+		} else {
+			parentIDs := make([]uuid.UUID, 0, len(parentSet))
+			for id := range parentSet {
+				parentIDs = append(parentIDs, id)
+			}
 
-		type subjRow struct {
-			ParentID       uuid.UUID  `gorm:"column:parent_id"`
-			ClassSubjectID uuid.UUID  `gorm:"column:class_subject_id"`
-			SubjectID      uuid.UUID  `gorm:"column:subject_id"`
-			SubjectName    string     `gorm:"column:subject_name"`
-			SubjectCode    *string    `gorm:"column:subject_code"`
-			SubjectSlug    *string    `gorm:"column:subject_slug"`
-			IsCore         bool       `gorm:"column:is_core"`
-			OrderIndex     *int       `gorm:"column:order_index"`
-			MinPassing     *int       `gorm:"column:min_passing_score"`
-			WeightOnReport *int       `gorm:"column:weight_on_report"`
-			CreatedAt      *time.Time `gorm:"column:class_subject_created_at"`
-		}
+			var subjModels []subjectmodel.ClassSubjectModel
 
-		var sjRows []subjRow
-
-		if len(parentIDs) > 0 {
 			if err := ctrl.DB.
-				Table("class_subjects AS cs").
-				Where(`
-					cs.class_subject_school_id IN ?
-					AND cs.class_subject_is_active = TRUE
-					AND cs.class_subject_deleted_at IS NULL
-				`, schoolIDs).
-				Where("cs.class_subject_class_parent_id IN ?", parentIDs).
-				Select(`
-					cs.class_subject_class_parent_id AS parent_id,
-					cs.class_subject_id,
-					cs.class_subject_subject_id AS subject_id,
-					COALESCE(cs.class_subject_subject_name_cache, '') AS subject_name,
-					cs.class_subject_subject_code_cache AS subject_code,
-					cs.class_subject_subject_slug_cache AS subject_slug,
-					cs.class_subject_is_core AS is_core,
-					cs.class_subject_order_index AS order_index,
-					cs.class_subject_min_passing_score AS min_passing_score,
-					cs.class_subject_weight_on_report AS weight_on_report,
-					cs.class_subject_created_at AS class_subject_created_at
-				`).
-				Order("cs.class_subject_order_index NULLS LAST, LOWER(cs.class_subject_subject_name_cache) ASC").
-				Scan(&sjRows).Error; err != nil {
+				Where("class_subject_deleted_at IS NULL").
+				Where("class_subject_school_id IN ?", schoolIDs).
+				Where("class_subject_class_parent_id IN ?", parentIDs).
+				Where("class_subject_is_active = TRUE").
+				Order("class_subject_order_index NULLS LAST, LOWER(COALESCE(class_subject_subject_name_cache, '')) ASC").
+				Find(&subjModels).Error; err != nil {
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil subject kelas")
 			}
-		}
 
-		// ==== Prefetch class_subject_books untuk semua class_subject di halaman ini (opsional) ====
-		booksBySubject := map[uuid.UUID][]BookLite{}
-		if wantSubjectBooks && len(sjRows) > 0 {
-			subjectIDSet := map[uuid.UUID]struct{}{}
-			for _, r := range sjRows {
-				subjectIDSet[r.ClassSubjectID] = struct{}{}
-			}
-			subjectIDs := make([]uuid.UUID, 0, len(subjectIDSet))
-			for id := range subjectIDSet {
-				subjectIDs = append(subjectIDs, id)
+			// group per parent
+			parentSubjects := make(map[uuid.UUID][]subjectdto.ClassSubjectCompactResponse, len(parentIDs))
+			for _, sm := range subjModels {
+				compact := subjectdto.FromClassSubjectModelToCompact(sm)
+				parentID := sm.ClassSubjectClassParentID
+				parentSubjects[parentID] = append(parentSubjects[parentID], compact)
 			}
 
-			if len(subjectIDs) > 0 {
-				type bookRow struct {
-					ClassSubjectID     uuid.UUID  `gorm:"column:class_subject_id"`
-					ClassSubjectBookID uuid.UUID  `gorm:"column:class_subject_book_id"`
-					BookID             uuid.UUID  `gorm:"column:book_id"`
-					BookTitle          string     `gorm:"column:book_title"`
-					BookAuthor         *string    `gorm:"column:book_author"`
-					BookSlug           *string    `gorm:"column:book_slug"`
-					BookPublisher      *string    `gorm:"column:book_publisher"`
-					BookYear           *int16     `gorm:"column:book_publication_year"`
-					BookImageURL       *string    `gorm:"column:book_image_url"`
-					IsActive           bool       `gorm:"column:is_active"`
-					Desc               *string    `gorm:"column:desc"`
-					CreatedAt          *time.Time `gorm:"column:class_subject_book_created_at"`
-				}
-
-				var bRows []bookRow
-				if err := ctrl.DB.
-					Table("class_subject_books AS csb").
-					Select(`
-						csb.class_subject_book_class_subject_id AS class_subject_id,
-						csb.class_subject_book_id,
-						csb.class_subject_book_book_id AS book_id,
-						csb.class_subject_book_book_title_cache AS book_title,
-						csb.class_subject_book_book_author_cache AS book_author,
-						csb.class_subject_book_book_slug_cache AS book_slug,
-						csb.class_subject_book_book_publisher_cache AS book_publisher,
-						csb.class_subject_book_book_publication_year_cache AS book_publication_year,
-						csb.class_subject_book_book_image_url_cache AS book_image_url,
-						csb.class_subject_book_is_active AS is_active,
-						csb.class_subject_book_desc AS desc,
-						csb.class_subject_book_created_at
-					`).
-					Where("csb.class_subject_book_deleted_at IS NULL").
-					Where("csb.class_subject_book_school_id IN ?", schoolIDs).
-					Where("csb.class_subject_book_class_subject_id IN ?", subjectIDs).
-					Order("LOWER(csb.class_subject_book_book_title_cache) ASC, csb.class_subject_book_created_at DESC").
-					Scan(&bRows).Error; err != nil {
-					return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil buku subject kelas")
-				}
-
-				for _, br := range bRows {
-					booksBySubject[br.ClassSubjectID] = append(booksBySubject[br.ClassSubjectID], BookLite{
-						ClassSubjectBookID: br.ClassSubjectBookID,
-						BookID:             br.BookID,
-						BookTitle:          br.BookTitle,
-						BookAuthor:         br.BookAuthor,
-						BookSlug:           br.BookSlug,
-						BookPublisher:      br.BookPublisher,
-						BookYear:           br.BookYear,
-						BookImageURL:       br.BookImageURL,
-						IsActive:           br.IsActive,
-						Desc:               br.Desc,
-						CreatedAt:          br.CreatedAt,
-					})
-				}
+			// mapping parent → class
+			for classID, parentID := range classToParent {
+				subjectsMap[classID] = parentSubjects[parentID]
 			}
-		}
-
-		parentSubjects := make(map[uuid.UUID][]SubjectLite, len(parentIDs))
-		for _, r := range sjRows {
-			parentSubjects[r.ParentID] = append(parentSubjects[r.ParentID], SubjectLite{
-				ClassSubjectID: r.ClassSubjectID,
-				SubjectID:      r.SubjectID,
-				SubjectName:    r.SubjectName,
-				SubjectCode:    r.SubjectCode,
-				SubjectSlug:    r.SubjectSlug,
-				IsCore:         r.IsCore,
-				OrderIndex:     r.OrderIndex,
-				MinPassing:     r.MinPassing,
-				WeightOnReport: r.WeightOnReport,
-				CreatedAt:      r.CreatedAt,
-				Books:          booksBySubject[r.ClassSubjectID],
-			})
-		}
-
-		for classID, parentID := range classToParent {
-			subjectsMap[classID] = parentSubjects[parentID]
 		}
 	}
 
 	// 7b) Prefetch class sections (opsional)
-	type SectionLite struct {
-		ClassSectionID      uuid.UUID `json:"class_section_id" gorm:"column:class_section_id"`
-		ClassSectionClassID uuid.UUID `json:"class_section_class_id" gorm:"column:class_section_class_id"`
-		Slug                string    `json:"class_section_slug" gorm:"column:class_section_slug"`
-		Name                string    `json:"class_section_name" gorm:"column:class_section_name"`
-		Code                *string   `json:"class_section_code,omitempty" gorm:"column:class_section_code"`
-
-		// pakai quota total sebagai capacity
-		Capacity *int `json:"class_section_capacity,omitempty" gorm:"column:class_section_quota_total"`
-
-		// total siswa aktif (kolom baru di model)
-		TotalStudents int  `json:"class_section_total_students" gorm:"column:class_section_total_students_active"`
-		IsActive      bool `json:"class_section_is_active" gorm:"column:class_section_is_active"`
-
-		// room name masih ada sebagai cache kolom biasa
-		RoomNameSnap *string `json:"class_section_room_name_cache,omitempty" gorm:"column:class_section_class_room_name_cache"`
-
-		// term id section
-		TermID *uuid.UUID `json:"class_section_term_id,omitempty" gorm:"column:class_section_academic_term_id"`
-
-		// counter CSST → mapping ke kolom panjang di schema baru
-		CSSTCount       int `json:"class_sections_subject_teachers_count" gorm:"column:class_section_total_class_class_section_subject_teachers"`
-		CSSTActiveCount int `json:"class_sections_subject_teachers_active_count" gorm:"column:class_section_total_class_class_section_subject_teachers_active"`
-	}
-
-	sectionsMap := map[uuid.UUID][]SectionLite{}
+	sectionsMap := map[uuid.UUID][]sectiondto.ClassSectionCompactResponse{}
 
 	if wantSections && len(rows) > 0 {
 		classIDs2 := make([]uuid.UUID, 0, len(rows))
@@ -843,49 +687,41 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 			classIDs2 = append(classIDs2, rows[i].ClassID)
 		}
 
+		var secModels []sectionmodel.ClassSectionModel
+
 		txSec := ctrl.DB.
-			Table("class_sections").
-			Select(`
-			class_section_id,
-			class_section_school_id,
-			class_section_class_id,
-			class_section_slug,
-			class_section_name,
-			class_section_code,
-			class_section_quota_total,
-			class_section_total_students_active,
-			class_section_is_active,
-			class_section_class_room_name_cache,
-			class_section_academic_term_id,
-			class_section_total_class_class_section_subject_teachers,
-			class_section_total_class_class_section_subject_teachers_active
-		`).
 			Where("class_section_deleted_at IS NULL").
 			Where("class_section_school_id IN ?", schoolIDs).
 			Where("class_section_class_id IN ?", classIDs2)
 
+		// 🔁 ganti filter: pakai status enum, bukan is_active
 		if sectionsOnlyActive {
-			txSec = txSec.Where("class_section_is_active = TRUE")
+			txSec = txSec.Where("class_section_status = ?", sectionmodel.ClassStatusActive)
 		}
 
 		txSec = txSec.Order("LOWER(class_section_name) ASC, class_section_created_at DESC")
 
-		var secRows []SectionLite
-		if err := txSec.Scan(&secRows).Error; err != nil {
+		if err := txSec.Find(&secModels).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil class sections")
 		}
-		for _, s := range secRows {
-			sectionsMap[s.ClassSectionClassID] = append(sectionsMap[s.ClassSectionClassID], s)
+
+		for _, cs := range secModels {
+			// class_id ada di model, bukan di compact DTO
+			if cs.ClassSectionClassID == nil {
+				continue
+			}
+			compact := sectiondto.FromModelClassSectionToCompact(&cs)
+			sectionsMap[*cs.ClassSectionClassID] = append(sectionsMap[*cs.ClassSectionClassID], compact)
 		}
 	}
 
 	// 8) Compose output (pertahankan urutan page)
 	type classWithExpand struct {
 		*dto.ClassResponse `json:",inline"`
-		AcademicTerms      *termLite     `json:"academic_terms,omitempty"`
-		ClassParents       *parentLite   `json:"class_parents,omitempty"`
-		Subjects           []SubjectLite `json:"subjects,omitempty"`
-		ClassSections      []SectionLite `json:"class_sections,omitempty"`
+		AcademicTerms      *termLite                                `json:"academic_terms,omitempty"`
+		ClassParents       *classparentdto.ClassParentCompact       `json:"class_parents,omitempty"`
+		ClassSubjects      []subjectdto.ClassSubjectCompactResponse `json:"class_subjects,omitempty"`
+		ClassSections      []sectiondto.ClassSectionCompactResponse `json:"class_sections,omitempty"`
 	}
 
 	rowByID := make(map[uuid.UUID]*classmodel.ClassModel, len(rows))
@@ -919,11 +755,13 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		}
 
 		if wantSubjects {
-			item.Subjects = subjectsMap[r.ClassID]
+			item.ClassSubjects = subjectsMap[r.ClassID]
 		}
+
 		if wantSections {
 			item.ClassSections = sectionsMap[r.ClassID]
 		}
+
 		out = append(out, item)
 	}
 
@@ -936,7 +774,6 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	//       "academic_terms": [ ... ]
 	//   }
 	// }
-
 	includePayload := fiber.Map{}
 
 	// ⬇️ classes hanya dimasukkan ke include kalau explicitly diminta
@@ -944,9 +781,18 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		includePayload["classes"] = out
 	}
 
+	// ⬇️ class_subjects ikut include kalau diminta via ?include=class_subjects / subjects / subject / all
+	if wantSubjects && len(subjectsMap) > 0 {
+		allSubjects := make([]subjectdto.ClassSubjectCompactResponse, 0)
+		for _, list := range subjectsMap {
+			allSubjects = append(allSubjects, list...)
+		}
+		includePayload["class_subjects"] = allSubjects
+	}
+
 	// ⬇️ class_sections ikut include kalau diminta via ?include=class_sections / all
 	if wantSections && len(sectionsMap) > 0 {
-		allSections := make([]SectionLite, 0)
+		allSections := make([]sectiondto.ClassSectionCompactResponse, 0)
 		for _, list := range sectionsMap {
 			allSections = append(allSections, list...)
 		}
@@ -961,6 +807,16 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 			terms = append(terms, tCopy)
 		}
 		includePayload["academic_terms"] = terms
+	}
+
+	// ⬇️ class_parents unik → ikut include kalau diminta via ?include=class_parent(s) / all
+	if wantParents && len(parentMap) > 0 {
+		parents := make([]classparentdto.ClassParentCompact, 0, len(parentMap))
+		for _, p := range parentMap {
+			pCopy := p
+			parents = append(parents, pCopy)
+		}
+		includePayload["class_parents"] = parents
 	}
 
 	if len(includePayload) > 0 {

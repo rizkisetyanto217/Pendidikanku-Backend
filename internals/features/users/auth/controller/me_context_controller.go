@@ -168,12 +168,12 @@ func (ac *AuthController) GetMyContext(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal ambil school: "+err.Error())
 	}
 
-	// 4b) Class sections (filter aktif + soft delete sesuai model)
+	// 4b) Class sections (filter status ACTIVE + soft delete sesuai model)
 	var sections []classModel.ClassSectionModel
 	if err := ac.DB.WithContext(c.Context()).
 		Where("class_section_school_id IN ?", schoolIDs).
 		Where("class_section_deleted_at IS NULL").
-		Where("class_section_is_active = ?", true).
+		Where("class_section_status = ?", classModel.ClassStatusActive).
 		Find(&sections).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal ambil class_sections: "+err.Error())
 	}

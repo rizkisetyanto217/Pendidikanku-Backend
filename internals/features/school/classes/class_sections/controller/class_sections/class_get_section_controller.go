@@ -112,42 +112,21 @@ func buildAcademicTermInclude(list []secModel.ClassSectionModel) []AcademicTermL
 	return out
 }
 
-// GET /api/{a|u}/:school_id/class-sections/list
-// GET /api/{a|u}/:school_id/class-sections/list
+// GET /api/{a|u}/class-sections/list  (school_id dari token / active-school)
 func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
-	// ---------- School context: token > slug/id ----------
-	var schoolID uuid.UUID
+	// ---------- School context dari helperAuth ----------
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
+	if err != nil {
+		// err sudah berupa JsonError dari helper
+		return err
+	}
+	if schoolID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "school context not found in token")
+	}
 
-	// 1) Coba dari token dulu (student/teacher/dkm/admin/bendahara)
-	if sid, errTok := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); errTok == nil && sid != uuid.Nil {
-		schoolID = sid
-	} else {
-		// 2) Fallback ke ResolveSchoolContext (path param / header / dll)
-		mc, err := helperAuth.ResolveSchoolContext(c)
-		if err != nil {
-			if fe, ok := err.(*fiber.Error); ok {
-				return helper.JsonError(c, fe.Code, fe.Message)
-			}
-			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-		}
-
-		switch {
-		case mc.ID != uuid.Nil:
-			schoolID = mc.ID
-
-		case strings.TrimSpace(mc.Slug) != "":
-			id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
-			if er != nil {
-				if er == gorm.ErrRecordNotFound {
-					return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
-				}
-				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
-			}
-			schoolID = id
-
-		default:
-			return helper.JsonError(c, fiber.StatusBadRequest, helperAuth.ErrSchoolContextMissing.Error())
-		}
+	// Guard: minimal member sekolah (murid/guru/dkm/admin/bendahara)
+	if err := helperAuth.EnsureMemberSchool(c, schoolID); err != nil {
+		return err
 	}
 
 	// ---------- Search term ----------
@@ -256,6 +235,15 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		teacherIDs = ids
 	}
 
+	// 🔥 filter teacher=me → ambil school_teacher_id dari token (primary)
+	if strings.EqualFold(strings.TrimSpace(c.Query("teacher")), "me") {
+		tid, err := helperAuth.GetPrimarySchoolTeacherID(c)
+		if err != nil || tid == uuid.Nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Context guru (teacher_id) tidak ditemukan di token")
+		}
+		teacherIDs = []uuid.UUID{tid}
+	}
+
 	// filter by class_parent_id / parent_id (mendukung multi) via tabel classes
 	rawParent := strings.TrimSpace(c.Query("class_parent_id"))
 	if rawParent == "" {
@@ -357,6 +345,68 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		}
 	}
 
+	// 🔥 filter student=me → limit ke section yang diikuti murid ini
+	if strings.EqualFold(strings.TrimSpace(c.Query("student")), "me") {
+		studentID, err := helperAuth.ResolveStudentIDFromContext(c, schoolID)
+		if err != nil {
+			// err sudah JsonError dari helper
+			return err
+		}
+
+		type scRow struct {
+			SectionID uuid.UUID `gorm:"column:student_class_section_section_id"`
+		}
+
+		scQ := ctrl.DB.
+			Model(&secModel.StudentClassSection{}).
+			Select("student_class_section_section_id").
+			Where("student_class_section_deleted_at IS NULL").
+			Where("student_class_section_school_id = ?", schoolID).
+			Where("student_class_section_student_id = ?", studentID)
+
+		// Kalau is_active=true → hanya enrolment aktif
+		if activeOnly != nil && *activeOnly {
+			scQ = scQ.Where("student_class_section_status = ?", secModel.StudentClassSectionActive)
+		}
+
+		var scs []scRow
+		if err := scQ.Scan(&scs).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memproses filter student=me")
+		}
+
+		if len(scs) == 0 {
+			pagination := helper.BuildPaginationFromOffset(0, pg.Offset, pg.Limit)
+			return helper.JsonListWithInclude(c, "ok", []any{}, fiber.Map{}, pagination)
+		}
+
+		// List section dari enrolment murid
+		enrolledSectionIDs := make([]uuid.UUID, 0, len(scs))
+		for _, r := range scs {
+			enrolledSectionIDs = append(enrolledSectionIDs, r.SectionID)
+		}
+
+		if len(sectionIDs) > 0 {
+			// Intersect dgn filter section_id sebelumnya (kalau ada)
+			allowed := make(map[uuid.UUID]struct{}, len(enrolledSectionIDs))
+			for _, id := range enrolledSectionIDs {
+				allowed[id] = struct{}{}
+			}
+			filtered := make([]uuid.UUID, 0, len(sectionIDs))
+			for _, id := range sectionIDs {
+				if _, ok := allowed[id]; ok {
+					filtered = append(filtered, id)
+				}
+			}
+			if len(filtered) == 0 {
+				pagination := helper.BuildPaginationFromOffset(0, pg.Offset, pg.Limit)
+				return helper.JsonListWithInclude(c, "ok", []any{}, fiber.Map{}, pagination)
+			}
+			sectionIDs = filtered
+		} else {
+			sectionIDs = enrolledSectionIDs
+		}
+	}
+
 	// ---------- Query base ----------
 	tx := ctrl.DB.
 		Model(&secModel.ClassSectionModel{}).
@@ -390,7 +440,13 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 	}
 
 	if activeOnly != nil {
-		tx = tx.Where("class_section_is_active = ?", *activeOnly)
+		if *activeOnly {
+			// hanya section dengan status ACTIVE
+			tx = tx.Where("class_section_status = ?", secModel.ClassStatusActive)
+		} else {
+			// semua section yang TIDAK active (inactive / completed / dst)
+			tx = tx.Where("class_section_status <> ?", secModel.ClassStatusActive)
+		}
 	}
 
 	if searchTerm != "" {
@@ -426,14 +482,13 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 	//  Build base DTO (compact/full)
 	// ============================
 	var (
-		compactItems []secDTO.ClassSectionCompactResponse // ganti dengan tipe kamu
-		fullItems    []secDTO.ClassSectionResponse        // ganti dengan tipe kamu
+		compactItems []secDTO.ClassSectionCompactResponse
+		fullItems    []secDTO.ClassSectionResponse
 	)
 
 	if isCompact {
 		compactItems = secDTO.FromSectionModelsToCompact(rows)
 	} else {
-		// NOTE: sesuaikan dengan fungsi DTO "full" yang kamu punya
 		fullItems = secDTO.FromSectionModels(rows)
 	}
 

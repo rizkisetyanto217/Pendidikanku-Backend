@@ -232,17 +232,23 @@ func (r *BookUpdateRequest) ApplyToModel(m *model.BookModel) {
 	}
 }
 
-/* =========================================================
-   (Opsional) WITH-USAGES — jika kamu memang pakai di UI
-   ========================================================= */
+/*
+=========================================================
 
+	(Opsional) WITH-USAGES — jika kamu memang pakai di UI
+	=========================================================
+*/
 type BookUsageSectionLite struct {
-	ClassSectionID       uuid.UUID `json:"class_section_id"`
-	ClassSectionName     string    `json:"class_section_name"`
-	ClassSectionSlug     string    `json:"class_section_slug"`
-	ClassSectionCode     *string   `json:"class_section_code,omitempty"`
-	ClassSectionCapacity *int      `json:"class_section_quota_total,omitempty"`
-	ClassSectionIsActive bool      `json:"class_section_is_active"`
+	ClassSectionID   uuid.UUID `json:"class_section_id"`
+	ClassSectionName string    `json:"class_section_name"`
+	ClassSectionSlug string    `json:"class_section_slug"`
+	ClassSectionCode *string   `json:"class_section_code,omitempty"`
+
+	// konsisten dengan class_sections: quota_total
+	ClassSectionQuotaTotal *int `json:"class_section_quota_total,omitempty"`
+
+	// enum: active | inactive | completed
+	ClassSectionStatus string `json:"class_section_status"`
 }
 
 type BookUsage struct {

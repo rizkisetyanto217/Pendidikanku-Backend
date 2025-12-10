@@ -18,7 +18,6 @@ import (
 type DTOTeacherSectionItem struct {
 	ClassSectionID             uuid.UUID `json:"class_section_id"`
 	ClassSectionRole           string    `json:"class_section_role"` // "homeroom" | "teacher" | "assistant"
-	ClassSectionIsActive       bool      `json:"class_section_is_active"`
 	From                       *string   `json:"from,omitempty"` // "YYYY-MM-DD"
 	To                         *string   `json:"to,omitempty"`   // "YYYY-MM-DD"
 	ClassSectionName           *string   `json:"class_section_name,omitempty"`
@@ -29,7 +28,6 @@ type DTOTeacherSectionItem struct {
 
 type DTOTeacherCSSTItem struct {
 	CSSTID               uuid.UUID  `json:"csst_id"`
-	ClassSectionIsActive bool       `json:"class_section_is_active"`
 	From                 *string    `json:"from,omitempty"`
 	To                   *string    `json:"to,omitempty"`
 	SubjectName          *string    `json:"subject_name,omitempty"`

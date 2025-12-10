@@ -212,9 +212,9 @@ CREATE INDEX IF NOT EXISTS idx_section_room_id_alive
   ON class_sections (class_section_class_room_id, class_section_school_id)
   WHERE class_section_deleted_at IS NULL;
 
--- Scope tenant + active + recent
+-- ✅ Scope tenant + status + recent (ganti class_section_is_active → class_section_status)
 CREATE INDEX IF NOT EXISTS ix_section_school_active_created
-  ON class_sections (class_section_school_id, class_section_is_active, class_section_created_at DESC)
+  ON class_sections (class_section_school_id, class_section_status, class_section_created_at DESC)
   WHERE class_section_deleted_at IS NULL;
 
 -- Pencarian fuzzy nama & slug (alive)
@@ -226,9 +226,9 @@ CREATE INDEX IF NOT EXISTS gin_section_slug_trgm_alive
   ON class_sections USING GIN (lower(class_section_slug) gin_trgm_ops)
   WHERE class_section_deleted_at IS NULL;
 
--- Mode enrollment (alive)
+-- ✅ Mode enrollment + status (ganti class_section_is_active → class_section_status)
 CREATE INDEX IF NOT EXISTS ix_section_subject_teachers_enrollment_mode_alive
-  ON class_sections (class_section_subject_teachers_enrollment_mode, class_section_is_active, class_section_created_at DESC)
+  ON class_sections (class_section_subject_teachers_enrollment_mode, class_section_status, class_section_created_at DESC)
   WHERE class_section_deleted_at IS NULL;
 
 -- BRIN untuk waktu create

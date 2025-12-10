@@ -336,7 +336,7 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 
 		MinPassingScore *int `json:"class_section_subject_teacher_min_passing_score,omitempty"`
 
-		// 🆕 status enum + completed_at + helper is_active (turunan dari status)
+		// status enum + completed_at + helper is_active (turunan dari status)
 		Status      string     `json:"class_section_subject_teacher_status"`
 		CompletedAt *time.Time `json:"class_section_subject_teacher_completed_at,omitempty"`
 		IsActive    bool       `json:"class_section_subject_teacher_is_active"`
@@ -345,45 +345,8 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		UpdatedAt time.Time `json:"class_section_subject_teacher_updated_at"`
 	}
 
-	// 2) Tipe nested untuk ClassSection + CSST list
-	type ClassSectionIncluded struct {
-		ID         uuid.UUID  `json:"class_section_id"`
-		SchoolID   uuid.UUID  `json:"class_section_school_id"`
-		ClassID    *uuid.UUID `json:"class_section_class_id,omitempty"`
-		Slug       string     `json:"class_section_slug"`
-		Name       string     `json:"class_section_name"`
-		Code       *string    `json:"class_section_code,omitempty"`
-		Schedule   *string    `json:"class_section_schedule,omitempty"`
-		QuotaTotal *int       `json:"class_section_quota_total,omitempty"`
-		QuotaTaken int        `json:"class_section_quota_taken"`
-		GroupURL   *string    `json:"class_section_group_url,omitempty"`
-
-		// status & flag aktif
-		Status      string     `json:"class_section_status"`
-		CompletedAt *time.Time `json:"class_section_completed_at,omitempty"`
-		IsActive    bool       `json:"class_section_is_active"`
-
-		ImageURL                *string    `json:"class_section_image_url,omitempty"`
-		ImageObjectKey          *string    `json:"class_section_image_object_key,omitempty"`
-		ImageURLOld             *string    `json:"class_section_image_url_old,omitempty"`
-		ImageObjectKeyOld       *string    `json:"class_section_image_object_key_old,omitempty"`
-		ImageDeletePendingUntil *time.Time `json:"class_section_image_delete_pending_until,omitempty"`
-
-		ClassNameCache        *string    `json:"class_section_class_name_cache,omitempty"`
-		ClassSlugCache        *string    `json:"class_section_class_slug_cache,omitempty"`
-		ClassParentID         *uuid.UUID `json:"class_section_class_parent_id,omitempty"`
-		ClassParentNameCache  *string    `json:"class_section_class_parent_name_cache,omitempty"`
-		ClassParentSlugCache  *string    `json:"class_section_class_parent_slug_cache,omitempty"`
-		ClassParentLevelCache *int16     `json:"class_section_class_parent_level_cache,omitempty"`
-		SchoolTeacherID       *uuid.UUID `json:"class_section_school_teacher_id,omitempty"`
-		ClassRoomID           *uuid.UUID `json:"class_section_class_room_id,omitempty"`
-		AcademicTermID        *uuid.UUID `json:"class_section_academic_term_id,omitempty"`
-
-		// list CSST
-		SubjectTeachers []*CSSTIncluded `json:"class_section_subject_teachers,omitempty"`
-	}
-
-	classSectionMap := make(map[uuid.UUID]*ClassSectionIncluded)
+	// 2) Map section_id → ClassSectionCompactResponse
+	classSectionMap := make(map[uuid.UUID]*dto.ClassSectionCompactResponse)
 
 	// 3) Query class_sections
 	if len(secIDs) > 0 {
@@ -400,47 +363,17 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		}
 
 		for i := range secRows {
-			cs := secRows[i]
-
-			item := &ClassSectionIncluded{
-				ID:         cs.ClassSectionID,
-				SchoolID:   cs.ClassSectionSchoolID,
-				ClassID:    cs.ClassSectionClassID,
-				Slug:       cs.ClassSectionSlug,
-				Name:       cs.ClassSectionName,
-				Code:       cs.ClassSectionCode,
-				Schedule:   cs.ClassSectionSchedule,
-				QuotaTotal: cs.ClassSectionQuotaTotal,
-				QuotaTaken: cs.ClassSectionQuotaTaken,
-				GroupURL:   cs.ClassSectionGroupURL,
-
-				// status & flag aktif (turunan dari enum)
-				Status:      string(cs.ClassSectionStatus),
-				CompletedAt: cs.ClassSectionCompletedAt,
-				IsActive:    cs.ClassSectionStatus == classSectionModel.ClassStatusActive,
-
-				ImageURL:                cs.ClassSectionImageURL,
-				ImageObjectKey:          cs.ClassSectionImageObjectKey,
-				ImageURLOld:             cs.ClassSectionImageURLOld,
-				ImageObjectKeyOld:       cs.ClassSectionImageObjectKeyOld,
-				ImageDeletePendingUntil: cs.ClassSectionImageDeletePendingUntil,
-
-				ClassNameCache:        cs.ClassSectionClassNameCache,
-				ClassSlugCache:        cs.ClassSectionClassSlugCache,
-				ClassParentID:         cs.ClassSectionClassParentID,
-				ClassParentNameCache:  cs.ClassSectionClassParentNameCache,
-				ClassParentSlugCache:  cs.ClassSectionClassParentSlugCache,
-				ClassParentLevelCache: cs.ClassSectionClassParentLevelCache,
-				SchoolTeacherID:       cs.ClassSectionSchoolTeacherID,
-				ClassRoomID:           cs.ClassSectionClassRoomID,
-				AcademicTermID:        cs.ClassSectionAcademicTermID,
-			}
-
-			classSectionMap[cs.ClassSectionID] = item
+			csModel := &secRows[i]
+			compact := dto.FromModelClassSectionToCompact(csModel)
+			// copy ke variabel baru supaya pointer stabil
+			csCopy := compact
+			classSectionMap[csModel.ClassSectionID] = &csCopy
 		}
 	}
 
-	// 4) Query CSST & attach ke masing-masing section
+	// 4) Query CSST & kumpulkan ke slice flat
+	var csstList []*CSSTIncluded
+
 	if includeCSST && len(secIDs) > 0 {
 		var csstRows []csstModel.ClassSectionSubjectTeacherModel
 		if err := ctl.DB.WithContext(c.Context()).
@@ -500,7 +433,6 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 
 				MinPassingScore: r.ClassSectionSubjectTeacherMinPassingScore,
 
-				// 🆕 status & flag aktif (mirror class_section)
 				Status:      string(r.ClassSectionSubjectTeacherStatus),
 				CompletedAt: r.ClassSectionSubjectTeacherCompletedAt,
 				IsActive:    r.ClassSectionSubjectTeacherStatus == csstModel.ClassStatusActive,
@@ -509,41 +441,38 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 				UpdatedAt: r.ClassSectionSubjectTeacherUpdatedAt,
 			}
 
-			if sec, ok := classSectionMap[r.ClassSectionSubjectTeacherClassSectionID]; ok {
-				sec.SubjectTeachers = append(sec.SubjectTeachers, ci)
-			}
+			csstList = append(csstList, ci)
 		}
-
 	}
 
 	// siapkan includePayload (selalu ada di response)
 	includePayload := fiber.Map{}
 
 	// kalau diminta includeClassSections → flatten list ke include.class_sections
-	if includeClassSections && len(classSectionMap) > 0 {
-		classSectionList := make([]*ClassSectionIncluded, 0, len(classSectionMap))
+	if includeClassSections {
+		classSectionList := make([]dto.ClassSectionCompactResponse, 0, len(classSectionMap))
 		for _, cs := range classSectionMap {
-			classSectionList = append(classSectionList, cs)
+			if cs == nil {
+				continue
+			}
+			classSectionList = append(classSectionList, *cs)
 		}
 		includePayload["class_sections"] = classSectionList
 	}
 
-	// kalau diminta includeCSST → flatten semua csst ke include.csst
-	if includeCSST && len(classSectionMap) > 0 {
-		csstList := make([]*CSSTIncluded, 0)
-		for _, cs := range classSectionMap {
-			if cs.SubjectTeachers != nil {
-				csstList = append(csstList, cs.SubjectTeachers...)
-			}
-		}
+	// kalau diminta includeCSST → pakai csstList flat
+	if includeCSST {
 		includePayload["csst"] = csstList
 	}
 
 	// 5) MODE view=class_sections → balikin hanya daftar class_section (+ include di atas)
 	if viewClassSections {
-		list := make([]*ClassSectionIncluded, 0, len(classSectionMap))
+		list := make([]dto.ClassSectionCompactResponse, 0, len(classSectionMap))
 		for _, cs := range classSectionMap {
-			list = append(list, cs)
+			if cs == nil {
+				continue
+			}
+			list = append(list, *cs)
 		}
 		return helper.JsonListWithInclude(c, "OK", list, includePayload, pagination)
 	}
@@ -551,14 +480,14 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	// 6) MODE default nested: per-enrollment + nested class_section (+ csst)
 	type StudentClassSectionWithClassSectionResp struct {
 		dto.StudentClassSectionResp
-		ClassSection *ClassSectionIncluded `json:"class_section,omitempty"`
+		ClassSection *dto.ClassSectionCompactResponse `json:"class_section,omitempty"`
 	}
 
 	out := make([]StudentClassSectionWithClassSectionResp, 0, len(rows))
 	for i := range rows {
 		base := dto.FromModel(&rows[i])
 
-		var included *ClassSectionIncluded
+		var included *dto.ClassSectionCompactResponse
 		if cs, ok := classSectionMap[rows[i].StudentClassSectionSectionID]; ok {
 			included = cs
 		}
