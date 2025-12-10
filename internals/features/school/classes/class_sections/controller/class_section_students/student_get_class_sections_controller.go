@@ -1,3 +1,4 @@
+// file: internals/features/school/classes/class_sections/controller/student_class_section_list.go
 package controller
 
 import (
@@ -42,7 +43,7 @@ func parseUUIDList(s string) ([]uuid.UUID, error) {
 // ?school_student_id=me|<uuid,uuid2,...>
 // ?section_id=<uuid,uuid2,...>        // alias lama
 // ?class_section_id=<uuid,uuid2,...>  // alias baru
-// ?status=active|inactive|completed
+// ?status=active|inactive|completed   // status enrolment siswa
 // ?q=...
 // ?include=class_sections,csst
 // ?view=compact|full|class_sections
@@ -158,7 +159,7 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	// ----------------- FILTER SECTION & STATUS & SEARCH -----------------
 	var (
 		secIDs     []uuid.UUID
-		status     string
+		status     string // status enrolment (student_class_section_status_enum)
 		searchTerm = strings.TrimSpace(c.Query("q"))
 	)
 
@@ -194,6 +195,7 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	}
 
 	if s := strings.TrimSpace(c.Query("status")); s != "" {
+		// biarkan apa adanya (active/inactive/completed), validasi hard di DB
 		status = s
 	}
 
@@ -350,7 +352,11 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		QuotaTotal *int       `json:"class_section_quota_total,omitempty"`
 		QuotaTaken int        `json:"class_section_quota_taken"`
 		GroupURL   *string    `json:"class_section_group_url,omitempty"`
-		IsActive   bool       `json:"class_section_is_active"`
+
+		// status & flag aktif
+		Status      string     `json:"class_section_status"`
+		CompletedAt *time.Time `json:"class_section_completed_at,omitempty"`
+		IsActive    bool       `json:"class_section_is_active"`
 
 		ImageURL                *string    `json:"class_section_image_url,omitempty"`
 		ImageObjectKey          *string    `json:"class_section_image_object_key,omitempty"`
@@ -402,7 +408,11 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 				QuotaTotal: cs.ClassSectionQuotaTotal,
 				QuotaTaken: cs.ClassSectionQuotaTaken,
 				GroupURL:   cs.ClassSectionGroupURL,
-				IsActive:   cs.ClassSectionIsActive,
+
+				// status & flag aktif (turunan dari enum)
+				Status:      string(cs.ClassSectionStatus),
+				CompletedAt: cs.ClassSectionCompletedAt,
+				IsActive:    cs.ClassSectionStatus == classSectionModel.ClassStatusActive,
 
 				ImageURL:                cs.ClassSectionImageURL,
 				ImageObjectKey:          cs.ClassSectionImageObjectKey,

@@ -1,3 +1,4 @@
+// file: internals/features/finance/spp/api/bill_batch_list_controller.go
 package controller
 
 import (
@@ -5,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"madinahsalam_backend/internals/features/finance/billings/dto"
-	billing "madinahsalam_backend/internals/features/finance/billings/model"
+	dto "madinahsalam_backend/internals/features/finance/billings/dto"
+	sppmodel "madinahsalam_backend/internals/features/finance/billings/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
@@ -17,7 +18,7 @@ import (
 // =======================================================
 // LIST (filters + pagination, tenant-scoped by school)
 // school_id diambil dari token/context
-// GET /spp/bill-batches
+// GET /api/a/spp/bill-batches
 // =======================================================
 
 func (h *BillBatchHandler) ListBillBatches(c *fiber.Ctx) error {
@@ -40,7 +41,7 @@ func (h *BillBatchHandler) ListBillBatches(c *fiber.Ctx) error {
 	offset := (pg.Page - 1) * pg.PerPage
 
 	// Base query: tenant-scoped + belum dihapus
-	q := h.DB.Model(&billing.BillBatch{}).
+	q := h.DB.Model(&sppmodel.BillBatchModel{}).
 		Where("bill_batch_school_id = ? AND bill_batch_deleted_at IS NULL", schoolID)
 
 	// === Filters tambahan ===
@@ -105,7 +106,7 @@ func (h *BillBatchHandler) ListBillBatches(c *fiber.Ctx) error {
 	}
 
 	// === Fetch (respect per_page=all) ===
-	var rows []billing.BillBatch
+	var rows []sppmodel.BillBatchModel
 	listQ := q.Order(orderClause)
 	if !allMode {
 		listQ = listQ.Limit(pg.PerPage).Offset(offset)

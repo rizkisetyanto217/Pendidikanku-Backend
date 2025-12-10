@@ -11,10 +11,19 @@ import (
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
+	classSectionDTO "madinahsalam_backend/internals/features/school/classes/class_sections/dto"
+
+	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
+
+	classSectionModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
+
+	csstDTO "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/dto"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
 
+// GET /api/a/school-students
 // GET /api/a/school-students
 func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 	// 0) Pastikan DB di locals (dipakai helper lain)
@@ -35,6 +44,22 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 
 	// --- mode: all / compact ---
 	mode := strings.ToLower(strings.TrimSpace(c.Query("mode"))) // "", "all", "compact"
+
+	// 🔥 NEW: nested=class-sections,csst
+	nested := strings.ToLower(strings.TrimSpace(c.Query("nested")))
+	wantSections := false
+	wantCSST := false
+	if nested != "" {
+		for _, part := range strings.Split(nested, ",") {
+			p := strings.TrimSpace(part)
+			switch p {
+			case "sections", "class-sections", "class_sections", "classsection":
+				wantSections = true
+			case "csst", "class-section-subject-teachers", "class_section_subject_teachers", "subject-teachers", "subject_teachers":
+				wantCSST = true
+			}
+		}
+	}
 
 	// 3) Sorting + Pagination
 	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
@@ -148,12 +173,176 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 	// MODE: COMPACT
 	// =========================
 	if mode == "compact" {
-		comp := make([]dto.SchoolStudentCompact, 0, len(rows))
-		for i := range rows {
-			comp = append(comp, dto.ToSchoolStudentCompact(&rows[i]))
+		// Kalau nggak minta nested apa-apa → tetap behaviour lama
+		if !wantSections && !wantCSST {
+			comp := make([]dto.SchoolStudentCompact, 0, len(rows))
+			for i := range rows {
+				comp = append(comp, dto.ToSchoolStudentCompact(&rows[i]))
+			}
+			// compact tidak butuh join user_profile lagi: sudah pakai cache
+			return helper.JsonList(c, "ok", comp, pg)
 		}
-		// compact tidak butuh join user_profile lagi: sudah pakai cache
-		return helper.JsonList(c, "ok", comp, pg)
+
+		// 🔥 NEW: compact + nested
+		type SchoolStudentCompactWithNested struct {
+			dto.SchoolStudentCompact   `json:",inline"`
+			ClassSections              []classSectionDTO.ClassSectionCompactResponse       `json:"class_sections,omitempty"`
+			ClassSectionSubjectTeaches []csstDTO.ClassSectionSubjectTeacherCompactResponse `json:"class_section_subject_teachers,omitempty"`
+		}
+
+		// base compact dulu
+		baseComp := make([]dto.SchoolStudentCompact, 0, len(rows))
+		studentIDs := make([]uuid.UUID, 0, len(rows))
+		for i := range rows {
+			baseComp = append(baseComp, dto.ToSchoolStudentCompact(&rows[i]))
+			studentIDs = append(studentIDs, rows[i].SchoolStudentID)
+		}
+
+		// Map studentID -> index
+		idxByStudent := make(map[uuid.UUID]int, len(studentIDs))
+		for i, id := range studentIDs {
+			idxByStudent[id] = i
+		}
+
+		// Prepare result slice
+		result := make([]SchoolStudentCompactWithNested, len(baseComp))
+		for i := range baseComp {
+			result[i].SchoolStudentCompact = baseComp[i]
+		}
+
+		// ============================
+		// NESTED: CLASS SECTIONS (compact)
+		// ============================
+		if wantSections && len(studentIDs) > 0 {
+			// Sesuaikan nama tabel & kolom join dengan schema-mu ya bang.
+			// Di sini diasumsikan ada table: class_section_students
+			// dengan kolom:
+			//   class_section_student_school_id
+			//   class_section_student_school_student_id
+			//   class_section_student_class_section_id
+			//   class_section_student_deleted_at
+			type studentSectionRow struct {
+				SchoolStudentID uuid.UUID `gorm:"column:class_section_student_school_student_id"`
+				ClassSectionID  uuid.UUID `gorm:"column:class_section_student_class_section_id"`
+			}
+
+			var ssRows []studentSectionRow
+			if err := h.DB.
+				Table("class_section_students").
+				Select("class_section_student_school_student_id, class_section_student_class_section_id").
+				Where("class_section_student_school_id = ?", schoolID).
+				Where("class_section_student_deleted_at IS NULL").
+				Where("class_section_student_school_student_id IN ?", studentIDs).
+				Find(&ssRows).Error; err != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil relasi section siswa: "+err.Error())
+			}
+
+			// Kumpulkan unique section IDs
+			sectionIDSet := make(map[uuid.UUID]struct{})
+			for _, r := range ssRows {
+				sectionIDSet[r.ClassSectionID] = struct{}{}
+			}
+			sectionIDs := make([]uuid.UUID, 0, len(sectionIDSet))
+			for id := range sectionIDSet {
+				sectionIDs = append(sectionIDs, id)
+			}
+
+			// Load class_sections penuh → mapping ke compact
+			sectionMapCompact := make(map[uuid.UUID]classSectionDTO.ClassSectionCompactResponse, len(sectionIDs))
+			if len(sectionIDs) > 0 {
+				var secRows []classSectionModel.ClassSectionModel
+				if err := h.DB.
+					Where("class_section_school_id = ? AND class_section_deleted_at IS NULL", schoolID).
+					Where("class_section_id IN ?", sectionIDs).
+					Find(&secRows).Error; err != nil {
+					return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil data class_section: "+err.Error())
+				}
+
+				for i := range secRows {
+					cmp := classSectionDTO.FromModelClassSectionToCompact(&secRows[i])
+					sectionMapCompact[secRows[i].ClassSectionID] = cmp
+				}
+			}
+
+			// Distribusi ke tiap siswa
+			for _, r := range ssRows {
+				sec, ok := sectionMapCompact[r.ClassSectionID]
+				if !ok {
+					continue
+				}
+				if idx, ok := idxByStudent[r.SchoolStudentID]; ok {
+					result[idx].ClassSections = append(result[idx].ClassSections, sec)
+				}
+			}
+		}
+
+		// ============================
+		// NESTED: CSST (compact)
+		// ============================
+		if wantCSST && len(studentIDs) > 0 {
+			// Lagi-lagi, sesuaikan nama tabel join:
+			// diasumsikan ada table: class_section_subject_teacher_students
+			// dengan kolom:
+			//   csst_student_school_id
+			//   csst_student_school_student_id
+			//   csst_student_csst_id
+			//   csst_student_deleted_at
+			type studentCSSTRow struct {
+				SchoolStudentID uuid.UUID `gorm:"column:csst_student_school_student_id"`
+				CSSTID          uuid.UUID `gorm:"column:csst_student_csst_id"`
+			}
+
+			var scRows []studentCSSTRow
+			if err := h.DB.
+				Table("class_section_subject_teacher_students").
+				Select("csst_student_school_student_id, csst_student_csst_id").
+				Where("csst_student_school_id = ?", schoolID).
+				Where("csst_student_deleted_at IS NULL").
+				Where("csst_student_school_student_id IN ?", studentIDs).
+				Find(&scRows).Error; err != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil relasi CSST siswa: "+err.Error())
+			}
+
+			// Kumpulkan unique CSST IDs
+			csstIDSet := make(map[uuid.UUID]struct{})
+			for _, r := range scRows {
+				csstIDSet[r.CSSTID] = struct{}{}
+			}
+			csstIDs := make([]uuid.UUID, 0, len(csstIDSet))
+			for id := range csstIDSet {
+				csstIDs = append(csstIDs, id)
+			}
+
+			// Load CSST models → compact
+			csstMapCompact := make(map[uuid.UUID]csstDTO.ClassSectionSubjectTeacherCompactResponse, len(csstIDs))
+			if len(csstIDs) > 0 {
+				var csstRows []csstModel.ClassSectionSubjectTeacherModel
+				if err := h.DB.
+					Where("class_section_subject_teacher_school_id = ? AND class_section_subject_teacher_deleted_at IS NULL", schoolID).
+					Where("class_section_subject_teacher_id IN ?", csstIDs).
+					Find(&csstRows).Error; err != nil {
+					return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil data CSST: "+err.Error())
+				}
+
+				for i := range csstRows {
+					cmp := csstDTO.FromClassSectionSubjectTeacherModelCompact(csstRows[i])
+					csstMapCompact[csstRows[i].ClassSectionSubjectTeacherID] = cmp
+				}
+			}
+
+			// Distribusi ke tiap siswa
+			for _, r := range scRows {
+				cmp, ok := csstMapCompact[r.CSSTID]
+				if !ok {
+					continue
+				}
+				if idx, ok := idxByStudent[r.SchoolStudentID]; ok {
+					result[idx].ClassSectionSubjectTeaches = append(result[idx].ClassSectionSubjectTeaches, cmp)
+				}
+			}
+		}
+
+		return helper.JsonList(c, "ok", result, pg)
 	}
 
 	// =========================

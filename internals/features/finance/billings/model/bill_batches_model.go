@@ -8,12 +8,14 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+
+	gbmodel "madinahsalam_backend/internals/features/finance/general_billings/model"
 )
 
-// BillBatch merepresentasikan tabel bill_batches
-type BillBatch struct {
+// BillBatchModel merepresentasikan tabel bill_batches
+type BillBatchModel struct {
 	// PK
-	BillBatchID uuid.UUID `gorm:"type:uuid;primaryKey;column:bill_batch_id" json:"bill_batch_id"`
+	BillBatchID uuid.UUID `gorm:"type:uuid;primaryKey;column:bill_batch_id;default:gen_random_uuid()" json:"bill_batch_id"`
 
 	// Tenant
 	BillBatchSchoolID uuid.UUID `gorm:"type:uuid;not null;column:bill_batch_school_id" json:"bill_batch_school_id"`
@@ -27,10 +29,10 @@ type BillBatch struct {
 	BillBatchYear   *int16     `gorm:"type:smallint;column:bill_batch_year" json:"bill_batch_year,omitempty"`
 	BillBatchTermID *uuid.UUID `gorm:"type:uuid;column:bill_batch_term_id" json:"bill_batch_term_id,omitempty"`
 
-	// Katalog jenis + kode
-	BillBatchGeneralBillingKindID *uuid.UUID `gorm:"type:uuid;column:bill_batch_general_billing_kind_id" json:"bill_batch_general_billing_kind_id,omitempty"`
-	BillBatchBillCode             string     `gorm:"type:varchar(60);not null;default:SPP;column:bill_batch_bill_code" json:"bill_batch_bill_code"`
-	BillBatchOptionCode           *string    `gorm:"type:varchar(60);column:bill_batch_option_code" json:"bill_batch_option_code,omitempty"` // wajib untuk one-off
+	// Kategori + kode + option
+	BillBatchCategory   gbmodel.GeneralBillingCategory `gorm:"type:general_billing_category;not null;column:bill_batch_category" json:"bill_batch_category"`
+	BillBatchBillCode   string                         `gorm:"type:varchar(60);not null;default:'SPP';column:bill_batch_bill_code" json:"bill_batch_bill_code"`
+	BillBatchOptionCode *string                        `gorm:"type:varchar(60);column:bill_batch_option_code" json:"bill_batch_option_code,omitempty"`
 
 	// Info tagihan
 	BillBatchTitle   string     `gorm:"type:text;not null;column:bill_batch_title" json:"bill_batch_title"`
@@ -49,26 +51,33 @@ type BillBatch struct {
 	BillBatchDeletedAt gorm.DeletedAt `gorm:"type:timestamptz;index;column:bill_batch_deleted_at" json:"-"` // soft delete
 }
 
-func (BillBatch) TableName() string { return "bill_batches" }
+func (BillBatchModel) TableName() string { return "bill_batches" }
 
 // helper
-func (b *BillBatch) isOneOff() bool {
+func (b *BillBatchModel) isOneOff() bool {
 	return b.BillBatchOptionCode != nil && strings.TrimSpace(*b.BillBatchOptionCode) != ""
 }
 
 // BeforeCreate: set ID, enforce XOR, periodic vs one-off, dan default code
-func (b *BillBatch) BeforeCreate(tx *gorm.DB) error {
+func (b *BillBatchModel) BeforeCreate(tx *gorm.DB) error {
 	if b.BillBatchID == uuid.Nil {
 		b.BillBatchID = uuid.New()
 	}
 	if b.BillBatchSchoolID == uuid.Nil {
 		return fmt.Errorf("bill_batch_school_id is required")
 	}
+
 	// XOR guard class/section
 	if (b.BillBatchClassID == nil && b.BillBatchSectionID == nil) ||
 		(b.BillBatchClassID != nil && b.BillBatchSectionID != nil) {
 		return fmt.Errorf("exactly one of bill_batch_class_id or bill_batch_section_id must be set")
 	}
+
+	// kategori wajib
+	if strings.TrimSpace(string(b.BillBatchCategory)) == "" {
+		return fmt.Errorf("bill_batch_category is required")
+	}
+
 	// default bill code
 	if strings.TrimSpace(b.BillBatchBillCode) == "" {
 		b.BillBatchBillCode = "SPP"
@@ -77,7 +86,6 @@ func (b *BillBatch) BeforeCreate(tx *gorm.DB) error {
 	// Periodic vs One-off
 	if b.isOneOff() {
 		// one-off: YM opsional (DDL tidak mewajibkan)
-		// tidak ada validasi tambahan di sini, biarkan service layer yang atur nilai YM jika memang ingin diisi
 	} else {
 		// periodic: YM wajib
 		if b.BillBatchMonth == nil || b.BillBatchYear == nil {
@@ -101,10 +109,15 @@ func (b *BillBatch) BeforeCreate(tx *gorm.DB) error {
 }
 
 // BeforeUpdate: enforce XOR, set updated_at, dan validasi ringan YM
-func (b *BillBatch) BeforeUpdate(tx *gorm.DB) error {
+func (b *BillBatchModel) BeforeUpdate(tx *gorm.DB) error {
 	if (b.BillBatchClassID == nil && b.BillBatchSectionID == nil) ||
 		(b.BillBatchClassID != nil && b.BillBatchSectionID != nil) {
 		return fmt.Errorf("exactly one of bill_batch_class_id or bill_batch_section_id must be set")
+	}
+
+	// kategori wajib
+	if strings.TrimSpace(string(b.BillBatchCategory)) == "" {
+		return fmt.Errorf("bill_batch_category is required")
 	}
 
 	// default bill code jika kosong

@@ -907,7 +907,7 @@ RESPONSE: COMPACT VERSION
 // Versi ringkas untuk list (tanpa fee_meta, stats JSON detail, dsb)
 type ClassCompact struct {
 	// PK & relasi inti
-	ClassID       uuid.UUID `json:"class_id"`
+	ClassID uuid.UUID `json:"class_id"`
 
 	// Identitas
 	ClassSlug string `json:"class_slug"`
@@ -927,10 +927,10 @@ type ClassCompact struct {
 	ClassCompletedAt  *time.Time `json:"class_completed_at,omitempty"`
 
 	// Stats aktif (sering dipakai di UI list)
-	ClassTotalClassSectionsActive    int `json:"class_total_class_sections_active"`
-	ClassTotalStudentsActive         int `json:"class_total_students_active"`
-	ClassTotalTeachersActive         int `json:"class_total_teachers_active"`
-	ClassTotalClassEnrollmentsActive int `json:"class_total_class_enrollments_active"`
+	ClassTotalClassSectionsActive int `json:"class_total_class_sections_active"`
+	ClassTotalClassSections       int `json:"class_total_class_sections"`
+	ClassTotalStudentsActive      int `json:"class_total_students_active"`
+	ClassTotalStudents            int `json:"class_total_students"`
 
 	// Audit
 	ClassCreatedAt time.Time `json:"class_created_at"`
@@ -952,7 +952,7 @@ func FromModelCompact(m *model.ClassModel) ClassCompact {
 	}
 
 	return ClassCompact{
-		ClassID:       m.ClassID,
+		ClassID: m.ClassID,
 
 		ClassSlug: m.ClassSlug,
 		ClassName: name,
@@ -967,10 +967,10 @@ func FromModelCompact(m *model.ClassModel) ClassCompact {
 		ClassStatus:       m.ClassStatus,
 		ClassCompletedAt:  m.ClassCompletedAt,
 
-		ClassTotalClassSectionsActive:    m.ClassClassSectionActiveCount,
-		ClassTotalStudentsActive:         m.ClassStudentActiveCount,
-		ClassTotalTeachersActive:         m.ClassTeacherActiveCount,
-		ClassTotalClassEnrollmentsActive: m.ClassClassEnrollmentActiveCount,
+		ClassTotalClassSectionsActive: m.ClassClassSectionActiveCount,
+		ClassTotalStudentsActive:      m.ClassStudentActiveCount,
+		ClassTotalClassSections:       m.ClassClassSectionCount,
+		ClassTotalStudents:            m.ClassStudentCount,
 
 		ClassCreatedAt: m.ClassCreatedAt,
 		ClassUpdatedAt: m.ClassUpdatedAt,

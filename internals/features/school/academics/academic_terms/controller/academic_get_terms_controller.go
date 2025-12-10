@@ -18,6 +18,10 @@ import (
 	classSectionModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 	classModel "madinahsalam_backend/internals/features/school/classes/classes/model"
 
+	classDTO "madinahsalam_backend/internals/features/school/classes/classes/dto"
+
+	classSectionDTO "madinahsalam_backend/internals/features/school/classes/class_sections/dto"
+
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
@@ -57,11 +61,15 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	/* ========= 0a) Parse mode: compact | full ========= */
-	// ?mode=compact → AcademicTermCompactDTO
-	// default: full (AcademicTermResponseDTO)
-	mode := strings.ToLower(strings.TrimSpace(c.Query("mode", "full")))
-	useCompact := mode == "compact"
+	/* ========= 0a) Parse term_mode: compact | full (HANYA untuk academic terms) ========= */
+	// Prioritas:
+	// 1) term_mode (baru, lebih eksplisit)
+	// 2) fallback ke mode (kompat lama)
+	termMode := strings.ToLower(strings.TrimSpace(c.Query("term_mode", "")))
+	if termMode == "" {
+		termMode = strings.ToLower(strings.TrimSpace(c.Query("mode", "full")))
+	}
+	useCompact := termMode == "compact"
 
 	/* ========= 1) Coba dari TOKEN dulu (jika ada) ========= */
 	if id, err := helperAuth.GetActiveSchoolID(c); err == nil && id != uuid.Nil {
@@ -222,13 +230,13 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	if len(list) == 0 {
 		includeMap := fiber.Map{}
 		if includeClasses {
-			includeMap["classes"] = []classModel.ClassModel{}
+			includeMap["classes"] = []classDTO.ClassCompact{}
 		}
 		if includeSections {
-			includeMap["class_sections"] = []classSectionModel.ClassSectionModel{}
+			includeMap["class_sections"] = []classSectionDTO.ClassSectionCompactResponse{}
 		}
 		if includeFeeRules {
-			includeMap["fee_rules"] = []feeRuleModel.FeeRule{}
+			includeMap["fee_rules"] = []feeRuleModel.FeeRuleModel{}
 		}
 		return helper.JsonListWithInclude(c, "ok", termDTOs, includeMap, pg)
 	}
@@ -298,9 +306,9 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	}
 
 	// --- INCLUDE: fee_rules (SPP, dll) (flat slice) ---
-	var allFeeRules []feeRuleModel.FeeRule
+	var allFeeRules []feeRuleModel.FeeRuleModel
 	if includeFeeRules {
-		dbFee := ctl.DB.Model(&feeRuleModel.FeeRule{}).
+		dbFee := ctl.DB.Model(&feeRuleModel.FeeRuleModel{}).
 			Where("fee_rule_school_id = ? AND fee_rule_deleted_at IS NULL", schoolID).
 			Where("fee_rule_term_id IN ?", termIDs)
 
@@ -320,14 +328,17 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	// ✅ 3) Build include map (singular) dan kirim pakai JsonListWithInclude
 	includeMap := fiber.Map{}
 	if includeClasses {
-		includeMap["classes"] = allClasses
+		// sebelumnya: includeMap["classes"] = allClasses
+		includeMap["classes"] = classDTO.ToClassCompactList(allClasses)
 	}
 	if includeSections {
-		includeMap["class_sections"] = allSections
+		// sebelumnya: includeMap["class_sections"] = allSections
+		includeMap["class_sections"] = classSectionDTO.FromSectionModelsToCompact(allSections)
 	}
 	if includeFeeRules {
 		includeMap["fee_rules"] = allFeeRules
 	}
 
 	return helper.JsonListWithInclude(c, "ok", termDTOs, includeMap, pg)
+
 }

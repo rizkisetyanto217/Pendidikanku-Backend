@@ -6,8 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	// Controller untuk GENERAL BILLINGS (finance/general_billings)
-	generalBillingController "madinahsalam_backend/internals/features/finance/general_billings/controller/general"
-	generalBillingKindController "madinahsalam_backend/internals/features/finance/general_billings/controller/kinds"
+	generalBillingController "madinahsalam_backend/internals/features/finance/general_billings/controller"
 )
 
 func AdminGeneralBillingRoutes(r fiber.Router, db *gorm.DB) {
@@ -18,15 +17,6 @@ func AdminGeneralBillingRoutes(r fiber.Router, db *gorm.DB) {
 		gb.Post("/", gbCtl.Create)
 		gb.Patch("/:id", gbCtl.Patch)
 		gb.Delete("/:id", gbCtl.Delete)
-	}
-
-	kindCtl := generalBillingKindController.NewGeneralBillingKindController(db)
-	kinds := r.Group("/general-billing-kinds")
-	{
-		// per-school, tapi school_id diambil dari token
-		kinds.Post("/", kindCtl.Create)
-		kinds.Patch("/:id", kindCtl.Patch)
-		kinds.Delete("/:id", kindCtl.Delete)
 	}
 
 	ugbCtl := generalBillingController.NewUserGeneralBillingController(db)

@@ -469,8 +469,8 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 				ClassSectionSchoolTeacherID:          teacherID,
 				ClassSectionAssistantSchoolTeacherID: assistantID,
 
-				// Status aktif
-				ClassSectionIsActive: true,
+				// ✅ Status awal: active (pakai enum)
+				ClassSectionStatus: classSectionModel.ClassStatusActive,
 			}
 
 			if err := tx.Create(sec).Error; err != nil {

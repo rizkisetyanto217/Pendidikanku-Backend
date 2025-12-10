@@ -244,9 +244,6 @@ func getOrCreateSchoolStudentWithCaches(
    Handler
 ========================= */
 
-// NOTE: struct controller-nya diasumsikan sudah ada:
-// type StudentClassSectionController struct { DB *gorm.DB }
-
 // POST /api/a/:school_id/student-class-sections/join     (versi lama: school_id di path)
 // POST /api/student-class-sections/join                  (versi baru: auto school dari code)
 // Body: { "student_code": "...." }
@@ -341,7 +338,9 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoSchool(c *fiber.Ctx) err
 	}
 
 	// --- 2) Validasi section (awal; guard final di UPDATE atomic) ---
-	if !sec.ClassSectionIsActive {
+	// Dulu: if !sec.ClassSectionIsActive { ... }
+	// Sekarang pakai enum status
+	if sec.ClassSectionStatus != model.ClassStatusActive {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusConflict, "Section tidak aktif")
 	}
@@ -450,7 +449,7 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoSchool(c *fiber.Ctx) err
 		    class_section_updated_at = NOW()
 		WHERE class_section_id = ?
 		  AND class_section_deleted_at IS NULL
-		  AND class_section_is_active = TRUE
+		  AND class_section_status = 'active'
 		  AND (class_section_quota_total IS NULL OR class_section_total_students_active < class_section_quota_total)
 	`, sec.ClassSectionID)
 	if res.Error != nil {
@@ -516,5 +515,4 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoSchool(c *fiber.Ctx) err
 	}
 
 	return helper.JsonOK(c, "Berhasil bergabung", resp)
-
 }

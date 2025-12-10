@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -114,28 +113,12 @@ type SchoolTeacherModel struct {
 	SchoolTeacherUserTeacherWhatsappURLCache *string `gorm:"type:varchar(50);column:school_teacher_user_teacher_whatsapp_url_cache" json:"school_teacher_user_teacher_whatsapp_url_cache,omitempty"`
 	SchoolTeacherUserTeacherTitlePrefixCache *string `gorm:"type:varchar(20);column:school_teacher_user_teacher_title_prefix_cache" json:"school_teacher_user_teacher_title_prefix_cache,omitempty"`
 	SchoolTeacherUserTeacherTitleSuffixCache *string `gorm:"type:varchar(30);column:school_teacher_user_teacher_title_suffix_cache" json:"school_teacher_user_teacher_title_suffix_cache,omitempty"`
-	SchoolTeacherUserTeacherGenderCache   *string `gorm:"type:varchar(20);column:school_teacher_user_teacher_gender_cache" json:"school_teacher_user_teacher_gender_cache,omitempty"`
-
-	// JSONB: sections & csst (NOT NULL DEFAULT '[]'::jsonb)
-	SchoolTeacherSections datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'::jsonb;column:school_teacher_sections" json:"school_teacher_sections"`
-	SchoolTeacherCSST     datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'::jsonb;column:school_teacher_csst" json:"school_teacher_csst"`
-
-	// ========================
-	// Stats (ALL)
-	// ========================
-	SchoolTeacherTotalClassSections               int `gorm:"type:integer;not null;default:0;column:school_teacher_total_class_sections" json:"school_teacher_total_class_sections"`
-	SchoolTeacherTotalClassSectionSubjectTeachers int `gorm:"type:integer;not null;default:0;column:school_teacher_total_class_section_subject_teachers" json:"school_teacher_total_class_section_subject_teachers"`
-
-	// ========================
-	// Stats (ACTIVE ONLY)
-	// ========================
-	SchoolTeacherTotalClassSectionsActive               int `gorm:"type:integer;not null;default:0;column:school_teacher_total_class_sections_active" json:"school_teacher_total_class_sections_active"`
-	SchoolTeacherTotalClassSectionSubjectTeachersActive int `gorm:"type:integer;not null;default:0;column:school_teacher_total_class_section_subject_teachers_active" json:"school_teacher_total_class_section_subject_teachers_active"`
+	SchoolTeacherUserTeacherGenderCache      *string `gorm:"type:varchar(20);column:school_teacher_user_teacher_gender_cache" json:"school_teacher_user_teacher_gender_cache,omitempty"`
 
 	// Audit & Soft Delete
 	SchoolTeacherCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();autoCreateTime;column:school_teacher_created_at" json:"school_teacher_created_at"`
 	SchoolTeacherUpdatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();autoUpdateTime;column:school_teacher_updated_at" json:"school_teacher_updated_at"`
-	SchoolTeacherDeletedAt gorm.DeletedAt `gorm:"index;column:school_teacher_deleted_at" json:"school_teacher_deleted_at,omitempty"`
+	SchoolTeacherDeletedAt gorm.DeletedAt `gorm:"column:school_teacher_deleted_at;index" json:"school_teacher_deleted_at,omitempty"`
 }
 
 func (SchoolTeacherModel) TableName() string { return "school_teachers" }

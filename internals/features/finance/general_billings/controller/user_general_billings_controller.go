@@ -13,7 +13,7 @@ import (
 
 	dto "madinahsalam_backend/internals/features/finance/general_billings/dto"
 	model "madinahsalam_backend/internals/features/finance/general_billings/model"
-	helper "madinahsalam_backend/internals/helpers" // <- pastikan path-nya sesuai lokasi Json* helper kamu
+	helper "madinahsalam_backend/internals/helpers" // pastikan path sesuai
 )
 
 /* ========================================================
@@ -48,6 +48,7 @@ func parseUUIDParam(c *fiber.Ctx, name string) (uuid.UUID, error) {
 func isPgUniqueErr(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "duplicate key value violates unique constraint")
 }
+
 func isPgFKErr(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "violates foreign key constraint")
 }
@@ -95,7 +96,7 @@ func (ctl *UserGeneralBillingController) Patch(c *fiber.Ctx) error {
 		return err
 	}
 
-	var m model.UserGeneralBilling
+	var m model.UserGeneralBillingModel
 	if err := ctl.DB.First(&m, "user_general_billing_id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "not found")
@@ -141,7 +142,8 @@ func (ctl *UserGeneralBillingController) Delete(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	var m model.UserGeneralBilling
+
+	var m model.UserGeneralBillingModel
 	if err := ctl.DB.First(&m, "user_general_billing_id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "not found")

@@ -29,9 +29,9 @@ BEGIN
   END IF;
 END$$;
 
--- =========================================================
--- TABLE: class_sections (JSONB snapshots utk people & room)
--- =========================================================
+-- ENUM status (pastikan sudah dibuat di migration lain)
+-- CREATE TYPE class_status_enum AS ENUM ('active','inactive','completed');
+
 CREATE TABLE IF NOT EXISTS class_sections (
   class_section_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
@@ -48,8 +48,6 @@ CREATE TABLE IF NOT EXISTS class_sections (
   class_section_schedule TEXT,
 
   -- Kuota (mirip classes)
-  --  - class_section_quota_total → kapasitas maksimal (limit)
-  --  - class_section_quota_taken → sudah terdaftar (count)
   class_section_quota_total INT,
   class_section_quota_taken INT NOT NULL DEFAULT 0,
 
@@ -135,14 +133,14 @@ CREATE TABLE IF NOT EXISTS class_sections (
   class_section_total_class_class_section_subject_teachers_active  INTEGER NOT NULL DEFAULT 0,
 
   -- Status & audit
-  class_section_is_active  BOOLEAN     NOT NULL DEFAULT TRUE,
-  class_section_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  class_section_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  class_section_deleted_at TIMESTAMPTZ,
+  class_section_status       class_status_enum NOT NULL DEFAULT 'active',
+  class_section_completed_at TIMESTAMPTZ,
+  class_section_created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  class_section_updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  class_section_deleted_at   TIMESTAMPTZ,
 
   /* ========================= CHECKS ============================ */
 
-  -- Kuota non-negatif & taken ≤ total (kalau total di-set)
   CONSTRAINT ck_section_quota_total_nonneg
     CHECK (class_section_quota_total IS NULL OR class_section_quota_total >= 0),
 
@@ -152,7 +150,6 @@ CREATE TABLE IF NOT EXISTS class_sections (
   CONSTRAINT ck_section_quota_taken_le_total
     CHECK (class_section_quota_total IS NULL OR class_section_quota_taken <= class_section_quota_total),
 
-  -- URL group opsional tapi kalau ada harus http/https
   CONSTRAINT ck_section_group_url_scheme
     CHECK (class_section_group_url IS NULL OR class_section_group_url ~* '^(https?)://'),
 
@@ -171,7 +168,6 @@ CREATE TABLE IF NOT EXISTS class_sections (
     REFERENCES academic_terms (academic_term_id, academic_term_school_id)
     ON UPDATE CASCADE ON DELETE SET NULL,
 
-  -- tenant-safe pair
   CONSTRAINT uq_class_section_id_school UNIQUE (class_section_id, class_section_school_id)
 );
 

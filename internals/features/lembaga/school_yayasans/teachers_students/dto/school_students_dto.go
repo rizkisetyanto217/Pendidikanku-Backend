@@ -2,7 +2,6 @@
 package dto
 
 import (
-	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -51,7 +50,7 @@ func normalizeStatusPtr(s *studentmodel.SchoolStudentStatus) (*studentmodel.Scho
 }
 
 /* =========================================================
-   Type item untuk render class_sections (JSONB)
+   Type item untuk render class_sections (nested)
    — backend yang memelihara; hanya tampil di response
 ========================================================= */
 
@@ -76,20 +75,18 @@ type SchoolStudentCreateReq struct {
 
 	SchoolStudentSlug string `json:"school_student_slug"` // required
 
-	SchoolStudentCode               *string                           `json:"school_student_code,omitempty"`
-	SchoolStudentStatus             *studentmodel.SchoolStudentStatus `json:"school_student_status,omitempty"` // default: active
-	SchoolStudentNote               *string                           `json:"school_student_note,omitempty"`
-	SchoolStudentJoinedAt           *time.Time                        `json:"school_student_joined_at,omitempty"`
-	SchoolStudentLeftAt             *time.Time                        `json:"school_student_left_at,omitempty"`
-	SchoolStudentNeedsClassSections *bool                             `json:"school_student_needs_class_sections,omitempty"`
-
-	// Caches users_profile (opsional di saat create)
-	SchoolStudentUserProfileNameCache              *string `json:"school_student_user_profile_name_cache,omitempty"`
-	SchoolStudentUserProfileAvatarURLCache         *string `json:"school_student_user_profile_avatar_url_cache,omitempty"`
-	SchoolStudentUserProfileWhatsappURLCache       *string `json:"school_student_user_profile_whatsapp_url_cache,omitempty"`
-	SchoolStudentUserProfileParentNameCache        *string `json:"school_student_user_profile_parent_name_cache,omitempty"`
-	SchoolStudentUserProfileParentWhatsappURLCache *string `json:"school_student_user_profile_parent_whatsapp_url_cache,omitempty"`
-	SchoolStudentUserProfileGenderCache            *string `json:"school_student_user_profile_gender_cache,omitempty"`
+	SchoolStudentCode                              *string                           `json:"school_student_code,omitempty"`
+	SchoolStudentStatus                            *studentmodel.SchoolStudentStatus `json:"school_student_status,omitempty"` // default: active
+	SchoolStudentNote                              *string                           `json:"school_student_note,omitempty"`
+	SchoolStudentJoinedAt                          *time.Time                        `json:"school_student_joined_at,omitempty"`
+	SchoolStudentLeftAt                            *time.Time                        `json:"school_student_left_at,omitempty"`
+	SchoolStudentNeedsClassSections                *bool                             `json:"school_student_needs_class_sections,omitempty"`
+	SchoolStudentUserProfileNameCache              *string                           `json:"school_student_user_profile_name_cache,omitempty"`
+	SchoolStudentUserProfileAvatarURLCache         *string                           `json:"school_student_user_profile_avatar_url_cache,omitempty"`
+	SchoolStudentUserProfileWhatsappURLCache       *string                           `json:"school_student_user_profile_whatsapp_url_cache,omitempty"`
+	SchoolStudentUserProfileParentNameCache        *string                           `json:"school_student_user_profile_parent_name_cache,omitempty"`
+	SchoolStudentUserProfileParentWhatsappURLCache *string                           `json:"school_student_user_profile_parent_whatsapp_url_cache,omitempty"`
+	SchoolStudentUserProfileGenderCache            *string                           `json:"school_student_user_profile_gender_cache,omitempty"`
 }
 
 func (r *SchoolStudentCreateReq) Normalize() {
@@ -161,7 +158,6 @@ func (r *SchoolStudentCreateReq) ToModel() *studentmodel.SchoolStudentModel {
 
 		SchoolStudentNeedsClassSections: needsClassSections,
 
-		// caches users_profile
 		SchoolStudentUserProfileNameCache:              r.SchoolStudentUserProfileNameCache,
 		SchoolStudentUserProfileAvatarURLCache:         r.SchoolStudentUserProfileAvatarURLCache,
 		SchoolStudentUserProfileWhatsappURLCache:       r.SchoolStudentUserProfileWhatsappURLCache,
@@ -187,7 +183,6 @@ type SchoolStudentUpdateReq struct {
 
 	SchoolStudentNeedsClassSections *bool `json:"school_student_needs_class_sections,omitempty"`
 
-	// caches users_profile
 	SchoolStudentUserProfileNameCache              *string `json:"school_student_user_profile_name_cache,omitempty"`
 	SchoolStudentUserProfileAvatarURLCache         *string `json:"school_student_user_profile_avatar_url_cache,omitempty"`
 	SchoolStudentUserProfileWhatsappURLCache       *string `json:"school_student_user_profile_whatsapp_url_cache,omitempty"`
@@ -243,7 +238,6 @@ func (r *SchoolStudentUpdateReq) Apply(m *studentmodel.SchoolStudentModel) {
 		m.SchoolStudentNeedsClassSections = *r.SchoolStudentNeedsClassSections
 	}
 
-	// caches users_profile
 	m.SchoolStudentUserProfileNameCache = r.SchoolStudentUserProfileNameCache
 	m.SchoolStudentUserProfileAvatarURLCache = r.SchoolStudentUserProfileAvatarURLCache
 	m.SchoolStudentUserProfileWhatsappURLCache = r.SchoolStudentUserProfileWhatsappURLCache
@@ -267,7 +261,6 @@ type SchoolStudentPatchReq struct {
 
 	SchoolStudentNeedsClassSections *PatchField[bool] `json:"school_student_needs_class_sections,omitempty"`
 
-	// caches users_profile
 	SchoolStudentUserProfileNameCache              *PatchField[*string] `json:"school_student_user_profile_name_cache,omitempty"`
 	SchoolStudentUserProfileAvatarURLCache         *PatchField[*string] `json:"school_student_user_profile_avatar_url_cache,omitempty"`
 	SchoolStudentUserProfileWhatsappURLCache       *PatchField[*string] `json:"school_student_user_profile_whatsapp_url_cache,omitempty"`
@@ -351,7 +344,6 @@ func (r *SchoolStudentPatchReq) Apply(m *studentmodel.SchoolStudentModel) {
 		m.SchoolStudentNeedsClassSections = r.SchoolStudentNeedsClassSections.Value
 	}
 
-	// caches users_profile
 	if r.SchoolStudentUserProfileNameCache != nil && r.SchoolStudentUserProfileNameCache.Set {
 		m.SchoolStudentUserProfileNameCache = r.SchoolStudentUserProfileNameCache.Value
 	}
@@ -389,10 +381,8 @@ type SchoolStudentResp struct {
 	SchoolStudentJoinedAt *time.Time `json:"school_student_joined_at,omitempty"`
 	SchoolStudentLeftAt   *time.Time `json:"school_student_left_at,omitempty"`
 
-	// flag: butuh penempatan ke class_sections?
 	SchoolStudentNeedsClassSections bool `json:"school_student_needs_class_sections"`
 
-	// caches users_profile
 	SchoolStudentUserProfileNameCache              *string `json:"school_student_user_profile_name_cache,omitempty"`
 	SchoolStudentUserProfileAvatarURLCache         *string `json:"school_student_user_profile_avatar_url_cache,omitempty"`
 	SchoolStudentUserProfileWhatsappURLCache       *string `json:"school_student_user_profile_whatsapp_url_cache,omitempty"`
@@ -400,19 +390,8 @@ type SchoolStudentResp struct {
 	SchoolStudentUserProfileParentWhatsappURLCache *string `json:"school_student_user_profile_parent_whatsapp_url_cache,omitempty"`
 	SchoolStudentUserProfileGenderCache            *string `json:"school_student_user_profile_gender_cache,omitempty"`
 
-	// Class sections (read-only dari backend)
+	// Nested sections (opsional; default [] kalau tidak diisi controller)
 	SchoolStudentSections []SchoolStudentSectionItem `json:"school_student_class_sections"`
-
-	// CSST: kita expose sebagai JSON mentah (array)
-	SchoolStudentClassSectionSubjectTeachers json.RawMessage `json:"school_student_class_section_subject_teachers"`
-
-	// Stats (ALL)
-	SchoolStudentTotalClassSections               int `json:"school_student_total_class_sections"`
-	SchoolStudentTotalClassSectionSubjectTeachers int `json:"school_student_total_class_section_subject_teachers"`
-
-	// Stats (ACTIVE)
-	SchoolStudentTotalClassSectionsActive               int `json:"school_student_total_class_sections_active"`
-	SchoolStudentTotalClassSectionSubjectTeachersActive int `json:"school_student_total_class_section_subject_teachers_active"`
 
 	SchoolStudentCreatedAt time.Time  `json:"school_student_created_at"`
 	SchoolStudentUpdatedAt time.Time  `json:"school_student_updated_at"`
@@ -424,18 +403,6 @@ func FromModel(m *studentmodel.SchoolStudentModel) SchoolStudentResp {
 	if m.SchoolStudentDeletedAt.Valid {
 		t := m.SchoolStudentDeletedAt.Time
 		delAt = &t
-	}
-
-	// decode JSONB class_sections -> []SchoolStudentSectionItem
-	sections := make([]SchoolStudentSectionItem, 0)
-	if len(m.SchoolStudentClassSections) > 0 {
-		_ = json.Unmarshal(m.SchoolStudentClassSections, &sections) // fallback: [] kalau error
-	}
-
-	// CSST: biarin raw JSON (array) supaya fleksibel
-	csstRaw := json.RawMessage([]byte("[]"))
-	if len(m.SchoolStudentClassSectionSubjectTeachers) > 0 {
-		csstRaw = json.RawMessage(m.SchoolStudentClassSectionSubjectTeachers)
 	}
 
 	return SchoolStudentResp{
@@ -453,7 +420,6 @@ func FromModel(m *studentmodel.SchoolStudentModel) SchoolStudentResp {
 
 		SchoolStudentNeedsClassSections: m.SchoolStudentNeedsClassSections,
 
-		// caches users_profile
 		SchoolStudentUserProfileNameCache:              m.SchoolStudentUserProfileNameCache,
 		SchoolStudentUserProfileAvatarURLCache:         m.SchoolStudentUserProfileAvatarURLCache,
 		SchoolStudentUserProfileWhatsappURLCache:       m.SchoolStudentUserProfileWhatsappURLCache,
@@ -461,12 +427,8 @@ func FromModel(m *studentmodel.SchoolStudentModel) SchoolStudentResp {
 		SchoolStudentUserProfileParentWhatsappURLCache: m.SchoolStudentUserProfileParentWhatsappURLCache,
 		SchoolStudentUserProfileGenderCache:            m.SchoolStudentUserProfileGenderCache,
 
-		SchoolStudentSections:                               sections,
-		SchoolStudentClassSectionSubjectTeachers:            csstRaw,
-		SchoolStudentTotalClassSections:                     m.SchoolStudentTotalClassSections,
-		SchoolStudentTotalClassSectionSubjectTeachers:       m.SchoolStudentTotalClassSectionSubjectTeachers,
-		SchoolStudentTotalClassSectionsActive:               m.SchoolStudentTotalClassSectionsActive,
-		SchoolStudentTotalClassSectionSubjectTeachersActive: m.SchoolStudentTotalClassSectionSubjectTeachersActive,
+		// default: kosong, controller boleh isi manual kalau load nested
+		SchoolStudentSections: []SchoolStudentSectionItem{},
 
 		SchoolStudentCreatedAt: m.SchoolStudentCreatedAt,
 		SchoolStudentUpdatedAt: m.SchoolStudentUpdatedAt,
@@ -474,9 +436,9 @@ func FromModel(m *studentmodel.SchoolStudentModel) SchoolStudentResp {
 	}
 }
 
-// =========================================================
-//   COMPACT RESPONSE (untuk embed di tempat lain)
-// =========================================================
+/* =========================================================
+   COMPACT RESPONSE
+========================================================= */
 
 type SchoolStudentCompact struct {
 	SchoolStudentID     uuid.UUID                        `json:"school_student_id"`
@@ -491,7 +453,6 @@ type SchoolStudentCompact struct {
 	SchoolStudentUserProfileGenderCache      *string `json:"school_student_user_profile_gender_cache,omitempty"`
 }
 
-// Helper: mapping dari model ke compact
 func ToSchoolStudentCompact(m *studentmodel.SchoolStudentModel) SchoolStudentCompact {
 	return SchoolStudentCompact{
 		SchoolStudentID:     m.SchoolStudentID,

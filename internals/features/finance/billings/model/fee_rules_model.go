@@ -8,7 +8,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// --- ENUM fee_scope (ikuti enum di DB) ---------------------------------------
+/* ===================== ENUM fee_scope ===================== */
+
 type FeeScope string
 
 const (
@@ -17,18 +18,32 @@ const (
 	FeeScopeClass       FeeScope = "class"
 	FeeScopeSection     FeeScope = "section"
 	FeeScopeStudent     FeeScope = "student"
+	FeeScopeTerm        FeeScope = "term"
 )
 
-// --- Item opsi harga di JSONB ------------------------------------------------
-// Struktur satu elemen di fee_rule_amount_options
+/* ===================== ENUM general_billing_category ===================== */
+/* (mirror enum di DB: general_billing_category) */
+
+type GeneralBillingCategory string
+
+const (
+	GeneralBillingCategoryRegistration GeneralBillingCategory = "registration"
+	GeneralBillingCategorySPP          GeneralBillingCategory = "spp"
+	GeneralBillingCategoryMassStudent  GeneralBillingCategory = "mass_student"
+	GeneralBillingCategoryDonation     GeneralBillingCategory = "donation"
+)
+
+/* ===================== JSONB AmountOption ===================== */
+
 type AmountOption struct {
-	Code   string `json:"code"`   // contoh: "L1"
-	Label  string `json:"label"`  // contoh: "Level 1"
+	Code   string `json:"code"`   // contoh: "T1"
+	Label  string `json:"label"`  // contoh: "Tarif 1"
 	Amount int    `json:"amount"` // contoh: 500000
 }
 
-// --- MODEL fee_rules ---------------------------------------------------------
-type FeeRule struct {
+/* ===================== MODEL fee_rules ===================== */
+
+type FeeRuleModel struct {
 	// PK
 	FeeRuleID uuid.UUID `json:"fee_rule_id" gorm:"column:fee_rule_id;type:uuid;default:gen_random_uuid();primaryKey"`
 
@@ -47,18 +62,17 @@ type FeeRule struct {
 	FeeRuleMonth  *int16     `json:"fee_rule_month,omitempty" gorm:"column:fee_rule_month;type:smallint"`
 	FeeRuleYear   *int16     `json:"fee_rule_year,omitempty" gorm:"column:fee_rule_year;type:smallint"`
 
-	// Jenis rule (link ke katalog + denorm code)
-	FeeRuleGeneralBillingKindID *uuid.UUID `json:"fee_rule_general_billing_kind_id,omitempty" gorm:"column:fee_rule_general_billing_kind_id;type:uuid"`
-	FeeRuleBillCode             string     `json:"fee_rule_bill_code" gorm:"column:fee_rule_bill_code;type:varchar(60);not null;default:'SPP'"`
+	// Jenis rule (kategori + bill_code)
+	FeeRuleCategory GeneralBillingCategory `json:"fee_rule_category" gorm:"column:fee_rule_category;type:general_billing_category;not null"`
+	FeeRuleBillCode string                 `json:"fee_rule_bill_code" gorm:"column:fee_rule_bill_code;type:varchar(60);not null;default:'SPP'"`
 
 	// Opsi/label default (single, denorm penanda)
-	// Catatan: default 'T1' mengikuti DDL kamu; hapus default di DB jika tidak diperlukan.
 	FeeRuleOptionCode  string  `json:"fee_rule_option_code" gorm:"column:fee_rule_option_code;type:varchar(20);not null;default:'T1'"`
 	FeeRuleOptionLabel *string `json:"fee_rule_option_label,omitempty" gorm:"column:fee_rule_option_label;type:varchar(60)"`
 	FeeRuleIsDefault   bool    `json:"fee_rule_is_default" gorm:"column:fee_rule_is_default;type:boolean;not null;default:false"`
 
-	// >>> JSONB daftar opsi harga: [{code,label,amount}, ...]
-	// Pakai serializer:json agar []AmountOption di-serialize ke JSONB.
+	// JSONB daftar opsi harga: [{code,label,amount}, ...]
+	// serializer:json → []AmountOption <-> JSONB
 	FeeRuleAmountOptions []AmountOption `json:"fee_rule_amount_options" gorm:"column:fee_rule_amount_options;type:jsonb;not null;serializer:json"`
 
 	// Effective window
@@ -68,22 +82,10 @@ type FeeRule struct {
 	// Catatan
 	FeeRuleNote *string `json:"fee_rule_note,omitempty" gorm:"column:fee_rule_note;type:text"`
 
-	// --- SNAPSHOT kolom GBK (diisi oleh backend) -----------------------------
-	FeeRuleGBKCodeSnapshot               *string `json:"fee_rule_gbk_code_snapshot,omitempty" gorm:"column:fee_rule_gbk_code_snapshot;type:varchar(60)"`
-	FeeRuleGBKNameSnapshot               *string `json:"fee_rule_gbk_name_snapshot,omitempty" gorm:"column:fee_rule_gbk_name_snapshot;type:text"`
-	FeeRuleGBKCategorySnapshot           *string `json:"fee_rule_gbk_category_snapshot,omitempty" gorm:"column:fee_rule_gbk_category_snapshot;type:varchar(20)"`
-	FeeRuleGBKIsGlobalSnapshot           *bool   `json:"fee_rule_gbk_is_global_snapshot,omitempty" gorm:"column:fee_rule_gbk_is_global_snapshot;type:boolean"`
-	FeeRuleGBKVisibilitySnapshot         *string `json:"fee_rule_gbk_visibility_snapshot,omitempty" gorm:"column:fee_rule_gbk_visibility_snapshot;type:varchar(20)"`
-	FeeRuleGBKIsRecurringSnapshot        *bool   `json:"fee_rule_gbk_is_recurring_snapshot,omitempty" gorm:"column:fee_rule_gbk_is_recurring_snapshot;type:boolean"`
-	FeeRuleGBKRequiresMonthYearSnapshot  *bool   `json:"fee_rule_gbk_requires_month_year_snapshot,omitempty" gorm:"column:fee_rule_gbk_requires_month_year_snapshot;type:boolean"`
-	FeeRuleGBKRequiresOptionCodeSnapshot *bool   `json:"fee_rule_gbk_requires_option_code_snapshot,omitempty" gorm:"column:fee_rule_gbk_requires_option_code_snapshot;type:boolean"`
-	FeeRuleGBKDefaultAmountIDRSnapshot   *int    `json:"fee_rule_gbk_default_amount_idr_snapshot,omitempty" gorm:"column:fee_rule_gbk_default_amount_idr_snapshot;type:int"`
-	FeeRuleGBKIsActiveSnapshot           *bool   `json:"fee_rule_gbk_is_active_snapshot,omitempty" gorm:"column:fee_rule_gbk_is_active_snapshot;type:boolean"`
-
-	// Timestamps
+	// Timestamps (soft delete manual via gorm.DeletedAt)
 	FeeRuleCreatedAt time.Time      `json:"fee_rule_created_at" gorm:"column:fee_rule_created_at;type:timestamptz;not null;autoCreateTime"`
 	FeeRuleUpdatedAt time.Time      `json:"fee_rule_updated_at" gorm:"column:fee_rule_updated_at;type:timestamptz;not null;autoUpdateTime"`
 	FeeRuleDeletedAt gorm.DeletedAt `json:"fee_rule_deleted_at,omitempty" gorm:"column:fee_rule_deleted_at;type:timestamptz;index"`
 }
 
-func (FeeRule) TableName() string { return "fee_rules" }
+func (FeeRuleModel) TableName() string { return "fee_rules" }

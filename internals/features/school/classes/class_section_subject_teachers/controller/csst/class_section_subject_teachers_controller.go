@@ -30,8 +30,6 @@ import (
 	roomCache "madinahsalam_backend/internals/features/school/academics/rooms/service"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
-
-	csstStatsService "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/service"
 )
 
 /* ===================== Helpers kecil ===================== */
@@ -72,17 +70,6 @@ func trimAny(v interface{}) *string {
 	default:
 		return nil
 	}
-}
-
-// helper compare pointer UUID
-func uuidPtrChanged(old *uuid.UUID, new *uuid.UUID) bool {
-	if old == nil && new == nil {
-		return false
-	}
-	if old == nil || new == nil {
-		return true
-	}
-	return *old != *new
 }
 
 /*
@@ -629,36 +616,12 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Insert gagal: "+err.Error())
 		}
 
-		// ==== 🔁 Sync ke school_teachers (JSONB CSST + stats) ====
-		if row.ClassSectionSubjectTeacherSchoolTeacherID != nil {
-			if err := csstStatsService.AddCSSTToTeacher(
-				tx,
-				schoolID,
-				*row.ClassSectionSubjectTeacherSchoolTeacherID,
-				&row,
-				"main",
-			); err != nil {
-				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal update stats guru (main CSST)")
-			}
-		}
-		if row.ClassSectionSubjectTeacherAssistantSchoolTeacherID != nil {
-			if err := csstStatsService.AddCSSTToTeacher(
-				tx,
-				schoolID,
-				*row.ClassSectionSubjectTeacherAssistantSchoolTeacherID,
-				&row,
-				"assistant",
-			); err != nil {
-				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal update stats guru (assistant CSST)")
-			}
-		}
+		// ✅ Tidak ada lagi sync ke school_teachers (JSONB CSST + stats)
 
 		return helper.JsonCreated(c, "Penugasan guru berhasil dibuat", dto.FromClassSectionSubjectTeacherModel(row))
 	})
 }
 
-/* ======================== UPDATE (partial) ======================== */
-// PUT /admin/:school_id/class-section-subject-teachers/:id
 /* ======================== UPDATE (partial) ======================== */
 // PUT /admin/:school_id/class-section-subject-teachers/:id
 func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
@@ -706,9 +669,12 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 			return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 		}
 
-		// Simpan guru lama (sebelum patch) untuk sync stats
+		// Simpan guru lama (kalau nanti kamu mau pakai untuk logic lain di masa depan)
 		oldTeacherID := row.ClassSectionSubjectTeacherSchoolTeacherID
 		oldAssistantID := row.ClassSectionSubjectTeacherAssistantSchoolTeacherID
+
+		_ = oldTeacherID
+		_ = oldAssistantID
 
 		// Precheck konsistensi jika section / class_subject berubah
 		if req.ClassSectionSubjectTeacherClassSectionID != nil || req.ClassSectionSubjectTeacherClassSubjectID != nil {
@@ -944,71 +910,6 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 			}
 		}
 
-		// ==== 🔁 Sync CSST ke school_teachers (JSONB + stats) ====
-		// MAIN teacher: remove dari guru lama kalau berubah/dihapus
-		if oldTeacherID != nil &&
-			(row.ClassSectionSubjectTeacherSchoolTeacherID == nil ||
-				*oldTeacherID != *row.ClassSectionSubjectTeacherSchoolTeacherID) {
-
-			if err := csstStatsService.RemoveCSSTFromTeacher(
-				tx,
-				schoolID,
-				*oldTeacherID,
-				&row,
-				"main",
-			); err != nil {
-				return helper.JsonError(c, http.StatusInternalServerError, "Gagal update stats guru (remove main CSST)")
-			}
-		}
-
-		// MAIN teacher: add ke guru baru kalau ada & berbeda
-		if row.ClassSectionSubjectTeacherSchoolTeacherID != nil &&
-			(oldTeacherID == nil ||
-				*oldTeacherID != *row.ClassSectionSubjectTeacherSchoolTeacherID) {
-
-			if err := csstStatsService.AddCSSTToTeacher(
-				tx,
-				schoolID,
-				*row.ClassSectionSubjectTeacherSchoolTeacherID,
-				&row,
-				"main",
-			); err != nil {
-				return helper.JsonError(c, http.StatusInternalServerError, "Gagal update stats guru (add main CSST)")
-			}
-		}
-
-		// ASSISTANT teacher: remove kalau berubah/dihapus
-		if oldAssistantID != nil &&
-			(row.ClassSectionSubjectTeacherAssistantSchoolTeacherID == nil ||
-				*oldAssistantID != *row.ClassSectionSubjectTeacherAssistantSchoolTeacherID) {
-
-			if err := csstStatsService.RemoveCSSTFromTeacher(
-				tx,
-				schoolID,
-				*oldAssistantID,
-				&row,
-				"assistant",
-			); err != nil {
-				return helper.JsonError(c, http.StatusInternalServerError, "Gagal update stats guru (remove assistant CSST)")
-			}
-		}
-
-		// ASSISTANT teacher: add kalau baru/diganti
-		if row.ClassSectionSubjectTeacherAssistantSchoolTeacherID != nil &&
-			(oldAssistantID == nil ||
-				*oldAssistantID != *row.ClassSectionSubjectTeacherAssistantSchoolTeacherID) {
-
-			if err := csstStatsService.AddCSSTToTeacher(
-				tx,
-				schoolID,
-				*row.ClassSectionSubjectTeacherAssistantSchoolTeacherID,
-				&row,
-				"assistant",
-			); err != nil {
-				return helper.JsonError(c, http.StatusInternalServerError, "Gagal update stats guru (add assistant CSST)")
-			}
-		}
-
 		// Persist
 		if err := tx.Save(&row).Error; err != nil {
 			msg := strings.ToLower(err.Error())
@@ -1039,6 +940,7 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 		_ = wasActive
 		_ = newActive // disimpan kalau nanti mau dipakai untuk sync lain (misal lembaga_stats)
 
+		// ✅ Tidak ada lagi sync ke school_teachers di sini
 		return helper.JsonUpdated(c, "Penugasan guru berhasil diperbarui", dto.FromClassSectionSubjectTeacherModel(row))
 	})
 }

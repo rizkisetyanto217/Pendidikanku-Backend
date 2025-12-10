@@ -5,7 +5,7 @@ import (
 	"gorm.io/gorm"
 
 	billBatchesController "madinahsalam_backend/internals/features/finance/billings/controller/bill_batches"
-	billStudentController "madinahsalam_backend/internals/features/finance/billings/controller/bill_students"
+
 	feeRulesController "madinahsalam_backend/internals/features/finance/billings/controller/fee_rules"
 )
 
@@ -16,7 +16,6 @@ Diproteksi IsSchoolAdmin() — sesuaikan jika ada varian ByParam.
 func BillingsAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	h := &feeRulesController.FeeRuleHandler{DB: db}
 	billBatch := &billBatchesController.BillBatchHandler{DB: db}
-	studentBill := &billStudentController.StudentBillHandler{DB: db}
 
 	// Jika kamu punya resolver konteks school berbasis param, aktifkan di sini
 	// contoh: ResolveSchoolContextByParam("school_id")
@@ -40,15 +39,10 @@ func BillingsAdminRoutes(admin fiber.Router, db *gorm.DB) {
 		grp.Get("/bill-batches", billBatch.ListBillBatches)
 
 		// =========================
-		// Student Bills (list/detail + status actions)
-		// =========================
-		grp.Post("/student-bills/:id/cancel", studentBill.Cancel)
-
-		// =========================
 		// Generate Student Bills from Batch
 		// =========================
 		// Body request mengikuti dto.GenerateStudentBillsRequest (BillBatchID, dll)
 		// Jika mau versi path-based (bill-batches/:id/generate), tinggal buat handler terpisah yang inject BillBatchID dari param.
-		grp.Post("/generate", h.GenerateStudentBills)
+		grp.Post("bill-batches/generate", h.GenerateStudentBills)
 	}
 }

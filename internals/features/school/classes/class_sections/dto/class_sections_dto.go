@@ -21,17 +21,6 @@ import (
    Helpers (trim)
 ========================================================= */
 
-func trimLowerPtr(p *string) *string {
-	if p == nil {
-		return nil
-	}
-	s := strings.ToLower(strings.TrimSpace(*p))
-	if s == "" {
-		return nil
-	}
-	return &s
-}
-
 func trimPtr(p *string) *string {
 	if p == nil {
 		return nil
@@ -94,8 +83,9 @@ type ClassSectionCreateRequest struct {
 	ClassSectionImageURL       *string `json:"class_section_image_url"        form:"class_section_image_url"`
 	ClassSectionImageObjectKey *string `json:"class_section_image_object_key" form:"class_section_image_object_key"`
 
-	// Status
-	ClassSectionIsActive *bool `json:"class_section_is_active" form:"class_section_is_active"`
+	// Status (baru: enum) + kompat lama (bool)
+	ClassSectionStatus   *string `json:"class_section_status"   form:"class_section_status"`
+	ClassSectionIsActive *bool   `json:"class_section_is_active" form:"class_section_is_active"`
 
 	// ====== RELASI ID (live, sesuai DDL & model) ======
 	ClassSectionSchoolTeacherID          *uuid.UUID `json:"class_section_school_teacher_id"            form:"class_section_school_teacher_id"`
@@ -144,6 +134,10 @@ func (r *ClassSectionCreateRequest) Normalize() {
 		v := strings.ToLower(strings.TrimSpace(*r.ClassSectionSubjectTeachersEnrollmentMode))
 		r.ClassSectionSubjectTeachersEnrollmentMode = &v
 	}
+	if r.ClassSectionStatus != nil {
+		v := strings.ToLower(strings.TrimSpace(*r.ClassSectionStatus))
+		r.ClassSectionStatus = &v
+	}
 }
 
 func (r ClassSectionCreateRequest) ToModel() *m.ClassSectionModel {
@@ -175,12 +169,30 @@ func (r ClassSectionCreateRequest) ToModel() *m.ClassSectionModel {
 		cs.ClassSectionQuotaTaken = *r.ClassSectionQuotaTaken
 	}
 
-	// Status
-	if r.ClassSectionIsActive != nil {
-		cs.ClassSectionIsActive = *r.ClassSectionIsActive
-	} else {
-		cs.ClassSectionIsActive = true
+	// ================= Status (enum) =================
+	// Prioritas:
+	// 1) class_section_status (string)
+	// 2) fallback ke class_section_is_active (bool)
+	// 3) default "active"
+	status := m.ClassStatusActive
+
+	if r.ClassSectionStatus != nil {
+		switch strings.ToLower(strings.TrimSpace(*r.ClassSectionStatus)) {
+		case "active":
+			status = m.ClassStatusActive
+		case "inactive":
+			status = m.ClassStatusInactive
+		case "completed":
+			status = m.ClassStatusCompleted
+		}
+	} else if r.ClassSectionIsActive != nil {
+		if *r.ClassSectionIsActive {
+			status = m.ClassStatusActive
+		} else {
+			status = m.ClassStatusInactive
+		}
 	}
+	cs.ClassSectionStatus = status
 
 	// Relasi IDs (opsional)
 	cs.ClassSectionSchoolTeacherID = r.ClassSectionSchoolTeacherID
@@ -247,10 +259,12 @@ type ClassSectionResponse struct {
 	ClassSectionImageDeletePendingUntil *time.Time `json:"class_section_image_delete_pending_until"`
 
 	// Status & audit
-	ClassSectionIsActive  bool       `json:"class_section_is_active"`
-	ClassSectionCreatedAt time.Time  `json:"class_section_created_at"`
-	ClassSectionUpdatedAt time.Time  `json:"class_section_updated_at"`
-	ClassSectionDeletedAt *time.Time `json:"class_section_deleted_at,omitempty"`
+	ClassSectionStatus      string     `json:"class_section_status"`       // "active" | "inactive" | "completed"
+	ClassSectionIsActive    bool       `json:"class_section_is_active"`    // derived for backward compatibility
+	ClassSectionCompletedAt *time.Time `json:"class_section_completed_at"` // nullable
+	ClassSectionCreatedAt   time.Time  `json:"class_section_created_at"`
+	ClassSectionUpdatedAt   time.Time  `json:"class_section_updated_at"`
+	ClassSectionDeletedAt   *time.Time `json:"class_section_deleted_at,omitempty"`
 
 	// ================== CACHE & RELASI ==================
 	// Class (labels)
@@ -328,6 +342,12 @@ func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 		return json.RawMessage(b)
 	}
 
+	statusStr := cs.ClassSectionStatus.String()
+	if statusStr == "" {
+		statusStr = "active"
+	}
+	isActive := cs.ClassSectionStatus == m.ClassStatusActive
+
 	return ClassSectionResponse{
 		// identitas
 		ClassSectionID:       cs.ClassSectionID,
@@ -362,10 +382,12 @@ func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 		ClassSectionImageObjectKeyOld:       cs.ClassSectionImageObjectKeyOld,
 		ClassSectionImageDeletePendingUntil: cs.ClassSectionImageDeletePendingUntil,
 
-		ClassSectionIsActive:  cs.ClassSectionIsActive,
-		ClassSectionCreatedAt: cs.ClassSectionCreatedAt,
-		ClassSectionUpdatedAt: cs.ClassSectionUpdatedAt,
-		ClassSectionDeletedAt: deletedAt,
+		ClassSectionStatus:      statusStr,
+		ClassSectionIsActive:    isActive,
+		ClassSectionCompletedAt: cs.ClassSectionCompletedAt,
+		ClassSectionCreatedAt:   cs.ClassSectionCreatedAt,
+		ClassSectionUpdatedAt:   cs.ClassSectionUpdatedAt,
+		ClassSectionDeletedAt:   deletedAt,
 
 		// cache (read-only)
 		ClassSectionClassNameCache: cs.ClassSectionClassNameCache,
@@ -444,6 +466,9 @@ type ClassSectionPatchRequest struct {
 	ClassSectionLeaderSchoolStudentID    PatchFieldCS[uuid.UUID] `json:"class_section_leader_school_student_id"`
 	ClassSectionClassRoomID              PatchFieldCS[uuid.UUID] `json:"class_section_class_room_id"`
 
+	// 🆕 PARENT ID (live di cache, tapi ID tetap dipatch di model)
+	ClassSectionClassParentID PatchFieldCS[uuid.UUID] `json:"class_section_class_parent_id"`
+
 	// TERM (live)
 	ClassSectionAcademicTermID PatchFieldCS[uuid.UUID] `json:"class_section_academic_term_id"`
 
@@ -463,8 +488,9 @@ type ClassSectionPatchRequest struct {
 	ClassSectionImageURL       PatchFieldCS[string] `json:"class_section_image_url"`
 	ClassSectionImageObjectKey PatchFieldCS[string] `json:"class_section_image_object_key"`
 
-	// Status
-	ClassSectionIsActive PatchFieldCS[bool] `json:"class_section_is_active"`
+	// Status (baru enum) + kompat lama (bool)
+	ClassSectionStatus   PatchFieldCS[string] `json:"class_section_status"`
+	ClassSectionIsActive PatchFieldCS[bool]   `json:"class_section_is_active"`
 
 	// ====== SUBJECT-TEACHERS settings ======
 	ClassSectionSubjectTeachersEnrollmentMode             PatchFieldCS[string] `json:"class_section_subject_teachers_enrollment_mode"`
@@ -526,6 +552,9 @@ func (r *ClassSectionPatchRequest) Apply(cs *m.ClassSectionModel) {
 	setUUIDPtr(r.ClassSectionLeaderSchoolStudentID, &cs.ClassSectionLeaderSchoolStudentID)
 	setUUIDPtr(r.ClassSectionClassRoomID, &cs.ClassSectionClassRoomID)
 
+	// 🆕 Parent
+	setUUIDPtr(r.ClassSectionClassParentID, &cs.ClassSectionClassParentID)
+
 	// TERM
 	setUUIDPtr(r.ClassSectionAcademicTermID, &cs.ClassSectionAcademicTermID)
 
@@ -552,9 +581,25 @@ func (r *ClassSectionPatchRequest) Apply(cs *m.ClassSectionModel) {
 	setStrPtr(r.ClassSectionImageURL, &cs.ClassSectionImageURL, false)
 	setStrPtr(r.ClassSectionImageObjectKey, &cs.ClassSectionImageObjectKey, false)
 
-	// Status
-	if r.ClassSectionIsActive.Present && r.ClassSectionIsActive.Value != nil {
-		cs.ClassSectionIsActive = *r.ClassSectionIsActive.Value
+	// ====== Status (enum + fallback bool) ======
+	if r.ClassSectionStatus.Present {
+		if r.ClassSectionStatus.Value != nil {
+			switch strings.ToLower(strings.TrimSpace(*r.ClassSectionStatus.Value)) {
+			case "active":
+				cs.ClassSectionStatus = m.ClassStatusActive
+			case "inactive":
+				cs.ClassSectionStatus = m.ClassStatusInactive
+			case "completed":
+				cs.ClassSectionStatus = m.ClassStatusCompleted
+			}
+		}
+	} else if r.ClassSectionIsActive.Present && r.ClassSectionIsActive.Value != nil {
+		// kompabilitas lama: kalau FE masih kirim is_active
+		if *r.ClassSectionIsActive.Value {
+			cs.ClassSectionStatus = m.ClassStatusActive
+		} else {
+			cs.ClassSectionStatus = m.ClassStatusInactive
+		}
 	}
 
 	// ====== Subject-Teachers settings ======
@@ -608,6 +653,10 @@ var (
 		"class_section_academic_term_id", "academic_term_id", "term_id",
 		"classSectionAcademicTermId", "academicTermId", "termId",
 	}
+	// 🆕 parent id
+	aliasClassParentID = []string{
+		"class_section_class_parent_id", "class_parent_id", "classParentId",
+	}
 
 	aliasSlug = []string{
 		"class_section_slug", "slug", "classSectionSlug",
@@ -641,6 +690,9 @@ var (
 	}
 	aliasIsActive = []string{
 		"class_section_is_active", "is_active", "classSectionIsActive",
+	}
+	aliasStatus = []string{
+		"class_section_status", "status", "classSectionStatus",
 	}
 	// subject-teachers
 	aliasSTMode = []string{
@@ -689,12 +741,13 @@ func DecodePatchClassSectionFromRequest(c *fiber.Ctx, dst *ClassSectionPatchRequ
 			raw = map[string]any{}
 		}
 
-		// Relasi IDs + TERM
+		// Relasi IDs + TERM + PARENT
 		setCanon(raw, "class_section_school_teacher_id", aliasTeacherID)
 		setCanon(raw, "class_section_assistant_school_teacher_id", aliasAsstTeacherID)
 		setCanon(raw, "class_section_leader_school_student_id", aliasLeaderStudentID)
 		setCanon(raw, "class_section_class_room_id", aliasRoomID)
 		setCanon(raw, "class_section_academic_term_id", aliasTermID)
+		setCanon(raw, "class_section_class_parent_id", aliasClassParentID)
 
 		// Editable props
 		setCanon(raw, "class_section_slug", aliasSlug)
@@ -708,6 +761,9 @@ func DecodePatchClassSectionFromRequest(c *fiber.Ctx, dst *ClassSectionPatchRequ
 		// Kuota
 		setCanon(raw, "class_section_quota_total", aliasQuotaTotal)
 		setCanon(raw, "class_section_quota_taken", aliasQuotaTaken)
+
+		// Status
+		setCanon(raw, "class_section_status", aliasStatus)
 		setCanon(raw, "class_section_is_active", aliasIsActive)
 
 		// subject-teachers settings
@@ -835,6 +891,7 @@ func DecodePatchClassSectionFromRequest(c *fiber.Ctx, dst *ClassSectionPatchRequ
 		markUUIDAliases(aliasLeaderStudentID, &dst.ClassSectionLeaderSchoolStudentID)
 		markUUIDAliases(aliasRoomID, &dst.ClassSectionClassRoomID)
 		markUUIDAliases(aliasTermID, &dst.ClassSectionAcademicTermID)
+		markUUIDAliases(aliasClassParentID, &dst.ClassSectionClassParentID)
 
 		markStrAliases(aliasSlug, &dst.ClassSectionSlug)
 		markStrAliases(aliasName, &dst.ClassSectionName)
@@ -848,6 +905,8 @@ func DecodePatchClassSectionFromRequest(c *fiber.Ctx, dst *ClassSectionPatchRequ
 		markStrAliases(aliasImageURL, &dst.ClassSectionImageURL)
 		markStrAliases(aliasImageKey, &dst.ClassSectionImageObjectKey)
 
+		// Status
+		markStrAliases(aliasStatus, &dst.ClassSectionStatus)
 		markBoolAliases(aliasIsActive, &dst.ClassSectionIsActive)
 
 		// Subject-Teachers settings
@@ -987,7 +1046,9 @@ type ClassSectionCompactResponse struct {
 	ClassSectionQuotaTotal *int `json:"class_section_quota_total,omitempty"`
 	ClassSectionQuotaTaken int  `json:"class_section_quota_taken"`
 
-	ClassSectionIsActive bool `json:"class_section_is_active"`
+	ClassSectionStatus      string     `json:"class_section_status"`
+	ClassSectionIsActive    bool       `json:"class_section_is_active"`
+	ClassSectionCompletedAt *time.Time `json:"class_section_completed_at,omitempty"`
 
 	// Cache: term
 	ClassSectionAcademicTermNameCache *string `json:"class_section_academic_term_name_cache,omitempty"`
@@ -1028,6 +1089,12 @@ func FromModelClassSectionToCompact(cs *m.ClassSectionModel) ClassSectionCompact
 	homeroom := teacherLiteFromJSON(cs.ClassSectionSchoolTeacherCache)
 	asst := teacherLiteFromJSON(cs.ClassSectionAssistantSchoolTeacherCache)
 
+	statusStr := cs.ClassSectionStatus.String()
+	if statusStr == "" {
+		statusStr = "active"
+	}
+	isActive := cs.ClassSectionStatus == m.ClassStatusActive
+
 	return ClassSectionCompactResponse{
 		ClassSectionID: cs.ClassSectionID,
 
@@ -1041,7 +1108,10 @@ func FromModelClassSectionToCompact(cs *m.ClassSectionModel) ClassSectionCompact
 
 		ClassSectionQuotaTotal: cs.ClassSectionQuotaTotal,
 		ClassSectionQuotaTaken: cs.ClassSectionQuotaTaken,
-		ClassSectionIsActive:   cs.ClassSectionIsActive,
+
+		ClassSectionStatus:      statusStr,
+		ClassSectionIsActive:    isActive,
+		ClassSectionCompletedAt: cs.ClassSectionCompletedAt,
 
 		// caches: term
 		ClassSectionAcademicTermNameCache: cs.ClassSectionAcademicTermNameCache,

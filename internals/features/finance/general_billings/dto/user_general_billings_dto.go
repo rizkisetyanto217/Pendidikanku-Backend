@@ -12,36 +12,33 @@ import (
 )
 
 /* =========================================================
-   PatchField tri-state (Unset / Null / Set(value))
-   - Unset: field tidak dikirim -> tidak diubah
-   - Null : field dikirim null  -> set ke NULL (kalau kolom nullable)
-   - Set  : field ada nilainya  -> set ke nilai baru
-   Catatan: untuk kolom model yg pointer (*T), gunakan PatchField[T] (bukan *T)
-   agar Value bertipe *T (bukan **T).
-   ========================================================= */
+   Helpers
+========================================================= */
 
 func ptr[T any](v T) *T { return &v }
 
 /* =========================================================
    REQUEST: Create
-   ========================================================= */
+========================================================= */
 
 type CreateUserGeneralBillingRequest struct {
 	UserGeneralBillingSchoolID        uuid.UUID  `json:"user_general_billing_school_id" validate:"required"`
 	UserGeneralBillingSchoolStudentID *uuid.UUID `json:"user_general_billing_school_student_id"` // optional (minimal salah satu ini atau payer harus diisi)
-	UserGeneralBillingPayerUserID     *uuid.UUID `json:"user_general_billing_payer_user_id"`     // optional (lihat rule di atas)
+	UserGeneralBillingPayerUserID     *uuid.UUID `json:"user_general_billing_payer_user_id"`     // optional
 
 	UserGeneralBillingBillingID uuid.UUID `json:"user_general_billing_billing_id" validate:"required"`
 
 	UserGeneralBillingAmountIDR int     `json:"user_general_billing_amount_idr" validate:"required,min=0"`
 	UserGeneralBillingStatus    *string `json:"user_general_billing_status" validate:"omitempty,oneof=unpaid paid canceled"`
 
-	UserGeneralBillingPaidAt           *time.Time     `json:"user_general_billing_paid_at"`
-	UserGeneralBillingNote             *string        `json:"user_general_billing_note"`
-	UserGeneralBillingMeta             map[string]any `json:"user_general_billing_meta"`
-	UserGeneralBillingTitleSnapshot    *string        `json:"user_general_billing_title_snapshot"`
-	UserGeneralBillingKindCodeSnapshot *string        `json:"user_general_billing_kind_code_snapshot"`
-	UserGeneralBillingKindNameSnapshot *string        `json:"user_general_billing_kind_name_snapshot"`
+	UserGeneralBillingPaidAt *time.Time     `json:"user_general_billing_paid_at"`
+	UserGeneralBillingNote   *string        `json:"user_general_billing_note"`
+	UserGeneralBillingMeta   map[string]any `json:"user_general_billing_meta"`
+
+	// Snapshots (opsional, biasanya diisi dari general_billing)
+	UserGeneralBillingTitleSnapshot    *string                       `json:"user_general_billing_title_snapshot"`
+	UserGeneralBillingCategorySnapshot *model.GeneralBillingCategory `json:"user_general_billing_category_snapshot"`
+	UserGeneralBillingBillCodeSnapshot *string                       `json:"user_general_billing_bill_code_snapshot"`
 }
 
 func (r *CreateUserGeneralBillingRequest) Validate() error {
@@ -52,7 +49,7 @@ func (r *CreateUserGeneralBillingRequest) Validate() error {
 	return nil
 }
 
-func (r CreateUserGeneralBillingRequest) ToModel() model.UserGeneralBilling {
+func (r CreateUserGeneralBillingRequest) ToModel() model.UserGeneralBillingModel {
 	status := model.UserGeneralBillingStatusUnpaid
 	if r.UserGeneralBillingStatus != nil && *r.UserGeneralBillingStatus != "" {
 		status = *r.UserGeneralBillingStatus
@@ -63,7 +60,7 @@ func (r CreateUserGeneralBillingRequest) ToModel() model.UserGeneralBilling {
 		meta = datatypes.JSONMap(r.UserGeneralBillingMeta)
 	}
 
-	return model.UserGeneralBilling{
+	return model.UserGeneralBillingModel{
 		UserGeneralBillingSchoolID:        r.UserGeneralBillingSchoolID,
 		UserGeneralBillingSchoolStudentID: r.UserGeneralBillingSchoolStudentID,
 		UserGeneralBillingPayerUserID:     r.UserGeneralBillingPayerUserID,
@@ -76,8 +73,8 @@ func (r CreateUserGeneralBillingRequest) ToModel() model.UserGeneralBilling {
 		UserGeneralBillingNote:   r.UserGeneralBillingNote,
 
 		UserGeneralBillingTitleSnapshot:    r.UserGeneralBillingTitleSnapshot,
-		UserGeneralBillingKindCodeSnapshot: r.UserGeneralBillingKindCodeSnapshot,
-		UserGeneralBillingKindNameSnapshot: r.UserGeneralBillingKindNameSnapshot,
+		UserGeneralBillingCategorySnapshot: r.UserGeneralBillingCategorySnapshot,
+		UserGeneralBillingBillCodeSnapshot: r.UserGeneralBillingBillCodeSnapshot,
 
 		UserGeneralBillingMeta: meta,
 	}
@@ -85,7 +82,7 @@ func (r CreateUserGeneralBillingRequest) ToModel() model.UserGeneralBilling {
 
 /* =========================================================
    REQUEST: Patch / Update (Partial)
-   ========================================================= */
+========================================================= */
 
 type PatchUserGeneralBillingRequest struct {
 	// Tidak mengizinkan update SchoolID atau BillingID via patch (biasanya immutable)
@@ -97,15 +94,15 @@ type PatchUserGeneralBillingRequest struct {
 	UserGeneralBillingPaidAt    PatchField[time.Time] `json:"user_general_billing_paid_at"`
 	UserGeneralBillingNote      PatchField[string]    `json:"user_general_billing_note"`
 
-	UserGeneralBillingTitleSnapshot    PatchField[string] `json:"user_general_billing_title_snapshot"`
-	UserGeneralBillingKindCodeSnapshot PatchField[string] `json:"user_general_billing_kind_code_snapshot"`
-	UserGeneralBillingKindNameSnapshot PatchField[string] `json:"user_general_billing_kind_name_snapshot"`
+	UserGeneralBillingTitleSnapshot    PatchField[string]                    `json:"user_general_billing_title_snapshot"`
+	UserGeneralBillingCategorySnapshot PatchField[model.GeneralBillingCategory] `json:"user_general_billing_category_snapshot"`
+	UserGeneralBillingBillCodeSnapshot PatchField[string]                    `json:"user_general_billing_bill_code_snapshot"`
 
 	// Meta: bisa null (hapus), set object baru, atau tidak diubah
 	UserGeneralBillingMeta PatchField[map[string]any] `json:"user_general_billing_meta"`
 }
 
-func (p PatchUserGeneralBillingRequest) ValidateAfterApply(m model.UserGeneralBilling) error {
+func (p PatchUserGeneralBillingRequest) ValidateAfterApply(m model.UserGeneralBillingModel) error {
 	// Pastikan minimal salah satu tetap ada setelah patch (student/payer)
 	if m.UserGeneralBillingSchoolStudentID == nil && m.UserGeneralBillingPayerUserID == nil {
 		return errors.New("after patch, at least one of school_student_id or payer_user_id must be non-null")
@@ -113,7 +110,9 @@ func (p PatchUserGeneralBillingRequest) ValidateAfterApply(m model.UserGeneralBi
 	// Validasi status kalau di-set
 	if p.UserGeneralBillingStatus.Set && !p.UserGeneralBillingStatus.Null && p.UserGeneralBillingStatus.Value != nil {
 		s := *p.UserGeneralBillingStatus.Value
-		if s != model.UserGeneralBillingStatusUnpaid && s != model.UserGeneralBillingStatusPaid && s != model.UserGeneralBillingStatusCanceled {
+		if s != model.UserGeneralBillingStatusUnpaid &&
+			s != model.UserGeneralBillingStatusPaid &&
+			s != model.UserGeneralBillingStatusCanceled {
 			return errors.New("user_general_billing_status must be one of: unpaid, paid, canceled")
 		}
 	}
@@ -126,7 +125,7 @@ func (p PatchUserGeneralBillingRequest) ValidateAfterApply(m model.UserGeneralBi
 	return nil
 }
 
-func (p PatchUserGeneralBillingRequest) Apply(m *model.UserGeneralBilling) (changed bool) {
+func (p PatchUserGeneralBillingRequest) Apply(m *model.UserGeneralBillingModel) (changed bool) {
 	// SchoolStudentID (*uuid.UUID)
 	if p.UserGeneralBillingSchoolStudentID.Set {
 		if p.UserGeneralBillingSchoolStudentID.Null {
@@ -183,7 +182,7 @@ func (p PatchUserGeneralBillingRequest) Apply(m *model.UserGeneralBilling) (chan
 		changed = true
 	}
 
-	// Snapshots (*string)
+	// Title snapshot
 	if p.UserGeneralBillingTitleSnapshot.Set {
 		if p.UserGeneralBillingTitleSnapshot.Null {
 			m.UserGeneralBillingTitleSnapshot = nil
@@ -192,19 +191,24 @@ func (p PatchUserGeneralBillingRequest) Apply(m *model.UserGeneralBilling) (chan
 		}
 		changed = true
 	}
-	if p.UserGeneralBillingKindCodeSnapshot.Set {
-		if p.UserGeneralBillingKindCodeSnapshot.Null {
-			m.UserGeneralBillingKindCodeSnapshot = nil
-		} else if p.UserGeneralBillingKindCodeSnapshot.Value != nil {
-			m.UserGeneralBillingKindCodeSnapshot = ptr(*p.UserGeneralBillingKindCodeSnapshot.Value)
+
+	// Category snapshot
+	if p.UserGeneralBillingCategorySnapshot.Set {
+		if p.UserGeneralBillingCategorySnapshot.Null {
+			m.UserGeneralBillingCategorySnapshot = nil
+		} else if p.UserGeneralBillingCategorySnapshot.Value != nil {
+			val := *p.UserGeneralBillingCategorySnapshot.Value
+			m.UserGeneralBillingCategorySnapshot = &val
 		}
 		changed = true
 	}
-	if p.UserGeneralBillingKindNameSnapshot.Set {
-		if p.UserGeneralBillingKindNameSnapshot.Null {
-			m.UserGeneralBillingKindNameSnapshot = nil
-		} else if p.UserGeneralBillingKindNameSnapshot.Value != nil {
-			m.UserGeneralBillingKindNameSnapshot = ptr(*p.UserGeneralBillingKindNameSnapshot.Value)
+
+	// Bill code snapshot
+	if p.UserGeneralBillingBillCodeSnapshot.Set {
+		if p.UserGeneralBillingBillCodeSnapshot.Null {
+			m.UserGeneralBillingBillCodeSnapshot = nil
+		} else if p.UserGeneralBillingBillCodeSnapshot.Value != nil {
+			m.UserGeneralBillingBillCodeSnapshot = ptr(*p.UserGeneralBillingBillCodeSnapshot.Value)
 		}
 		changed = true
 	}
@@ -224,7 +228,7 @@ func (p PatchUserGeneralBillingRequest) Apply(m *model.UserGeneralBilling) (chan
 
 /* =========================================================
    RESPONSE
-   ========================================================= */
+========================================================= */
 
 type UserGeneralBillingResponse struct {
 	UserGeneralBillingID uuid.UUID `json:"user_general_billing_id"`
@@ -240,21 +244,23 @@ type UserGeneralBillingResponse struct {
 	UserGeneralBillingPaidAt    *time.Time `json:"user_general_billing_paid_at"`
 	UserGeneralBillingNote      *string    `json:"user_general_billing_note"`
 
-	UserGeneralBillingTitleSnapshot    *string `json:"user_general_billing_title_snapshot"`
-	UserGeneralBillingKindCodeSnapshot *string `json:"user_general_billing_kind_code_snapshot"`
-	UserGeneralBillingKindNameSnapshot *string `json:"user_general_billing_kind_name_snapshot"`
+	UserGeneralBillingTitleSnapshot    *string                       `json:"user_general_billing_title_snapshot"`
+	UserGeneralBillingCategorySnapshot *model.GeneralBillingCategory `json:"user_general_billing_category_snapshot"`
+	UserGeneralBillingBillCodeSnapshot *string                       `json:"user_general_billing_bill_code_snapshot"`
 
 	UserGeneralBillingMeta map[string]any `json:"user_general_billing_meta"`
 
-	UserGeneralBillingCreatedAt time.Time `json:"user_general_billing_created_at"`
-	UserGeneralBillingUpdatedAt time.Time `json:"user_general_billing_updated_at"`
+	UserGeneralBillingCreatedAt time.Time  `json:"user_general_billing_created_at"`
+	UserGeneralBillingUpdatedAt time.Time  `json:"user_general_billing_updated_at"`
+	UserGeneralBillingDeletedAt *time.Time `json:"user_general_billing_deleted_at,omitempty"`
 }
 
-func FromModelUserGeneralBilling(m model.UserGeneralBilling) UserGeneralBillingResponse {
+func FromModelUserGeneralBilling(m model.UserGeneralBillingModel) UserGeneralBillingResponse {
 	var meta map[string]any
 	if m.UserGeneralBillingMeta != nil {
 		meta = map[string]any(m.UserGeneralBillingMeta)
 	}
+
 	return UserGeneralBillingResponse{
 		UserGeneralBillingID:               m.UserGeneralBillingID,
 		UserGeneralBillingSchoolID:         m.UserGeneralBillingSchoolID,
@@ -266,17 +272,18 @@ func FromModelUserGeneralBilling(m model.UserGeneralBilling) UserGeneralBillingR
 		UserGeneralBillingPaidAt:           m.UserGeneralBillingPaidAt,
 		UserGeneralBillingNote:             m.UserGeneralBillingNote,
 		UserGeneralBillingTitleSnapshot:    m.UserGeneralBillingTitleSnapshot,
-		UserGeneralBillingKindCodeSnapshot: m.UserGeneralBillingKindCodeSnapshot,
-		UserGeneralBillingKindNameSnapshot: m.UserGeneralBillingKindNameSnapshot,
+		UserGeneralBillingCategorySnapshot: m.UserGeneralBillingCategorySnapshot,
+		UserGeneralBillingBillCodeSnapshot: m.UserGeneralBillingBillCodeSnapshot,
 		UserGeneralBillingMeta:             meta,
 		UserGeneralBillingCreatedAt:        m.UserGeneralBillingCreatedAt,
 		UserGeneralBillingUpdatedAt:        m.UserGeneralBillingUpdatedAt,
+		UserGeneralBillingDeletedAt:        m.UserGeneralBillingDeletedAt,
 	}
 }
 
 /* =========================================================
    (Opsional) QUERY untuk list & paging sederhana
-   ========================================================= */
+========================================================= */
 
 type ListUserGeneralBillingQuery struct {
 	// Filter

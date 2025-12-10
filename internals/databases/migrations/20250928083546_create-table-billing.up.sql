@@ -1,120 +1,168 @@
 -- +migrate Up
 BEGIN;
 
--- =========================================================
+-- =========================================
 -- EXTENSIONS (idempotent)
--- =========================================================
+-- =========================================
 CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram ops
 CREATE EXTENSION IF NOT EXISTS btree_gist; -- EXCLUDE
-CREATE EXTENSION IF NOT EXISTS unaccent;   -- pencarian
+CREATE EXTENSION IF NOT EXISTS unaccent;   -- search
 
--- =========================================================
+-- =========================================
 -- ENUMS (idempotent)
--- =========================================================
+-- =========================================
 DO $$ BEGIN
   CREATE TYPE fee_scope AS ENUM ('tenant','class_parent','class','section','student','term');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 DO $$ BEGIN
-  CREATE TYPE general_billing_kind_category AS ENUM ('registration','spp','mass_student','donation');
+  CREATE TYPE general_billing_category AS ENUM ('registration','spp','mass_student','donation');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- =========================================================
--- TABLE: general_billing_kinds (katalog; bisa GLOBAL/tenant)
+-- TABLE: general_billings (header/event tagihan per sekolah)
 -- =========================================================
-CREATE TABLE IF NOT EXISTS general_billing_kinds (
-  general_billing_kind_id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  general_billing_kind_school_id          UUID REFERENCES schools(school_id) ON DELETE CASCADE, -- NULL = GLOBAL
+CREATE TABLE IF NOT EXISTS general_billings (
+  general_billing_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  general_billing_kind_code               VARCHAR(60) NOT NULL,
-  general_billing_kind_name               TEXT NOT NULL,
-  general_billing_kind_desc               TEXT,
-  general_billing_kind_is_active          BOOLEAN NOT NULL DEFAULT TRUE,
+  general_billing_school_id  UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
-  general_billing_kind_default_amount_idr INT,
+  -- kategori + kode jenis (SPP/UNIFORM/REG/DONASI dll.)
+  general_billing_category   general_billing_category NOT NULL,
+  general_billing_bill_code  VARCHAR(60) NOT NULL DEFAULT 'SPP',
 
-  -- enum kategori
-  general_billing_kind_category           general_billing_kind_category NOT NULL DEFAULT 'mass_student',
-  general_billing_kind_is_global          BOOLEAN NOT NULL DEFAULT FALSE,
-  general_billing_kind_visibility         VARCHAR(20),
+  -- kode unik opsional (human friendly)
+  general_billing_code       VARCHAR(60),
 
-  -- flags (logika back-end)
-  general_billing_kind_is_recurring            BOOLEAN NOT NULL DEFAULT FALSE,
-  general_billing_kind_requires_month_year     BOOLEAN NOT NULL DEFAULT FALSE,
-  general_billing_kind_requires_option_code    BOOLEAN NOT NULL DEFAULT FALSE,
+  general_billing_title      TEXT NOT NULL,
+  general_billing_desc       TEXT,
 
-  general_billing_kind_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  general_billing_kind_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  general_billing_kind_deleted_at TIMESTAMPTZ,
+  -- cakupan akademik (opsional)
+  general_billing_class_id   UUID REFERENCES classes(class_id) ON DELETE SET NULL,
+  general_billing_section_id UUID REFERENCES class_sections(class_section_id) ON DELETE SET NULL,
+  general_billing_term_id    UUID REFERENCES academic_terms(academic_term_id) ON DELETE SET NULL,
 
-  CONSTRAINT ck_gbk_flags_match_category CHECK (
-    CASE general_billing_kind_category
-      WHEN 'registration' THEN
-        general_billing_kind_is_recurring = FALSE
-        AND general_billing_kind_requires_month_year = FALSE
-        AND general_billing_kind_requires_option_code = FALSE
-      WHEN 'spp' THEN
-        general_billing_kind_is_recurring = TRUE
-        AND general_billing_kind_requires_month_year = TRUE
-        AND general_billing_kind_requires_option_code = FALSE
-      WHEN 'mass_student' THEN
-        general_billing_kind_is_recurring = FALSE
-        AND general_billing_kind_requires_month_year = FALSE
-        AND general_billing_kind_requires_option_code = TRUE
-      WHEN 'donation' THEN
-        general_billing_kind_is_recurring = FALSE
-        AND general_billing_kind_requires_month_year = FALSE
-        AND (general_billing_kind_requires_option_code = FALSE)
-      ELSE TRUE
-    END
-  )
+  -- periode (opsional, penting untuk SPP)
+  general_billing_month      SMALLINT,
+  general_billing_year       SMALLINT,
+
+  general_billing_due_date   DATE,
+  general_billing_is_active  BOOLEAN NOT NULL DEFAULT TRUE,
+
+  general_billing_default_amount_idr INT CHECK (general_billing_default_amount_idr >= 0),
+
+  general_billing_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  general_billing_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  general_billing_deleted_at TIMESTAMPTZ
 );
 
--- =========================
--- INDEXES: general_billing_kinds
--- =========================
-CREATE UNIQUE INDEX IF NOT EXISTS uq_gbk_code_per_tenant_alive
-  ON general_billing_kinds (general_billing_kind_school_id, LOWER(general_billing_kind_code))
-  WHERE general_billing_kind_deleted_at IS NULL;
+-- INDEXES: general_billings
+CREATE UNIQUE INDEX IF NOT EXISTS uq_general_billings_code_per_tenant_alive
+  ON general_billings (general_billing_school_id, LOWER(general_billing_code))
+  WHERE general_billing_deleted_at IS NULL AND general_billing_code IS NOT NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_gbk_code_global_alive
-  ON general_billing_kinds (LOWER(general_billing_kind_code))
-  WHERE general_billing_kind_deleted_at IS NULL
-    AND general_billing_kind_school_id IS NULL;
-
-CREATE INDEX IF NOT EXISTS ix_gbk_tenant_active
-  ON general_billing_kinds (general_billing_kind_school_id, general_billing_kind_is_active)
-  WHERE general_billing_kind_deleted_at IS NULL;
-
-CREATE INDEX IF NOT EXISTS ix_gbk_created_at_alive
-  ON general_billing_kinds (general_billing_kind_created_at DESC)
-  WHERE general_billing_kind_deleted_at IS NULL;
-
-CREATE INDEX IF NOT EXISTS ix_gbk_category_global_alive
-  ON general_billing_kinds (general_billing_kind_category, general_billing_kind_is_global)
-  WHERE general_billing_kind_deleted_at IS NULL;
-
-CREATE INDEX IF NOT EXISTS ix_gbk_visibility_alive
-  ON general_billing_kinds (general_billing_kind_visibility)
-  WHERE general_billing_kind_deleted_at IS NULL;
-
-CREATE INDEX IF NOT EXISTS ix_gbk_flags_alive
-  ON general_billing_kinds (
-    general_billing_kind_is_recurring,
-    general_billing_kind_requires_month_year,
-    general_billing_kind_requires_option_code
+CREATE INDEX IF NOT EXISTS ix_gb_tenant_cat_active_created
+  ON general_billings (
+    general_billing_school_id,
+    general_billing_category,
+    general_billing_is_active,
+    general_billing_created_at DESC
   )
-  WHERE general_billing_kind_deleted_at IS NULL;
+  WHERE general_billing_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_gbk_code_trgm
-  ON general_billing_kinds USING GIN (general_billing_kind_code gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS ix_gb_due_alive
+  ON general_billings (general_billing_due_date)
+  WHERE general_billing_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_gbk_name_trgm
-  ON general_billing_kinds USING GIN (general_billing_kind_name gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS ix_gb_term_alive
+  ON general_billings (general_billing_term_id)
+  WHERE general_billing_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS ix_gb_month_year_alive
+  ON general_billings (general_billing_school_id, general_billing_year, general_billing_month)
+  WHERE general_billing_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS ix_gb_billcode_alive
+  ON general_billings (general_billing_school_id, general_billing_bill_code)
+  WHERE general_billing_deleted_at IS NULL;
 
 -- =========================================================
--- TABLE: fee_rules (JSONB opsi harga) — tanpa subquery di CHECK
+-- TABLE: user_general_billings
+--   Tagihan per user/siswa untuk general_billings
+-- =========================================================
+CREATE TABLE IF NOT EXISTS user_general_billings (
+  user_general_billing_id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  user_general_billing_school_id          UUID NOT NULL,
+
+  -- relasi ke siswa (opsional) — composite FK (id, school_id)
+  user_general_billing_school_student_id  UUID,
+  CONSTRAINT fk_ugb_student_tenant FOREIGN KEY (user_general_billing_school_student_id, user_general_billing_school_id)
+    REFERENCES school_students (school_student_id, school_student_school_id)
+    ON UPDATE CASCADE ON DELETE SET NULL,
+
+  -- payer (opsional)
+  user_general_billing_payer_user_id      UUID
+    REFERENCES users(id) ON DELETE SET NULL,
+
+  -- referensi ke general_billing (wajib)
+  user_general_billing_billing_id         UUID NOT NULL
+    REFERENCES general_billings(general_billing_id) ON DELETE CASCADE,
+
+  -- nilai & status
+  user_general_billing_amount_idr         INT NOT NULL CHECK (user_general_billing_amount_idr >= 0),
+  user_general_billing_status             VARCHAR(20) NOT NULL DEFAULT 'unpaid'
+                                          CHECK (user_general_billing_status IN ('unpaid','paid','canceled')),
+  user_general_billing_paid_at            TIMESTAMPTZ,
+  user_general_billing_note               TEXT,
+
+  -- snapshots ringan
+  user_general_billing_title_snapshot     TEXT,
+  user_general_billing_category_snapshot  general_billing_category,
+  user_general_billing_bill_code_snapshot VARCHAR(60),
+
+  -- metadata fleksibel
+  user_general_billing_meta               JSONB DEFAULT '{}'::jsonb,
+
+  -- timestamps (soft delete)
+  user_general_billing_created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  user_general_billing_updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  user_general_billing_deleted_at         TIMESTAMPTZ
+);
+
+-- INDEXES: user_general_billings
+-- Unik per student untuk satu billing (abaikan baris yang soft-deleted)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ugb_per_student_alive
+  ON user_general_billings (user_general_billing_billing_id, user_general_billing_school_student_id)
+  WHERE user_general_billing_deleted_at IS NULL
+    AND user_general_billing_school_student_id IS NOT NULL;
+
+-- Unik per payer untuk satu billing (abaikan baris yang soft-deleted)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ugb_per_payer_alive
+  ON user_general_billings (user_general_billing_billing_id, user_general_billing_payer_user_id)
+  WHERE user_general_billing_deleted_at IS NULL
+    AND user_general_billing_payer_user_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS ix_ugb_school_alive
+  ON user_general_billings (user_general_billing_school_id)
+  WHERE user_general_billing_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS ix_ugb_billing_alive
+  ON user_general_billings (user_general_billing_billing_id)
+  WHERE user_general_billing_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS ix_ugb_status_alive
+  ON user_general_billings (user_general_billing_status)
+  WHERE user_general_billing_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS ix_ugb_created_at_alive
+  ON user_general_billings (user_general_billing_created_at DESC)
+  WHERE user_general_billing_deleted_at IS NULL;
+
+-- =========================================================
+-- TABLE: fee_rules (JSONB opsi harga) — TANPA kinds
 -- =========================================================
 CREATE TABLE IF NOT EXISTS fee_rules (
   fee_rule_id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -131,10 +179,8 @@ CREATE TABLE IF NOT EXISTS fee_rules (
   fee_rule_month             SMALLINT,
   fee_rule_year              SMALLINT,
 
-  -- Jenis rule (link ke katalog + denorm code)
-  fee_rule_general_billing_kind_id UUID
-    REFERENCES general_billing_kinds(general_billing_kind_id)
-    ON UPDATE CASCADE ON DELETE SET NULL,
+  -- Jenis rule (kategori + bill_code)
+  fee_rule_category          general_billing_category NOT NULL,
   fee_rule_bill_code         VARCHAR(60) NOT NULL DEFAULT 'SPP',
 
   -- Opsi/label default (single, denorm untuk penanda)
@@ -150,18 +196,6 @@ CREATE TABLE IF NOT EXISTS fee_rules (
   fee_rule_effective_to      DATE,
 
   fee_rule_note              TEXT,
-
-  -- SNAPSHOT GBK (diisi backend)
-  fee_rule_gbk_code_snapshot                 VARCHAR(60),
-  fee_rule_gbk_name_snapshot                 TEXT,
-  fee_rule_gbk_category_snapshot             VARCHAR(20),
-  fee_rule_gbk_is_global_snapshot            BOOLEAN,
-  fee_rule_gbk_visibility_snapshot           VARCHAR(20),
-  fee_rule_gbk_is_recurring_snapshot         BOOLEAN,
-  fee_rule_gbk_requires_month_year_snapshot  BOOLEAN,
-  fee_rule_gbk_requires_option_code_snapshot BOOLEAN,
-  fee_rule_gbk_default_amount_idr_snapshot   INT,
-  fee_rule_gbk_is_active_snapshot            BOOLEAN,
 
   fee_rule_created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   fee_rule_updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -181,9 +215,7 @@ CREATE TABLE IF NOT EXISTS fee_rules (
     )
 );
 
--- =========================
 -- INDEXES: fee_rules
--- =========================
 CREATE INDEX IF NOT EXISTS idx_fee_rules_tenant_scope
   ON fee_rules (fee_rule_school_id, fee_rule_scope);
 
@@ -202,14 +234,14 @@ CREATE INDEX IF NOT EXISTS idx_fee_rules_option_code
 CREATE INDEX IF NOT EXISTS idx_fee_rules_is_default
   ON fee_rules (fee_rule_is_default);
 
-CREATE INDEX IF NOT EXISTS ix_fee_rules_gbk
-  ON fee_rules (fee_rule_general_billing_kind_id);
-
 CREATE INDEX IF NOT EXISTS ix_fee_rules_billcode
   ON fee_rules (fee_rule_bill_code, fee_rule_scope);
 
+CREATE INDEX IF NOT EXISTS ix_fee_rules_category
+  ON fee_rules (fee_rule_category);
+
 -- =========================================================
--- TABLE: bill_batches (generik; class/section XOR)
+-- TABLE: bill_batches (generik; class/section XOR) — TANPA kinds
 -- =========================================================
 CREATE TABLE IF NOT EXISTS bill_batches (
   bill_batch_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -225,10 +257,8 @@ CREATE TABLE IF NOT EXISTS bill_batches (
   bill_batch_year       SMALLINT CHECK (bill_batch_year BETWEEN 2000 AND 2100),
   bill_batch_term_id    UUID,
 
-  -- Katalog jenis + denorm code + option untuk one-off
-  bill_batch_general_billing_kind_id UUID
-    REFERENCES general_billing_kinds(general_billing_kind_id)
-    ON UPDATE CASCADE ON DELETE SET NULL,
+  -- Kategori + kode + option untuk one-off
+  bill_batch_category    general_billing_category NOT NULL,
   bill_batch_bill_code   VARCHAR(60) NOT NULL DEFAULT 'SPP',
   bill_batch_option_code VARCHAR(60),
 
@@ -268,9 +298,7 @@ CREATE TABLE IF NOT EXISTS bill_batches (
     )
 );
 
--- =========================
 -- INDEXES: bill_batches
--- =========================
 CREATE UNIQUE INDEX IF NOT EXISTS uq_batch_periodic_section
   ON bill_batches (
     bill_batch_school_id,
@@ -361,123 +389,7 @@ CREATE INDEX IF NOT EXISTS ix_bill_batches_title_trgm_alive
   ON bill_batches USING GIN (LOWER(bill_batch_title) gin_trgm_ops)
   WHERE bill_batch_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS ix_batch_gbk
-  ON bill_batches (bill_batch_general_billing_kind_id);
-
--- =========================================================
--- TABLE: student_bills (core + relasi kelas/section + snapshot label)
--- =========================================================
-CREATE TABLE IF NOT EXISTS student_bills (
-  student_bill_id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  student_bill_batch_id          UUID NOT NULL REFERENCES bill_batches(bill_batch_id) ON DELETE CASCADE,
-
-  -- Tenant & subject (composite FK ke school_students)
-  student_bill_school_id         UUID NOT NULL,
-  student_bill_school_student_id UUID,
-  CONSTRAINT fk_student_bill_student_tenant
-    FOREIGN KEY (student_bill_school_student_id, student_bill_school_id)
-    REFERENCES school_students (school_student_id, school_student_school_id)
-    ON UPDATE CASCADE ON DELETE SET NULL,
-
-  -- Payer (opsional)
-  student_bill_payer_user_id     UUID REFERENCES users(id) ON DELETE SET NULL,
-
-  -- Jenis + periode
-  student_bill_general_billing_kind_id UUID
-    REFERENCES general_billing_kinds(general_billing_kind_id)
-    ON UPDATE CASCADE ON DELETE SET NULL,
-  student_bill_bill_code         VARCHAR(60) NOT NULL DEFAULT 'SPP',
-  student_bill_year              SMALLINT,
-  student_bill_month             SMALLINT,
-  student_bill_term_id           UUID,
-
-  -- Option untuk one-off (boleh NULL untuk SPP)
-  student_bill_option_code       VARCHAR(60),
-  student_bill_option_label      VARCHAR(60),
-
-  -- Nominal final
-  student_bill_amount_idr        INT NOT NULL CHECK (student_bill_amount_idr >= 0),
-
-  -- Status ringan
-  student_bill_status            VARCHAR(20) NOT NULL DEFAULT 'unpaid'
-                                 CHECK (student_bill_status IN ('unpaid','paid','canceled')),
-  student_bill_paid_at           TIMESTAMPTZ,
-  student_bill_note              TEXT,
-
-  -- Relasi kelas & section + snapshot label
-  student_bill_class_id          UUID,
-  student_bill_section_id        UUID,
-
-  student_bill_class_name_snapshot    TEXT,
-  student_bill_class_slug_snapshot    VARCHAR(80),
-  student_bill_section_name_snapshot  TEXT,
-  student_bill_section_slug_snapshot  VARCHAR(80),
-
-  -- Audit
-  student_bill_created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  student_bill_updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  student_bill_deleted_at        TIMESTAMPTZ,
-
-  -- TENANT-SAFE FK komposit
-  CONSTRAINT fk_student_bill_class_tenant
-    FOREIGN KEY (student_bill_class_id, student_bill_school_id)
-    REFERENCES classes (class_id, class_school_id)
-    ON UPDATE CASCADE ON DELETE SET NULL,
-  CONSTRAINT fk_student_bill_section_tenant
-    FOREIGN KEY (student_bill_section_id, student_bill_school_id)
-    REFERENCES class_sections (class_section_id, class_section_school_id)
-    ON UPDATE CASCADE ON DELETE SET NULL,
-  CONSTRAINT fk_student_bill_term_tenant
-    FOREIGN KEY (student_bill_term_id, student_bill_school_id)
-    REFERENCES academic_terms (academic_term_id, academic_term_school_id)
-    ON UPDATE CASCADE ON DELETE SET NULL,
-
-  -- Idempotensi per-batch
-  CONSTRAINT uq_student_bill_per_student
-    UNIQUE (student_bill_batch_id, student_bill_school_student_id)
-);
-
--- =========================
--- INDEXES: student_bills
--- =========================
-CREATE INDEX IF NOT EXISTS ix_student_bills_gbk
-  ON student_bills (student_bill_general_billing_kind_id);
-
-CREATE INDEX IF NOT EXISTS ix_student_bill_amount
-  ON student_bills (student_bill_amount_idr);
-
-CREATE INDEX IF NOT EXISTS ix_student_bill_status
-  ON student_bills (student_bill_status);
-
-CREATE INDEX IF NOT EXISTS ix_student_bill_created_at
-  ON student_bills (student_bill_created_at);
-
-CREATE INDEX IF NOT EXISTS ix_student_bills_class_section_alive
-  ON student_bills (student_bill_class_id, student_bill_section_id)
-  WHERE student_bill_deleted_at IS NULL;
-
--- Periodik (SPP) → option_code NULL
-CREATE UNIQUE INDEX IF NOT EXISTS uq_student_periodic
-  ON student_bills (
-    student_bill_school_id,
-    student_bill_school_student_id,
-    student_bill_bill_code,
-    student_bill_term_id,
-    student_bill_year,
-    student_bill_month
-  )
-  WHERE student_bill_deleted_at IS NULL
-    AND student_bill_option_code IS NULL;
-
--- One-off (UNIFORM/BOOK/TRIP/REG) → option_code WAJIB
-CREATE UNIQUE INDEX IF NOT EXISTS uq_student_oneoff
-  ON student_bills (
-    student_bill_school_id,
-    student_bill_school_student_id,
-    student_bill_bill_code,
-    student_bill_option_code
-  )
-  WHERE student_bill_deleted_at IS NULL
-    AND student_bill_option_code IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_batch_category
+  ON bill_batches (bill_batch_category);
 
 COMMIT;

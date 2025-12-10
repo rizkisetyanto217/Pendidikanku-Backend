@@ -6,8 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	// Controller untuk GENERAL BILLINGS (finance/general_billings)
-	generalBillingController "madinahsalam_backend/internals/features/finance/general_billings/controller/general"
-	generalBillingKindController "madinahsalam_backend/internals/features/finance/general_billings/controller/kinds"
+	generalBillingController "madinahsalam_backend/internals/features/finance/general_billings/controller"
 )
 
 // AFTER (tanpa school_id / school_slug di path)
@@ -20,23 +19,6 @@ func GeneralBillingUserRoutes(r fiber.Router, db *gorm.DB) {
 		gb.Get("/list", gbCtl.List)
 	}
 
-	// ===== General Billing Kinds (READ-ONLY per tenant) =====
-	kindCtl := generalBillingKindController.NewGeneralBillingKindController(db)
-	kinds := r.Group("/general-billing-kinds")
-	{
-		// GET /general-billing-kinds/list
-		kinds.Get("/list", kindCtl.List)
-	}
-
-	// ===== General Billing Kinds (APP/GLOBAL) =====
-	kindsApp := r.Group("/general-billing-kinds")
-	{
-		// tetap bisa dipakai sebagai list tenant-scope
-		kindsApp.Get("/list", kindCtl.List) // GET /general-billing-kinds/list
-		// list global untuk app (tanpa filter tenant)
-		kindsApp.Get("/list-app", kindCtl.ListGlobal)
-	}
-
 	// ===== User General Billings (READ-ONLY) =====
 	ugbCtl := generalBillingController.NewUserGeneralBillingController(db)
 	ugb := r.Group("/user-general-billings")
@@ -45,11 +27,4 @@ func GeneralBillingUserRoutes(r fiber.Router, db *gorm.DB) {
 		ugb.Get("/list", ugbCtl.List)
 	}
 
-	// ===== PUBLIC read-only (opsional) =====
-	public := r.Group("/public")
-	{
-		publicKinds := public.Group("/general-billing-kinds")
-		publicKinds.Get("/", kindCtl.ListPublic)       // GET /public/general-billing-kinds
-		publicKinds.Get("/:id", kindCtl.GetPublicByID) // GET /public/general-billing-kinds/:id
-	}
 }

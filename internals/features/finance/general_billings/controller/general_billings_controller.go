@@ -30,41 +30,33 @@ func NewGeneralBillingController(db *gorm.DB) *GeneralBillingController {
 }
 
 // ========== Create ==========
+// POST /api/a/general-billings
 func (ctl *GeneralBillingController) Create(c *fiber.Ctx) error {
 	// role dasar: owner/dkm/teacher
 	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
 	}
 
-	var req dto.CreateGeneralBillingRequest
-	if err := c.BodyParser(&req); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-	}
-	if err := ctl.Validator.Struct(&req); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-	}
-
-	// Context tenant
+	// Ambil context tenant dulu, ini jadi source of truth school_id
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak valid")
 	}
-	mid, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
 
-	// Guard: GLOBAL vs TENANT
-	if req.GeneralBillingSchoolID == nil {
-		// GLOBAL item: batasi ke Owner saja
-		if !helperAuth.IsOwner(c) {
-			return helper.JsonError(c, fiber.StatusForbidden, "Hanya owner yang boleh membuat billing GLOBAL")
-		}
-	} else {
-		// TENANT item: harus cocok dengan mid context
-		if *req.GeneralBillingSchoolID != mid {
-			return helper.JsonError(c, fiber.StatusForbidden, "School tidak cocok dengan context")
-		}
+	var req dto.CreateGeneralBillingRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
+
+	// Paksa pakai schoolID dari context (abaikan isi body untuk field ini)
+	req.GeneralBillingSchoolID = schoolID
+
+	if err := ctl.Validator.Struct(&req); err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	gb, err := req.ToModel()
@@ -80,6 +72,7 @@ func (ctl *GeneralBillingController) Create(c *fiber.Ctx) error {
 }
 
 // ========== Patch ==========
+// PATCH /api/a/general-billings/:id
 func (ctl *GeneralBillingController) Patch(c *fiber.Ctx) error {
 	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
@@ -91,7 +84,7 @@ func (ctl *GeneralBillingController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "general_billing_id invalid")
 	}
 
-	var gb model.GeneralBilling
+	var gb model.GeneralBillingModel
 	if err := ctl.DB.
 		Where("general_billing_id = ? AND general_billing_deleted_at IS NULL", id).
 		First(&gb).Error; err != nil {
@@ -106,30 +99,20 @@ func (ctl *GeneralBillingController) Patch(c *fiber.Ctx) error {
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak valid")
 	}
-	mid, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
 
-	// Guard: GLOBAL vs TENANT pada record yg diedit
-	if gb.GeneralBillingSchoolID == nil {
-		// GLOBAL: hanya owner boleh edit
-		if !helperAuth.IsOwner(c) {
-			return helper.JsonError(c, fiber.StatusForbidden, "Hanya owner yang boleh mengubah billing GLOBAL")
-		}
-	} else {
-		if *gb.GeneralBillingSchoolID != mid {
-			return helper.JsonError(c, fiber.StatusForbidden, "Tidak boleh mengubah data tenant lain")
-		}
+	// Guard tenant: record harus milik tenant di context
+	if gb.GeneralBillingSchoolID != schoolID {
+		return helper.JsonError(c, fiber.StatusForbidden, "Tidak boleh mengubah data tenant lain")
 	}
 
 	var req dto.PatchGeneralBillingRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
-
-	// (opsional) kamu bisa tambahkan guard agar PATCH tidak memindah-mindahkan tenant tanpa hak
-	// misalnya, jika req.GeneralBillingSchoolID.Set == true → tolak kecuali owner, dsb.
 
 	if err := req.ApplyTo(&gb); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
@@ -143,6 +126,7 @@ func (ctl *GeneralBillingController) Patch(c *fiber.Ctx) error {
 }
 
 // ========== Delete (soft delete) ==========
+// DELETE /api/a/general-billings/:id
 func (ctl *GeneralBillingController) Delete(c *fiber.Ctx) error {
 	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
@@ -154,8 +138,8 @@ func (ctl *GeneralBillingController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "general_billing_id invalid")
 	}
 
-	// Ambil dulu record untuk cek tenant/global
-	var gb model.GeneralBilling
+	// Ambil dulu record untuk cek tenant
+	var gb model.GeneralBillingModel
 	if err := ctl.DB.
 		Where("general_billing_id = ? AND general_billing_deleted_at IS NULL", id).
 		First(&gb).Error; err != nil {
@@ -170,24 +154,18 @@ func (ctl *GeneralBillingController) Delete(c *fiber.Ctx) error {
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak valid")
 	}
-	mid, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
 
-	// Guard: GLOBAL vs TENANT
-	if gb.GeneralBillingSchoolID == nil {
-		if !helperAuth.IsOwner(c) {
-			return helper.JsonError(c, fiber.StatusForbidden, "Hanya owner yang boleh menghapus billing GLOBAL")
-		}
-	} else {
-		if *gb.GeneralBillingSchoolID != mid {
-			return helper.JsonError(c, fiber.StatusForbidden, "Tidak boleh menghapus data tenant lain")
-		}
+	// Guard tenant
+	if gb.GeneralBillingSchoolID != schoolID {
+		return helper.JsonError(c, fiber.StatusForbidden, "Tidak boleh menghapus data tenant lain")
 	}
 
 	// Soft delete
-	tx := ctl.DB.Model(&model.GeneralBilling{}).
+	tx := ctl.DB.Model(&model.GeneralBillingModel{}).
 		Where("general_billing_id = ? AND general_billing_deleted_at IS NULL", id).
 		Update("general_billing_deleted_at", gorm.Expr("NOW()"))
 	if tx.Error != nil {

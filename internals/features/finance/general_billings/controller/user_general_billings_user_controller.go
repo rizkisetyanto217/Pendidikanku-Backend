@@ -1,3 +1,4 @@
+// file: internals/features/finance/general_billings/controller/user_general_billing_controller.go
 package controller
 
 import (
@@ -66,7 +67,7 @@ func (ctl *UserGeneralBillingController) List(c *fiber.Ctx) error {
 
 	// ===== Base query: tenant-scoped =====
 	tx := ctl.DB.WithContext(c.Context()).
-		Model(&model.UserGeneralBilling{}).
+		Model(&model.UserGeneralBillingModel{}).
 		Where("user_general_billing_school_id = ?", schoolID)
 
 	// ===== Filters =====
@@ -92,7 +93,7 @@ func (ctl *UserGeneralBillingController) List(c *fiber.Ctx) error {
 	}
 
 	// ===== Data + sorting + paging =====
-	var rows []model.UserGeneralBilling
+	var rows []model.UserGeneralBillingModel
 	qry := tx.
 		Order(orderExpr).
 		Order("user_general_billing_id DESC") // tie-breaker stabil

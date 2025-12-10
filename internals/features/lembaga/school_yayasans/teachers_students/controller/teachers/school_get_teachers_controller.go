@@ -11,6 +11,14 @@ import (
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
+	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
+
+	classSectionDTO "madinahsalam_backend/internals/features/school/classes/class_sections/dto"
+
+	classSectionModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
+
+	csstDTO "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/dto"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
@@ -189,11 +197,127 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// 🔁 Mode COMPACT: langsung pulang pakai DTO compact
+	// 🔁 Mode COMPACT (+ optional nested)
 	if isCompact {
-		compacts := teacherDTO.NewSchoolTeacherCompacts(rows)
+		// 🔥 NEW: nested=sections,csst
+		nested := strings.ToLower(strings.TrimSpace(c.Query("nested")))
+		wantSections := false
+		wantCSST := false
+		if nested != "" {
+			for _, part := range strings.Split(nested, ",") {
+				p := strings.TrimSpace(part)
+				switch p {
+				case "sections", "class-sections", "class_sections", "classsection":
+					wantSections = true
+				case "csst", "class-section-subject-teachers", "class_section_subject_teachers", "subject-teachers", "subject_teachers":
+					wantCSST = true
+				}
+			}
+		}
+
+		// Behaviour lama: kalau tidak minta nested apa pun → langsung pulang
+		if !wantSections && !wantCSST {
+			compacts := teacherDTO.NewSchoolTeacherCompacts(rows)
+			pg := helper.BuildPaginationFromPage(total, p.Page, p.PerPage)
+			return helper.JsonList(c, "ok", compacts, pg)
+		}
+
+		// 🔥 NEW: compact + nested
+		// NOTE: NewSchoolTeacherCompacts mengembalikan []*SchoolTeacherCompact
+		type SchoolTeacherCompactWithNested struct {
+			*teacherDTO.SchoolTeacherCompact `json:",inline"`                                    // embed pointer
+			ClassSections                    []classSectionDTO.ClassSectionCompactResponse       `json:"class_sections,omitempty"`
+			ClassSectionSubjectTeachers      []csstDTO.ClassSectionSubjectTeacherCompactResponse `json:"class_section_subject_teachers,omitempty"`
+		}
+
+		// base compact
+		compacts := teacherDTO.NewSchoolTeacherCompacts(rows) // []*SchoolTeacherCompact
+
+		// siapkan result
+		result := make([]SchoolTeacherCompactWithNested, len(compacts))
+		for i := range compacts {
+			result[i].SchoolTeacherCompact = compacts[i] // ✅ sekarang tipe-nya cocok (*SchoolTeacherCompact)
+		}
+
+		// kumpulkan teacher_id
+		teacherIDs := make([]uuid.UUID, 0, len(rows))
+		idxByTeacher := make(map[uuid.UUID]int, len(rows))
+		for i := range rows {
+			tid := rows[i].SchoolTeacherID
+			teacherIDs = append(teacherIDs, tid)
+			idxByTeacher[tid] = i
+		}
+
+		// ============================
+		// NESTED: CLASS SECTIONS (compact)
+		// ============================
+		if wantSections && len(teacherIDs) > 0 {
+			var secRows []classSectionModel.ClassSectionModel
+			if err := ctrl.DB.WithContext(c.Context()).
+				Where("class_section_school_id = ? AND class_section_deleted_at IS NULL", schoolID).
+				Where(`
+					class_section_school_teacher_id IN ?
+					OR class_section_assistant_school_teacher_id IN ?
+				`, teacherIDs, teacherIDs).
+				Find(&secRows).Error; err != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil class_sections: "+err.Error())
+			}
+
+			for i := range secRows {
+				cs := &secRows[i]
+				cmp := classSectionDTO.FromModelClassSectionToCompact(cs)
+
+				// homeroom
+				if cs.ClassSectionSchoolTeacherID != nil {
+					if idx, ok := idxByTeacher[*cs.ClassSectionSchoolTeacherID]; ok {
+						result[idx].ClassSections = append(result[idx].ClassSections, cmp)
+					}
+				}
+				// assistant
+				if cs.ClassSectionAssistantSchoolTeacherID != nil {
+					if idx, ok := idxByTeacher[*cs.ClassSectionAssistantSchoolTeacherID]; ok {
+						result[idx].ClassSections = append(result[idx].ClassSections, cmp)
+					}
+				}
+			}
+		}
+
+		// ============================
+		// NESTED: CSST (compact)
+		// ============================
+		if wantCSST && len(teacherIDs) > 0 {
+			var csstRows []csstModel.ClassSectionSubjectTeacherModel
+			if err := ctrl.DB.WithContext(c.Context()).
+				Where("class_section_subject_teacher_school_id = ? AND class_section_subject_teacher_deleted_at IS NULL", schoolID).
+				Where(`
+					class_section_subject_teacher_school_teacher_id IN ?
+					OR class_section_subject_teacher_assistant_school_teacher_id IN ?
+				`, teacherIDs, teacherIDs).
+				Find(&csstRows).Error; err != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil CSST: "+err.Error())
+			}
+
+			for i := range csstRows {
+				row := &csstRows[i]
+				cmp := csstDTO.FromClassSectionSubjectTeacherModelCompact(*row)
+
+				// main teacher
+				if row.ClassSectionSubjectTeacherSchoolTeacherID != nil {
+					if idx, ok := idxByTeacher[*row.ClassSectionSubjectTeacherSchoolTeacherID]; ok {
+						result[idx].ClassSectionSubjectTeachers = append(result[idx].ClassSectionSubjectTeachers, cmp)
+					}
+				}
+				// assistant teacher
+				if row.ClassSectionSubjectTeacherAssistantSchoolTeacherID != nil {
+					if idx, ok := idxByTeacher[*row.ClassSectionSubjectTeacherAssistantSchoolTeacherID]; ok {
+						result[idx].ClassSectionSubjectTeachers = append(result[idx].ClassSectionSubjectTeachers, cmp)
+					}
+				}
+			}
+		}
+
 		pg := helper.BuildPaginationFromPage(total, p.Page, p.PerPage)
-		return helper.JsonList(c, "ok", compacts, pg)
+		return helper.JsonList(c, "ok", result, pg)
 	}
 
 	// ========================

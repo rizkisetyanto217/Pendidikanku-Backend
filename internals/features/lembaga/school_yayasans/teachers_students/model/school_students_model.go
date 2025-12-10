@@ -1,3 +1,4 @@
+// file: internals/features/school/students/model/school_student_model.go
 package model
 
 import (
@@ -5,7 +6,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -28,23 +28,7 @@ var validSchoolStudentStatus = map[SchoolStudentStatus]struct{}{
 }
 
 // =======================================
-// Helper: item JSONB class sections
-// Disimpan di kolom: school_student_class_sections (jsonb, NOT NULL, default '[]')
-// =======================================
-
-type SchoolStudentSectionItem struct {
-	ClassSectionID             uuid.UUID `json:"class_section_id"`
-	IsActive                   bool      `json:"is_active"`
-	From                       *string   `json:"from,omitempty"` // YYYY-MM-DD
-	To                         *string   `json:"to,omitempty"`   // YYYY-MM-DD | null
-	ClassSectionName           *string   `json:"class_section_name,omitempty"`
-	ClassSectionSlug           *string   `json:"class_section_slug,omitempty"`
-	ClassSectionImageURL       *string   `json:"class_section_image_url,omitempty"`
-	ClassSectionImageObjectKey *string   `json:"class_section_image_object_key,omitempty"`
-}
-
-// =======================================
-// Model: school_students
+// Model: school_students (CLEAN VERSION)
 // =======================================
 
 type SchoolStudentModel struct {
@@ -80,22 +64,6 @@ type SchoolStudentModel struct {
 	SchoolStudentUserProfileParentWhatsappURLCache *string `gorm:"column:school_student_user_profile_parent_whatsapp_url_cache;type:varchar(50)" json:"school_student_user_profile_parent_whatsapp_url_cache,omitempty"`
 	SchoolStudentUserProfileGenderCache            *string `gorm:"column:school_student_user_profile_gender_cache;type:varchar(20)" json:"school_student_user_profile_gender_cache,omitempty"`
 
-	// ===== JSONB CLASS SECTIONS (NOT NULL DEFAULT '[]') =====
-	// Berisi array SchoolStudentSectionItem
-	SchoolStudentClassSections datatypes.JSON `gorm:"column:school_student_class_sections;type:jsonb;not null;default:'[]'" json:"school_student_class_sections"`
-
-	// ===== JSONB CLASS SECTION SUBJECT TEACHERS (CSST) =====
-	// Struktur item disamakan dengan kebutuhan FE/BE (didecode manual saat perlu)
-	SchoolStudentClassSectionSubjectTeachers datatypes.JSON `gorm:"column:school_student_class_section_subject_teachers;type:jsonb;not null;default:'[]'" json:"school_student_class_section_subject_teachers"`
-
-	// ===== STATS (ALL) =====
-	SchoolStudentTotalClassSections               int `gorm:"column:school_student_total_class_sections;type:integer;not null;default:0" json:"school_student_total_class_sections"`
-	SchoolStudentTotalClassSectionSubjectTeachers int `gorm:"column:school_student_total_class_section_subject_teachers;type:integer;not null;default:0" json:"school_student_total_class_section_subject_teachers"`
-
-	// ===== STATS (ACTIVE ONLY) =====
-	SchoolStudentTotalClassSectionsActive               int `gorm:"column:school_student_total_class_sections_active;type:integer;not null;default:0" json:"school_student_total_class_sections_active"`
-	SchoolStudentTotalClassSectionSubjectTeachersActive int `gorm:"column:school_student_total_class_section_subject_teachers_active;type:integer;not null;default:0" json:"school_student_total_class_section_subject_teachers_active"`
-
 	// Audit & Soft delete
 	SchoolStudentCreatedAt time.Time      `gorm:"column:school_student_created_at;type:timestamptz;not null;default:now();autoCreateTime" json:"school_student_created_at"`
 	SchoolStudentUpdatedAt time.Time      `gorm:"column:school_student_updated_at;type:timestamptz;not null;default:now();autoUpdateTime" json:"school_student_updated_at"`
@@ -103,21 +71,14 @@ type SchoolStudentModel struct {
 }
 
 func (SchoolStudentModel) TableName() string { return "school_students" }
-func (m *SchoolStudentModel) BeforeCreate(tx *gorm.DB) error {
-	// JSONB guard
-	if len(m.SchoolStudentClassSections) == 0 {
-		m.SchoolStudentClassSections = datatypes.JSON([]byte("[]"))
-	}
-	if len(m.SchoolStudentClassSectionSubjectTeachers) == 0 {
-		m.SchoolStudentClassSectionSubjectTeachers = datatypes.JSON([]byte("[]"))
-	}
 
-	// Kalau kosong, pakai default "active" (mirror default SQL)
+func (m *SchoolStudentModel) BeforeCreate(tx *gorm.DB) error {
+	// Default status kalau kosong
 	if m.SchoolStudentStatus == "" {
 		m.SchoolStudentStatus = SchoolStudentActive
 	}
 
-	// Validasi status (wajib valid saat create)
+	// Validasi status
 	if _, ok := validSchoolStudentStatus[m.SchoolStudentStatus]; !ok {
 		return errors.New("invalid school_student_status")
 	}
@@ -126,21 +87,11 @@ func (m *SchoolStudentModel) BeforeCreate(tx *gorm.DB) error {
 }
 
 func (m *SchoolStudentModel) BeforeSave(tx *gorm.DB) error {
-	// Validasi status HANYA kalau diisi (non-blank).
-	// Untuk bulk Updates(map[...]), struct m biasanya zero value → jangan diblok.
+	// Validasi status hanya kalau non-blank
 	if m.SchoolStudentStatus != "" {
 		if _, ok := validSchoolStudentStatus[m.SchoolStudentStatus]; !ok {
 			return errors.New("invalid school_student_status")
 		}
 	}
-
-	// JSONB guard
-	if len(m.SchoolStudentClassSections) == 0 {
-		m.SchoolStudentClassSections = datatypes.JSON([]byte("[]"))
-	}
-	if len(m.SchoolStudentClassSectionSubjectTeachers) == 0 {
-		m.SchoolStudentClassSectionSubjectTeachers = datatypes.JSON([]byte("[]"))
-	}
-
 	return nil
 }

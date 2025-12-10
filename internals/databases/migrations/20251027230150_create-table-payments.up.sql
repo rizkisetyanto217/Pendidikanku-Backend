@@ -270,26 +270,33 @@ CREATE TABLE IF NOT EXISTS payment_items (
   payment_item_index                    SMALLINT NOT NULL,
 
   -- === Target per item ===
-  payment_item_student_bill_id          UUID REFERENCES student_bills(student_bill_id) ON DELETE SET NULL,
-  payment_item_general_billing_id       UUID REFERENCES general_billings(general_billing_id) ON DELETE SET NULL,
-  payment_item_general_billing_kind_id  UUID REFERENCES general_billing_kinds(general_billing_kind_id) ON DELETE SET NULL,
-  payment_item_bill_batch_id            UUID REFERENCES bill_batches(bill_batch_id) ON DELETE SET NULL,
+  payment_item_user_general_billing_id  UUID
+    REFERENCES user_general_billings(user_general_billing_id) ON DELETE SET NULL,
+  payment_item_general_billing_id       UUID
+    REFERENCES general_billings(general_billing_id) ON DELETE SET NULL,
+  payment_item_bill_batch_id            UUID
+    REFERENCES bill_batches(bill_batch_id) ON DELETE SET NULL,
 
   -- Subjek murid per item
-  payment_item_school_student_id        UUID REFERENCES school_students(school_student_id) ON DELETE SET NULL,
+  payment_item_school_student_id        UUID
+    REFERENCES school_students(school_student_id) ON DELETE SET NULL,
 
   -- Context kelas/enrollment (opsional)
   payment_item_class_id                 UUID,
   payment_item_enrollment_id            UUID,
 
   -- Nominal per item
-  payment_item_amount_idr               INT NOT NULL CHECK (payment_item_amount_idr >= 0),
+  payment_item_amount_idr               INT NOT NULL
+    CHECK (payment_item_amount_idr >= 0),
 
   -- === Fee rule snapshots per item ===
-  payment_item_fee_rule_id                     UUID REFERENCES fee_rules(fee_rule_id) ON DELETE SET NULL,
+  payment_item_fee_rule_id                     UUID
+    REFERENCES fee_rules(fee_rule_id) ON DELETE SET NULL,
   payment_item_fee_rule_option_code_snapshot   VARCHAR(20),
   payment_item_fee_rule_option_index_snapshot  SMALLINT,
-  payment_item_fee_rule_amount_snapshot        INT CHECK (payment_item_fee_rule_amount_snapshot IS NULL OR payment_item_fee_rule_amount_snapshot >= 0),
+  payment_item_fee_rule_amount_snapshot        INT
+    CHECK (payment_item_fee_rule_amount_snapshot IS NULL
+           OR payment_item_fee_rule_amount_snapshot >= 0),
   payment_item_fee_rule_gbk_id_snapshot        UUID,
   payment_item_fee_rule_scope_snapshot         fee_scope,
   payment_item_fee_rule_note_snapshot          TEXT,
@@ -327,14 +334,17 @@ CREATE TABLE IF NOT EXISTS payment_items (
   ),
 
   CONSTRAINT ck_payment_item_target_any CHECK (
-    payment_item_student_bill_id IS NOT NULL
+    payment_item_user_general_billing_id IS NOT NULL
     OR payment_item_general_billing_id IS NOT NULL
-    OR payment_item_general_billing_kind_id IS NOT NULL
+    OR payment_item_bill_batch_id IS NOT NULL
     OR payment_item_school_student_id IS NOT NULL
   )
 );
 
+-- =========================================
 -- Indexes: payment_items
+-- =========================================
+
 CREATE INDEX IF NOT EXISTS ix_payment_items_payment_live
   ON payment_items (payment_item_payment_id, payment_item_index)
   WHERE payment_item_deleted_at IS NULL;
@@ -343,16 +353,13 @@ CREATE INDEX IF NOT EXISTS ix_payment_items_tenant_created_live
   ON payment_items (payment_item_school_id, payment_item_created_at DESC)
   WHERE payment_item_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS ix_payment_items_student_bill_live
-  ON payment_items (payment_item_student_bill_id)
+-- by user_general_billing (pengganti student_bills)
+CREATE INDEX IF NOT EXISTS ix_payment_items_user_gb_live
+  ON payment_items (payment_item_user_general_billing_id)
   WHERE payment_item_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_payment_items_gb_live
   ON payment_items (payment_item_general_billing_id)
-  WHERE payment_item_deleted_at IS NULL;
-
-CREATE INDEX IF NOT EXISTS ix_payment_items_gbk_live
-  ON payment_items (payment_item_general_billing_kind_id)
   WHERE payment_item_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_payment_items_school_student_live

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"madinahsalam_backend/internals/features/finance/billings/dto"
-	model "madinahsalam_backend/internals/features/finance/billings/model"
+	feeRuleModel "madinahsalam_backend/internals/features/finance/billings/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
@@ -86,7 +86,7 @@ func (h *FeeRuleHandler) ListFeeRules(c *fiber.Ctx) error {
 	}
 
 	// === Base query (tenant-scoped & alive) ===
-	q := h.DB.Model(&model.FeeRule{}).
+	q := h.DB.Model(&feeRuleModel.FeeRuleModel{}).
 		Where("fee_rule_deleted_at IS NULL").
 		Where("fee_rule_school_id = ?", schoolID)
 
@@ -109,10 +109,11 @@ func (h *FeeRuleHandler) ListFeeRules(c *fiber.Ctx) error {
 	}
 
 	// === Sorting whitelist ===
+	// NOTE: kolom fee_rule_amount_idr sudah tidak ada (diganti JSONB options),
+	// jadi kita hilangkan "amount" dari whitelist.
 	allowed := map[string]string{
 		"created_at": "fee_rule_created_at",
 		"updated_at": "fee_rule_updated_at",
-		"amount":     "fee_rule_amount_idr",
 		"option":     "fee_rule_option_code",
 	}
 	sortBy := strings.ToLower(strings.TrimSpace(c.Query("sort_by")))
@@ -137,7 +138,7 @@ func (h *FeeRuleHandler) ListFeeRules(c *fiber.Ctx) error {
 	if !allMode {
 		listQ = listQ.Limit(pg.PerPage).Offset(offset)
 	}
-	var list []model.FeeRule
+	var list []feeRuleModel.FeeRuleModel
 	if err := listQ.Find(&list).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
@@ -150,7 +151,6 @@ func (h *FeeRuleHandler) ListFeeRules(c *fiber.Ctx) error {
 	if (includeTerm || nestedTerm) && len(list) > 0 {
 		termSet := map[uuid.UUID]struct{}{}
 		for _, fr := range list {
-			// asumsi field di model: FeeRuleTermID *uuid.UUID
 			if fr.FeeRuleTermID != nil {
 				termSet[*fr.FeeRuleTermID] = struct{}{}
 			}
@@ -189,7 +189,6 @@ func (h *FeeRuleHandler) ListFeeRules(c *fiber.Ctx) error {
 	// ============================
 	base := dto.ToFeeRuleResponses(list)
 
-	// asumsikan ada type dto.FeeRuleResponse
 	type FeeRuleWithTerm struct {
 		dto.FeeRuleResponse `json:",inline"`
 		AcademicTerm        *termLite `json:"academic_terms,omitempty"`
@@ -222,10 +221,6 @@ func (h *FeeRuleHandler) ListFeeRules(c *fiber.Ctx) error {
 	// ============================
 	type FeeRuleInclude struct {
 		AcademicTerms []termLite `json:"academic_terms,omitempty"`
-		// next:
-		// Classes       []ClassLite          `json:"classes,omitempty"`
-		// ClassSections []ClassSectionLite   `json:"class_sections,omitempty"`
-		// FeeRules      []dto.FeeRuleResponse `json:"fee_rules,omitempty"`
 	}
 
 	var include any
@@ -248,7 +243,7 @@ func (h *FeeRuleHandler) ListFeeRules(c *fiber.Ctx) error {
 	}
 
 	// ============================
-	// Final JSON response (pakai helper)
+	// Final JSON response
 	// ============================
 	return helper.JsonListWithInclude(c, "OK", data, include, pagination)
 }

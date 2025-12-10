@@ -2,7 +2,6 @@
 package dto
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -10,7 +9,6 @@ import (
 	teacherModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
 
 	"github.com/google/uuid"
-	"gorm.io/datatypes"
 )
 
 /* ========================
@@ -76,19 +74,9 @@ type SchoolTeacher struct {
 	SchoolTeacherUserTeacherTitleSuffixCache *string `json:"school_teacher_user_teacher_title_suffix_cache,omitempty"`
 	SchoolTeacherUserTeacherGenderCache      *string `json:"school_teacher_user_teacher_gender_cache,omitempty"`
 
-	// JSONB: sections & csst
-	// Full mode → tampilkan seada-adanya dari snapshot JSONB di DB
-	SchoolTeacherSections json.RawMessage `json:"school_teacher_sections,omitempty"`
-	SchoolTeacherCSST     json.RawMessage `json:"school_teacher_csst,omitempty"`
-
-	// ========================
-	// Stats (ALL + ACTIVE)
-	// ========================
-	SchoolTeacherTotalClassSections               int `json:"school_teacher_total_class_sections"`
-	SchoolTeacherTotalClassSectionSubjectTeachers int `json:"school_teacher_total_class_section_subject_teachers"`
-
-	SchoolTeacherTotalClassSectionsActive               int `json:"school_teacher_total_class_sections_active"`
-	SchoolTeacherTotalClassSectionSubjectTeachersActive int `json:"school_teacher_total_class_section_subject_teachers_active"`
+	// Nested (opsional, diisi dari service lain kalau mau)
+	SchoolTeacherSections []DTOTeacherSectionItem `json:"school_teacher_sections"`
+	SchoolTeacherCSST     []DTOTeacherCSSTItem    `json:"school_teacher_csst"`
 
 	// Audit
 	SchoolTeacherCreatedAt time.Time  `json:"school_teacher_created_at"`
@@ -161,9 +149,9 @@ type UpdateSchoolTeacherRequest struct {
 	SchoolTeacherIsActive *bool `json:"school_teacher_is_active,omitempty"`
 	SchoolTeacherIsPublic *bool `json:"school_teacher_is_public,omitempty"`
 
-	SchoolTeacherJoinedAt   *string `json:"school_teacher_joined_at,omitempty"` // YYYY-MM-DD
-	SchoolTeacherLeftAt     *string `json:"school_teacher_left_at,omitempty"`   // YYYY-MM-DD
-	SchoolTeacherIsVerified *bool   `json:"school_teacher_is_verified,omitempty"`
+	SchoolTeacherJoinedAt   *string `json:"school_teacher_joined_at,omitempty"`   // YYYY-MM-DD
+	SchoolTeacherLeftAt     *string `json:"school_teacher_left_at,omitempty"`     // YYYY-MM-DD
+	SchoolTeacherIsVerified *bool   `json:"school_teacher_is_verified,omitempty"` // flag
 	SchoolTeacherVerifiedAt *string `json:"school_teacher_verified_at,omitempty"` // RFC3339
 
 	SchoolTeacherNotes *string `json:"school_teacher_notes,omitempty"`
@@ -269,17 +257,10 @@ func NewSchoolTeacherResponse(m *teacherModel.SchoolTeacherModel) *SchoolTeacher
 		SchoolTeacherUserTeacherTitleSuffixCache: m.SchoolTeacherUserTeacherTitleSuffixCache,
 		SchoolTeacherUserTeacherGenderCache:      m.SchoolTeacherUserTeacherGenderCache,
 
-		// JSONB: kirim raw snapshot seada-adanya
-		SchoolTeacherSections: json.RawMessage(m.SchoolTeacherSections),
-		SchoolTeacherCSST:     json.RawMessage(m.SchoolTeacherCSST),
+		// Nested default: kosong, bisa diisi manual di service/controller
+		SchoolTeacherSections: []DTOTeacherSectionItem{},
+		SchoolTeacherCSST:     []DTOTeacherCSSTItem{},
 
-		// Stats
-		SchoolTeacherTotalClassSections:                     m.SchoolTeacherTotalClassSections,
-		SchoolTeacherTotalClassSectionSubjectTeachers:       m.SchoolTeacherTotalClassSectionSubjectTeachers,
-		SchoolTeacherTotalClassSectionsActive:               m.SchoolTeacherTotalClassSectionsActive,
-		SchoolTeacherTotalClassSectionSubjectTeachersActive: m.SchoolTeacherTotalClassSectionSubjectTeachersActive,
-
-		// Audit
 		SchoolTeacherCreatedAt: m.SchoolTeacherCreatedAt,
 		SchoolTeacherUpdatedAt: m.SchoolTeacherUpdatedAt,
 		SchoolTeacherDeletedAt: delAt,
@@ -406,9 +387,6 @@ func (r CreateSchoolTeacherRequest) ToModel(schoolID string) (*teacherModel.Scho
 		isVerified = *rc.SchoolTeacherIsVerified
 	}
 
-	// Penting: inisialisasi JSONB agar tidak NULL pada insert
-	emptyArr := datatypes.JSON([]byte("[]"))
-
 	return &teacherModel.SchoolTeacherModel{
 		SchoolTeacherSchoolID:      mzID,
 		SchoolTeacherUserTeacherID: utID,
@@ -426,10 +404,6 @@ func (r CreateSchoolTeacherRequest) ToModel(schoolID string) (*teacherModel.Scho
 
 		SchoolTeacherIsPublic: isPublic,
 		SchoolTeacherNotes:    rc.SchoolTeacherNotes,
-
-		// JSONB defaults
-		SchoolTeacherSections: emptyArr,
-		SchoolTeacherCSST:     emptyArr,
 	}, nil
 }
 

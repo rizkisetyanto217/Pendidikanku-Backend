@@ -13,10 +13,9 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	// ==== Import yang benar ====
 	dto "madinahsalam_backend/internals/features/finance/billings/dto"
-	model "madinahsalam_backend/internals/features/finance/billings/model"
-	"madinahsalam_backend/internals/features/finance/general_billings/service"
+	billingModel "madinahsalam_backend/internals/features/finance/billings/model"
+	generalBillingModel "madinahsalam_backend/internals/features/finance/general_billings/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
@@ -58,7 +57,6 @@ func mustSchoolID(c *fiber.Ctx) (uuid.UUID, error) {
 ======================================================= */
 
 // POST /:school_id/spp/fee-rules
-// POST /:school_id/spp/fee-rules
 func (h *FeeRuleHandler) CreateFeeRule(c *fiber.Ctx) error {
 	schoolID, err := mustSchoolID(c)
 	if err != nil {
@@ -73,43 +71,14 @@ func (h *FeeRuleHandler) CreateFeeRule(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, "invalid json")
 	}
 
-	// selalu set dari path (abaikan body)
+	// selalu set dari context (abaikan body)
 	in.FeeRuleSchoolID = schoolID
 
 	// rakit model dari DTO
-	m := dto.FeeRuleCreateDTOToModel(in) // -> fee.FeeRule
+	m := dto.FeeRuleCreateDTOToModel(in)
 
-	// transaksi: hydrate snapshot GBK (kalau ada) lalu create
-	if err := h.DB.Transaction(func(tx *gorm.DB) error {
-		// Jika ada referensi General Billing Kind, ambil snapshot dan isi ke kolom *_snapshot
-		if m.FeeRuleGeneralBillingKindID != nil {
-			snap, err := snapshot.ValidateAndSnapshotGBK(tx, schoolID, *m.FeeRuleGeneralBillingKindID)
-			if err != nil {
-				// salah tenant / tidak ditemukan / dll.
-				return err
-			}
-			if snap != nil {
-				m.FeeRuleGBKCodeSnapshot = snap.Code
-				m.FeeRuleGBKNameSnapshot = snap.Name
-				m.FeeRuleGBKCategorySnapshot = snap.Category
-				m.FeeRuleGBKIsGlobalSnapshot = snap.IsGlobal
-				m.FeeRuleGBKVisibilitySnapshot = snap.Visibility
-				m.FeeRuleGBKIsRecurringSnapshot = snap.IsRecurring
-				m.FeeRuleGBKRequiresMonthYearSnapshot = snap.RequiresMonthYear
-				m.FeeRuleGBKRequiresOptionCodeSnapshot = snap.RequiresOptionCode
-				m.FeeRuleGBKDefaultAmountIDRSnapshot = snap.DefaultAmountIDR
-				m.FeeRuleGBKIsActiveSnapshot = snap.IsActive
-
-				// opsional: jika bill_code kosong, pakai code GBK
-				if strings.TrimSpace(m.FeeRuleBillCode) == "" && snap.Code != nil {
-					m.FeeRuleBillCode = *snap.Code
-				}
-			}
-		}
-
-		// insert
-		return tx.Create(&m).Error
-	}); err != nil {
+	// langsung create
+	if err := h.DB.Create(&m).Error; err != nil {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
 
@@ -136,7 +105,7 @@ func (h *FeeRuleHandler) UpdateFeeRule(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, "invalid json")
 	}
 
-	var m model.FeeRule
+	var m billingModel.FeeRuleModel
 	if err := h.DB.First(&m,
 		"fee_rule_id = ? AND fee_rule_school_id = ? AND fee_rule_deleted_at IS NULL",
 		id, schoolID).Error; err != nil {
@@ -156,7 +125,8 @@ func (h *FeeRuleHandler) UpdateFeeRule(c *fiber.Ctx) error {
 }
 
 // =======================================================
-// GENERATE STUDENT BILLS FROM BATCH (AUTHORIZED)
+// GENERATE USER GENERAL BILLINGS FROM BATCH (AUTHORIZED)
+//   → refactor: GANTIKAN student_bills
 // =======================================================
 
 func (h *FeeRuleHandler) GenerateStudentBills(c *fiber.Ctx) error {
@@ -201,7 +171,7 @@ func (h *FeeRuleHandler) GenerateStudentBills(c *fiber.Ctx) error {
 	}
 
 	// 1) Load batch (tenant-scoped)
-	var batch model.BillBatch
+	var batch billingModel.BillBatchModel
 	if err := h.DB.First(&batch,
 		"bill_batch_id = ? AND bill_batch_school_id = ? AND bill_batch_deleted_at IS NULL",
 		in.BillBatchID, schoolID).Error; err != nil {
@@ -224,57 +194,135 @@ func (h *FeeRuleHandler) GenerateStudentBills(c *fiber.Ctx) error {
 		})
 	}
 
-	// 3) Idempotency ringan (opsional)
-	if in.IdempotencyKey != nil {
-		var count int64
-		if err := h.DB.Model(&model.StudentBill{}).
-			Where("student_bill_batch_id = ? AND student_bill_school_id = ? AND student_bill_deleted_at IS NULL",
-				in.BillBatchID, schoolID).
-			Count(&count).Error; err == nil && int(count) >= len(targetIDs) {
-			return helper.JsonOK(c, "already generated", dto.GenerateStudentBillsResponse{
-				BillBatchID: in.BillBatchID,
-				Inserted:    0,
-				Skipped:     int(count),
-			})
-		}
-	}
-
-	// 4) Generate
+	// 3) Transaction: ensure general_billing header + create user_general_billings
 	res := dto.GenerateStudentBillsResponse{BillBatchID: in.BillBatchID}
+
 	err = h.DB.Transaction(func(tx *gorm.DB) error {
+		// 3a) Ensure general_billing header for this batch (idempotent via code)
+		gb, err := h.ensureGeneralBillingForBatch(tx, schoolID, batch)
+		if err != nil {
+			return err
+		}
+
+		// 3b) Optional idempotency: kalau sudah ada >= targetIDs di user_general_billings, anggap sudah pernah di-generate
+		if in.IdempotencyKey != nil {
+			var count int64
+			if err := tx.Model(&generalBillingModel.UserGeneralBillingModel{}).
+				Where("user_general_billing_school_id = ? AND user_general_billing_billing_id = ? AND user_general_billing_deleted_at IS NULL",
+					schoolID, gb.GeneralBillingID).
+				Count(&count).Error; err == nil && int(count) >= len(targetIDs) {
+				res.Inserted = 0
+				res.Skipped = int(count)
+				return nil
+			}
+		}
+
+		// 3c) Generate/Upsert user_general_billings per student (pengganti StudentBill)
 		for _, sid := range targetIDs {
 			amount, err := h.resolveAmountWithContext(tx, in, batch, sid)
 			if err != nil {
 				return fmt.Errorf("student %s: %w", sid.String(), err)
 			}
-			usb := model.StudentBill{
-				StudentBillBatchID:         in.BillBatchID,
-				StudentBillSchoolID:        in.StudentBillSchoolID,
-				StudentBillSchoolStudentID: &sid,
-				StudentBillOptionCode:      &in.Labeling.OptionCode,
-				StudentBillOptionLabel:     in.Labeling.OptionLabel,
-				StudentBillAmountIDR:       amount,
-				StudentBillStatus:          "unpaid",
+
+			// Title snapshot: pakai title batch / general_billing
+			titleSnap := gb.GeneralBillingTitle
+			if titleSnap == "" {
+				titleSnap = batch.BillBatchTitle
 			}
+
+			// pointer helper biar jelas
+			catSnap := gb.GeneralBillingCategory  // type: GeneralBillingCategory
+			codeSnap := gb.GeneralBillingBillCode // type: string
+
+			ugb := generalBillingModel.UserGeneralBillingModel{
+				UserGeneralBillingSchoolID:        schoolID,
+				UserGeneralBillingSchoolStudentID: &sid,
+				UserGeneralBillingBillingID:       gb.GeneralBillingID,
+				UserGeneralBillingAmountIDR:       amount,
+				UserGeneralBillingStatus:          "unpaid",
+
+				UserGeneralBillingTitleSnapshot:    &titleSnap,
+				UserGeneralBillingCategorySnapshot: &catSnap,
+				UserGeneralBillingBillCodeSnapshot: &codeSnap,
+			}
+
 			if err := tx.Clauses(clause.OnConflict{
-				Columns:   []clause.Column{{Name: "student_bill_batch_id"}, {Name: "student_bill_school_student_id"}},
+				Columns: []clause.Column{
+					{Name: "user_general_billing_billing_id"},
+					{Name: "user_general_billing_school_student_id"},
+				},
 				DoNothing: true,
-			}).Create(&usb).Error; err != nil {
+			}).Create(&ugb).Error; err != nil {
 				return err
 			}
-			if usb.StudentBillID != uuid.Nil {
+
+			if ugb.UserGeneralBillingID != uuid.Nil {
 				res.Inserted++
 			} else {
 				res.Skipped++
 			}
 		}
+
 		return nil
 	})
 	if err != nil {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
 
-	return helper.JsonOK(c, "student bills generated", res)
+	return helper.JsonOK(c, "user general billings generated", res)
+}
+
+/*
+=======================================================
+
+	Ensure general_billing header untuk satu bill_batch
+	- Idempotent via general_billing_code = "BATCH-{bill_batch_id}"
+
+=======================================================
+*/
+func (h *FeeRuleHandler) ensureGeneralBillingForBatch(
+	tx *gorm.DB,
+	schoolID uuid.UUID,
+	batch billingModel.BillBatchModel,
+) (generalBillingModel.GeneralBillingModel, error) {
+	var gb generalBillingModel.GeneralBillingModel
+
+	// kode unik turunan dari batch
+	gbCode := fmt.Sprintf("BATCH-%s", batch.BillBatchID.String())
+
+	err := tx.
+		Where("general_billing_school_id = ? AND LOWER(general_billing_code) = LOWER(?) AND general_billing_deleted_at IS NULL",
+			schoolID, gbCode).
+		First(&gb).Error
+	if err == nil {
+		return gb, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return generalBillingModel.GeneralBillingModel{}, err
+	}
+
+	// Belum ada → create baru
+	gb = generalBillingModel.GeneralBillingModel{
+		GeneralBillingSchoolID:  schoolID,
+		GeneralBillingCategory:  batch.BillBatchCategory,
+		GeneralBillingBillCode:  batch.BillBatchBillCode,
+		GeneralBillingCode:      &gbCode,
+		GeneralBillingTitle:     batch.BillBatchTitle,
+		GeneralBillingDesc:      batch.BillBatchNote,
+		GeneralBillingClassID:   batch.BillBatchClassID,
+		GeneralBillingSectionID: batch.BillBatchSectionID,
+		GeneralBillingTermID:    batch.BillBatchTermID,
+		GeneralBillingMonth:     batch.BillBatchMonth,
+		GeneralBillingYear:      batch.BillBatchYear,
+		GeneralBillingDueDate:   batch.BillBatchDueDate,
+		GeneralBillingIsActive:  true,
+	}
+
+	if err := tx.Create(&gb).Error; err != nil {
+		return generalBillingModel.GeneralBillingModel{}, err
+	}
+
+	return gb, nil
 }
 
 /*
@@ -396,16 +444,11 @@ func (h *FeeRuleHandler) getStudentActiveContext(tx *gorm.DB, schoolID, studentI
 /* =======================================================
    Resolve nominal (rule → fallback fixed)
 ======================================================= */
-/* =======================================================
-   Resolve nominal (rule → fallback fixed)
-   - Konsisten DTO: returns int
-   - Konsisten Model: ambil dari FeeRuleAmountOptions by option_code
-======================================================= */
 
 func (h *FeeRuleHandler) resolveAmountWithContext(
 	tx *gorm.DB,
 	in dto.GenerateStudentBillsRequest,
-	batch model.BillBatch,
+	batch billingModel.BillBatchModel,
 	studentID uuid.UUID,
 ) (int, error) {
 	// 1) Mode fixed → langsung return (hindari panic saat nil)
@@ -443,7 +486,7 @@ func (h *FeeRuleHandler) resolveAmountWithContext(
 	}
 
 	// 5) Base query: tenant, option_code, soft-delete, effective range
-	q := tx.Model(&model.FeeRule{}).
+	q := tx.Model(&billingModel.FeeRuleModel{}).
 		Where("fee_rule_school_id = ?", in.StudentBillSchoolID).
 		Where("LOWER(fee_rule_option_code) = ?", optionCode).
 		Where("fee_rule_deleted_at IS NULL").
@@ -508,7 +551,7 @@ func (h *FeeRuleHandler) resolveAmountWithContext(
 		fee_rule_created_at DESC
 	`).Limit(1)
 
-	var rule model.FeeRule
+	var rule billingModel.FeeRuleModel
 	if err := q.First(&rule).Error; err != nil {
 		// Kalau error bukan not found, return error
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -536,7 +579,7 @@ func (h *FeeRuleHandler) resolveAmountWithContext(
 }
 
 // Helper kecil: cari nominal pada slice options berdasarkan code (case-insensitive)
-func findAmountFromOptions(opts []model.AmountOption, code string) (int, bool) {
+func findAmountFromOptions(opts []billingModel.AmountOption, code string) (int, bool) {
 	if len(opts) == 0 {
 		return 0, false
 	}

@@ -22,10 +22,6 @@ func FinanceAdminRoutes(r fiber.Router, db *gorm.DB, midtransServerKey string, u
 	BillingRoute.BillingsAdminRoutes(r, db)
 }
 
-func FinanceOwnerRoutes(r fiber.Router, db *gorm.DB) {
-	GeneralBillingRoute.OwnerGeneralBillingRoutes(r, db)
-}
-
 func FinanceUserRoutes(r fiber.Router, db *gorm.DB) {
 	PaymentRoute.UserPaymentRoutes(r, db)
 	BillingRoute.BillingsUserRoutes(r, db)

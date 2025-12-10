@@ -32,8 +32,6 @@ import (
 
 	// ✅ Cache guru versi baru (school_teachers)
 	teachersnap "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/service"
-
-	classSectionService "madinahsalam_backend/internals/features/school/classes/class_sections/service"
 )
 
 /* =========================================================
@@ -315,16 +313,6 @@ func pickImageFile(c *fiber.Ctx, names ...string) *multipart.FileHeader {
 	return nil
 }
 
-func equalUUIDPtr(a, b *uuid.UUID) bool {
-	if a == nil && b == nil {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
-	return *a == *b
-}
-
 /* =========================================================
    HANDLERS
 ========================================================= */
@@ -421,8 +409,6 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	// ---- Map req -> model ----
 	m := req.ToModel()
 	m.ClassSectionSchoolID = schoolID
-
-	// (stats & CSST totals default 0 dari DB / struct, jadi dibiarkan)
 
 	// ==== Cache GURU (opsional, via class_section_school_teacher_id) ====
 	if m.ClassSectionSchoolTeacherID != nil {
@@ -624,53 +610,15 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat section")
 	}
 
-	// ==== Sync ke school_teachers (JSONB sections + stats) ====
-
-	// Ambil lagi section terbaru dari DB, supaya flag is_active, dst sudah sesuai default DB
-	var freshSec secModel.ClassSectionModel
-	if err := tx.
-		Where("class_section_id = ?", m.ClassSectionID).
-		First(&freshSec).Error; err != nil {
-		_ = tx.Rollback()
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil section untuk update stats guru")
-	}
-
-	// Homeroom teacher
-	if freshSec.ClassSectionSchoolTeacherID != nil {
-		if err := classSectionService.AddSectionToTeacher(
-			tx,
-			schoolID,
-			*freshSec.ClassSectionSchoolTeacherID,
-			&freshSec,
-			"homeroom",
-		); err != nil {
-			_ = tx.Rollback()
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal update stats guru (homeroom)")
-		}
-	}
-
-	// Assistant teacher
-	if freshSec.ClassSectionAssistantSchoolTeacherID != nil {
-		if err := classSectionService.AddSectionToTeacher(
-			tx,
-			schoolID,
-			*freshSec.ClassSectionAssistantSchoolTeacherID,
-			&freshSec,
-			"assistant",
-		); err != nil {
-			_ = tx.Rollback()
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal update stats guru (assistant)")
-		}
-	}
-
 	if err := tx.Commit().Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// ✅ Konsisten: data = 1 object section DTO (sudah include stats & CSST totals baru)
+	// ✅ Konsisten: data = 1 object section DTO
 	return helper.JsonCreated(c, "Section berhasil dibuat", secDTO.FromModelClassSection(m))
 }
 
+// PATCH /admin/class-sections/:id
 // PATCH /admin/class-sections/:id
 func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 	sectionID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
@@ -720,10 +668,6 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
-
-	// Simpan guru lama (sebelum patch)
-	oldHomeroomID := existing.ClassSectionSchoolTeacherID
-	oldAssistantID := existing.ClassSectionAssistantSchoolTeacherID
 
 	// 🔒 Tenant guard: section harus milik school di token
 	if existing.ClassSectionSchoolID != schoolID {
@@ -860,6 +804,112 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		}
 	}
 
+	// 🆕 Snapshot TERM & CLASS PARENT kalau ID-nya dipatch
+	var (
+		termSnapRequested            bool
+		termNameCache, termSlugCache *string
+		termYearCache                *string
+		termAngkatanCache            *int
+
+		classParentSnapRequested         bool
+		parentNameCache, parentSlugCache *string
+		parentLevelCache                 *int16
+	)
+
+	// Academic Term
+	if req.ClassSectionAcademicTermID.Present {
+		termSnapRequested = true
+
+		if req.ClassSectionAcademicTermID.Value != nil {
+			var row struct {
+				Name     string `gorm:"column:academic_term_name"`
+				Slug     string `gorm:"column:academic_term_slug"`
+				Year     string `gorm:"column:academic_term_academic_year"`
+				Angkatan *int   `gorm:"column:academic_term_angkatan"`
+			}
+
+			if err := tx.
+				Table("academic_terms").
+				Select("academic_term_name, academic_term_slug, academic_term_academic_year, academic_term_angkatan").
+				Where(`
+					academic_term_id = ?
+					AND academic_term_school_id = ?
+					AND academic_term_deleted_at IS NULL
+				`, *req.ClassSectionAcademicTermID.Value, schoolID).
+				Take(&row).Error; err != nil {
+				_ = tx.Rollback()
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return helper.JsonError(c, fiber.StatusBadRequest, "Academic term tidak ditemukan")
+				}
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil academic term")
+			}
+
+			n := strings.TrimSpace(row.Name)
+			s := strings.TrimSpace(row.Slug)
+			y := strings.TrimSpace(row.Year)
+
+			if n != "" {
+				termNameCache = &n
+			}
+			if s != "" {
+				termSlugCache = &s
+			}
+			if y != "" {
+				termYearCache = &y
+			}
+			if row.Angkatan != nil {
+				termAngkatanCache = row.Angkatan
+			}
+		} else {
+			// patch NULL → clear caches
+			termNameCache, termSlugCache, termYearCache, termAngkatanCache = nil, nil, nil, nil
+		}
+	}
+
+	// Class Parent
+	if req.ClassSectionClassParentID.Present {
+		classParentSnapRequested = true
+
+		if req.ClassSectionClassParentID.Value != nil {
+			var row struct {
+				Name  string `gorm:"column:class_name"`
+				Slug  string `gorm:"column:class_slug"`
+				Level int16  `gorm:"column:class_level"`
+			}
+
+			if err := tx.
+				Table("classes").
+				Select("class_name, class_slug, class_level").
+				Where(`
+					class_id = ?
+					AND class_school_id = ?
+					AND class_deleted_at IS NULL
+				`, *req.ClassSectionClassParentID.Value, schoolID).
+				Take(&row).Error; err != nil {
+				_ = tx.Rollback()
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return helper.JsonError(c, fiber.StatusBadRequest, "Kelas induk (parent) tidak ditemukan")
+				}
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil kelas induk")
+			}
+
+			n := strings.TrimSpace(row.Name)
+			s := strings.TrimSpace(row.Slug)
+
+			if n != "" {
+				parentNameCache = &n
+			}
+			if s != "" {
+				parentSlugCache = &s
+			}
+			lv := row.Level
+			parentLevelCache = &lv
+		} else {
+			// patch NULL → clear caches
+			parentNameCache, parentSlugCache, parentLevelCache = nil, nil, nil
+		}
+	}
+
 	// Slug handling (unik per tenant)
 	if req.ClassSectionSlug.Present && req.ClassSectionSlug.Value != nil {
 		base := helper.Slugify(strings.TrimSpace(*req.ClassSectionSlug.Value), 160)
@@ -915,17 +965,34 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		req.ClassSectionSlug.Value = &uniq
 	}
 
-	// Track perubahan status aktif
-	wasActive := existing.ClassSectionIsActive
-	newActive := wasActive
-	if req.ClassSectionIsActive.Present && req.ClassSectionIsActive.Value != nil {
-		newActive = *req.ClassSectionIsActive.Value
-	}
+	// Simpan status lama untuk tracking perubahan active & completed
+	beforeStatus := existing.ClassSectionStatus
 
-	// Apply perubahan model dasar (termasuk relasi IDs, enrollment mode, dll)
+	// Apply perubahan model dasar (termasuk relasi IDs, enrollment mode, status enum, dll)
 	req.Apply(&existing)
 
-	// Apply room snapshot jika field-nya dipatch (clear jika nil)
+	// Auto-set completed_at ketika status baru menjadi "completed" dan sebelumnya belum completed
+	if beforeStatus != secModel.ClassStatusCompleted &&
+		existing.ClassSectionStatus == secModel.ClassStatusCompleted &&
+		existing.ClassSectionCompletedAt == nil {
+		t := time.Now()
+		existing.ClassSectionCompletedAt = &t
+	}
+
+	// 🆕 Apply TERM & CLASS PARENT caches kalau diminta
+	if termSnapRequested {
+		existing.ClassSectionAcademicTermNameCache = termNameCache
+		existing.ClassSectionAcademicTermSlugCache = termSlugCache
+		existing.ClassSectionAcademicTermAcademicYearCache = termYearCache
+		existing.ClassSectionAcademicTermAngkatanCache = termAngkatanCache
+	}
+	if classParentSnapRequested {
+		existing.ClassSectionClassParentNameCache = parentNameCache
+		existing.ClassSectionClassParentSlugCache = parentSlugCache
+		existing.ClassSectionClassParentLevelCache = parentLevelCache
+	}
+
+	// Apply ROOM snapshot bila field-nya dipatch
 	if roomSnapRequested {
 		roomCache.ApplyRoomCacheToSection(&existing, roomSnap)
 
@@ -933,10 +1000,10 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		if propagateRoomToCSST {
 			if err := tx.Model(&csstModel.ClassSectionSubjectTeacherModel{}).
 				Where(`
-					class_section_subject_teacher_school_id = ?
-					AND class_section_subject_teacher_class_section_id = ?
-					AND class_section_subject_teacher_deleted_at IS NULL
-				`, schoolID, existing.ClassSectionID).
+    class_section_subject_teacher_school_id = ?
+    AND class_section_subject_teacher_class_section_id = ?
+    AND class_section_subject_teacher_deleted_at IS NULL
+`, schoolID, existing.ClassSectionID).
 				Updates(map[string]any{
 					"class_section_subject_teacher_class_room_id": func() any {
 						if existing.ClassSectionClassRoomID == nil {
@@ -950,29 +1017,28 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 						}
 						return *existing.ClassSectionClassRoomSlugCache
 					}(),
-					// 🆕 propagate JSON cache
+					// propagate JSON cache
 					"class_section_subject_teacher_class_room_cache": func() any {
 						if len(existing.ClassSectionClassRoomCache) == 0 {
 							return gorm.Expr("NULL")
 						}
 						return existing.ClassSectionClassRoomCache
 					}(),
-
-					// 🆕 propagate name cache
+					// propagate name cache
 					"class_section_subject_teacher_class_room_name_cache": func() any {
 						if existing.ClassSectionClassRoomNameCache == nil {
 							return gorm.Expr("NULL")
 						}
 						return *existing.ClassSectionClassRoomNameCache
 					}(),
-					// 🆕 propagate location cache
+					// propagate location cache
 					"class_section_subject_teacher_class_room_location_cache": func() any {
 						if existing.ClassSectionClassRoomLocationCache == nil {
 							return gorm.Expr("NULL")
 						}
 						return *existing.ClassSectionClassRoomLocationCache
 					}(),
-					// 🆕 slug_cache_gen
+					// slug_cache_gen
 					"class_section_subject_teacher_class_room_slug_cache_gen": func() any {
 						if existing.ClassSectionClassRoomSlugCache == nil {
 							return gorm.Expr("NULL")
@@ -992,92 +1058,6 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 	}
 	if asstTeacherSnapRequested {
 		existing.ClassSectionAssistantSchoolTeacherCache = asstTeacherSnapJSON
-	}
-
-	// ==== Sync ke school_teachers (JSONB sections + stats) ====
-
-	// Homeroom: remove dari guru lama jika berubah / dihapus
-	if oldHomeroomID != nil && !equalUUIDPtr(oldHomeroomID, existing.ClassSectionSchoolTeacherID) {
-		if err := classSectionService.RemoveSectionFromTeacher(
-			tx,
-			schoolID,
-			*oldHomeroomID,
-			&existing,
-			"homeroom",
-		); err != nil {
-			_ = tx.Rollback()
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal update stats guru (remove homeroom)")
-		}
-	}
-
-	// Homeroom: add ke guru baru jika ada dan berbeda dari lama
-	if existing.ClassSectionSchoolTeacherID != nil && !equalUUIDPtr(oldHomeroomID, existing.ClassSectionSchoolTeacherID) {
-		if err := classSectionService.AddSectionToTeacher(
-			tx,
-			schoolID,
-			*existing.ClassSectionSchoolTeacherID,
-			&existing,
-			"homeroom",
-		); err != nil {
-			_ = tx.Rollback()
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal update stats guru (add homeroom)")
-		}
-	}
-
-	// Assistant: remove dari guru lama jika berubah / dihapus
-	if oldAssistantID != nil && !equalUUIDPtr(oldAssistantID, existing.ClassSectionAssistantSchoolTeacherID) {
-		if err := classSectionService.RemoveSectionFromTeacher(
-			tx,
-			schoolID,
-			*oldAssistantID,
-			&existing,
-			"assistant",
-		); err != nil {
-			_ = tx.Rollback()
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal update stats guru (remove assistant)")
-		}
-	}
-
-	// Assistant: add ke guru baru jika ada dan berbeda dari lama
-	if existing.ClassSectionAssistantSchoolTeacherID != nil && !equalUUIDPtr(oldAssistantID, existing.ClassSectionAssistantSchoolTeacherID) {
-		if err := classSectionService.AddSectionToTeacher(
-			tx,
-			schoolID,
-			*existing.ClassSectionAssistantSchoolTeacherID,
-			&existing,
-			"assistant",
-		); err != nil {
-			_ = tx.Rollback()
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal update stats guru (add assistant)")
-		}
-	}
-
-	// ✅ Refresh snapshot guru aktif WALAU ID-nya tidak berubah.
-	//    Jadi kalau name / slug / image / stats / academic term / parent berubah,
-	//    JSON di school_teacher_sections ikut ke-update.
-	if existing.ClassSectionSchoolTeacherID != nil {
-		if err := classSectionService.AddSectionToTeacher(
-			tx,
-			schoolID,
-			*existing.ClassSectionSchoolTeacherID,
-			&existing,
-			"homeroom",
-		); err != nil {
-			_ = tx.Rollback()
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal sinkron snapshot guru (homeroom)")
-		}
-	}
-	if existing.ClassSectionAssistantSchoolTeacherID != nil {
-		if err := classSectionService.AddSectionToTeacher(
-			tx,
-			schoolID,
-			*existing.ClassSectionAssistantSchoolTeacherID,
-			&existing,
-			"assistant",
-		); err != nil {
-			_ = tx.Rollback()
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal sinkron snapshot guru (assistant)")
-		}
 	}
 
 	// Save
@@ -1155,6 +1135,10 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		}
 	}
 
+	// Hitung perubahan "active" berdasarkan enum status
+	wasActive := beforeStatus == secModel.ClassStatusActive
+	newActive := existing.ClassSectionStatus == secModel.ClassStatusActive
+
 	// Update stats lembaga kalau status aktif berubah
 	if wasActive != newActive {
 		stats := semstats.NewLembagaStatsService()
@@ -1177,7 +1161,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// Re-fetch terbaru untuk response (sudah include kolom stats & CSST)
+	// Re-fetch terbaru untuk response
 	var updated secModel.ClassSectionModel
 	if err := ctrl.DB.WithContext(c.Context()).
 		Where("class_section_id = ?", sectionID).
@@ -1257,14 +1241,15 @@ func (ctrl *ClassSectionController) SoftDeleteClassSection(c *fiber.Ctx) error {
 		)
 	}
 
-	wasActive := m.ClassSectionIsActive
+	// status sebelum delete (untuk stats)
+	wasActive := m.ClassSectionStatus == secModel.ClassStatusActive
 	now := time.Now()
 
 	if err := tx.Model(&secModel.ClassSectionModel{}).
 		Where("class_section_id = ?", m.ClassSectionID).
 		Updates(map[string]any{
 			"class_section_deleted_at": now,
-			"class_section_is_active":  false,
+			"class_section_status":     secModel.ClassStatusInactive,
 			"class_section_updated_at": now,
 		}).Error; err != nil {
 		_ = tx.Rollback()

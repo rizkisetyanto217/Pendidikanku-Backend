@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,11 +16,26 @@ import (
 	"github.com/google/uuid"
 )
 
+// helper kecil lokal, pengganti helper.AtoiSafe
+func atoiSafe(s string) (int, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, fmt.Errorf("empty")
+	}
+	return strconv.Atoi(s)
+}
+
 // GET /api/a/:school_id/general-billings
 // Query:
 //
-//	q, kind_id, active(=true|false|1|0), due_from(YYYY-MM-DD), due_to(YYYY-MM-DD),
-//	include_global(=true|false)  -> default true
+//	q
+//	active(=true|false|1|0)
+//	due_from(YYYY-MM-DD)
+//	due_to(YYYY-MM-DD)
+//	category (registration|spp|mass_student|donation)
+//	bill_code (SPP / lainnya)
+//	month (1-12)
+//	year (2000-2100)
 //	page, per_page(atau limit), sort_by(created_at|due_date|title), order(asc|desc)
 //	per_page=all  -> ambil semua (tanpa limit/offset)
 func (ctl *GeneralBillingController) List(c *fiber.Ctx) error {
@@ -30,7 +46,6 @@ func (ctl *GeneralBillingController) List(c *fiber.Ctx) error {
 	} else if id, err := helperAuth.GetActiveSchoolID(c); err == nil && id != uuid.Nil {
 		schoolID = id
 	} else {
-		// legacy: dari path (boleh UUID / slug, tergantung ParseSchoolIDFromPath kamu)
 		sid, err := helperAuth.ParseSchoolIDFromPath(c)
 		if err != nil {
 			return helper.JsonError(c, http.StatusBadRequest, "school context not found")
@@ -68,34 +83,39 @@ func (ctl *GeneralBillingController) List(c *fiber.Ctx) error {
 
 	// === Filters ===
 	q := strings.TrimSpace(c.Query("q"))
-	kindID := strings.TrimSpace(c.Query("kind_id"))
 	active := strings.TrimSpace(c.Query("active"))
 	dueFrom := strings.TrimSpace(c.Query("due_from")) // YYYY-MM-DD
 	dueTo := strings.TrimSpace(c.Query("due_to"))     // YYYY-MM-DD
 
-	includeGlobal := true
-	if v := strings.TrimSpace(c.Query("include_global")); v != "" {
-		switch strings.ToLower(v) {
-		case "false", "0", "no":
-			includeGlobal = false
+	categoryStr := strings.TrimSpace(c.Query("category")) // registration|spp|mass_student|donation
+	billCode := strings.TrimSpace(c.Query("bill_code"))   // SPP / lain
+	monthStr := strings.TrimSpace(c.Query("month"))       // 1-12
+	yearStr := strings.TrimSpace(c.Query("year"))         // 2000-2100
+
+	// === Base query: alive + tenant-scope ===
+	db := ctl.DB.Model(&model.GeneralBillingModel{}).
+		Where("general_billing_deleted_at IS NULL").
+		Where("general_billing_school_id = ?", schoolID)
+
+	// category (enum string)
+	if categoryStr != "" {
+		db = db.Where("general_billing_category = ?", categoryStr)
+	}
+
+	// bill_code
+	if billCode != "" {
+		db = db.Where("general_billing_bill_code = ?", billCode)
+	}
+
+	// month/year
+	if monthStr != "" {
+		if m, err := atoiSafe(monthStr); err == nil && m >= 1 && m <= 12 {
+			db = db.Where("general_billing_month = ?", m)
 		}
 	}
-
-	// === Base query: alive + tenant/global scope ===
-	db := ctl.DB.Model(&model.GeneralBilling{}).Where("general_billing_deleted_at IS NULL")
-
-	if includeGlobal {
-		// tampilkan PUNYA TENANT + GLOBAL
-		db = db.Where("(general_billing_school_id = ? OR general_billing_school_id IS NULL)", schoolID)
-	} else {
-		// khusus PUNYA TENANT saja
-		db = db.Where("general_billing_school_id = ?", schoolID)
-	}
-
-	// kind filter
-	if kindID != "" {
-		if uid, e := uuid.Parse(kindID); e == nil {
-			db = db.Where("general_billing_kind_id = ?", uid)
+	if yearStr != "" {
+		if y, err := atoiSafe(yearStr); err == nil && y >= 2000 && y <= 2100 {
+			db = db.Where("general_billing_year = ?", y)
 		}
 	}
 
@@ -121,14 +141,15 @@ func (ctl *GeneralBillingController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// free text search: code/title/desc
+	// free text search: code/title/desc/bill_code
 	if q != "" {
 		pat := "%" + strings.ToLower(q) + "%"
 		db = db.Where(`
 			LOWER(COALESCE(general_billing_code, '')) LIKE ? OR
 			LOWER(general_billing_title) LIKE ? OR
-			LOWER(COALESCE(general_billing_desc, '')) LIKE ?
-		`, pat, pat, pat)
+			LOWER(COALESCE(general_billing_desc, '')) LIKE ? OR
+			LOWER(COALESCE(general_billing_bill_code, '')) LIKE ?
+		`, pat, pat, pat, pat)
 	}
 
 	// === Count ===
@@ -143,7 +164,7 @@ func (ctl *GeneralBillingController) List(c *fiber.Ctx) error {
 		listQ = listQ.Limit(pg.Limit).Offset(pg.Offset)
 	}
 
-	var items []model.GeneralBilling
+	var items []model.GeneralBillingModel
 	if err := listQ.Find(&items).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
