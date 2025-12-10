@@ -64,7 +64,11 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 	withDeleted := strings.EqualFold(strings.TrimSpace(c.Query("with_deleted")), "true")
 
 	// mode: compact | full (default: full)
-	mode := strings.ToLower(strings.TrimSpace(c.Query("mode")))
+	modeParam := strings.TrimSpace(c.Query("mode"))
+	if modeParam == "" {
+		modeParam = strings.TrimSpace(c.Query("view_mode"))
+	}
+	mode := strings.ToLower(modeParam)
 	isCompact := mode == "compact"
 
 	// 🔌 nested flags: ?nested=class_subjects
@@ -154,19 +158,26 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 
 	// ===== Query dasar =====
 	type row struct {
-		BookID             uuid.UUID  `json:"book_id"               gorm:"column:book_id"`
-		BookSchoolID       uuid.UUID  `json:"book_school_id"        gorm:"column:book_school_id"`
-		BookTitle          string     `json:"book_title"            gorm:"column:book_title"`
-		BookAuthor         *string    `json:"book_author,omitempty" gorm:"column:book_author"`
-		BookDesc           *string    `json:"book_desc,omitempty"   gorm:"column:book_desc"`
-		BookSlug           *string    `json:"book_slug,omitempty"   gorm:"column:book_slug"`
-		BookImageURL       *string    `json:"book_image_url,omitempty"        gorm:"column:book_image_url"`
-		BookImageObjectKey *string    `json:"book_image_object_key,omitempty" gorm:"column:book_image_object_key"`
-		BookPurchaseURL    *string    `json:"book_purchase_url,omitempty"     gorm:"column:book_purchase_url"`
-		BookCreatedAt      time.Time  `json:"book_created_at"       gorm:"column:book_created_at"`
-		BookUpdatedAt      time.Time  `json:"book_updated_at"       gorm:"column:book_updated_at"`
-		BookDeletedAt      *time.Time `json:"-"                     gorm:"column:book_deleted_at"`
-		BookIsDeleted      bool       `json:"book_is_deleted"       gorm:"-"`
+		Idx int `json:"idx" gorm:"-"`
+
+		BookID                    uuid.UUID  `json:"book_id"                         gorm:"column:book_id"`
+		BookSchoolID              uuid.UUID  `json:"book_school_id"                  gorm:"column:book_school_id"`
+		BookTitle                 string     `json:"book_title"                      gorm:"column:book_title"`
+		BookAuthor                *string    `json:"book_author,omitempty"           gorm:"column:book_author"`
+		BookDesc                  *string    `json:"book_desc,omitempty"             gorm:"column:book_desc"`
+		BookSlug                  *string    `json:"book_slug,omitempty"             gorm:"column:book_slug"`
+		BookImageURL              *string    `json:"book_image_url,omitempty"        gorm:"column:book_image_url"`
+		BookImageObjectKey        *string    `json:"book_image_object_key,omitempty" gorm:"column:book_image_object_key"`
+		BookImageURLOld           *string    `json:"book_image_url_old,omitempty"           gorm:"column:book_image_url_old"`
+		BookImageObjectKeyOld     *string    `json:"book_image_object_key_old,omitempty"   gorm:"column:book_image_object_key_old"`
+		BookImageDeletePendingTil *time.Time `json:"book_image_delete_pending_until,omitempty" gorm:"column:book_image_delete_pending_until"`
+		BookPublisher             *string    `json:"book_publisher,omitempty"        gorm:"column:book_publisher"`
+		BookPublicationYear       *int       `json:"book_publication_year,omitempty" gorm:"column:book_publication_year"`
+		BookPurchaseURL           *string    `json:"book_purchase_url,omitempty"     gorm:"column:book_purchase_url"`
+		BookCreatedAt             time.Time  `json:"book_created_at"                 gorm:"column:book_created_at"`
+		BookUpdatedAt             time.Time  `json:"book_updated_at"                 gorm:"column:book_updated_at"`
+		BookDeletedAt             *time.Time `json:"book_deleted_at,omitempty"       gorm:"column:book_deleted_at"`
+		BookIsDeleted             bool       `json:"book_is_deleted"                 gorm:"-"`
 
 		// nested: hanya kalau ?nested=class_subjects
 		ClassSubjectBooks []bookdto.BookClassSubjectItem `json:"class_subject_books,omitempty" gorm:"-"`
@@ -220,6 +231,11 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 			b.book_slug,
 			b.book_image_url,
 			b.book_image_object_key,
+			b.book_image_url_old,
+			b.book_image_object_key_old,
+			b.book_image_delete_pending_until,
+			b.book_publisher,
+			b.book_publication_year,
 			b.book_purchase_url,
 			b.book_created_at,
 			b.book_updated_at,
@@ -234,6 +250,7 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 
 	for i := range rows {
 		rows[i].BookIsDeleted = rows[i].BookDeletedAt != nil && !rows[i].BookDeletedAt.IsZero()
+		rows[i].Idx = p.Offset() + i
 	}
 
 	// ===== Ambil class_subject_books + detail class_subject (untuk nested/include) =====
@@ -243,13 +260,13 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 	)
 
 	if (nestedClassSubjects || includeClassSubjects) && len(rows) > 0 {
-		// kumpulkan semua book_id di halaman ini
+		// 1) Kumpulkan semua book_id di halaman ini
 		bookIDs := make([]uuid.UUID, 0, len(rows))
 		for _, r := range rows {
 			bookIDs = append(bookIDs, r.BookID)
 		}
 
-		// 1) Ambil pivot class_subject_books (per buku)
+		// 2) Ambil pivot class_subject_books (per buku)
 		type csbRow struct {
 			ClassSubjectBookID             uuid.UUID `gorm:"column:class_subject_book_id"`
 			ClassSubjectBookBookID         uuid.UUID `gorm:"column:class_subject_book_book_id"`
@@ -278,7 +295,7 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 		}
 
 		if len(csbRows) > 0 {
-			// 2) Kumpulkan semua class_subject_id dari pivot
+			// 3) Kumpulkan semua class_subject_id dari pivot
 			classSubjectIDsSet := make(map[uuid.UUID]struct{}, len(csbRows))
 			for _, r := range csbRows {
 				classSubjectIDsSet[r.ClassSubjectBookClassSubjectID] = struct{}{}
@@ -288,7 +305,7 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 				classSubjectIDs = append(classSubjectIDs, id)
 			}
 
-			// 3) Ambil ClassSubjectModel untuk semua ID tersebut
+			// 4) Ambil ClassSubjectModel untuk semua ID tersebut
 			var csModels []classSubjectModel.ClassSubjectModel
 			if err := h.DB.
 				Where("class_subject_school_id = ?", schoolID).
@@ -298,19 +315,19 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data class_subjects")
 			}
 
-			// 4) Map class_subject_id -> DTO compact
+			// 5) Map class_subject_id -> DTO compact
 			csByID := make(map[uuid.UUID]classSubjectDTO.ClassSubjectCompactResponse, len(csModels))
 			for _, m := range csModels {
 				csByID[m.ClassSubjectID] = classSubjectDTO.FromClassSubjectModelToCompact(m)
 			}
 
-			// 4b) Siapkan slice untuk include.class_subjects
+			// 6) Siapkan slice untuk include.class_subjects
 			includeClassSubjectsSlice = make([]classSubjectDTO.ClassSubjectCompactResponse, 0, len(csByID))
 			for _, v := range csByID {
 				includeClassSubjectsSlice = append(includeClassSubjectsSlice, v)
 			}
 
-			// 5) Susun per book_id (nested)
+			// 7) Susun per book_id (nested)
 			csbByBookID = make(map[uuid.UUID][]bookdto.BookClassSubjectItem, len(bookIDs))
 			for _, r := range csbRows {
 				csCompact, ok := csByID[r.ClassSubjectBookClassSubjectID]
@@ -330,7 +347,7 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// ==== Tempel ke rows juga (supaya mode=full ikut dapat nested) ====
+	// ==== Tempel ke rows juga (supaya mode=full ikut dapat nested kalau diminta) ====
 	if nestedClassSubjects && csbByBookID != nil {
 		for i := range rows {
 			if items, ok := csbByBookID[rows[i].BookID]; ok {
@@ -367,12 +384,10 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 			out = append(out, item)
 		}
 
-		// Tanpa include → pakai helper standar
 		if !includeClassSubjects || len(includeClassSubjectsSlice) == 0 {
 			return helper.JsonList(c, "ok", out, pg)
 		}
 
-		// Dengan include → pakai JsonListWithInclude
 		return helper.JsonListWithInclude(
 			c,
 			"ok",
@@ -384,13 +399,11 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 		)
 	}
 
-	// mode full (raw rows)
+	// ===== mode full: return full rows =====
 	if !includeClassSubjects || len(includeClassSubjectsSlice) == 0 {
-		// nggak minta include → behavior lama
 		return helper.JsonList(c, "ok", rows, pg)
 	}
 
-	// minta include → bungkus dengan JsonListWithInclude
 	return helper.JsonListWithInclude(
 		c,
 		"ok",

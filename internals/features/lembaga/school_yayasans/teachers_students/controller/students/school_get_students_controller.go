@@ -12,19 +12,20 @@ import (
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
 	classSectionDTO "madinahsalam_backend/internals/features/school/classes/class_sections/dto"
-
-	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
-
 	classSectionModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 
 	csstDTO "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/dto"
+	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
+
+	userProfileDTO "madinahsalam_backend/internals/features/users/users/dto"
+	userProfileModel "madinahsalam_backend/internals/features/users/users/model"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
 
 // GET /api/a/school-students
-// GET /api/a/school-students
+// GET /api/u/school-students
 func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 	// 0) Pastikan DB di locals (dipakai helper lain)
 	if c.Locals("DB") == nil {
@@ -42,13 +43,20 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 		return er
 	}
 
-	// --- mode: all / compact ---
+	// 3) Mode: all / compact (mode hanya ngatur shape dasar, bukan include)
 	mode := strings.ToLower(strings.TrimSpace(c.Query("mode"))) // "", "all", "compact"
 
-	// 🔥 NEW: nested=class-sections,csst
+	// ==============================
+	// INCLUDE FLAGS (berlaku utk semua mode)
+	// ==============================
+	var (
+		wantSections bool
+		wantCSST     bool
+		wantProfile  bool
+	)
+
+	// a) nested=class-sections,csst  (legacy / alias)
 	nested := strings.ToLower(strings.TrimSpace(c.Query("nested")))
-	wantSections := false
-	wantCSST := false
 	if nested != "" {
 		for _, part := range strings.Split(nested, ",") {
 			p := strings.TrimSpace(part)
@@ -61,7 +69,25 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 3) Sorting + Pagination
+	// b) include=user_profiles,csst,class_sections (baru, berlaku utk compact & full)
+	includeRaw := strings.ToLower(strings.TrimSpace(c.Query("include")))
+	if includeRaw != "" {
+		for _, part := range strings.Split(includeRaw, ",") {
+			p := strings.TrimSpace(part)
+			switch p {
+			case "user_profile", "user_profiles", "profile", "profiles", "user":
+				wantProfile = true
+			case "sections", "class-sections", "class_sections", "classsection":
+				wantSections = true
+			case "csst", "class-section-subject-teachers", "class_section_subject_teachers", "subject-teachers", "subject_teachers":
+				wantCSST = true
+			}
+		}
+	}
+
+	// ==============================
+	// Sorting + Pagination
+	// ==============================
 	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
 	allowedSort := map[string]string{
 		"created_at": "school_student_created_at",
@@ -75,7 +101,9 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 	}
 	orderClause = strings.TrimPrefix(orderClause, "ORDER BY ")
 
-	// 4) Filters
+	// ==============================
+	// Filters
+	// ==============================
 	search := strings.TrimSpace(c.Query("search"))
 	var (
 		userProfIDStr = strings.TrimSpace(c.Query("user_profile_id"))
@@ -169,296 +197,216 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 	// pagination info
 	pg := helper.BuildPaginationFromOffset(total, p.Offset(), p.Limit())
 
-	// =========================
-	// MODE: COMPACT
-	// =========================
-	if mode == "compact" {
-		// Kalau nggak minta nested apa-apa → tetap behaviour lama
-		if !wantSections && !wantCSST {
+	// Kalau tidak ada data → langsung pulang (include apa pun juga akan kosong)
+	if len(rows) == 0 {
+		if mode == "compact" {
+			empty := []dto.SchoolStudentCompact{}
+			return helper.JsonListWithInclude(c, "ok", empty, nil, pg)
+		}
+		empty := []dto.SchoolStudentResp{}
+		return helper.JsonListWithInclude(c, "ok", empty, nil, pg)
+	}
+
+	// ======================================
+	// Common: studentIDs
+	// ======================================
+	studentIDs := make([]uuid.UUID, 0, len(rows))
+	for i := range rows {
+		studentIDs = append(studentIDs, rows[i].SchoolStudentID)
+	}
+
+	// ======================================
+	// Early exit: kalau tidak minta include apa pun
+	// (tetap pakai JsonListWithInclude supaya ada "include": {})
+	// ======================================
+	if !wantProfile && !wantSections && !wantCSST {
+		if mode == "compact" {
 			comp := make([]dto.SchoolStudentCompact, 0, len(rows))
 			for i := range rows {
 				comp = append(comp, dto.ToSchoolStudentCompact(&rows[i]))
 			}
-			// compact tidak butuh join user_profile lagi: sudah pakai cache
-			return helper.JsonList(c, "ok", comp, pg)
+			return helper.JsonListWithInclude(c, "ok", comp, nil, pg)
 		}
 
-		// 🔥 NEW: compact + nested
-		type SchoolStudentCompactWithNested struct {
-			dto.SchoolStudentCompact   `json:",inline"`
-			ClassSections              []classSectionDTO.ClassSectionCompactResponse       `json:"class_sections,omitempty"`
-			ClassSectionSubjectTeaches []csstDTO.ClassSectionSubjectTeacherCompactResponse `json:"class_section_subject_teachers,omitempty"`
-		}
-
-		// base compact dulu
-		baseComp := make([]dto.SchoolStudentCompact, 0, len(rows))
-		studentIDs := make([]uuid.UUID, 0, len(rows))
+		baseResp := make([]dto.SchoolStudentResp, 0, len(rows))
 		for i := range rows {
-			baseComp = append(baseComp, dto.ToSchoolStudentCompact(&rows[i]))
-			studentIDs = append(studentIDs, rows[i].SchoolStudentID)
+			baseResp = append(baseResp, dto.FromModel(&rows[i]))
 		}
-
-		// Map studentID -> index
-		idxByStudent := make(map[uuid.UUID]int, len(studentIDs))
-		for i, id := range studentIDs {
-			idxByStudent[id] = i
-		}
-
-		// Prepare result slice
-		result := make([]SchoolStudentCompactWithNested, len(baseComp))
-		for i := range baseComp {
-			result[i].SchoolStudentCompact = baseComp[i]
-		}
-
-		// ============================
-		// NESTED: CLASS SECTIONS (compact)
-		// ============================
-		if wantSections && len(studentIDs) > 0 {
-			// Sesuaikan nama tabel & kolom join dengan schema-mu ya bang.
-			// Di sini diasumsikan ada table: class_section_students
-			// dengan kolom:
-			//   class_section_student_school_id
-			//   class_section_student_school_student_id
-			//   class_section_student_class_section_id
-			//   class_section_student_deleted_at
-			type studentSectionRow struct {
-				SchoolStudentID uuid.UUID `gorm:"column:class_section_student_school_student_id"`
-				ClassSectionID  uuid.UUID `gorm:"column:class_section_student_class_section_id"`
-			}
-
-			var ssRows []studentSectionRow
-			if err := h.DB.
-				Table("class_section_students").
-				Select("class_section_student_school_student_id, class_section_student_class_section_id").
-				Where("class_section_student_school_id = ?", schoolID).
-				Where("class_section_student_deleted_at IS NULL").
-				Where("class_section_student_school_student_id IN ?", studentIDs).
-				Find(&ssRows).Error; err != nil {
-				return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil relasi section siswa: "+err.Error())
-			}
-
-			// Kumpulkan unique section IDs
-			sectionIDSet := make(map[uuid.UUID]struct{})
-			for _, r := range ssRows {
-				sectionIDSet[r.ClassSectionID] = struct{}{}
-			}
-			sectionIDs := make([]uuid.UUID, 0, len(sectionIDSet))
-			for id := range sectionIDSet {
-				sectionIDs = append(sectionIDs, id)
-			}
-
-			// Load class_sections penuh → mapping ke compact
-			sectionMapCompact := make(map[uuid.UUID]classSectionDTO.ClassSectionCompactResponse, len(sectionIDs))
-			if len(sectionIDs) > 0 {
-				var secRows []classSectionModel.ClassSectionModel
-				if err := h.DB.
-					Where("class_section_school_id = ? AND class_section_deleted_at IS NULL", schoolID).
-					Where("class_section_id IN ?", sectionIDs).
-					Find(&secRows).Error; err != nil {
-					return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil data class_section: "+err.Error())
-				}
-
-				for i := range secRows {
-					cmp := classSectionDTO.FromModelClassSectionToCompact(&secRows[i])
-					sectionMapCompact[secRows[i].ClassSectionID] = cmp
-				}
-			}
-
-			// Distribusi ke tiap siswa
-			for _, r := range ssRows {
-				sec, ok := sectionMapCompact[r.ClassSectionID]
-				if !ok {
-					continue
-				}
-				if idx, ok := idxByStudent[r.SchoolStudentID]; ok {
-					result[idx].ClassSections = append(result[idx].ClassSections, sec)
-				}
-			}
-		}
-
-		// ============================
-		// NESTED: CSST (compact)
-		// ============================
-		if wantCSST && len(studentIDs) > 0 {
-			// Lagi-lagi, sesuaikan nama tabel join:
-			// diasumsikan ada table: class_section_subject_teacher_students
-			// dengan kolom:
-			//   csst_student_school_id
-			//   csst_student_school_student_id
-			//   csst_student_csst_id
-			//   csst_student_deleted_at
-			type studentCSSTRow struct {
-				SchoolStudentID uuid.UUID `gorm:"column:csst_student_school_student_id"`
-				CSSTID          uuid.UUID `gorm:"column:csst_student_csst_id"`
-			}
-
-			var scRows []studentCSSTRow
-			if err := h.DB.
-				Table("class_section_subject_teacher_students").
-				Select("csst_student_school_student_id, csst_student_csst_id").
-				Where("csst_student_school_id = ?", schoolID).
-				Where("csst_student_deleted_at IS NULL").
-				Where("csst_student_school_student_id IN ?", studentIDs).
-				Find(&scRows).Error; err != nil {
-				return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil relasi CSST siswa: "+err.Error())
-			}
-
-			// Kumpulkan unique CSST IDs
-			csstIDSet := make(map[uuid.UUID]struct{})
-			for _, r := range scRows {
-				csstIDSet[r.CSSTID] = struct{}{}
-			}
-			csstIDs := make([]uuid.UUID, 0, len(csstIDSet))
-			for id := range csstIDSet {
-				csstIDs = append(csstIDs, id)
-			}
-
-			// Load CSST models → compact
-			csstMapCompact := make(map[uuid.UUID]csstDTO.ClassSectionSubjectTeacherCompactResponse, len(csstIDs))
-			if len(csstIDs) > 0 {
-				var csstRows []csstModel.ClassSectionSubjectTeacherModel
-				if err := h.DB.
-					Where("class_section_subject_teacher_school_id = ? AND class_section_subject_teacher_deleted_at IS NULL", schoolID).
-					Where("class_section_subject_teacher_id IN ?", csstIDs).
-					Find(&csstRows).Error; err != nil {
-					return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil data CSST: "+err.Error())
-				}
-
-				for i := range csstRows {
-					cmp := csstDTO.FromClassSectionSubjectTeacherModelCompact(csstRows[i])
-					csstMapCompact[csstRows[i].ClassSectionSubjectTeacherID] = cmp
-				}
-			}
-
-			// Distribusi ke tiap siswa
-			for _, r := range scRows {
-				cmp, ok := csstMapCompact[r.CSSTID]
-				if !ok {
-					continue
-				}
-				if idx, ok := idxByStudent[r.SchoolStudentID]; ok {
-					result[idx].ClassSectionSubjectTeaches = append(result[idx].ClassSectionSubjectTeaches, cmp)
-				}
-			}
-		}
-
-		return helper.JsonList(c, "ok", result, pg)
+		return helper.JsonListWithInclude(c, "ok", baseResp, nil, pg)
 	}
 
-	// =========================
-	// MODE: ALL (default)
-	// =========================
+	// ======================================
+	// INCLUDE: USER PROFILE (FULL DTO)
+	// ======================================
+	profileMap := make(map[uuid.UUID]userProfileDTO.UsersProfileDTO)
 
-	// include=user_profile ?
-	include := strings.ToLower(strings.TrimSpace(c.Query("include")))
-	wantProfile := false
-	if include != "" {
-		for _, part := range strings.Split(include, ",") {
-			part = strings.TrimSpace(part)
-			switch part {
-			case "user-profile", "user-profiles", "profile", "profiles", "user":
-				wantProfile = true
+	if wantProfile {
+		// kumpulkan profile_id
+		profileIDsSet := make(map[uuid.UUID]struct{}, len(rows))
+		for i := range rows {
+			if rows[i].SchoolStudentUserProfileID != uuid.Nil {
+				profileIDsSet[rows[i].SchoolStudentUserProfileID] = struct{}{}
+			}
+		}
+		profileIDs := make([]uuid.UUID, 0, len(profileIDsSet))
+		for id := range profileIDsSet {
+			profileIDs = append(profileIDs, id)
+		}
+
+		if len(profileIDs) > 0 {
+			var profRows []userProfileModel.UserProfileModel
+			if err := h.DB.
+				Where("user_profile_id IN ?", profileIDs).
+				Where("user_profile_deleted_at IS NULL").
+				Find(&profRows).Error; err != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+			}
+
+			for _, pr := range profRows {
+				dtoProfile := userProfileDTO.ToUsersProfileDTO(pr)
+				profileMap[pr.UserProfileID] = dtoProfile
 			}
 		}
 	}
 
-	// base response
+	// ======================================
+	// INCLUDE: CLASS SECTIONS (compact, via student_class_sections)
+	// ======================================
+	sectionMapCompactGlobal := make(map[uuid.UUID]classSectionDTO.ClassSectionCompactResponse)
+
+	if wantSections && len(studentIDs) > 0 {
+		type studentSectionRow struct {
+			SchoolStudentID uuid.UUID `gorm:"column:student_class_section_school_student_id"`
+			ClassSectionID  uuid.UUID `gorm:"column:student_class_section_section_id"`
+		}
+
+		var ssRows []studentSectionRow
+		if err := h.DB.
+			Table("student_class_sections").
+			Select("student_class_section_school_student_id, student_class_section_section_id").
+			Where("student_class_section_school_id = ?", schoolID).
+			Where("student_class_section_deleted_at IS NULL").
+			Where("student_class_section_school_student_id IN ?", studentIDs).
+			Find(&ssRows).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil relasi section siswa: "+err.Error())
+		}
+
+		// unique section IDs
+		sectionIDSet := make(map[uuid.UUID]struct{})
+		for _, r := range ssRows {
+			sectionIDSet[r.ClassSectionID] = struct{}{}
+		}
+		sectionIDs := make([]uuid.UUID, 0, len(sectionIDSet))
+		for id := range sectionIDSet {
+			sectionIDs = append(sectionIDs, id)
+		}
+
+		if len(sectionIDs) > 0 {
+			var secRows []classSectionModel.ClassSectionModel
+			if err := h.DB.
+				Where("class_section_school_id = ? AND class_section_deleted_at IS NULL", schoolID).
+				Where("class_section_id IN ?", sectionIDs).
+				Find(&secRows).Error; err != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil data class_section: "+err.Error())
+			}
+
+			for i := range secRows {
+				cmp := classSectionDTO.FromModelClassSectionToCompact(&secRows[i])
+				sectionMapCompactGlobal[secRows[i].ClassSectionID] = cmp
+			}
+		}
+	}
+
+	// ======================================
+	// INCLUDE: CSST (compact)
+	// ======================================
+	csstMapCompactGlobal := make(map[uuid.UUID]csstDTO.ClassSectionSubjectTeacherCompactResponse)
+
+	if wantCSST && len(studentIDs) > 0 {
+		type studentCSSTRow struct {
+			SchoolStudentID uuid.UUID `gorm:"column:student_csst_student_id"`
+			CSSTID          uuid.UUID `gorm:"column:student_csst_csst_id"`
+		}
+
+		var scRows []studentCSSTRow
+		if err := h.DB.
+			Table("student_class_section_subject_teachers").
+			Select("student_csst_student_id, student_csst_csst_id").
+			Where("student_csst_school_id = ?", schoolID).
+			Where("student_csst_deleted_at IS NULL").
+			Where("student_csst_student_id IN ?", studentIDs).
+			Find(&scRows).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil relasi CSST siswa: "+err.Error())
+		}
+
+		csstIDSet := make(map[uuid.UUID]struct{})
+		for _, r := range scRows {
+			csstIDSet[r.CSSTID] = struct{}{}
+		}
+		csstIDs := make([]uuid.UUID, 0, len(csstIDSet))
+		for id := range csstIDSet {
+			csstIDs = append(csstIDs, id)
+		}
+
+		if len(csstIDs) > 0 {
+			var csstRows []csstModel.ClassSectionSubjectTeacherModel
+			if err := h.DB.
+				Where("class_section_subject_teacher_school_id = ? AND class_section_subject_teacher_deleted_at IS NULL", schoolID).
+				Where("class_section_subject_teacher_id IN ?", csstIDs).
+				Find(&csstRows).Error; err != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil data CSST: "+err.Error())
+			}
+
+			for i := range csstRows {
+				cmp := csstDTO.FromClassSectionSubjectTeacherModelCompact(csstRows[i])
+				csstMapCompactGlobal[csstRows[i].ClassSectionSubjectTeacherID] = cmp
+			}
+		}
+	}
+
+	// ======================================
+	// BUILD INCLUDE PAYLOAD (top-level)
+	// ======================================
+	includePayload := fiber.Map{}
+
+	if wantProfile && len(profileMap) > 0 {
+		profiles := make([]userProfileDTO.UsersProfileDTO, 0, len(profileMap))
+		for _, v := range profileMap {
+			profiles = append(profiles, v)
+		}
+		includePayload["user_profiles"] = profiles
+	}
+
+	if wantSections && len(sectionMapCompactGlobal) > 0 {
+		sections := make([]classSectionDTO.ClassSectionCompactResponse, 0, len(sectionMapCompactGlobal))
+		for _, v := range sectionMapCompactGlobal {
+			sections = append(sections, v)
+		}
+		includePayload["class_sections"] = sections
+	}
+
+	if wantCSST && len(csstMapCompactGlobal) > 0 {
+		cssts := make([]csstDTO.ClassSectionSubjectTeacherCompactResponse, 0, len(csstMapCompactGlobal))
+		for _, v := range csstMapCompactGlobal {
+			cssts = append(cssts, v)
+		}
+		includePayload["class_section_subject_teachers"] = cssts
+	}
+
+	// ======================================
+	// BUILD OUTPUT DATA (TANPA nested user_profile / sections / csst)
+	// ======================================
+	if mode == "compact" {
+		comp := make([]dto.SchoolStudentCompact, 0, len(rows))
+		for i := range rows {
+			comp = append(comp, dto.ToSchoolStudentCompact(&rows[i]))
+		}
+		return helper.JsonListWithInclude(c, "ok", comp, includePayload, pg)
+	}
+
 	baseResp := make([]dto.SchoolStudentResp, 0, len(rows))
 	for i := range rows {
 		baseResp = append(baseResp, dto.FromModel(&rows[i]))
 	}
-	if !wantProfile {
-		return helper.JsonList(c, "ok", baseResp, pg)
-	}
-
-	// --------------------------------------------------------------------
-	// JOIN USER PROFILE (LITE)
-	// --------------------------------------------------------------------
-
-	type ProfileLite struct {
-		ID                uuid.UUID `json:"id"`
-		FullNameCache     *string   `json:"full_name_cache,omitempty"`
-		AvatarURL         *string   `json:"avatar_url,omitempty"`
-		WhatsappURL       *string   `json:"whatsapp_url,omitempty"`
-		ParentName        *string   `json:"parent_name,omitempty"`
-		ParentWhatsappURL *string   `json:"parent_whatsapp_url,omitempty"`
-		Gender            *string   `json:"gender,omitempty"`
-	}
-
-	type SchoolStudentWithProfileResp struct {
-		dto.SchoolStudentResp `json:",inline"`
-		UserProfile           *ProfileLite `json:"user_profile,omitempty"`
-	}
-
-	// kumpulkan profile_id
-	profileIDsSet := make(map[uuid.UUID]struct{}, len(rows))
-	for i := range rows {
-		if rows[i].SchoolStudentUserProfileID != uuid.Nil {
-			profileIDsSet[rows[i].SchoolStudentUserProfileID] = struct{}{}
-		}
-	}
-	profileIDs := make([]uuid.UUID, 0, len(profileIDsSet))
-	for id := range profileIDsSet {
-		profileIDs = append(profileIDs, id)
-	}
-
-	// fetch user_profiles
-	profileMap := make(map[uuid.UUID]ProfileLite, len(profileIDs))
-	if len(profileIDs) > 0 {
-		var profRows []struct {
-			ID                uuid.UUID `gorm:"column:user_profile_id"`
-			FullNameCache     *string   `gorm:"column:user_profile_full_name_cache"`
-			AvatarURL         *string   `gorm:"column:user_profile_avatar_url"`
-			WhatsappURL       *string   `gorm:"column:user_profile_whatsapp_url"`
-			ParentName        *string   `gorm:"column:user_profile_parent_name"`
-			ParentWhatsappURL *string   `gorm:"column:user_profile_parent_whatsapp_url"`
-			Gender            *string   `gorm:"column:user_profile_gender"`
-		}
-
-		if err := h.DB.
-			Table("user_profiles").
-			Select(`
-				user_profile_id,
-				user_profile_full_name_cache,
-				user_profile_avatar_url,
-				user_profile_whatsapp_url,
-				user_profile_parent_name,
-				user_profile_parent_whatsapp_url,
-				user_profile_gender
-			`).
-			Where("user_profile_id IN ?", profileIDs).
-			Where("user_profile_deleted_at IS NULL").
-			Find(&profRows).Error; err != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-		}
-
-		for _, pr := range profRows {
-			profileMap[pr.ID] = ProfileLite{
-				ID:                pr.ID,
-				FullNameCache:     pr.FullNameCache,
-				AvatarURL:         pr.AvatarURL,
-				WhatsappURL:       pr.WhatsappURL,
-				ParentName:        pr.ParentName,
-				ParentWhatsappURL: pr.ParentWhatsappURL,
-				Gender:            pr.Gender,
-			}
-		}
-	}
-
-	// merge final
-	out := make([]SchoolStudentWithProfileResp, 0, len(rows))
-	for i := range rows {
-		base := baseResp[i]
-		var up *ProfileLite
-		if val, ok := profileMap[rows[i].SchoolStudentUserProfileID]; ok {
-			tmp := val
-			up = &tmp
-		}
-		out = append(out, SchoolStudentWithProfileResp{
-			SchoolStudentResp: base,
-			UserProfile:       up,
-		})
-	}
-
-	return helper.JsonList(c, "ok", out, pg)
+	return helper.JsonListWithInclude(c, "ok", baseResp, includePayload, pg)
 }

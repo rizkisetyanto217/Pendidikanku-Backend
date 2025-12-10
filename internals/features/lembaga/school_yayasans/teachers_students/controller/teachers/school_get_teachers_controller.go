@@ -13,11 +13,9 @@ import (
 
 	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 
-	classSectionDTO "madinahsalam_backend/internals/features/school/classes/class_sections/dto"
-
-	classSectionModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
-
 	csstDTO "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/dto"
+	classSectionDTO "madinahsalam_backend/internals/features/school/classes/class_sections/dto"
+	classSectionModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -197,195 +195,86 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// 🔁 Mode COMPACT (+ optional nested)
-	if isCompact {
-		// 🔥 NEW: nested=sections,csst
-		nested := strings.ToLower(strings.TrimSpace(c.Query("nested")))
-		wantSections := false
-		wantCSST := false
-		if nested != "" {
-			for _, part := range strings.Split(nested, ",") {
-				p := strings.TrimSpace(part)
-				switch p {
-				case "sections", "class-sections", "class_sections", "classsection":
-					wantSections = true
-				case "csst", "class-section-subject-teachers", "class_section_subject_teachers", "subject-teachers", "subject_teachers":
-					wantCSST = true
-				}
-			}
-		}
+	// =========================
+	// Siapkan IDs
+	// =========================
 
-		// Behaviour lama: kalau tidak minta nested apa pun → langsung pulang
-		if !wantSections && !wantCSST {
-			compacts := teacherDTO.NewSchoolTeacherCompacts(rows)
-			pg := helper.BuildPaginationFromPage(total, p.Page, p.PerPage)
-			return helper.JsonList(c, "ok", compacts, pg)
-		}
+	// PK school_teacher (untuk class_sections & csst)
+	teacherIDs := make([]uuid.UUID, 0, len(rows))
+	// FK user_teacher (untuk user_teachers sidecar & turunan)
+	userTeacherIDsSet := make(map[uuid.UUID]struct{}, len(rows))
 
-		// 🔥 NEW: compact + nested
-		// NOTE: NewSchoolTeacherCompacts mengembalikan []*SchoolTeacherCompact
-		type SchoolTeacherCompactWithNested struct {
-			*teacherDTO.SchoolTeacherCompact `json:",inline"`                                    // embed pointer
-			ClassSections                    []classSectionDTO.ClassSectionCompactResponse       `json:"class_sections,omitempty"`
-			ClassSectionSubjectTeachers      []csstDTO.ClassSectionSubjectTeacherCompactResponse `json:"class_section_subject_teachers,omitempty"`
-		}
-
-		// base compact
-		compacts := teacherDTO.NewSchoolTeacherCompacts(rows) // []*SchoolTeacherCompact
-
-		// siapkan result
-		result := make([]SchoolTeacherCompactWithNested, len(compacts))
-		for i := range compacts {
-			result[i].SchoolTeacherCompact = compacts[i] // ✅ sekarang tipe-nya cocok (*SchoolTeacherCompact)
-		}
-
-		// kumpulkan teacher_id
-		teacherIDs := make([]uuid.UUID, 0, len(rows))
-		idxByTeacher := make(map[uuid.UUID]int, len(rows))
-		for i := range rows {
-			tid := rows[i].SchoolTeacherID
-			teacherIDs = append(teacherIDs, tid)
-			idxByTeacher[tid] = i
-		}
-
-		// ============================
-		// NESTED: CLASS SECTIONS (compact)
-		// ============================
-		if wantSections && len(teacherIDs) > 0 {
-			var secRows []classSectionModel.ClassSectionModel
-			if err := ctrl.DB.WithContext(c.Context()).
-				Where("class_section_school_id = ? AND class_section_deleted_at IS NULL", schoolID).
-				Where(`
-					class_section_school_teacher_id IN ?
-					OR class_section_assistant_school_teacher_id IN ?
-				`, teacherIDs, teacherIDs).
-				Find(&secRows).Error; err != nil {
-				return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil class_sections: "+err.Error())
-			}
-
-			for i := range secRows {
-				cs := &secRows[i]
-				cmp := classSectionDTO.FromModelClassSectionToCompact(cs)
-
-				// homeroom
-				if cs.ClassSectionSchoolTeacherID != nil {
-					if idx, ok := idxByTeacher[*cs.ClassSectionSchoolTeacherID]; ok {
-						result[idx].ClassSections = append(result[idx].ClassSections, cmp)
-					}
-				}
-				// assistant
-				if cs.ClassSectionAssistantSchoolTeacherID != nil {
-					if idx, ok := idxByTeacher[*cs.ClassSectionAssistantSchoolTeacherID]; ok {
-						result[idx].ClassSections = append(result[idx].ClassSections, cmp)
-					}
-				}
-			}
-		}
-
-		// ============================
-		// NESTED: CSST (compact)
-		// ============================
-		if wantCSST && len(teacherIDs) > 0 {
-			var csstRows []csstModel.ClassSectionSubjectTeacherModel
-			if err := ctrl.DB.WithContext(c.Context()).
-				Where("class_section_subject_teacher_school_id = ? AND class_section_subject_teacher_deleted_at IS NULL", schoolID).
-				Where(`
-					class_section_subject_teacher_school_teacher_id IN ?
-					OR class_section_subject_teacher_assistant_school_teacher_id IN ?
-				`, teacherIDs, teacherIDs).
-				Find(&csstRows).Error; err != nil {
-				return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil CSST: "+err.Error())
-			}
-
-			for i := range csstRows {
-				row := &csstRows[i]
-				cmp := csstDTO.FromClassSectionSubjectTeacherModelCompact(*row)
-
-				// main teacher
-				if row.ClassSectionSubjectTeacherSchoolTeacherID != nil {
-					if idx, ok := idxByTeacher[*row.ClassSectionSubjectTeacherSchoolTeacherID]; ok {
-						result[idx].ClassSectionSubjectTeachers = append(result[idx].ClassSectionSubjectTeachers, cmp)
-					}
-				}
-				// assistant teacher
-				if row.ClassSectionSubjectTeacherAssistantSchoolTeacherID != nil {
-					if idx, ok := idxByTeacher[*row.ClassSectionSubjectTeacherAssistantSchoolTeacherID]; ok {
-						result[idx].ClassSectionSubjectTeachers = append(result[idx].ClassSectionSubjectTeachers, cmp)
-					}
-				}
-			}
-		}
-
-		pg := helper.BuildPaginationFromPage(total, p.Page, p.PerPage)
-		return helper.JsonList(c, "ok", result, pg)
-	}
-
-	// ========================
-	// Mode FULL (default)
-	// ========================
-
-	// 5) include flags
-	inc := strings.ToLower(strings.TrimSpace(c.Query("include")))
-	wantTeacher := false
-	wantUser := false
-	wantProfile := false
-
-	if inc != "" {
-		for _, part := range strings.Split(inc, ",") {
-			switch strings.TrimSpace(part) {
-			case "teacher", "teachers", "user-teachers", "user_teacher", "user_teachers":
-				wantTeacher = true
-			case "user", "users":
-				wantUser = true
-			case "user-profile", "profile", "profiles", "user_profiles":
-				wantProfile = true
-			case "all":
-				wantTeacher = true
-				wantUser = true
-				wantProfile = true
-			}
-		}
-	}
-
-	// 6) base responses + kumpulkan IDs user_teacher
-	base := make([]*teacherDTO.SchoolTeacher, 0, len(rows))
-	teacherIDsSet := make(map[uuid.UUID]struct{}, len(rows))
 	for i := range rows {
-		base = append(base, teacherDTO.NewSchoolTeacherResponse(&rows[i]))
+		teacherIDs = append(teacherIDs, rows[i].SchoolTeacherID)
 		if rows[i].SchoolTeacherUserTeacherID != uuid.Nil {
-			teacherIDsSet[rows[i].SchoolTeacherUserTeacherID] = struct{}{}
+			userTeacherIDsSet[rows[i].SchoolTeacherUserTeacherID] = struct{}{}
 		}
 	}
 
-	// ==== include: teacher (user_teachers) – full model ====
-	teacherIDs := make([]uuid.UUID, 0, len(teacherIDsSet))
-	for id := range teacherIDsSet {
-		teacherIDs = append(teacherIDs, id)
+	// =========================
+	// MODE COMPACT vs FULL → bentuk DATA (school_teachers saja)
+	// =========================
+	var data interface{}
+
+	if isCompact {
+		// Compact: DTO compact guru
+		compacts := teacherDTO.NewSchoolTeacherCompacts(rows)
+		data = compacts
+	} else {
+		// Full: DTO full guru (tanpa nesting user_teacher/user/user_profile)
+		base := make([]*teacherDTO.SchoolTeacher, 0, len(rows))
+		for i := range rows {
+			base = append(base, teacherDTO.NewSchoolTeacherResponse(&rows[i]))
+		}
+		data = base
 	}
 
-	teacherMap := make(map[uuid.UUID]userTeacherModel.UserTeacherModel, len(teacherIDs))
-	userIDsSet := make(map[uuid.UUID]struct{}, len(teacherIDs))
+	// =========================================
+	// PARSE include=... SEKALI SAJA
+	// =========================================
 
-	if wantTeacher || wantUser || wantProfile {
-		if len(teacherIDs) > 0 {
-			var trows []userTeacherModel.UserTeacherModel
-			if err := ctrl.DB.WithContext(c.Context()).
-				Table("user_teachers").
-				Where("user_teacher_id IN ?", teacherIDs).
-				Where("user_teacher_deleted_at IS NULL").
-				Find(&trows).Error; err != nil {
-				return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-			}
-			for _, t := range trows {
-				teacherMap[t.UserTeacherID] = t
-				if (wantUser || wantProfile) && t.UserTeacherUserID != uuid.Nil {
-					userIDsSet[t.UserTeacherUserID] = struct{}{}
-				}
+	incRaw := strings.ToLower(strings.TrimSpace(c.Query("include")))
+
+	// sidecar flags
+	wantUserTeachers := false
+	wantUsers := false
+	wantUserProfiles := false
+	wantWithSections := false
+	wantWithCSST := false
+
+	if incRaw != "" {
+		for _, part := range strings.Split(incRaw, ",") {
+			p := strings.TrimSpace(part)
+			switch p {
+			// user_teachers (sidecar)
+			case "teacher", "teachers", "user_teacher", "user_teachers":
+				wantUserTeachers = true
+			// users (sidecar)
+			case "user", "users":
+				wantUsers = true
+			// user_profiles (sidecar)
+			case "user-profile", "profile", "profiles", "user_profiles":
+				wantUserProfiles = true
+			// class_sections (sidecar)
+			case "sections", "class-sections", "class_sections", "classsection":
+				wantWithSections = true
+			// csst (sidecar)
+			case "csst", "class-section-subject-teachers", "class_section_subject_teachers", "subject-teachers", "subject_teachers":
+				wantWithCSST = true
+			case "all":
+				wantUserTeachers = true
+				wantUsers = true
+				wantUserProfiles = true
+				wantWithSections = true
+				wantWithCSST = true
 			}
 		}
 	}
 
-	// ==== include: user (users) ====
+	// =========================================
+	// SIAPKAN INCLUDE PAYLOAD
+	// =========================================
+
 	type UserLite struct {
 		ID       uuid.UUID `json:"id"`
 		UserName string    `json:"user_name"`
@@ -394,27 +283,6 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 		IsActive bool      `json:"is_active"`
 	}
 
-	userIDs := make([]uuid.UUID, 0, len(userIDsSet))
-	for id := range userIDsSet {
-		userIDs = append(userIDs, id)
-	}
-	userMap := make(map[uuid.UUID]UserLite, len(userIDs))
-	if wantUser && len(userIDs) > 0 {
-		var urows []UserLite
-		if err := ctrl.DB.WithContext(c.Context()).
-			Table("users").
-			Select("id, user_name, full_name, email, is_active").
-			Where("id IN ?", userIDs).
-			Where("deleted_at IS NULL").
-			Find(&urows).Error; err != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-		}
-		for _, u := range urows {
-			userMap[u.ID] = u
-		}
-	}
-
-	// ==== include: user_profile (user_profiles) – optional ====
 	type UserProfileLite struct {
 		ID                uuid.UUID `json:"id"`
 		UserID            uuid.UUID `json:"user_id"`
@@ -426,8 +294,74 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 		GenderSnapshot    *string   `json:"gender_snapshot,omitempty"`
 	}
 
-	profileMap := make(map[uuid.UUID]UserProfileLite, len(userIDs))
-	if wantProfile && len(userIDs) > 0 {
+	type IncludePayload struct {
+		UserTeachers                []userTeacherModel.UserTeacherModel                 `json:"user_teachers,omitempty"`
+		Users                       []UserLite                                          `json:"users,omitempty"`
+		UserProfiles                []UserProfileLite                                   `json:"user_profiles,omitempty"`
+		ClassSections               []classSectionDTO.ClassSectionCompactResponse       `json:"class_sections,omitempty"`
+		ClassSectionSubjectTeachers []csstDTO.ClassSectionSubjectTeacherCompactResponse `json:"class_section_subject_teachers,omitempty"`
+	}
+
+	includePayload := IncludePayload{}
+
+	// ==================================================
+	// SIDE CAR: user_teachers (+ cascade users & profiles)
+	// ==================================================
+	userTeacherIDs := make([]uuid.UUID, 0, len(userTeacherIDsSet))
+	for id := range userTeacherIDsSet {
+		userTeacherIDs = append(userTeacherIDs, id)
+	}
+
+	userIDsSet := make(map[uuid.UUID]struct{}, len(userTeacherIDs))
+
+	if (wantUserTeachers || wantUsers || wantUserProfiles) && len(userTeacherIDs) > 0 {
+		// user_teachers
+		if wantUserTeachers || wantUsers || wantUserProfiles {
+			var trows []userTeacherModel.UserTeacherModel
+			if err := ctrl.DB.WithContext(c.Context()).
+				Table("user_teachers").
+				Where("user_teacher_id IN ?", userTeacherIDs).
+				Where("user_teacher_deleted_at IS NULL").
+				Find(&trows).Error; err != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+			}
+
+			if wantUserTeachers {
+				includePayload.UserTeachers = trows
+			}
+
+			// kumpulkan user_id untuk users & user_profiles
+			if wantUsers || wantUserProfiles {
+				for _, t := range trows {
+					if t.UserTeacherUserID != uuid.Nil {
+						userIDsSet[t.UserTeacherUserID] = struct{}{}
+					}
+				}
+			}
+		}
+	}
+
+	// SIDE CAR: users
+	userIDs := make([]uuid.UUID, 0, len(userIDsSet))
+	for id := range userIDsSet {
+		userIDs = append(userIDs, id)
+	}
+
+	if wantUsers && len(userIDs) > 0 {
+		var urows []UserLite
+		if err := ctrl.DB.WithContext(c.Context()).
+			Table("users").
+			Select("id, user_name, full_name, email, is_active").
+			Where("id IN ?", userIDs).
+			Where("deleted_at IS NULL").
+			Find(&urows).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+		}
+		includePayload.Users = urows
+	}
+
+	// SIDE CAR: user_profiles
+	if wantUserProfiles && len(userIDs) > 0 {
 		var prows []struct {
 			ID                uuid.UUID `gorm:"column:user_profile_id"`
 			UserID            uuid.UUID `gorm:"column:user_profile_user_id"`
@@ -455,8 +389,9 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 			Find(&prows).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 		}
+		outProfiles := make([]UserProfileLite, 0, len(prows))
 		for _, pr := range prows {
-			profileMap[pr.UserID] = UserProfileLite{
+			outProfiles = append(outProfiles, UserProfileLite{
 				ID:                pr.ID,
 				UserID:            pr.UserID,
 				FullNameCache:     pr.FullNameCache,
@@ -465,53 +400,63 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 				ParentName:        pr.ParentName,
 				ParentWhatsappURL: pr.ParentWhatsappURL,
 				GenderSnapshot:    pr.GenderSnapshot,
-			}
+			})
 		}
+		includePayload.UserProfiles = outProfiles
 	}
 
-	// 7) Susun output
-	type Item struct {
-		*teacherDTO.SchoolTeacher `json:",inline"`
-		Teacher                   *userTeacherModel.UserTeacherModel `json:"user_teacher,omitempty"`
-		User                      *UserLite                          `json:"user,omitempty"`
-		UserProfile               *UserProfileLite                   `json:"user_profile,omitempty"`
+	// =========================================
+	// SIDE CAR: CLASS SECTIONS (compact)
+	// =========================================
+	if wantWithSections && len(teacherIDs) > 0 {
+		var secRows []classSectionModel.ClassSectionModel
+		if err := ctrl.DB.WithContext(c.Context()).
+			Where("class_section_school_id = ? AND class_section_deleted_at IS NULL", schoolID).
+			Where(`
+				class_section_school_teacher_id IN ?
+				OR class_section_assistant_school_teacher_id IN ?
+			`, teacherIDs, teacherIDs).
+			Find(&secRows).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil class_sections: "+err.Error())
+		}
+
+		compacts := make([]classSectionDTO.ClassSectionCompactResponse, 0, len(secRows))
+		for i := range secRows {
+			cs := &secRows[i]
+			compacts = append(compacts, classSectionDTO.FromModelClassSectionToCompact(cs))
+		}
+		includePayload.ClassSections = compacts
 	}
 
-	out := make([]Item, 0, len(base))
-	for i := range rows {
-		var t *userTeacherModel.UserTeacherModel
-		if wantTeacher {
-			if v, ok := teacherMap[rows[i].SchoolTeacherUserTeacherID]; ok {
-				tmp := v
-				t = &tmp
-			}
+	// =========================================
+	// SIDE CAR: CSST (compact)
+	// =========================================
+	// SIDE CAR: CSST (compact)
+	if wantWithCSST && len(teacherIDs) > 0 {
+		var csstRows []csstModel.ClassSectionSubjectTeacherModel
+		if err := ctrl.DB.WithContext(c.Context()).
+			Where("class_section_subject_teacher_school_id = ? AND class_section_subject_teacher_deleted_at IS NULL", schoolID).
+			Where(`
+            class_section_subject_teacher_school_teacher_id IN ?
+            OR class_section_subject_teacher_assistant_school_teacher_id IN ?
+        `, teacherIDs, teacherIDs).
+			Find(&csstRows).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil CSST: "+err.Error())
 		}
 
-		var u *UserLite
-		if wantUser && t != nil {
-			if v, ok := userMap[t.UserTeacherUserID]; ok {
-				tmp := v
-				u = &tmp
-			}
-		}
-
-		var up *UserProfileLite
-		if wantProfile && t != nil {
-			if v, ok := profileMap[t.UserTeacherUserID]; ok {
-				tmp := v
-				up = &tmp
-			}
-		}
-
-		out = append(out, Item{
-			SchoolTeacher: base[i],
-			Teacher:       t,
-			User:          u,
-			UserProfile:   up,
-		})
+		includePayload.ClassSectionSubjectTeachers =
+			csstDTO.FromClassSectionSubjectTeacherModelsCompact(csstRows)
 	}
 
-	// 8) Pagination meta
+	// 8) Pagination + response
 	pg := helper.BuildPaginationFromPage(total, p.Page, p.PerPage)
-	return helper.JsonList(c, "ok", out, pg)
+
+	// Kalau ada minimal satu include flag yang diminta, kirim via JsonListWithInclude
+	if wantUserTeachers || wantUsers || wantUserProfiles || wantWithSections || wantWithCSST {
+		return helper.JsonListWithInclude(c, "ok", data, includePayload, pg)
+	}
+
+	// Tidak ada include yang diminta → plain list
+	return helper.JsonList(c, "ok", data, pg)
+
 }
