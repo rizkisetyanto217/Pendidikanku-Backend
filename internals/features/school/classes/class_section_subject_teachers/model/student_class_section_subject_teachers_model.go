@@ -35,10 +35,11 @@ type StudentClassSectionSubjectTeacherModel struct {
 	StudentCSSTGradePoint    *float64 `gorm:"type:numeric(3,2);column:student_csst_grade_point" json:"student_csst_grade_point,omitempty"`
 	StudentCSSTIsPassed      *bool    `gorm:"column:student_csst_is_passed" json:"student_csst_is_passed,omitempty"`
 
-	// 🆕 Cache user profile & siswa (pendek) — disamakan dengan SQL
-	StudentCSSTUserProfileNameCache        *string `gorm:"type:varchar(80);column:student_csst_user_profile_name_cache" json:"student_csst_user_profile_name_cache,omitempty"`
-	StudentCSSTUserProfileAvatarURLCache   *string `gorm:"type:varchar(255);column:student_csst_user_profile_avatar_url_cache" json:"student_csst_user_profile_avatar_url_cache,omitempty"`
-	StudentCSSTUserProfileWAURLCache       *string `gorm:"type:varchar(50);column:student_csst_user_profile_wa_url_cache" json:"student_csst_user_profile_wa_url_cache,omitempty"`
+	// Cache user profile & siswa (pendek)
+	StudentCSSTUserProfileNameCache      *string `gorm:"type:varchar(80);column:student_csst_user_profile_name_cache" json:"student_csst_user_profile_name_cache,omitempty"`
+	StudentCSSTUserProfileAvatarURLCache *string `gorm:"type:varchar(255);column:student_csst_user_profile_avatar_url_cache" json:"student_csst_user_profile_avatar_url_cache,omitempty"`
+	// 🟢 kolom disesuaikan dengan SQL: student_csst_user_profile_whatsapp_url_cache
+	StudentCSSTUserProfileWhatsappURLCache       *string `gorm:"type:varchar(50);column:student_csst_user_profile_whatsapp_url_cache" json:"student_csst_user_profile_wa_url_cache,omitempty"`
 	StudentCSSTUserProfileParentNameCache  *string `gorm:"type:varchar(80);column:student_csst_user_profile_parent_name_cache" json:"student_csst_user_profile_parent_name_cache,omitempty"`
 	StudentCSSTUserProfileParentWAURLCache *string `gorm:"type:varchar(50);column:student_csst_user_profile_parent_wa_url_cache" json:"student_csst_user_profile_parent_wa_url_cache,omitempty"`
 	StudentCSSTUserProfileGenderCache      *string `gorm:"type:varchar(20);column:student_csst_user_profile_gender_cache" json:"student_csst_user_profile_gender_cache,omitempty"`

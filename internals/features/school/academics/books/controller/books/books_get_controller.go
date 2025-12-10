@@ -4,9 +4,9 @@ package controller
 import (
 	"errors"
 	"strings"
-	"time"
 
 	bookdto "madinahsalam_backend/internals/features/school/academics/books/dto"
+	bookModel "madinahsalam_backend/internals/features/school/academics/books/model"
 	classSubjectDTO "madinahsalam_backend/internals/features/school/academics/subjects/dto"
 	classSubjectModel "madinahsalam_backend/internals/features/school/academics/subjects/model"
 	helper "madinahsalam_backend/internals/helpers"
@@ -71,7 +71,7 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 	mode := strings.ToLower(modeParam)
 	isCompact := mode == "compact"
 
-	// 🔌 nested flags: ?nested=class_subjects
+	// nested flags: ?nested=class_subjects
 	nestedParam := strings.TrimSpace(c.Query("nested"))
 	nestedClassSubjects := false
 	if nestedParam != "" {
@@ -83,7 +83,7 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 🔌 include flags: ?include=class_subjects
+	// include flags: ?include=class_subjects
 	includeParam := strings.TrimSpace(c.Query("include"))
 	includeClassSubjects := false
 	if includeParam != "" {
@@ -113,9 +113,9 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 	}
 
 	allowedSort := map[string]string{
-		"created_at": "b.book_created_at",
-		"title":      "b.book_title",
-		"author":     "b.book_author",
+		"created_at": "book_created_at",
+		"title":      "book_title",
+		"author":     "book_author",
 	}
 	orderClause, err := p.SafeOrderClause(allowedSort, "created_at")
 	if err != nil {
@@ -144,113 +144,74 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 		}
 		return out, nil
 	}
+
 	idFilter, e1 := parseIDsCSV(c.Query("id"))
 	if e1 != nil {
-		return helper.JsonError(c, 400, "id berisi UUID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "id berisi UUID tidak valid")
 	}
 	if len(idFilter) == 0 {
 		if tmp, e2 := parseIDsCSV(c.Query("book_id")); e2 != nil {
-			return helper.JsonError(c, 400, "book_id berisi UUID tidak valid")
+			return helper.JsonError(c, fiber.StatusBadRequest, "book_id berisi UUID tidak valid")
 		} else {
 			idFilter = tmp
 		}
 	}
 
-	// ===== Query dasar =====
-	type row struct {
-		Idx int `json:"idx" gorm:"-"`
-
-		BookID                    uuid.UUID  `json:"book_id"                         gorm:"column:book_id"`
-		BookSchoolID              uuid.UUID  `json:"book_school_id"                  gorm:"column:book_school_id"`
-		BookTitle                 string     `json:"book_title"                      gorm:"column:book_title"`
-		BookAuthor                *string    `json:"book_author,omitempty"           gorm:"column:book_author"`
-		BookDesc                  *string    `json:"book_desc,omitempty"             gorm:"column:book_desc"`
-		BookSlug                  *string    `json:"book_slug,omitempty"             gorm:"column:book_slug"`
-		BookImageURL              *string    `json:"book_image_url,omitempty"        gorm:"column:book_image_url"`
-		BookImageObjectKey        *string    `json:"book_image_object_key,omitempty" gorm:"column:book_image_object_key"`
-		BookImageURLOld           *string    `json:"book_image_url_old,omitempty"           gorm:"column:book_image_url_old"`
-		BookImageObjectKeyOld     *string    `json:"book_image_object_key_old,omitempty"   gorm:"column:book_image_object_key_old"`
-		BookImageDeletePendingTil *time.Time `json:"book_image_delete_pending_until,omitempty" gorm:"column:book_image_delete_pending_until"`
-		BookPublisher             *string    `json:"book_publisher,omitempty"        gorm:"column:book_publisher"`
-		BookPublicationYear       *int       `json:"book_publication_year,omitempty" gorm:"column:book_publication_year"`
-		BookPurchaseURL           *string    `json:"book_purchase_url,omitempty"     gorm:"column:book_purchase_url"`
-		BookCreatedAt             time.Time  `json:"book_created_at"                 gorm:"column:book_created_at"`
-		BookUpdatedAt             time.Time  `json:"book_updated_at"                 gorm:"column:book_updated_at"`
-		BookDeletedAt             *time.Time `json:"book_deleted_at,omitempty"       gorm:"column:book_deleted_at"`
-		BookIsDeleted             bool       `json:"book_is_deleted"                 gorm:"-"`
-
-		// nested: hanya kalau ?nested=class_subjects
-		ClassSubjectBooks []bookdto.BookClassSubjectItem `json:"class_subject_books,omitempty" gorm:"-"`
-	}
-
-	base := h.DB.Table("books AS b").
-		Where("b.book_school_id = ?", schoolID)
+	// ===== Query dasar (pakai BookModel) =====
+	base := h.DB.Model(&bookModel.BookModel{}).
+		Where("book_school_id = ?", schoolID)
 
 	if !withDeleted {
-		base = base.Where("b.book_deleted_at IS NULL")
+		base = base.Where("book_deleted_at IS NULL")
 	}
 	if len(idFilter) > 0 {
-		base = base.Where("b.book_id IN ?", idFilter)
+		base = base.Where("book_id IN ?", idFilter)
 		p.Page = 1
 		p.PerPage = len(idFilter)
 	}
 	if q != "" {
 		needle := "%" + q + "%"
 		base = base.Where(
-			h.DB.Where("b.book_title ILIKE ?", needle).
-				Or("b.book_author ILIKE ?", needle).
-				Or("b.book_desc ILIKE ?", needle),
+			h.DB.Where("book_title ILIKE ?", needle).
+				Or("book_author ILIKE ?", needle).
+				Or("book_desc ILIKE ?", needle),
 		)
 	}
 	if author != "" {
 		needle := "%" + author + "%"
-		base = base.Where("b.book_author ILIKE ?", needle)
+		base = base.Where("book_author ILIKE ?", needle)
 	}
 	if name != "" {
 		needle := "%" + name + "%"
-		base = base.Where("b.book_title ILIKE ?", needle)
+		base = base.Where("book_title ILIKE ?", needle)
 	}
 
 	// ===== Count total =====
 	var total int64
 	if err := base.Session(&gorm.Session{}).
-		Distinct("b.book_id").
 		Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data")
 	}
 
 	// ===== Ambil data halaman =====
-	var rows []row
+	var books []bookModel.BookModel
 	if err := base.
-		Select(`
-			b.book_id,
-			b.book_school_id,
-			b.book_title,
-			b.book_author,
-			b.book_desc,
-			b.book_slug,
-			b.book_image_url,
-			b.book_image_object_key,
-			b.book_image_url_old,
-			b.book_image_object_key_old,
-			b.book_image_delete_pending_until,
-			b.book_publisher,
-			b.book_publication_year,
-			b.book_purchase_url,
-			b.book_created_at,
-			b.book_updated_at,
-			b.book_deleted_at
-		`).
 		Order(orderExpr).
 		Limit(p.Limit()).
 		Offset(p.Offset()).
-		Scan(&rows).Error; err != nil {
+		Find(&books).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data buku")
 	}
 
-	for i := range rows {
-		rows[i].BookIsDeleted = rows[i].BookDeletedAt != nil && !rows[i].BookDeletedAt.IsZero()
-		rows[i].Idx = p.Offset() + i
+	pg := helper.BuildPaginationFromOffset(total, p.Offset(), p.Limit())
+
+	if len(books) == 0 {
+		if isCompact {
+			empty := []bookdto.BookCompact{}
+			return helper.JsonList(c, "ok", empty, pg)
+		}
+		emptyFull := []bookdto.BookResponse{}
+		return helper.JsonList(c, "ok", emptyFull, pg)
 	}
 
 	// ===== Ambil class_subject_books + detail class_subject (untuk nested/include) =====
@@ -259,11 +220,11 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 		includeClassSubjectsSlice []classSubjectDTO.ClassSubjectCompactResponse
 	)
 
-	if (nestedClassSubjects || includeClassSubjects) && len(rows) > 0 {
+	if (nestedClassSubjects || includeClassSubjects) && len(books) > 0 {
 		// 1) Kumpulkan semua book_id di halaman ini
-		bookIDs := make([]uuid.UUID, 0, len(rows))
-		for _, r := range rows {
-			bookIDs = append(bookIDs, r.BookID)
+		bookIDs := make([]uuid.UUID, 0, len(books))
+		for _, b := range books {
+			bookIDs = append(bookIDs, b.BookID)
 		}
 
 		// 2) Ambil pivot class_subject_books (per buku)
@@ -347,38 +308,16 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// ==== Tempel ke rows juga (supaya mode=full ikut dapat nested kalau diminta) ====
-	if nestedClassSubjects && csbByBookID != nil {
-		for i := range rows {
-			if items, ok := csbByBookID[rows[i].BookID]; ok {
-				rows[i].ClassSubjectBooks = items
-			}
-		}
-	}
-
-	// ===== Pagination meta =====
-	pg := helper.BuildPaginationFromOffset(total, p.Offset(), p.Limit())
-
 	// ===== mode compact vs full =====
 	if isCompact {
-		out := make([]bookdto.BookCompact, 0, len(rows))
-		for _, r := range rows {
-			item := bookdto.BookCompact{
-				BookID:          r.BookID,
-				BookSchoolID:    r.BookSchoolID,
-				BookTitle:       r.BookTitle,
-				BookAuthor:      r.BookAuthor,
-				BookDesc:        r.BookDesc,
-				BookSlug:        r.BookSlug,
-				BookImageURL:    r.BookImageURL,
-				BookPurchaseURL: r.BookPurchaseURL,
-				BookCreatedAt:   r.BookCreatedAt,
-				BookUpdatedAt:   r.BookUpdatedAt,
-				BookIsDeleted:   r.BookIsDeleted,
-			}
+		out := make([]bookdto.BookCompact, 0, len(books))
+		for i := range books {
+			item := bookdto.ToBookCompact(&books[i])
 
 			if nestedClassSubjects && csbByBookID != nil {
-				item.ClassSubjectBooks = csbByBookID[r.BookID]
+				if items, ok := csbByBookID[books[i].BookID]; ok {
+					item.ClassSubjectBooks = items
+				}
 			}
 
 			out = append(out, item)
@@ -399,15 +338,28 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 		)
 	}
 
-	// ===== mode full: return full rows =====
+	// ===== mode full: pakai BookResponse DTO =====
+	full := make([]bookdto.BookResponse, 0, len(books))
+	for i := range books {
+		item := bookdto.ToBookResponse(&books[i])
+
+		if nestedClassSubjects && csbByBookID != nil {
+			if items, ok := csbByBookID[books[i].BookID]; ok {
+				item.ClassSubjectBooks = items
+			}
+		}
+
+		full = append(full, item)
+	}
+
 	if !includeClassSubjects || len(includeClassSubjectsSlice) == 0 {
-		return helper.JsonList(c, "ok", rows, pg)
+		return helper.JsonList(c, "ok", full, pg)
 	}
 
 	return helper.JsonListWithInclude(
 		c,
 		"ok",
-		rows,
+		full,
 		BooksInclude{
 			ClassSubjects: includeClassSubjectsSlice,
 		},

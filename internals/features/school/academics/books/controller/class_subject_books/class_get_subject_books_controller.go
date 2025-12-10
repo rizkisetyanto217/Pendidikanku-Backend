@@ -4,7 +4,6 @@ package controller
 import (
 	"errors"
 	"strings"
-	"time"
 
 	csbDTO "madinahsalam_backend/internals/features/school/academics/books/dto"
 	helper "madinahsalam_backend/internals/helpers"
@@ -34,6 +33,7 @@ Resolver school:
 Query:
   - id / ids        : UUID atau comma-separated UUIDs
   - class_subject_id: UUID (pivot ke class_subjects)
+  - subject_id      : UUID (langsung dari kolom di csb)
   - book_id         : UUID
   - is_active       : bool
   - is_primary      : bool
@@ -172,6 +172,17 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		}
 	}
 
+	// 🔎 subject_id (langsung ke kolom subject_id di csb)
+	if q.SubjectID != nil {
+		qBase = qBase.Where("csb.class_subject_book_subject_id = ?", *q.SubjectID)
+	} else if v := strings.TrimSpace(c.Query("subject_id")); v != "" {
+		if id, er := uuid.Parse(v); er == nil {
+			qBase = qBase.Where("csb.class_subject_book_subject_id = ?", id)
+		} else {
+			return helper.JsonError(c, fiber.StatusBadRequest, "subject_id tidak valid")
+		}
+	}
+
 	// book_id
 	if q.BookID != nil {
 		qBase = qBase.Where("csb.class_subject_book_book_id = ?", *q.BookID)
@@ -256,68 +267,13 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total data")
 	}
 
-	// ===== Select & scan ke ROW lalu map → DTO =====
-	selectCols := []string{
-		"csb.class_subject_book_id",
-		"csb.class_subject_book_school_id",
-		"csb.class_subject_book_class_subject_id",
-		"csb.class_subject_book_subject_id",
-		"csb.class_subject_book_book_id",
-		"csb.class_subject_book_slug",
-		"csb.class_subject_book_is_primary",
-		"csb.class_subject_book_is_required",
-		"csb.class_subject_book_order",
-		"csb.class_subject_book_is_active",
-		"csb.class_subject_book_desc",
-		"csb.class_subject_book_created_at",
-		"csb.class_subject_book_updated_at",
-		"csb.class_subject_book_deleted_at",
-
-		// caches BOOK (inline di csb)
-		"csb.class_subject_book_book_title_cache",
-		"csb.class_subject_book_book_author_cache",
-		"csb.class_subject_book_book_slug_cache",
-		"csb.class_subject_book_book_publisher_cache",
-		"csb.class_subject_book_book_publication_year_cache",
-		"csb.class_subject_book_book_image_url_cache",
-
-		// caches SUBJECT (inline di csb)
-		"csb.class_subject_book_subject_code_cache",
-		"csb.class_subject_book_subject_name_cache",
-		"csb.class_subject_book_subject_slug_cache",
+	// ===== Select & scan ke ROW (pakai DTO helper) =====
+	selectCols := make([]string, 0, len(csbDTO.ClassSubjectBookListSelectColumns))
+	for _, col := range csbDTO.ClassSubjectBookListSelectColumns {
+		selectCols = append(selectCols, "csb."+col)
 	}
 
-	type row struct {
-		ClassSubjectBookID             uuid.UUID  `gorm:"column:class_subject_book_id"`
-		ClassSubjectBookSchoolID       uuid.UUID  `gorm:"column:class_subject_book_school_id"`
-		ClassSubjectBookClassSubjectID uuid.UUID  `gorm:"column:class_subject_book_class_subject_id"`
-		ClassSubjectBookSubjectID      *uuid.UUID `gorm:"column:class_subject_book_subject_id"`
-		ClassSubjectBookBookID         uuid.UUID  `gorm:"column:class_subject_book_book_id"`
-		ClassSubjectBookSlug           *string    `gorm:"column:class_subject_book_slug"`
-		ClassSubjectBookIsPrimary      bool       `gorm:"column:class_subject_book_is_primary"`
-		ClassSubjectBookIsRequired     bool       `gorm:"column:class_subject_book_is_required"`
-		ClassSubjectBookOrder          *int       `gorm:"column:class_subject_book_order"`
-		ClassSubjectBookIsActive       bool       `gorm:"column:class_subject_book_is_active"`
-		ClassSubjectBookDesc           *string    `gorm:"column:class_subject_book_desc"`
-		ClassSubjectBookCreatedAt      time.Time  `gorm:"column:class_subject_book_created_at"`
-		ClassSubjectBookUpdatedAt      time.Time  `gorm:"column:class_subject_book_updated_at"`
-		ClassSubjectBookDeletedAt      *time.Time `gorm:"column:class_subject_book_deleted_at"`
-
-		// BOOK caches
-		ClassSubjectBookBookTitleCache           *string `gorm:"column:class_subject_book_book_title_cache"`
-		ClassSubjectBookBookAuthorCache          *string `gorm:"column:class_subject_book_book_author_cache"`
-		ClassSubjectBookBookSlugCache            *string `gorm:"column:class_subject_book_book_slug_cache"`
-		ClassSubjectBookBookPublisherCache       *string `gorm:"column:class_subject_book_book_publisher_cache"`
-		ClassSubjectBookBookPublicationYearCache *int16  `gorm:"column:class_subject_book_book_publication_year_cache"`
-		ClassSubjectBookBookImageURLCache        *string `gorm:"column:class_subject_book_book_image_url_cache"`
-
-		// SUBJECT caches
-		ClassSubjectBookSubjectCodeCache *string `gorm:"column:class_subject_book_subject_code_cache"`
-		ClassSubjectBookSubjectNameCache *string `gorm:"column:class_subject_book_subject_name_cache"`
-		ClassSubjectBookSubjectSlugCache *string `gorm:"column:class_subject_book_subject_slug_cache"`
-	}
-
-	var rows []row
+	var rows []csbDTO.ClassSubjectBookRow
 	if err := qBase.
 		Select(strings.Join(selectCols, ",")).
 		Order(orderExpr).
@@ -327,39 +283,8 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Map → DTO
-	items := make([]csbDTO.ClassSubjectBookResponse, 0, len(rows))
-	for _, r := range rows {
-		items = append(items, csbDTO.ClassSubjectBookResponse{
-			ClassSubjectBookID:             r.ClassSubjectBookID,
-			ClassSubjectBookSchoolID:       r.ClassSubjectBookSchoolID,
-			ClassSubjectBookClassSubjectID: r.ClassSubjectBookClassSubjectID,
-			ClassSubjectBookBookID:         r.ClassSubjectBookBookID,
-
-			ClassSubjectBookSlug:       r.ClassSubjectBookSlug,
-			ClassSubjectBookIsPrimary:  r.ClassSubjectBookIsPrimary,
-			ClassSubjectBookIsRequired: r.ClassSubjectBookIsRequired,
-			ClassSubjectBookOrder:      r.ClassSubjectBookOrder,
-			ClassSubjectBookIsActive:   r.ClassSubjectBookIsActive,
-			ClassSubjectBookDesc:       r.ClassSubjectBookDesc,
-
-			ClassSubjectBookBookTitleCache:           r.ClassSubjectBookBookTitleCache,
-			ClassSubjectBookBookAuthorCache:          r.ClassSubjectBookBookAuthorCache,
-			ClassSubjectBookBookSlugCache:            r.ClassSubjectBookBookSlugCache,
-			ClassSubjectBookBookPublisherCache:       r.ClassSubjectBookBookPublisherCache,
-			ClassSubjectBookBookPublicationYearCache: r.ClassSubjectBookBookPublicationYearCache,
-			ClassSubjectBookBookImageURLCache:        r.ClassSubjectBookBookImageURLCache,
-
-			ClassSubjectBookSubjectID:        r.ClassSubjectBookSubjectID,
-			ClassSubjectBookSubjectCodeCache: r.ClassSubjectBookSubjectCodeCache,
-			ClassSubjectBookSubjectNameCache: r.ClassSubjectBookSubjectNameCache,
-			ClassSubjectBookSubjectSlugCache: r.ClassSubjectBookSubjectSlugCache,
-
-			ClassSubjectBookCreatedAt: r.ClassSubjectBookCreatedAt,
-			ClassSubjectBookUpdatedAt: r.ClassSubjectBookUpdatedAt,
-			ClassSubjectBookDeletedAt: r.ClassSubjectBookDeletedAt,
-		})
-	}
+	// Map → DTO pakai helper di DTO
+	items := csbDTO.ClassSubjectBookRowsToResponses(rows)
 
 	// ===== Pagination meta (jsonresponse helper) =====
 	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)

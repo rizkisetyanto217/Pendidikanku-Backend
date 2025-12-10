@@ -153,9 +153,7 @@ type CreateClassSectionSubjectTeacherRequest struct {
 
 	// Status (enum baru) + kompat lama (bool)
 	// enum: active | inactive | completed
-	ClassSectionSubjectTeacherStatus *string `json:"class_section_subject_teacher_status" validate:"omitempty,oneof=active inactive completed"`
-	// kompat: FE lama masih kirim is_active → kita map ke status
-	ClassSectionSubjectTeacherIsActive *bool `json:"class_section_subject_teacher_is_active" validate:"omitempty"`
+	ClassSectionSubjectTeacherStatus *csstModel.ClassStatus `json:"class_section_subject_teacher_status" validate:"omitempty,oneof=active inactive completed"`
 }
 
 // Update (partial)
@@ -182,8 +180,7 @@ type UpdateClassSectionSubjectTeacherRequest struct {
 	ClassSectionSubjectTeacherMinPassingScore     *int `json:"class_section_subject_teacher_min_passing_score" validate:"omitempty,gte=0"`
 
 	// Status (enum) + kompat lama (bool)
-	ClassSectionSubjectTeacherStatus   *string `json:"class_section_subject_teacher_status" validate:"omitempty,oneof=active inactive completed"`
-	ClassSectionSubjectTeacherIsActive *bool   `json:"class_section_subject_teacher_is_active" validate:"omitempty"`
+	ClassSectionSubjectTeacherStatus *csstModel.ClassStatus `json:"class_section_subject_teacher_status" validate:"omitempty,oneof=active inactive completed"`
 }
 
 /*
@@ -208,15 +205,21 @@ type ClassSectionSubjectTeacherResponse struct {
 	ClassSectionSubjectTeacherGroupURL    *string `json:"class_section_subject_teacher_group_url,omitempty"`
 
 	/* ===== Agregat & kapasitas (quota_total / quota_taken) ===== */
-	ClassSectionSubjectTeacherTotalAttendance          int    `json:"class_section_subject_teacher_total_attendance"`
-	ClassSectionSubjectTeacherTotalMeetingsTarget      *int   `json:"class_section_subject_teacher_total_meetings_target,omitempty"`
-	ClassSectionSubjectTeacherQuotaTotal               *int   `json:"class_section_subject_teacher_quota_total,omitempty"`
-	ClassSectionSubjectTeacherQuotaTaken               int    `json:"class_section_subject_teacher_quota_taken"`
-	ClassSectionSubjectTeacherTotalAssessments         int    `json:"class_section_subject_teacher_total_assessments"`
-	ClassSectionSubjectTeacherTotalAssessmentsGraded   int    `json:"class_section_subject_teacher_total_assessments_graded"`
-	ClassSectionSubjectTeacherTotalAssessmentsUngraded int    `json:"class_section_subject_teacher_total_assessments_ungraded"`
-	ClassSectionSubjectTeacherTotalStudentsPassed      int    `json:"class_section_subject_teacher_total_students_passed"`
-	ClassSectionSubjectTeacherDeliveryMode             string `json:"class_section_subject_teacher_delivery_mode"`
+	ClassSectionSubjectTeacherTotalAttendance     int  `json:"class_section_subject_teacher_total_attendance"`
+	ClassSectionSubjectTeacherTotalMeetingsTarget *int `json:"class_section_subject_teacher_total_meetings_target,omitempty"`
+	ClassSectionSubjectTeacherQuotaTotal          *int `json:"class_section_subject_teacher_quota_total,omitempty"`
+	ClassSectionSubjectTeacherQuotaTaken          int  `json:"class_section_subject_teacher_quota_taken"`
+
+	// total assessments (semua tipe)
+	ClassSectionSubjectTeacherTotalAssessments int `json:"class_section_subject_teacher_total_assessments"`
+
+	// total per tipe assessment (training / daily_exam / exam)
+	ClassSectionSubjectTeacherTotalAssessmentsTraining  int `json:"class_section_subject_teacher_total_assessments_training"`
+	ClassSectionSubjectTeacherTotalAssessmentsDailyExam int `json:"class_section_subject_teacher_total_assessments_daily_exam"`
+	ClassSectionSubjectTeacherTotalAssessmentsExam      int `json:"class_section_subject_teacher_total_assessments_exam"`
+
+	ClassSectionSubjectTeacherTotalStudentsPassed int    `json:"class_section_subject_teacher_total_students_passed"`
+	ClassSectionSubjectTeacherDeliveryMode        string `json:"class_section_subject_teacher_delivery_mode"`
 
 	// total buku terkait CSST (cache)
 	ClassSectionSubjectTeacherTotalBooks int `json:"class_section_subject_teacher_total_books"`
@@ -265,12 +268,11 @@ type ClassSectionSubjectTeacherResponse struct {
 	ClassSectionSubjectTeacherMinPassingScore                  *int `json:"class_section_subject_teacher_min_passing_score,omitempty"`
 
 	/* ===== Status & audit ===== */
-	ClassSectionSubjectTeacherStatus      string     `json:"class_section_subject_teacher_status"`
-	ClassSectionSubjectTeacherIsActive    bool       `json:"class_section_subject_teacher_is_active"`
-	ClassSectionSubjectTeacherCompletedAt *time.Time `json:"class_section_subject_teacher_completed_at,omitempty"`
-	ClassSectionSubjectTeacherCreatedAt   time.Time  `json:"class_section_subject_teacher_created_at"`
-	ClassSectionSubjectTeacherUpdatedAt   time.Time  `json:"class_section_subject_teacher_updated_at"`
-	ClassSectionSubjectTeacherDeletedAt   *time.Time `json:"class_section_subject_teacher_deleted_at,omitempty"`
+	ClassSectionSubjectTeacherStatus      csstModel.ClassStatus `json:"class_section_subject_teacher_status"`
+	ClassSectionSubjectTeacherCompletedAt *time.Time            `json:"class_section_subject_teacher_completed_at,omitempty"`
+	ClassSectionSubjectTeacherCreatedAt   time.Time             `json:"class_section_subject_teacher_created_at"`
+	ClassSectionSubjectTeacherUpdatedAt   time.Time             `json:"class_section_subject_teacher_updated_at"`
+	ClassSectionSubjectTeacherDeletedAt   *time.Time            `json:"class_section_subject_teacher_deleted_at,omitempty"`
 
 	// nested academic_term (optional, pakai include)
 	AcademicTerm *AcademicTermLite `json:"academic_term,omitempty"`
@@ -324,24 +326,11 @@ func (r CreateClassSectionSubjectTeacherRequest) ToModel() csstModel.ClassSectio
 			r.ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache
 	}
 
-	// ====== Status (enum) + fallback is_active ======
+	// ====== Status (enum) + fallback ======
 	status := csstModel.ClassStatusActive
 
 	if r.ClassSectionSubjectTeacherStatus != nil {
-		switch strings.ToLower(strings.TrimSpace(*r.ClassSectionSubjectTeacherStatus)) {
-		case "active":
-			status = csstModel.ClassStatusActive
-		case "inactive":
-			status = csstModel.ClassStatusInactive
-		case "completed":
-			status = csstModel.ClassStatusCompleted
-		}
-	} else if r.ClassSectionSubjectTeacherIsActive != nil {
-		if *r.ClassSectionSubjectTeacherIsActive {
-			status = csstModel.ClassStatusActive
-		} else {
-			status = csstModel.ClassStatusInactive
-		}
+		status = *r.ClassSectionSubjectTeacherStatus
 	}
 	m.ClassSectionSubjectTeacherStatus = status
 
@@ -398,22 +387,9 @@ func (r UpdateClassSectionSubjectTeacherRequest) Apply(m *csstModel.ClassSection
 			r.ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache
 	}
 
-	// ====== Status (enum) + fallback is_active ======
+	// ====== Status (enum) ======
 	if r.ClassSectionSubjectTeacherStatus != nil {
-		switch strings.ToLower(strings.TrimSpace(*r.ClassSectionSubjectTeacherStatus)) {
-		case "active":
-			m.ClassSectionSubjectTeacherStatus = csstModel.ClassStatusActive
-		case "inactive":
-			m.ClassSectionSubjectTeacherStatus = csstModel.ClassStatusInactive
-		case "completed":
-			m.ClassSectionSubjectTeacherStatus = csstModel.ClassStatusCompleted
-		}
-	} else if r.ClassSectionSubjectTeacherIsActive != nil {
-		if *r.ClassSectionSubjectTeacherIsActive {
-			m.ClassSectionSubjectTeacherStatus = csstModel.ClassStatusActive
-		} else {
-			m.ClassSectionSubjectTeacherStatus = csstModel.ClassStatusInactive
-		}
+		m.ClassSectionSubjectTeacherStatus = *r.ClassSectionSubjectTeacherStatus
 	}
 }
 
@@ -435,12 +411,11 @@ func fromClassSectionSubjectTeacherModelWithOptions(
 		attendanceCache = &v
 	}
 
-	// status & is_active (derived)
+	// status (derived)
 	statusStr := string(m.ClassSectionSubjectTeacherStatus)
 	if statusStr == "" {
-		statusStr = "active"
+		statusStr = string(csstModel.ClassStatusActive)
 	}
-	isActive := m.ClassSectionSubjectTeacherStatus == csstModel.ClassStatusActive
 
 	resp := ClassSectionSubjectTeacherResponse{
 		// IDs & Relations
@@ -458,18 +433,18 @@ func fromClassSectionSubjectTeacherModelWithOptions(
 		ClassSectionSubjectTeacherGroupURL:    m.ClassSectionSubjectTeacherGroupURL,
 
 		// Agregat & kapasitas
-		ClassSectionSubjectTeacherTotalAttendance:          m.ClassSectionSubjectTeacherTotalAttendance,
-		ClassSectionSubjectTeacherTotalMeetingsTarget:      m.ClassSectionSubjectTeacherTotalMeetingsTarget,
-		ClassSectionSubjectTeacherQuotaTotal:               m.ClassSectionSubjectTeacherQuotaTotal,
-		ClassSectionSubjectTeacherQuotaTaken:               m.ClassSectionSubjectTeacherQuotaTaken,
-		ClassSectionSubjectTeacherTotalAssessments:         m.ClassSectionSubjectTeacherTotalAssessments,
-		ClassSectionSubjectTeacherTotalAssessmentsGraded:   m.ClassSectionSubjectTeacherTotalAssessmentsGraded,
-		ClassSectionSubjectTeacherTotalAssessmentsUngraded: m.ClassSectionSubjectTeacherTotalAssessmentsUngraded,
-		ClassSectionSubjectTeacherTotalStudentsPassed:      m.ClassSectionSubjectTeacherTotalStudentsPassed,
-		ClassSectionSubjectTeacherDeliveryMode:             string(m.ClassSectionSubjectTeacherDeliveryMode),
-		ClassSectionSubjectTeacherTotalBooks:               m.ClassSectionSubjectTeacherTotalBooks,
+		ClassSectionSubjectTeacherTotalAttendance:     m.ClassSectionSubjectTeacherTotalAttendance,
+		ClassSectionSubjectTeacherTotalMeetingsTarget: m.ClassSectionSubjectTeacherTotalMeetingsTarget,
+		ClassSectionSubjectTeacherQuotaTotal:          m.ClassSectionSubjectTeacherQuotaTotal,
+		ClassSectionSubjectTeacherQuotaTaken:          m.ClassSectionSubjectTeacherQuotaTaken,
 
-		// attendance cache
+		ClassSectionSubjectTeacherTotalAssessments:               m.ClassSectionSubjectTeacherTotalAssessments,
+		ClassSectionSubjectTeacherTotalAssessmentsTraining:       m.ClassSectionSubjectTeacherTotalAssessmentsTraining,
+		ClassSectionSubjectTeacherTotalAssessmentsDailyExam:      m.ClassSectionSubjectTeacherTotalAssessmentsDailyExam,
+		ClassSectionSubjectTeacherTotalAssessmentsExam:           m.ClassSectionSubjectTeacherTotalAssessmentsExam,
+		ClassSectionSubjectTeacherTotalStudentsPassed:            m.ClassSectionSubjectTeacherTotalStudentsPassed,
+		ClassSectionSubjectTeacherDeliveryMode:                   string(m.ClassSectionSubjectTeacherDeliveryMode),
+		ClassSectionSubjectTeacherTotalBooks:                     m.ClassSectionSubjectTeacherTotalBooks,
 		ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache: attendanceCache,
 
 		// SECTION caches
@@ -511,8 +486,7 @@ func fromClassSectionSubjectTeacherModelWithOptions(
 		ClassSectionSubjectTeacherMinPassingScore:                  m.ClassSectionSubjectTeacherMinPassingScore,
 
 		// Status & audit
-		ClassSectionSubjectTeacherStatus:      statusStr,
-		ClassSectionSubjectTeacherIsActive:    isActive,
+		ClassSectionSubjectTeacherStatus:      csstModel.ClassStatus(statusStr),
 		ClassSectionSubjectTeacherCompletedAt: m.ClassSectionSubjectTeacherCompletedAt,
 		ClassSectionSubjectTeacherCreatedAt:   m.ClassSectionSubjectTeacherCreatedAt,
 		ClassSectionSubjectTeacherUpdatedAt:   m.ClassSectionSubjectTeacherUpdatedAt,
@@ -596,19 +570,19 @@ type ClassSectionSubjectTeacherCompactResponse struct {
 	ClassSectionSubjectTeacherSubjectSlugCache *string    `json:"class_section_subject_teacher_subject_slug_cache,omitempty"`
 
 	// Status & audit
-	ClassSectionSubjectTeacherStatus      string     `json:"class_section_subject_teacher_status"`
-	ClassSectionSubjectTeacherCompletedAt *time.Time `json:"class_section_subject_teacher_completed_at,omitempty"`
-	ClassSectionSubjectTeacherCreatedAt   time.Time  `json:"class_section_subject_teacher_created_at"`
-	ClassSectionSubjectTeacherUpdatedAt   time.Time  `json:"class_section_subject_teacher_updated_at"`
+	ClassSectionSubjectTeacherStatus      csstModel.ClassStatus `json:"class_section_subject_teacher_status"`
+	ClassSectionSubjectTeacherCompletedAt *time.Time            `json:"class_section_subject_teacher_completed_at,omitempty"`
+	ClassSectionSubjectTeacherCreatedAt   time.Time             `json:"class_section_subject_teacher_created_at"`
+	ClassSectionSubjectTeacherUpdatedAt   time.Time             `json:"class_section_subject_teacher_updated_at"`
 }
 
 // mapping single → compact
 func FromClassSectionSubjectTeacherModelCompact(mo csstModel.ClassSectionSubjectTeacherModel) ClassSectionSubjectTeacherCompactResponse {
 
-	// status & aktif (derived)
-	statusStr := string(mo.ClassSectionSubjectTeacherStatus)
-	if statusStr == "" {
-		statusStr = "active"
+	// status (derived default)
+	status := mo.ClassSectionSubjectTeacherStatus
+	if status == "" {
+		status = csstModel.ClassStatusActive
 	}
 
 	return ClassSectionSubjectTeacherCompactResponse{
@@ -629,7 +603,7 @@ func FromClassSectionSubjectTeacherModelCompact(mo csstModel.ClassSectionSubject
 		ClassSectionSubjectTeacherSubjectCodeCache: mo.ClassSectionSubjectTeacherSubjectCodeCache,
 		ClassSectionSubjectTeacherSubjectSlugCache: mo.ClassSectionSubjectTeacherSubjectSlugCache,
 
-		ClassSectionSubjectTeacherStatus:      statusStr,
+		ClassSectionSubjectTeacherStatus:      status,
 		ClassSectionSubjectTeacherCompletedAt: mo.ClassSectionSubjectTeacherCompletedAt,
 		ClassSectionSubjectTeacherCreatedAt:   mo.ClassSectionSubjectTeacherCreatedAt,
 		ClassSectionSubjectTeacherUpdatedAt:   mo.ClassSectionSubjectTeacherUpdatedAt,

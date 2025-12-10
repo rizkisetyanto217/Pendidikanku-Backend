@@ -17,7 +17,7 @@ const (
 	DeliveryModeHybrid  ClassDeliveryMode = "hybrid"
 )
 
-/* ===== ENUM: attendance_entry_mode_enum (copy dari SchoolModel) ===== */
+/* ===== ENUM: attendance_entry_mode_enum ===== */
 type AttendanceEntryMode string
 
 const (
@@ -53,16 +53,20 @@ type ClassSectionSubjectTeacherModel struct {
 	ClassSectionSubjectTeacherGroupURL    *string `gorm:"type:text;column:class_section_subject_teacher_group_url" json:"class_section_subject_teacher_group_url,omitempty"`
 
 	/* ===== Agregat & Kapasitas (quota_total / quota_taken) ===== */
-	ClassSectionSubjectTeacherTotalAttendance          int  `gorm:"not null;default:0;column:class_section_subject_teacher_total_attendance" json:"class_section_subject_teacher_total_attendance"`
-	ClassSectionSubjectTeacherTotalMeetingsTarget      *int `gorm:"column:class_section_subject_teacher_total_meetings_target" json:"class_section_subject_teacher_total_meetings_target,omitempty"`
-	ClassSectionSubjectTeacherQuotaTotal               *int `gorm:"column:class_section_subject_teacher_quota_total" json:"class_section_subject_teacher_quota_total,omitempty"`
-	ClassSectionSubjectTeacherQuotaTaken               int  `gorm:"not null;default:0;column:class_section_subject_teacher_quota_taken" json:"class_section_subject_teacher_quota_taken"`
-	ClassSectionSubjectTeacherTotalAssessments         int  `gorm:"not null;default:0;column:class_section_subject_teacher_total_assessments" json:"class_section_subject_teacher_total_assessments"`
-	ClassSectionSubjectTeacherTotalAssessmentsGraded   int  `gorm:"not null;default:0;column:class_section_subject_teacher_total_assessments_graded" json:"class_section_subject_teacher_total_assessments_graded"`
-	ClassSectionSubjectTeacherTotalAssessmentsUngraded int  `gorm:"not null;default:0;column:class_section_subject_teacher_total_assessments_ungraded" json:"class_section_subject_teacher_total_assessments_ungraded"`
+	ClassSectionSubjectTeacherTotalAttendance     int  `gorm:"not null;default:0;column:class_section_subject_teacher_total_attendance" json:"class_section_subject_teacher_total_attendance"`
+	ClassSectionSubjectTeacherTotalMeetingsTarget *int `gorm:"column:class_section_subject_teacher_total_meetings_target" json:"class_section_subject_teacher_total_meetings_target,omitempty"`
 
-	// total murid lulus passing score
-	ClassSectionSubjectTeacherTotalStudentsPassed int `gorm:"not null;default:0;column:class_section_subject_teacher_total_students_passed" json:"class_section_subject_teacher_total_students_passed"`
+	ClassSectionSubjectTeacherQuotaTotal *int `gorm:"column:class_section_subject_teacher_quota_total" json:"class_section_subject_teacher_quota_total,omitempty"`
+	ClassSectionSubjectTeacherQuotaTaken int  `gorm:"not null;default:0;column:class_section_subject_teacher_quota_taken" json:"class_section_subject_teacher_quota_taken"`
+
+	// total semua assessment (semua jenis)
+	ClassSectionSubjectTeacherTotalAssessments int `gorm:"not null;default:0;column:class_section_subject_teacher_total_assessments" json:"class_section_subject_teacher_total_assessments"`
+
+	// total per jenis assessment (training / daily_exam / exam)
+	ClassSectionSubjectTeacherTotalAssessmentsTraining  int `gorm:"not null;default:0;column:class_section_subject_teacher_total_assessments_training" json:"class_section_subject_teacher_total_assessments_training"`
+	ClassSectionSubjectTeacherTotalAssessmentsDailyExam int `gorm:"not null;default:0;column:class_section_subject_teacher_total_assessments_daily_exam" json:"class_section_subject_teacher_total_assessments_daily_exam"`
+	ClassSectionSubjectTeacherTotalAssessmentsExam      int `gorm:"not null;default:0;column:class_section_subject_teacher_total_assessments_exam" json:"class_section_subject_teacher_total_assessments_exam"`
+	ClassSectionSubjectTeacherTotalStudentsPassed       int `gorm:"not null;default:0;column:class_section_subject_teacher_total_students_passed" json:"class_section_subject_teacher_total_students_passed"`
 
 	/* ===== Delivery mode (enum) ===== */
 	ClassSectionSubjectTeacherDeliveryMode ClassDeliveryMode `gorm:"type:class_delivery_mode_enum;not null;default:'offline';column:class_section_subject_teacher_delivery_mode" json:"class_section_subject_teacher_delivery_mode"`

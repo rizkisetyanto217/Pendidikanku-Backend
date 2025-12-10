@@ -864,29 +864,29 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 	}
 
 	// 3) Fee rule + options (1 rule untuk semua item)
+	// 3) Fee rule + options (1 rule untuk semua item)
+	//    Schema baru: pakai fee_rule_category + fee_rule_bill_code,
+	//    tidak ada lagi general_billing_kind / snapshot GBK.
 	type feeRuleHeader struct {
 		ID            uuid.UUID      `gorm:"column:fee_rule_id"`
 		SchoolID      uuid.UUID      `gorm:"column:fee_rule_school_id"`
-		GBKID         uuid.UUID      `gorm:"column:fee_rule_general_billing_kind_id"`
-		GBKCategory   string         `gorm:"column:fee_rule_gbk_category_snapshot"`
+		Category      string         `gorm:"column:fee_rule_category"`
+		BillCode      string         `gorm:"column:fee_rule_bill_code"`
 		AmountOptions datatypes.JSON `gorm:"column:fee_rule_amount_options"`
 
-		// 🆕 snapshot tambahan
-		Scope   *string `gorm:"column:fee_rule_scope"`
-		Note    *string `gorm:"column:fee_rule_note"`
-		GBKCode *string `gorm:"column:fee_rule_gbk_code_snapshot"`
+		Scope *string `gorm:"column:fee_rule_scope"`
+		Note  *string `gorm:"column:fee_rule_note"`
 	}
 
 	var fr feeRuleHeader
 	if err := tx.Raw(`
     SELECT fee_rule_id,
            fee_rule_school_id,
-           fee_rule_general_billing_kind_id,
-           fee_rule_gbk_category_snapshot,
+           fee_rule_category,
+           fee_rule_bill_code,
            fee_rule_amount_options,
            fee_rule_scope,
-           fee_rule_note,
-           fee_rule_gbk_code_snapshot
+           fee_rule_note
       FROM fee_rules
      WHERE fee_rule_id = ?
        AND fee_rule_deleted_at IS NULL
@@ -895,7 +895,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusNotFound, "fee_rule tidak ditemukan")
 	}
-	if strings.ToLower(strings.TrimSpace(fr.GBKCategory)) != "registration" {
+	if strings.ToLower(strings.TrimSpace(fr.Category)) != "registration" {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusBadRequest, "fee_rule bukan kategori registration")
 	}
@@ -903,6 +903,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusBadRequest, "fee_rule tidak untuk sekolah ini")
 	}
+
 	var opts []dto.FeeRuleAmountOption
 	if len(fr.AmountOptions) > 0 {
 		_ = json.Unmarshal(fr.AmountOptions, &opts)
@@ -915,39 +916,37 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 
 	// 3b) Resolve EXTRA fee_rules (donasi / spp / dll)
 	type extraResolved struct {
-		FeeRuleID   uuid.UUID
-		GBKID       uuid.UUID
-		GBKCode     *string
-		GBKCategory string
-		AmountIDR   int64
-		Code        string
-		Label       string
+		FeeRuleID uuid.UUID
+		Category  string
+		BillCode  *string
+		AmountIDR int64
+		Code      string
+		Label     string
 	}
 
 	extras := make([]extraResolved, 0, len(req.Extras))
 
 	for _, ex := range req.Extras {
 		var hdr struct {
-			ID          uuid.UUID      `gorm:"column:fee_rule_id"`
-			SchoolID    uuid.UUID      `gorm:"column:fee_rule_school_id"`
-			GBKID       uuid.UUID      `gorm:"column:fee_rule_general_billing_kind_id"`
-			GBKCode     *string        `gorm:"column:fee_rule_gbk_code_snapshot"`
-			GBKCategory string         `gorm:"column:fee_rule_gbk_category_snapshot"`
-			AmountOpts  datatypes.JSON `gorm:"column:fee_rule_amount_options"`
+			ID         uuid.UUID      `gorm:"column:fee_rule_id"`
+			SchoolID   uuid.UUID      `gorm:"column:fee_rule_school_id"`
+			Category   string         `gorm:"column:fee_rule_category"`
+			BillCode   *string        `gorm:"column:fee_rule_bill_code"`
+			AmountOpts datatypes.JSON `gorm:"column:fee_rule_amount_options"`
 		}
 
 		if err := tx.Raw(`
         SELECT fee_rule_id,
                fee_rule_school_id,
-               fee_rule_general_billing_kind_id,
-               fee_rule_gbk_code_snapshot,
-               fee_rule_gbk_category_snapshot,
+               fee_rule_category,
+               fee_rule_bill_code,
                fee_rule_amount_options
         FROM fee_rules
         WHERE fee_rule_id = ?
           AND fee_rule_deleted_at IS NULL
         LIMIT 1
     `, ex.FeeRuleID).Scan(&hdr).Error; err != nil || hdr.ID == uuid.Nil {
+
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusBadRequest, "extra fee_rule tidak ditemukan")
 		}
@@ -991,14 +990,14 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		}
 
 		extras = append(extras, extraResolved{
-			FeeRuleID:   hdr.ID,
-			GBKID:       hdr.GBKID,
-			GBKCode:     hdr.GBKCode,
-			GBKCategory: strings.TrimSpace(hdr.GBKCategory),
-			AmountIDR:   int64(chosen.Amount),
-			Code:        chosen.Code,
-			Label:       chosen.Label,
+			FeeRuleID: hdr.ID,
+			Category:  strings.TrimSpace(hdr.Category),
+			BillCode:  hdr.BillCode,
+			AmountIDR: int64(chosen.Amount),
+			Code:      chosen.Code,
+			Label:     chosen.Label,
 		})
+
 	}
 
 	// 4) Validasi semua kelas + hitung nominal per item
@@ -1461,13 +1460,12 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 				out := make([]map[string]any, 0, len(extras))
 				for _, ex := range extras {
 					out = append(out, map[string]any{
-						"fee_rule_id":  ex.FeeRuleID,
-						"gbk_id":       ex.GBKID,
-						"gbk_code":     ex.GBKCode,
-						"gbk_category": ex.GBKCategory,
-						"code":         ex.Code,
-						"label":        ex.Label,
-						"amount_idr":   ex.AmountIDR,
+						"fee_rule_id": ex.FeeRuleID,
+						"category":    ex.Category, // mirror general_billing_category
+						"bill_code":   ex.BillCode,
+						"code":        ex.Code,
+						"label":       ex.Label,
+						"amount_idr":  ex.AmountIDR,
 					})
 				}
 				return out
@@ -1554,8 +1552,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 			PaymentItemAmountIDR: int(it.AmountIDR),
 
 			// Fee rule snapshots (per item)
-			PaymentItemFeeRuleID:            &fr.ID,
-			PaymentItemFeeRuleGBKIDSnapshot: &fr.GBKID,
+			PaymentItemFeeRuleID: &fr.ID,
 		}
 
 		// scope & note snapshot (kalau ada di fee_rule)
@@ -1645,8 +1642,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 
 			PaymentItemAmountIDR: int(ex.AmountIDR),
 
-			PaymentItemFeeRuleID:            &ex.FeeRuleID,
-			PaymentItemFeeRuleGBKIDSnapshot: &ex.GBKID,
+			PaymentItemFeeRuleID: &ex.FeeRuleID,
 		}
 
 		// title / invoice title (global, nggak terkait class)

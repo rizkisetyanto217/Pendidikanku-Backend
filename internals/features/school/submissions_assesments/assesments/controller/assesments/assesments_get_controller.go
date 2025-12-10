@@ -467,7 +467,7 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 			  ON csst.class_section_subject_teacher_school_id = assessment_school_id
 			 AND csst.class_section_subject_teacher_id = assessment_class_section_subject_teacher_id
 			 AND csst.class_section_subject_teacher_teacher_id = ?
-			 AND csst.class_section_subject_teacher_is_active = TRUE
+			 AND csst.class_section_subject_teacher_status = 'active'
 			 AND csst.class_section_subject_teacher_deleted_at IS NULL
 		`, teacherID)
 	}

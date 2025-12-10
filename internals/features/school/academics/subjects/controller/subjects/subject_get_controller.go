@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	subjectDTO "madinahsalam_backend/internals/features/school/academics/subjects/dto"
-	subjectModel "madinahsalam_backend/internals/features/school/academics/subjects/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
@@ -88,12 +87,13 @@ func (h *SubjectsController) List(c *fiber.Ctx) error {
 	}
 
 	// --- Base query (tenant + soft delete by default) ---
-	tx := h.DB.Model(&subjectModel.SubjectModel{}).
-		Where("subject_school_id = ?", schoolID)
+	tx := h.DB.WithContext(c.Context()).
+		Table("subjects AS s").
+		Where("s.subject_school_id = ?", schoolID)
 
 	// exclude soft-deleted by default
 	if q.WithDeleted == nil || !*q.WithDeleted {
-		tx = tx.Where("subject_deleted_at IS NULL")
+		tx = tx.Where("s.subject_deleted_at IS NULL")
 	}
 
 	// ========== filter by id / ids (comma-separated) ==========
@@ -104,41 +104,42 @@ func (h *SubjectsController) List(c *fiber.Ctx) error {
 		}
 		return helper.JsonError(c, fiber.StatusBadRequest, errResp.Error())
 	} else if ok {
-		tx = tx.Where("subject_id IN ?", ids)
+		tx = tx.Where("s.subject_id IN ?", ids)
 	}
 
 	// filters lain
 	if q.IsActive != nil {
-		tx = tx.Where("subject_is_active = ?", *q.IsActive)
+		tx = tx.Where("s.subject_is_active = ?", *q.IsActive)
 	}
 	if q.Q != nil && strings.TrimSpace(*q.Q) != "" {
 		kw := "%" + strings.ToLower(strings.TrimSpace(*q.Q)) + "%"
-		tx = tx.Where("(LOWER(subject_code) LIKE ? OR LOWER(subject_name) LIKE ?)", kw, kw)
+		tx = tx.Where("(LOWER(s.subject_code) LIKE ? OR LOWER(s.subject_name) LIKE ?)", kw, kw)
 	}
 	// 🔍 filter spesifik by subject_name: ?name=
 	if q.Name != nil && strings.TrimSpace(*q.Name) != "" {
 		kw := "%" + strings.ToLower(strings.TrimSpace(*q.Name)) + "%"
-		tx = tx.Where("LOWER(subject_name) LIKE ?", kw)
+		tx = tx.Where("LOWER(s.subject_name) LIKE ?", kw)
 	}
 
-	// order by whitelist
-	orderBy := "subject_created_at"
+	// order by whitelist → map ke kolom fisik
+	orderCol := "s.subject_created_at"
 	if q.OrderBy != nil {
-		switch strings.ToLower(*q.OrderBy) {
+		switch strings.ToLower(strings.TrimSpace(*q.OrderBy)) {
 		case "code":
-			orderBy = "subject_code"
+			orderCol = "s.subject_code"
 		case "name":
-			orderBy = "subject_name"
+			orderCol = "s.subject_name"
 		case "created_at":
-			orderBy = "subject_created_at"
+			orderCol = "s.subject_created_at"
 		case "updated_at":
-			orderBy = "subject_updated_at"
+			orderCol = "s.subject_updated_at"
 		}
 	}
-	sort := "ASC"
-	if q.Sort != nil && strings.ToLower(*q.Sort) == "desc" {
-		sort = "DESC"
+	sortDir := "ASC"
+	if q.Sort != nil && strings.ToLower(strings.TrimSpace(*q.Sort)) == "desc" {
+		sortDir = "DESC"
 	}
+	orderExpr := orderCol + " " + sortDir
 
 	// --- total (sebelum limit/offset) ---
 	var total int64
@@ -146,29 +147,20 @@ func (h *SubjectsController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total data")
 	}
 
-	// --- data ---
-	var rows []subjectModel.SubjectModel
+	// --- data (pakai DTO low-level: SubjectRow + SubjectListSelectColumns) ---
+	// prefix alias "s." ke setiap kolom
+	selectCols := make([]string, 0, len(subjectDTO.SubjectListSelectColumns))
+	for _, col := range subjectDTO.SubjectListSelectColumns {
+		selectCols = append(selectCols, "s."+col)
+	}
+
+	var rows []subjectDTO.SubjectRow
 	if err := tx.
-		Select(`
-			subject_id,
-			subject_school_id,
-			subject_code,
-			subject_name,
-			subject_desc,
-			subject_slug,
-			subject_image_url,
-			subject_image_object_key,
-			subject_image_url_old,
-			subject_image_object_key_old,
-			subject_image_delete_pending_until,
-			subject_is_active,
-			subject_created_at,
-			subject_updated_at,
-			subject_deleted_at
-		`).
-		Order(orderBy + " " + sort).
-		Limit(*q.Limit).Offset(*q.Offset).
-		Find(&rows).Error; err != nil {
+		Select(strings.Join(selectCols, ",")).
+		Order(orderExpr).
+		Limit(*q.Limit).
+		Offset(*q.Offset).
+		Scan(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
@@ -177,11 +169,11 @@ func (h *SubjectsController) List(c *fiber.Ctx) error {
 
 	// --- response sesuai mode ---
 	if mode == "compact" {
-		return helper.JsonList(c, "ok", subjectDTO.FromSubjectModelsToCompact(rows), meta)
+		return helper.JsonList(c, "ok", subjectDTO.SubjectRowsToCompactResponses(rows), meta)
 	}
 
 	// default: full
-	return helper.JsonList(c, "ok", subjectDTO.FromSubjectModels(rows), meta)
+	return helper.JsonList(c, "ok", subjectDTO.SubjectRowsToResponses(rows), meta)
 }
 
 /* ================= Helpers lokal ================= */

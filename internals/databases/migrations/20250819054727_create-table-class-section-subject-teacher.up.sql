@@ -1,10 +1,4 @@
-/* =======================================================================
-   MIGRATION: CSST (class_section_subject_teachers)
-              + PREREQ tenant-safe uniques
-              + quota_total/quota_taken
-              + min_passing_score cache from class_subjects
-   ======================================================================= */
-
+-- +migrate Up
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
@@ -177,8 +171,8 @@ END$$;
 
 -- ======================================================================
 -- TABLE: class_section_subject_teachers (CSST)
--- (untuk fresh install, kalau tabel belum ada)
 -- ======================================================================
+
 CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teacher_id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   class_section_subject_teacher_school_id        UUID NOT NULL
@@ -197,10 +191,12 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teacher_quota_total               INT,
   class_section_subject_teacher_quota_taken               INT NOT NULL DEFAULT 0,
 
-  class_section_subject_teacher_total_assessments         INT NOT NULL DEFAULT 0,
-  class_section_subject_teacher_total_assessments_graded  INT NOT NULL DEFAULT 0,
-  class_section_subject_teacher_total_assessments_ungraded INT NOT NULL DEFAULT 0,
-  class_section_subject_teacher_total_students_passed     INT NOT NULL DEFAULT 0,
+  -- Total assessments (by type)
+  class_section_subject_teacher_total_assessments                 INT NOT NULL DEFAULT 0,
+  class_section_subject_teacher_total_assessments_training        INT NOT NULL DEFAULT 0,
+  class_section_subject_teacher_total_assessments_daily_exam      INT NOT NULL DEFAULT 0,
+  class_section_subject_teacher_total_assessments_exam            INT NOT NULL DEFAULT 0,
+  class_section_subject_teacher_total_students_passed             INT NOT NULL DEFAULT 0,
 
   class_section_subject_teacher_delivery_mode    class_delivery_mode_enum NOT NULL DEFAULT 'offline',
 
@@ -208,7 +204,7 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
     attendance_entry_mode_enum,
 
   /* =======================
-     SECTION cache (tanpa JSONB)
+     SECTION cache
      ======================= */
   class_section_subject_teacher_class_section_id            UUID NOT NULL,
   class_section_subject_teacher_class_section_slug_cache    VARCHAR(160),
@@ -217,7 +213,7 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teacher_class_section_url_cache     TEXT,
 
   /* =======================
-     ROOM cache (JSONB + generated)
+     ROOM cache
      ======================= */
   class_section_subject_teacher_class_room_id                UUID,
   class_section_subject_teacher_class_room_slug_cache        VARCHAR(160),
@@ -245,7 +241,7 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
      ======================= */
   class_section_subject_teacher_total_books          INT NOT NULL DEFAULT 0,
   class_section_subject_teacher_class_subject_id     UUID NOT NULL,
-  class_section_subject_teacher_subject_id     UUID,
+  class_section_subject_teacher_subject_id           UUID,
   class_section_subject_teacher_subject_name_cache   VARCHAR(160),
   class_section_subject_teacher_subject_code_cache   VARCHAR(80),
   class_section_subject_teacher_subject_slug_cache   VARCHAR(160),
@@ -266,7 +262,6 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teacher_min_passing_score                     INT,
 
   -- Status & audit
-  -- Status & audit
   class_section_subject_teacher_status        class_status_enum NOT NULL DEFAULT 'active',
   class_section_subject_teacher_completed_at  TIMESTAMPTZ,
   class_section_subject_teacher_created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -280,12 +275,13 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
     CHECK (class_section_subject_teacher_quota_taken >= 0),
   CONSTRAINT ck_csst_counts_nonneg
     CHECK (
-      class_section_subject_teacher_total_attendance          >= 0 AND
-      class_section_subject_teacher_total_assessments         >= 0 AND
-      class_section_subject_teacher_total_assessments_graded  >= 0 AND
-      class_section_subject_teacher_total_assessments_ungraded>= 0 AND
-      class_section_subject_teacher_total_students_passed     >= 0 AND
-      class_section_subject_teacher_total_books               >= 0
+      class_section_subject_teacher_total_attendance                >= 0 AND
+      class_section_subject_teacher_total_assessments               >= 0 AND
+      class_section_subject_teacher_total_assessments_training      >= 0 AND
+      class_section_subject_teacher_total_assessments_daily_exam    >= 0 AND
+      class_section_subject_teacher_total_assessments_exam          >= 0 AND
+      class_section_subject_teacher_total_students_passed           >= 0 AND
+      class_section_subject_teacher_total_books                     >= 0
     ),
   CONSTRAINT ck_csst_room_cache_is_object
     CHECK (class_section_subject_teacher_class_room_cache IS NULL OR jsonb_typeof(class_section_subject_teacher_class_room_cache) = 'object'),
@@ -329,6 +325,7 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
 -- ======================================================================
 -- INDEXES
 -- ======================================================================
+
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_id_tenant
   ON class_section_subject_teachers (class_section_subject_teacher_id, class_section_subject_teacher_school_id);
 
@@ -349,7 +346,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_one_active_per_section_subject_alive
   )
   WHERE class_section_subject_teacher_deleted_at IS NULL
     AND class_section_subject_teacher_status = 'active';
-    
+
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_slug_per_tenant_alive
   ON class_section_subject_teachers (
     class_section_subject_teacher_school_id,
@@ -414,9 +411,7 @@ CREATE INDEX IF NOT EXISTS gin_csst_subject_slug_cache_trgm_alive
     AND class_section_subject_teacher_subject_slug_cache IS NOT NULL;
 
 -- ======================================================================
--- ALTER UNTUK SKEMA LAMA
---  - rename capacity/enrolled_count → quota_total/quota_taken
---  - pastikan kolom quota_* dan min_passing_* ADA di schema lama
+-- ALTER UNTUK SKEMA LAMA (idempotent)
 -- ======================================================================
 
 DO $$
@@ -444,15 +439,29 @@ BEGIN
   END IF;
 END$$;
 
--- 🔁 Tambahan: kalau tabel sudah lama & tidak punya kolom-kolom baru, tambahkan
-ALTER TABLE class_section_subject_teachers
-  ADD COLUMN IF NOT EXISTS class_section_subject_teacher_quota_total INT,
-  ADD COLUMN IF NOT EXISTS class_section_subject_teacher_quota_taken INT NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS class_section_subject_teacher_min_passing_score_class_subject_cache INT,
-  ADD COLUMN IF NOT EXISTS class_section_subject_teacher_min_passing_score INT;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'class_section_subject_teachers'
+      AND column_name = 'class_section_subject_teacher_total_assessments_graded'
+  ) THEN
+    EXECUTE 'ALTER TABLE class_section_subject_teachers
+             DROP COLUMN class_section_subject_teacher_total_assessments_graded';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'class_section_subject_teachers'
+      AND column_name = 'class_section_subject_teacher_total_assessments_ungraded'
+  ) THEN
+    EXECUTE 'ALTER TABLE class_section_subject_teachers
+             DROP COLUMN class_section_subject_teacher_total_assessments_ungraded';
+  END IF;
+END$$;
 
 -- ======================================================================
--- COMMENT biar jelas asal datanya
+-- COMMENT
 -- ======================================================================
 
 COMMENT ON COLUMN class_section_subject_teachers.class_section_subject_teacher_min_passing_score_class_subject_cache IS
@@ -465,8 +474,6 @@ COMMENT ON COLUMN class_subjects.class_subject_min_passing_score IS
   'KKM dasar per kombinasi (class_parent + subject); dicache ke CSST sebagai *_min_passing_score_class_subject_cache';
 
 COMMIT;
-
-
 
 -- +migrate Up
 BEGIN;

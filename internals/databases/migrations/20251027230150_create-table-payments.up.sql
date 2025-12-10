@@ -297,7 +297,6 @@ CREATE TABLE IF NOT EXISTS payment_items (
   payment_item_fee_rule_amount_snapshot        INT
     CHECK (payment_item_fee_rule_amount_snapshot IS NULL
            OR payment_item_fee_rule_amount_snapshot >= 0),
-  payment_item_fee_rule_gbk_id_snapshot        UUID,
   payment_item_fee_rule_scope_snapshot         fee_scope,
   payment_item_fee_rule_note_snapshot          TEXT,
 

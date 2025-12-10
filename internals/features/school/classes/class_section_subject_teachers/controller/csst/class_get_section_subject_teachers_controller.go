@@ -302,7 +302,13 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		tx = tx.Where("class_section_subject_teacher_deleted_at IS NULL")
 	}
 	if q.IsActive != nil {
-		tx = tx.Where("class_section_subject_teacher_is_active = ?", *q.IsActive)
+		if *q.IsActive {
+			// hanya yang status=active
+			tx = tx.Where("class_section_subject_teacher_status = ?", modelCSST.ClassStatusActive)
+		} else {
+			// semua yang BUKAN active (inactive / completed / dst)
+			tx = tx.Where("class_section_subject_teacher_status <> ?", modelCSST.ClassStatusActive)
+		}
 	}
 
 	if len(filterIDs) > 0 {
@@ -373,8 +379,13 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		countTx = countTx.Where("class_section_subject_teacher_deleted_at IS NULL")
 	}
 	if q.IsActive != nil {
-		countTx = countTx.Where("class_section_subject_teacher_is_active = ?", *q.IsActive)
+		if *q.IsActive {
+			countTx = countTx.Where("class_section_subject_teacher_status = ?", modelCSST.ClassStatusActive)
+		} else {
+			countTx = countTx.Where("class_section_subject_teacher_status <> ?", modelCSST.ClassStatusActive)
+		}
 	}
+
 	if len(filterIDs) > 0 {
 		countTx = countTx.Where("class_section_subject_teacher_id IN ?", filterIDs)
 	}

@@ -1,4 +1,4 @@
-// file: internals/features/library/books/dto/book_dto.go
+// file: internals/features/school/academics/books/dto/book_dto.go
 package dto
 
 import (
@@ -13,7 +13,7 @@ import (
 
 /* =========================================================
    QUERY (LIST)
-   ========================================================= */
+========================================================= */
 
 type BooksListQuery struct {
 	Q       *string `query:"q"`        // cari di title/author/desc (controller yang handle)
@@ -28,7 +28,7 @@ type BooksListQuery struct {
 
 /* =========================================================
    URL DTO (opsional, bila ada tabel/entitas URL terpisah)
-   ========================================================= */
+========================================================= */
 
 type BookURLUpsert struct {
 	BookURLKind      string  `json:"book_url_kind" validate:"required,min=1,max=24"` // attachment|image|link|video|other
@@ -72,7 +72,7 @@ func (u *BookURLUpsert) Normalize() {
 
 /* =========================================================
    REQUEST
-   ========================================================= */
+========================================================= */
 
 type BookCreateRequest struct {
 	BookSchoolID    uuid.UUID `json:"book_school_id"      form:"book_school_id"      validate:"required"`
@@ -98,7 +98,7 @@ type BookUpdateRequest struct {
 
 /* =========================================================
    NORMALIZER
-   ========================================================= */
+========================================================= */
 
 func trimPtr(s *string) *string {
 	if s == nil {
@@ -130,12 +130,10 @@ func (r *BookUpdateRequest) Normalize() {
 	}
 }
 
-/*
-=========================================================
+/* =========================================================
+   RESPONSE (FULL)
+========================================================= */
 
-	RESPONSE
-	=========================================================
-*/
 type BookResponse struct {
 	BookID       uuid.UUID `json:"book_id"`
 	BookSchoolID uuid.UUID `json:"book_school_id"`
@@ -151,6 +149,10 @@ type BookResponse struct {
 	// link pembelian
 	BookPurchaseURL *string `json:"book_purchase_url,omitempty"`
 
+	// publisher & tahun terbit
+	BookPublisher       *string `json:"book_publisher,omitempty"`
+	BookPublicationYear *int16  `json:"book_publication_year,omitempty"`
+
 	// versi lama image (GC)
 	BookImageURLOld             *string    `json:"book_image_url_old,omitempty"`
 	BookImageObjectKeyOld       *string    `json:"book_image_object_key_old,omitempty"`
@@ -159,6 +161,9 @@ type BookResponse struct {
 	BookCreatedAt time.Time `json:"book_created_at"`
 	BookUpdatedAt time.Time `json:"book_updated_at"`
 	BookIsDeleted bool      `json:"book_is_deleted"`
+
+	// nested mapel (kalau diminta)
+	ClassSubjectBooks []BookClassSubjectItem `json:"class_subject_books,omitempty"`
 }
 
 type PageInfo struct {
@@ -172,12 +177,10 @@ type BooksListResponse struct {
 	Page PageInfo       `json:"page"`
 }
 
-/*
-=========================================================
+/* =========================================================
+   MAPPER ⇄ MODEL
+========================================================= */
 
-	MAPPER
-	=========================================================
-*/
 func ToBookResponse(m *model.BookModel) BookResponse {
 	return BookResponse{
 		BookID:       m.BookID,
@@ -192,6 +195,9 @@ func ToBookResponse(m *model.BookModel) BookResponse {
 		BookImageObjectKey: m.BookImageObjectKey,
 
 		BookPurchaseURL: m.BookPurchaseURL,
+
+		BookPublisher:       m.BookPublisher,
+		BookPublicationYear: m.BookPublicationYear,
 
 		BookImageURLOld:             m.BookImageURLOld,
 		BookImageObjectKeyOld:       m.BookImageObjectKeyOld,
@@ -232,12 +238,10 @@ func (r *BookUpdateRequest) ApplyToModel(m *model.BookModel) {
 	}
 }
 
-/*
-=========================================================
+/* =========================================================
+   WITH-USAGES (opsional, untuk detail penggunaan)
+========================================================= */
 
-	(Opsional) WITH-USAGES — jika kamu memang pakai di UI
-	=========================================================
-*/
 type BookUsageSectionLite struct {
 	ClassSectionID   uuid.UUID `json:"class_section_id"`
 	ClassSectionName string    `json:"class_section_name"`
@@ -277,8 +281,8 @@ type BookWithUsagesResponse struct {
 }
 
 /* =========================
-   LIST QUERY (dipakai di controller.List)
-   ========================= */
+   LIST QUERY (with usages)
+========================= */
 
 type BooksWithUsagesListQuery struct {
 	Q           *string `query:"q"`
@@ -292,10 +296,9 @@ type BooksWithUsagesListQuery struct {
 
 /* =========================================================
    COMPACT DTO
-   ========================================================= */
+========================================================= */
 
-// BookCompact dipakai sebagai bentuk ringkas di tempat lain
-// (misal embed di materials, CSST, dsb)
+// BookClassSubjectItem: pivot + compact class_subject
 type BookClassSubjectItem struct {
 	ClassSubjectBookID         uuid.UUID `json:"class_subject_book_id"`
 	ClassSubjectBookIsPrimary  bool      `json:"class_subject_book_is_primary"`
@@ -306,7 +309,8 @@ type BookClassSubjectItem struct {
 	ClassSubject classSubjectDTO.ClassSubjectCompactResponse `json:"class_subject"`
 }
 
-// existing
+// BookCompact dipakai sebagai bentuk ringkas di tempat lain
+// (misal embed di materials, CSST, dsb)
 type BookCompact struct {
 	BookID       uuid.UUID `json:"book_id"`
 	BookSchoolID uuid.UUID `json:"book_school_id"`
@@ -323,7 +327,7 @@ type BookCompact struct {
 	BookUpdatedAt time.Time `json:"book_updated_at"`
 	BookIsDeleted bool      `json:"book_is_deleted"`
 
-	// 🔥 baru: daftar mapel lengkap (class_subject compact)
+	// daftar mapel lengkap (class_subject compact)
 	ClassSubjectBooks []BookClassSubjectItem `json:"class_subject_books,omitempty"`
 }
 

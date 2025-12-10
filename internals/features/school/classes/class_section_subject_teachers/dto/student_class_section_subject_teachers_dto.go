@@ -4,6 +4,8 @@ package dto
 import (
 	"time"
 
+	model "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
+
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 )
@@ -217,30 +219,25 @@ type StudentCSSTItem struct {
 	StudentCSSTIsPassed      *bool    `json:"student_csst_is_passed,omitempty"`
 
 	// 🆕 diselaraskan dengan kolom di migration + model
-	StudentCSSTUserProfileNameCache        *string `json:"student_csst_user_profile_name_cache,omitempty"`
-	StudentCSSTUserProfileAvatarURLCache   *string `json:"student_csst_user_profile_avatar_url_cache,omitempty"`
-	StudentCSSTUserProfileWAURLCache       *string `json:"student_csst_user_profile_wa_url_cache,omitempty"`
-	StudentCSSTUserProfileParentNameCache  *string `json:"student_csst_user_profile_parent_name_cache,omitempty"`
-	StudentCSSTUserProfileParentWAURLCache *string `json:"student_csst_user_profile_parent_wa_url_cache,omitempty"`
-	StudentCSSTUserProfileGenderCache      *string `json:"student_csst_user_profile_gender_cache,omitempty"`
-	StudentCSSTSchoolStudentCodeCache      *string `json:"student_csst_school_student_code_cache,omitempty"`
-
-	StudentCSSTEditsHistory datatypes.JSON `json:"student_csst_edits_history"`
-
-	// NOTES
-	StudentCSSTStudentNotes                 *string    `json:"student_csst_student_notes,omitempty"`
-	StudentCSSTStudentNotesUpdatedAt        *time.Time `json:"student_csst_student_notes_updated_at,omitempty"`
-	StudentCSSTHomeroomNotes                *string    `json:"student_csst_homeroom_notes,omitempty"`
-	StudentCSSTHomeroomNotesUpdatedAt       *time.Time `json:"student_csst_homeroom_notes_updated_at,omitempty"`
-	StudentCSSTSubjectTeacherNotes          *string    `json:"student_csst_subject_teacher_notes,omitempty"`
-	StudentCSSTSubjectTeacherNotesUpdatedAt *time.Time `json:"student_csst_subject_teacher_notes_updated_at,omitempty"`
-
-	StudentCSSTSlug *string        `json:"student_csst_slug,omitempty"`
-	StudentCSSTMeta datatypes.JSON `json:"student_csst_meta"`
-
-	StudentCSSTCreatedAt time.Time  `json:"student_csst_created_at"`
-	StudentCSSTUpdatedAt time.Time  `json:"student_csst_updated_at"`
-	StudentCSSTDeletedAt *time.Time `json:"student_csst_deleted_at,omitempty"`
+	StudentCSSTUserProfileNameCache         *string        `json:"student_csst_user_profile_name_cache,omitempty"`
+	StudentCSSTUserProfileAvatarURLCache    *string        `json:"student_csst_user_profile_avatar_url_cache,omitempty"`
+	StudentCSSTUserProfileWhatsappURLCache  *string        `json:"student_csst_user_profile_wa_url_cache,omitempty"` // json tetap pakai _wa_ biar backwards compatible
+	StudentCSSTUserProfileParentNameCache   *string        `json:"student_csst_user_profile_parent_name_cache,omitempty"`
+	StudentCSSTUserProfileParentWAURLCache  *string        `json:"student_csst_user_profile_parent_wa_url_cache,omitempty"`
+	StudentCSSTUserProfileGenderCache       *string        `json:"student_csst_user_profile_gender_cache,omitempty"`
+	StudentCSSTSchoolStudentCodeCache       *string        `json:"student_csst_school_student_code_cache,omitempty"`
+	StudentCSSTEditsHistory                 datatypes.JSON `json:"student_csst_edits_history"`
+	StudentCSSTStudentNotes                 *string        `json:"student_csst_student_notes,omitempty"`
+	StudentCSSTStudentNotesUpdatedAt        *time.Time     `json:"student_csst_student_notes_updated_at,omitempty"`
+	StudentCSSTHomeroomNotes                *string        `json:"student_csst_homeroom_notes,omitempty"`
+	StudentCSSTHomeroomNotesUpdatedAt       *time.Time     `json:"student_csst_homeroom_notes_updated_at,omitempty"`
+	StudentCSSTSubjectTeacherNotes          *string        `json:"student_csst_subject_teacher_notes,omitempty"`
+	StudentCSSTSubjectTeacherNotesUpdatedAt *time.Time     `json:"student_csst_subject_teacher_notes_updated_at,omitempty"`
+	StudentCSSTSlug                         *string        `json:"student_csst_slug,omitempty"`
+	StudentCSSTMeta                         datatypes.JSON `json:"student_csst_meta"`
+	StudentCSSTCreatedAt                    time.Time      `json:"student_csst_created_at"`
+	StudentCSSTUpdatedAt                    time.Time      `json:"student_csst_updated_at"`
+	StudentCSSTDeletedAt                    *time.Time     `json:"student_csst_deleted_at,omitempty"`
 
 	// Expanded relations
 	Student      *StudentBrief      `json:"student,omitempty"`
@@ -319,4 +316,69 @@ type StudentCSSTUpdateNotesRequest struct {
 	// - Jika dikirim null -> clear (set NULL di DB)
 	// - Jika field tidak dikirim -> anggap invalid (wajib ada key-nya)
 	Notes *string `json:"notes"` // optional: string atau null
+}
+
+// FromStudentCSSTModel: mapper 1:1 Model → DTO
+func FromStudentCSSTModel(m *model.StudentClassSectionSubjectTeacherModel) StudentCSSTItem {
+	if m == nil {
+		return StudentCSSTItem{}
+	}
+
+	var deletedAt *time.Time
+	if m.StudentCSSTDeletedAt.Valid {
+		t := m.StudentCSSTDeletedAt.Time
+		deletedAt = &t
+	}
+
+	return StudentCSSTItem{
+		StudentCSSTID:       m.StudentCSSTID,
+		StudentCSSTSchoolID: m.StudentCSSTSchoolID,
+
+		StudentCSSTStudentID: m.StudentCSSTStudentID,
+		StudentCSSTCSSTID:    m.StudentCSSTCSSTID,
+
+		StudentCSSTIsActive: m.StudentCSSTIsActive,
+		StudentCSSTFrom:     m.StudentCSSTFrom,
+		StudentCSSTTo:       m.StudentCSSTTo,
+
+		StudentCSSTScoreTotal:    m.StudentCSSTScoreTotal,
+		StudentCSSTScoreMaxTotal: m.StudentCSSTScoreMaxTotal,
+		StudentCSSTScorePercent:  m.StudentCSSTScorePercent,
+		StudentCSSTGradeLetter:   m.StudentCSSTGradeLetter,
+		StudentCSSTGradePoint:    m.StudentCSSTGradePoint,
+		StudentCSSTIsPassed:      m.StudentCSSTIsPassed,
+
+		StudentCSSTUserProfileNameCache:         m.StudentCSSTUserProfileNameCache,
+		StudentCSSTUserProfileAvatarURLCache:    m.StudentCSSTUserProfileAvatarURLCache,
+		StudentCSSTUserProfileWhatsappURLCache:  m.StudentCSSTUserProfileWhatsappURLCache,
+		StudentCSSTUserProfileParentNameCache:   m.StudentCSSTUserProfileParentNameCache,
+		StudentCSSTUserProfileParentWAURLCache:  m.StudentCSSTUserProfileParentWAURLCache,
+		StudentCSSTUserProfileGenderCache:       m.StudentCSSTUserProfileGenderCache,
+		StudentCSSTSchoolStudentCodeCache:       m.StudentCSSTSchoolStudentCodeCache,
+		StudentCSSTEditsHistory:                 m.StudentCSSTEditsHistory,
+		StudentCSSTStudentNotes:                 m.StudentCSSTStudentNotes,
+		StudentCSSTStudentNotesUpdatedAt:        m.StudentCSSTStudentNotesUpdatedAt,
+		StudentCSSTHomeroomNotes:                m.StudentCSSTHomeroomNotes,
+		StudentCSSTHomeroomNotesUpdatedAt:       m.StudentCSSTHomeroomNotesUpdatedAt,
+		StudentCSSTSubjectTeacherNotes:          m.StudentCSSTSubjectTeacherNotes,
+		StudentCSSTSubjectTeacherNotesUpdatedAt: m.StudentCSSTSubjectTeacherNotesUpdatedAt,
+		StudentCSSTSlug:                         m.StudentCSSTSlug,
+		StudentCSSTMeta:                         m.StudentCSSTMeta,
+		StudentCSSTCreatedAt:                    m.StudentCSSTCreatedAt,
+		StudentCSSTUpdatedAt:                    m.StudentCSSTUpdatedAt,
+		StudentCSSTDeletedAt:                    deletedAt,
+		Student:                                 nil,
+		Section:                                 nil,
+		ClassSubject:                            nil,
+		Teacher:                                 nil,
+	}
+}
+
+// Optional helper kalau mau dipakai di tempat lain
+func FromStudentCSSTModels(rows []model.StudentClassSectionSubjectTeacherModel) []StudentCSSTItem {
+	out := make([]StudentCSSTItem, 0, len(rows))
+	for i := range rows {
+		out = append(out, FromStudentCSSTModel(&rows[i]))
+	}
+	return out
 }

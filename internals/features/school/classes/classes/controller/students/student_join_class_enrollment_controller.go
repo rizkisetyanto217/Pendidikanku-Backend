@@ -289,7 +289,7 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 		Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("class_section_subject_teacher_school_id = ?", schoolID).
 		Where("class_section_subject_teacher_class_section_id = ?", sec.ClassSectionID).
-		Where("class_section_subject_teacher_is_active = ?", true).
+		Where("class_section_subject_teacher_status = ?", studentCSSTModel.ClassStatusActive).
 		Where("class_section_subject_teacher_deleted_at IS NULL").
 		Find(&cssts).Error; err != nil {
 
@@ -356,7 +356,7 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 			name := userProfileSnap.Name
 			newLink.StudentCSSTUserProfileNameCache = &name
 			newLink.StudentCSSTUserProfileAvatarURLCache = userProfileSnap.AvatarURL
-			newLink.StudentCSSTUserProfileWAURLCache = userProfileSnap.WhatsappURL
+			newLink.StudentCSSTUserProfileWhatsappURLCache = userProfileSnap.WhatsappURL
 			newLink.StudentCSSTUserProfileParentNameCache = userProfileSnap.ParentName
 			newLink.StudentCSSTUserProfileParentWAURLCache = userProfileSnap.ParentWhatsappURL
 			newLink.StudentCSSTUserProfileGenderCache = userProfileSnap.Gender

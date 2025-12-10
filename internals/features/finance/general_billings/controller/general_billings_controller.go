@@ -32,18 +32,17 @@ func NewGeneralBillingController(db *gorm.DB) *GeneralBillingController {
 // ========== Create ==========
 // POST /api/a/general-billings
 func (ctl *GeneralBillingController) Create(c *fiber.Ctx) error {
-	// role dasar: owner/dkm/teacher
-	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
-		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
+	// 1) Ambil school_id dari token / context
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
+	if err != nil {
+		return err // sudah JsonError di dalam helper
+	}
+	if schoolID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "school context not found in token")
 	}
 
-	// Ambil context tenant dulu, ini jadi source of truth school_id
-	mc, err := helperAuth.ResolveSchoolContext(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak valid")
-	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
+	// 2) Hanya DKM/Admin per-school yang diizinkan
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return err
 	}
 
@@ -52,7 +51,7 @@ func (ctl *GeneralBillingController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// Paksa pakai schoolID dari context (abaikan isi body untuk field ini)
+	// 3) Paksa pakai schoolID dari token (abaikan body)
 	req.GeneralBillingSchoolID = schoolID
 
 	if err := ctl.Validator.Struct(&req); err != nil {
@@ -74,33 +73,35 @@ func (ctl *GeneralBillingController) Create(c *fiber.Ctx) error {
 // ========== Patch ==========
 // PATCH /api/a/general-billings/:id
 func (ctl *GeneralBillingController) Patch(c *fiber.Ctx) error {
-	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
-		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
-	}
-
 	idStr := strings.TrimSpace(c.Params("id"))
 	id, err := uuid.Parse(idStr)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "general_billing_id invalid")
 	}
 
+	// Ambil record dulu (buat cek tenant + existence)
 	var gb model.GeneralBillingModel
 	if err := ctl.DB.
 		Where("general_billing_id = ? AND general_billing_deleted_at IS NULL", id).
 		First(&gb).Error; err != nil {
+
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// Tenant context
-	mc, err := helperAuth.ResolveSchoolContext(c)
+	// Ambil school_id dari token
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak valid")
+		return err
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
+	if schoolID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "school context not found in token")
+	}
+
+	// Hanya DKM/Admin school ini yang boleh
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return err
 	}
 
@@ -128,10 +129,6 @@ func (ctl *GeneralBillingController) Patch(c *fiber.Ctx) error {
 // ========== Delete (soft delete) ==========
 // DELETE /api/a/general-billings/:id
 func (ctl *GeneralBillingController) Delete(c *fiber.Ctx) error {
-	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
-		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
-	}
-
 	idStr := strings.TrimSpace(c.Params("id"))
 	id, err := uuid.Parse(idStr)
 	if err != nil {
@@ -143,19 +140,24 @@ func (ctl *GeneralBillingController) Delete(c *fiber.Ctx) error {
 	if err := ctl.DB.
 		Where("general_billing_id = ? AND general_billing_deleted_at IS NULL", id).
 		First(&gb).Error; err != nil {
+
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// Tenant context
-	mc, err := helperAuth.ResolveSchoolContext(c)
+	// Ambil school_id dari token
+	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak valid")
+		return err
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
+	if schoolID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "school context not found in token")
+	}
+
+	// Hanya DKM/Admin school ini yang boleh
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return err
 	}
 

@@ -14,29 +14,43 @@ import (
 	"gorm.io/gorm"
 )
 
-// RoomCache berisi data yang disimpan ke JSONB room_cache & bisa dipakai lintas fitur.
-// Schema JSONB (top-level keys) sengaja konsisten dengan kolom generated di SQL:
-//   - name       : string
-//   - slug       : string (opsional)
-//   - location   : string (opsional)
-//   - code       : string (opsional)
-//   - capacity   : int    (opsional)
-//   - is_virtual : bool
-//   - platform   : string (opsional, mis. "zoom")
-//   - join_url   : string (opsional)
-type RoomCache struct {
-	Name     string
-	Slug     *string
-	Location *string
+/*
+   RoomCache = snapshot ruangan yang disimpan ke JSONB.
 
-	Code      *string
-	Capacity  *int
-	IsVirtual bool
-	Platform  *string
-	JoinURL   *string
+   Penting: key JSON disamakan dengan json tag di ClassRoomModel:
+   - class_room_id
+   - class_room_school_id
+   - class_room_name
+   - class_room_code
+   - class_room_slug
+   - class_room_location
+   - class_room_capacity
+   - class_room_is_virtual
+   - class_room_image_url
+   - class_room_platform
+   - class_room_join_url
+   - class_room_meeting_id
+   - class_room_passcode
+*/
+
+type RoomCache struct {
+	ClassRoomID        uuid.UUID
+	ClassRoomSchoolID  uuid.UUID
+	ClassRoomName      string
+	ClassRoomCode      *string
+	ClassRoomSlug      *string
+	ClassRoomLocation  *string
+	ClassRoomCapacity  *int
+	ClassRoomIsVirtual bool
+
+	ClassRoomImageURL  *string
+	ClassRoomPlatform  *string
+	ClassRoomJoinURL   *string
+	ClassRoomMeetingID *string
+	ClassRoomPasscode  *string
 }
 
-// helper kecil: trim string pointer, kalau kosong jadi nil
+// helper kecil: trim *string → *string (kosong jadi nil)
 func trimPtr(p *string) *string {
 	if p == nil {
 		return nil
@@ -48,128 +62,147 @@ func trimPtr(p *string) *string {
 	return &v
 }
 
+// helper string biasa
+func trimStr(s string) string {
+	return strings.TrimSpace(s)
+}
+
 // ValidateAndCacheRoom membaca room dari DB + validasi tenant.
-// Catatan: class_room_school_id di-cast ke TEXT agar aman walau bukan UUID native.
+// Hasil akhirnya RoomCache akan dimarshal ke JSON dengan key sama seperti model.
 func ValidateAndCacheRoom(
 	tx *gorm.DB,
 	expectSchoolID uuid.UUID,
 	roomID uuid.UUID,
 ) (*RoomCache, error) {
 	var row struct {
-		SchoolID  string  `gorm:"column:school_id"`
-		Name      string  `gorm:"column:name"`
-		Slug      *string `gorm:"column:slug"`
-		Location  *string `gorm:"column:location"`
-		Code      *string `gorm:"column:code"`
-		Capacity  *int    `gorm:"column:capacity"`
-		IsVirtual bool    `gorm:"column:is_virtual"`
-		Platform  *string `gorm:"column:platform"`
-		JoinURL   *string `gorm:"column:join_url"`
+		ClassRoomID        uuid.UUID `gorm:"column:class_room_id"`
+		ClassRoomSchoolID  uuid.UUID `gorm:"column:class_room_school_id"`
+		ClassRoomName      string    `gorm:"column:class_room_name"`
+		ClassRoomCode      *string   `gorm:"column:class_room_code"`
+		ClassRoomSlug      *string   `gorm:"column:class_room_slug"`
+		ClassRoomLocation  *string   `gorm:"column:class_room_location"`
+		ClassRoomCapacity  *int      `gorm:"column:class_room_capacity"`
+		ClassRoomIsVirtual bool      `gorm:"column:class_room_is_virtual"`
+		ClassRoomImageURL  *string   `gorm:"column:class_room_image_url"`
+		ClassRoomPlatform  *string   `gorm:"column:class_room_platform"`
+		ClassRoomJoinURL   *string   `gorm:"column:class_room_join_url"`
+		ClassRoomMeetingID *string   `gorm:"column:class_room_meeting_id"`
+		ClassRoomPasscode  *string   `gorm:"column:class_room_passcode"`
 	}
 
 	if err := tx.Raw(`
 		SELECT
-			class_room_school_id::text AS school_id,
-			class_room_name             AS name,
-			class_room_slug             AS slug,
-			class_room_location         AS location,
-			class_room_code             AS code,
-			class_room_capacity         AS capacity,
-			class_room_is_virtual       AS is_virtual,
-			class_room_platform         AS platform,
-			class_room_join_url         AS join_url
+			class_room_id,
+			class_room_school_id,
+			class_room_name,
+			class_room_code,
+			class_room_slug,
+			class_room_location,
+			class_room_capacity,
+			class_room_is_virtual,
+			class_room_image_url,
+			class_room_platform,
+			class_room_join_url,
+			class_room_meeting_id,
+			class_room_passcode
 		FROM class_rooms
 		WHERE class_room_id = ? AND class_room_deleted_at IS NULL
 	`, roomID).Scan(&row).Error; err != nil {
 		return nil, fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi ruang kelas")
 	}
 
-	if strings.TrimSpace(row.SchoolID) == "" {
+	// not found / school mismatch
+	if row.ClassRoomID == uuid.Nil {
 		return nil, fiber.NewError(fiber.StatusBadRequest, "Ruang kelas tidak ditemukan")
 	}
-	rmz, perr := uuid.Parse(strings.TrimSpace(row.SchoolID))
-	if perr != nil {
-		return nil, fiber.NewError(fiber.StatusInternalServerError, "Format school_id ruang kelas tidak valid")
-	}
-	if rmz != expectSchoolID {
+	if row.ClassRoomSchoolID != expectSchoolID {
 		return nil, fiber.NewError(fiber.StatusForbidden, "Ruang kelas bukan milik school Anda")
 	}
 
-	name := strings.TrimSpace(row.Name)
+	name := trimStr(row.ClassRoomName)
 	if name == "" {
 		name = "Ruang"
 	}
 
 	return &RoomCache{
-		Name:      name,
-		Slug:      trimPtr(row.Slug),
-		Location:  trimPtr(row.Location),
-		Code:      trimPtr(row.Code),
-		Capacity:  row.Capacity,
-		IsVirtual: row.IsVirtual,
-		Platform:  trimPtr(row.Platform),
-		JoinURL:   trimPtr(row.JoinURL),
+		ClassRoomID:        row.ClassRoomID,
+		ClassRoomSchoolID:  row.ClassRoomSchoolID,
+		ClassRoomName:      name,
+		ClassRoomCode:      trimPtr(row.ClassRoomCode),
+		ClassRoomSlug:      trimPtr(row.ClassRoomSlug),
+		ClassRoomLocation:  trimPtr(row.ClassRoomLocation),
+		ClassRoomCapacity:  row.ClassRoomCapacity,
+		ClassRoomIsVirtual: row.ClassRoomIsVirtual,
+		ClassRoomImageURL:  trimPtr(row.ClassRoomImageURL),
+		ClassRoomPlatform:  trimPtr(row.ClassRoomPlatform),
+		ClassRoomJoinURL:   trimPtr(row.ClassRoomJoinURL),
+		ClassRoomMeetingID: trimPtr(row.ClassRoomMeetingID),
+		ClassRoomPasscode:  trimPtr(row.ClassRoomPasscode),
 	}, nil
 }
 
 /* =========================================================
    Generic: RoomCache → JSON
+   (key disamakan dengan json tag model)
    ========================================================= */
 
-// ToJSONMap mengubah RoomCache → datatypes.JSONMap
-// Dipakai di model yang pakai JSONMap (misalnya: class_sections).
 func ToJSONMap(rs *RoomCache) datatypes.JSONMap {
 	if rs == nil {
 		return nil
 	}
 
 	snap := datatypes.JSONMap{
-		"name":       rs.Name,
-		"is_virtual": rs.IsVirtual,
+		"class_room_id":         rs.ClassRoomID,
+		"class_room_school_id":  rs.ClassRoomSchoolID,
+		"class_room_name":       rs.ClassRoomName,
+		"class_room_is_virtual": rs.ClassRoomIsVirtual,
 	}
 
-	if rs.Slug != nil && strings.TrimSpace(*rs.Slug) != "" {
-		snap["slug"] = strings.TrimSpace(*rs.Slug)
+	if rs.ClassRoomCode != nil && trimStr(*rs.ClassRoomCode) != "" {
+		snap["class_room_code"] = trimStr(*rs.ClassRoomCode)
 	}
-	if rs.Location != nil && strings.TrimSpace(*rs.Location) != "" {
-		snap["location"] = strings.TrimSpace(*rs.Location)
+	if rs.ClassRoomSlug != nil && trimStr(*rs.ClassRoomSlug) != "" {
+		snap["class_room_slug"] = trimStr(*rs.ClassRoomSlug)
 	}
-	if rs.Code != nil && strings.TrimSpace(*rs.Code) != "" {
-		snap["code"] = strings.TrimSpace(*rs.Code)
+	if rs.ClassRoomLocation != nil && trimStr(*rs.ClassRoomLocation) != "" {
+		snap["class_room_location"] = trimStr(*rs.ClassRoomLocation)
 	}
-	if rs.Capacity != nil {
-		snap["capacity"] = *rs.Capacity
+	if rs.ClassRoomCapacity != nil {
+		snap["class_room_capacity"] = *rs.ClassRoomCapacity
 	}
-	if rs.Platform != nil && strings.TrimSpace(*rs.Platform) != "" {
-		snap["platform"] = strings.TrimSpace(*rs.Platform)
+	if rs.ClassRoomImageURL != nil && trimStr(*rs.ClassRoomImageURL) != "" {
+		snap["class_room_image_url"] = trimStr(*rs.ClassRoomImageURL)
 	}
-	if rs.JoinURL != nil && strings.TrimSpace(*rs.JoinURL) != "" {
-		snap["join_url"] = strings.TrimSpace(*rs.JoinURL)
+	if rs.ClassRoomPlatform != nil && trimStr(*rs.ClassRoomPlatform) != "" {
+		snap["class_room_platform"] = trimStr(*rs.ClassRoomPlatform)
+	}
+	if rs.ClassRoomJoinURL != nil && trimStr(*rs.ClassRoomJoinURL) != "" {
+		snap["class_room_join_url"] = trimStr(*rs.ClassRoomJoinURL)
+	}
+	if rs.ClassRoomMeetingID != nil && trimStr(*rs.ClassRoomMeetingID) != "" {
+		snap["class_room_meeting_id"] = trimStr(*rs.ClassRoomMeetingID)
+	}
+	if rs.ClassRoomPasscode != nil && trimStr(*rs.ClassRoomPasscode) != "" {
+		snap["class_room_passcode"] = trimStr(*rs.ClassRoomPasscode)
 	}
 
 	return snap
 }
 
-// ToJSON mengubah RoomCache → datatypes.JSON (bentuk []byte).
-// Dipakai di model yang pakai JSON (misalnya: CSST, class_schedule_rules).
 func ToJSON(rs *RoomCache) datatypes.JSON {
 	if rs == nil {
-		// pakai literal null biar aman
 		return datatypes.JSON([]byte("null"))
 	}
-
 	snap := ToJSONMap(rs)
 
 	b, err := json.Marshal(snap)
 	if err != nil {
-		// fallback: null
 		return datatypes.JSON([]byte("null"))
 	}
 
 	return datatypes.JSON(b)
 }
 
-// ToJSONPtr helper kalau butuh *datatypes.JSON (contoh: field pointer di CSST)
 func ToJSONPtr(rs *RoomCache) *datatypes.JSON {
 	if rs == nil {
 		return nil
@@ -179,12 +212,9 @@ func ToJSONPtr(rs *RoomCache) *datatypes.JSON {
 }
 
 /* =========================================================
-   Spesifik: apply ke ClassSectionModel
+   Apply ke ClassSectionModel
    ========================================================= */
 
-// ApplyRoomCacheToSection menulis cache ruang ke model section
-// (JSONB + slug_cache).
-// Kolom generated (name/location/slug_gen) akan otomatis diisi oleh DB.
 func ApplyRoomCacheToSection(mcs *secModel.ClassSectionModel, rs *RoomCache) {
 	if rs == nil {
 		mcs.ClassSectionClassRoomCache = nil
@@ -194,47 +224,68 @@ func ApplyRoomCacheToSection(mcs *secModel.ClassSectionModel, rs *RoomCache) {
 
 	mcs.ClassSectionClassRoomCache = ToJSONMap(rs)
 
-	if rs.Slug != nil && strings.TrimSpace(*rs.Slug) != "" {
-		slug := strings.TrimSpace(*rs.Slug)
+	if rs.ClassRoomSlug != nil && trimStr(*rs.ClassRoomSlug) != "" {
+		slug := trimStr(*rs.ClassRoomSlug)
 		mcs.ClassSectionClassRoomSlugCache = &slug
 	} else {
 		mcs.ClassSectionClassRoomSlugCache = nil
 	}
 }
 
-// ApplyRoomIDAndCacheToSection mengisi ID room + JSONB cache sekaligus.
 func ApplyRoomIDAndCacheToSection(mcs *secModel.ClassSectionModel, roomID *uuid.UUID, rs *RoomCache) {
 	mcs.ClassSectionClassRoomID = roomID
 	ApplyRoomCacheToSection(mcs, rs)
 }
 
 /* =========================================================
-   Spesifik: apply ke ClassSectionSubjectTeacherModel (CSST)
+   Apply ke ClassSectionSubjectTeacherModel (CSST)
    ========================================================= */
 
-// ApplyRoomCacheToCSST menulis cache ruang ke model CSST
-// (JSONB + slug_cache).
-// Kolom generated (name/location/slug_gen) akan otomatis diisi oleh DB.
 func ApplyRoomCacheToCSST(mcsst *csstModel.ClassSectionSubjectTeacherModel, rs *RoomCache) {
 	if rs == nil {
 		mcsst.ClassSectionSubjectTeacherClassRoomCache = nil
 		mcsst.ClassSectionSubjectTeacherClassRoomSlugCache = nil
+		mcsst.ClassSectionSubjectTeacherClassRoomNameCache = nil
+		mcsst.ClassSectionSubjectTeacherClassRoomSlugCacheGen = nil
+		mcsst.ClassSectionSubjectTeacherClassRoomLocationCache = nil
 		return
 	}
 
-	// kolom di model: *datatypes.JSON
+	// JSON snapshot full gaya model
 	mcsst.ClassSectionSubjectTeacherClassRoomCache = ToJSONPtr(rs)
 
-	if rs.Slug != nil && strings.TrimSpace(*rs.Slug) != "" {
-		slug := strings.TrimSpace(*rs.Slug)
+	// slug cache
+	if rs.ClassRoomSlug != nil && trimStr(*rs.ClassRoomSlug) != "" {
+		slug := trimStr(*rs.ClassRoomSlug)
 		mcsst.ClassSectionSubjectTeacherClassRoomSlugCache = &slug
+		mcsst.ClassSectionSubjectTeacherClassRoomSlugCacheGen = &slug
 	} else {
 		mcsst.ClassSectionSubjectTeacherClassRoomSlugCache = nil
+		mcsst.ClassSectionSubjectTeacherClassRoomSlugCacheGen = nil
+	}
+
+	// name cache
+	name := trimStr(rs.ClassRoomName)
+	if name != "" {
+		mcsst.ClassSectionSubjectTeacherClassRoomNameCache = &name
+	} else {
+		mcsst.ClassSectionSubjectTeacherClassRoomNameCache = nil
+	}
+
+	// location cache
+	if rs.ClassRoomLocation != nil && trimStr(*rs.ClassRoomLocation) != "" {
+		loc := trimStr(*rs.ClassRoomLocation)
+		mcsst.ClassSectionSubjectTeacherClassRoomLocationCache = &loc
+	} else {
+		mcsst.ClassSectionSubjectTeacherClassRoomLocationCache = nil
 	}
 }
 
-// ApplyRoomIDAndCacheToCSST mengisi ID room + JSONB cache sekaligus.
-func ApplyRoomIDAndCacheToCSST(mcsst *csstModel.ClassSectionSubjectTeacherModel, roomID *uuid.UUID, rs *RoomCache) {
+func ApplyRoomIDAndCacheToCSST(
+	mcsst *csstModel.ClassSectionSubjectTeacherModel,
+	roomID *uuid.UUID,
+	rs *RoomCache,
+) {
 	mcsst.ClassSectionSubjectTeacherClassRoomID = roomID
 	ApplyRoomCacheToCSST(mcsst, rs)
 }

@@ -80,7 +80,7 @@ func (h *PaymentItemController) CreatePaymentItem(c *fiber.Ctx) error {
 	if er := helperAuth.EnsureMemberSchool(c, schoolID); er != nil {
 		return er
 	}
-	_ = userID // sementara belum dipakai, tapi bisa untuk audit/logging
+	_ = userID // bisa dipakai nanti buat audit/logging
 
 	// 2) Parse body
 	var req dto.CreatePaymentItemRequest
@@ -216,7 +216,7 @@ func (h *PaymentItemController) CreatePaymentItem(c *fiber.Ctx) error {
 	// NOTE:
 	// Di sini kamu BISA tambahin side-effect:
 	// - update total header payment_amount_idr = sum(items)
-	// - atau trigger ApplyStudentBillSideEffects khusus item
+	// - atau trigger ApplyStudentBillSideEffects/ApplyEnrollmentSideEffects khusus item
 	// Untuk sekarang, kita biarin simpel.
 
 	return helper.JsonCreated(c, "payment_item created", dto.FromPaymentItemModel(item))
@@ -276,12 +276,11 @@ func (h *PaymentItemController) PatchPaymentItem(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "save failed: "+err.Error())
 	}
 
-	// NOTE: kalau kamu mau sync header amount
+	// NOTE: kalau mau sync header amount
 	// bisa hitung ulang total di sini.
 
 	return helper.JsonUpdated(c, "payment_item updated", dto.FromPaymentItemModel(&item))
 }
-
 
 /* =========================================================
    DELETE /payment-items/:id

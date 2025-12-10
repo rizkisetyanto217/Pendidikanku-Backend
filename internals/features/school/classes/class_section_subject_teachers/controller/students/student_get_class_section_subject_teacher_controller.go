@@ -3,7 +3,6 @@ package controller
 
 import (
 	"strings"
-	"time"
 
 	dto "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/dto"
 
@@ -16,45 +15,12 @@ import (
 )
 
 /* =========================================================
-   Types untuk include=csst
+   Types untuk include=csst (pakai compact DTO)
 ========================================================= */
 
-type CSSTIncluded struct {
-	ID               uuid.UUID `json:"class_section_subject_teacher_id"`
-	Slug             *string   `json:"class_section_subject_teacher_slug,omitempty"`
-	SubjectName      *string   `json:"class_section_subject_teacher_subject_name_cache,omitempty"`
-	SubjectCode      *string   `json:"class_section_subject_teacher_subject_code_cache,omitempty"`
-	SubjectSlug      *string   `json:"class_section_subject_teacher_subject_slug_cache,omitempty"`
-	TeacherNameCache *string   `json:"class_section_subject_teacher_school_teacher_name_cache,omitempty"`
-	ClassSectionID   uuid.UUID `json:"class_section_subject_teacher_class_section_id"`
-	ClassSectionName *string   `json:"class_section_subject_teacher_class_section_name_cache,omitempty"`
-	ClassSectionCode *string   `json:"class_section_subject_teacher_class_section_code_cache,omitempty"`
-	ClassSectionSlug *string   `json:"class_section_subject_teacher_class_section_slug_cache,omitempty"`
-	DeliveryMode     string    `json:"class_section_subject_teacher_delivery_mode"`
-
-	// quota_total / quota_taken (sinkron SQL & model)
-	QuotaTotal *int `json:"class_section_subject_teacher_quota_total,omitempty"`
-	QuotaTaken int  `json:"class_section_subject_teacher_quota_taken"`
-
-	MinPassingScore *int    `json:"class_section_subject_teacher_min_passing_score,omitempty"`
-	ClassRoomName   *string `json:"class_section_subject_teacher_class_room_name_cache,omitempty"`
-
-	TotalBooks int    `json:"class_section_subject_teacher_total_books"`
-	CreatedAt  string `json:"class_section_subject_teacher_created_at"`
-	UpdatedAt  string `json:"class_section_subject_teacher_updated_at"`
-
-	// 🆕 status enum + completed_at + helper is_active (buat kompat FE)
-	Status      string  `json:"class_section_subject_teacher_status"`
-	CompletedAt *string `json:"class_section_subject_teacher_completed_at,omitempty"`
-	IsActive    bool    `json:"class_section_subject_teacher_is_active"`
-
-	DeletedAt *string   `json:"class_section_subject_teacher_deleted_at,omitempty"`
-	SchoolID  uuid.UUID `json:"class_section_subject_teacher_school_id"`
-}
-
-// CSST di atas + murid-murid di bawahnya
+// CSST compact + murid-murid di bawahnya
 type CSSTWithStudents struct {
-	CSSTIncluded
+	dto.ClassSectionSubjectTeacherCompactResponse
 	Students []dto.StudentCSSTItem `json:"students"`
 }
 
@@ -223,7 +189,7 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		}
 
 		if len(csstSet) == 0 {
-			items := []CSSTIncluded{}
+			items := []dto.ClassSectionSubjectTeacherCompactResponse{}
 			return helper.JsonList(c, "ok", items, pagination)
 		}
 
@@ -237,59 +203,14 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		if err := ctl.DB.WithContext(c.Context()).
 			Model(&studentCSSTModel.ClassSectionSubjectTeacherModel{}).
 			Where("class_section_subject_teacher_school_id = ?", schoolID).
+			Where("class_section_subject_teacher_deleted_at IS NULL").
 			Where("class_section_subject_teacher_id IN ?", csstIDs).
 			Find(&csstRows).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal mengambil data csst")
 		}
 
-		items := make([]CSSTIncluded, 0, len(csstRows))
-		for i := range csstRows {
-			cs := csstRows[i]
-
-			item := CSSTIncluded{
-				ID:               cs.ClassSectionSubjectTeacherID,
-				Slug:             cs.ClassSectionSubjectTeacherSlug,
-				SubjectName:      cs.ClassSectionSubjectTeacherSubjectNameCache,
-				SubjectCode:      cs.ClassSectionSubjectTeacherSubjectCodeCache,
-				SubjectSlug:      cs.ClassSectionSubjectTeacherSubjectSlugCache,
-				TeacherNameCache: cs.ClassSectionSubjectTeacherSchoolTeacherNameCache,
-				ClassSectionID:   cs.ClassSectionSubjectTeacherClassSectionID,
-				ClassSectionName: cs.ClassSectionSubjectTeacherClassSectionNameCache,
-				ClassSectionCode: cs.ClassSectionSubjectTeacherClassSectionCodeCache,
-				ClassSectionSlug: cs.ClassSectionSubjectTeacherClassSectionSlugCache,
-				DeliveryMode:     string(cs.ClassSectionSubjectTeacherDeliveryMode),
-
-				QuotaTotal: cs.ClassSectionSubjectTeacherQuotaTotal,
-				QuotaTaken: cs.ClassSectionSubjectTeacherQuotaTaken,
-
-				MinPassingScore: cs.ClassSectionSubjectTeacherMinPassingScore,
-				ClassRoomName:   cs.ClassSectionSubjectTeacherClassRoomNameCache,
-
-				TotalBooks: cs.ClassSectionSubjectTeacherTotalBooks,
-				CreatedAt:  cs.ClassSectionSubjectTeacherCreatedAt.Format(time.RFC3339),
-				UpdatedAt:  cs.ClassSectionSubjectTeacherUpdatedAt.Format(time.RFC3339),
-
-				// 🆕 status + is_active helper
-				Status:   string(cs.ClassSectionSubjectTeacherStatus),
-				IsActive: cs.ClassSectionSubjectTeacherStatus == studentCSSTModel.ClassStatusActive,
-
-				SchoolID: cs.ClassSectionSubjectTeacherSchoolID,
-			}
-
-			// completed_at (kalau ada)
-			if cs.ClassSectionSubjectTeacherCompletedAt != nil {
-				s := cs.ClassSectionSubjectTeacherCompletedAt.Format(time.RFC3339)
-				item.CompletedAt = &s
-			}
-
-			// deleted_at (soft delete)
-			if cs.ClassSectionSubjectTeacherDeletedAt.Valid {
-				s := cs.ClassSectionSubjectTeacherDeletedAt.Time.Format(time.RFC3339)
-				item.DeletedAt = &s
-			}
-
-			items = append(items, item)
-		}
+		// pakai compact DTO bawaan
+		items := dto.FromClassSectionSubjectTeacherModelsCompact(csstRows)
 
 		return helper.JsonList(c, "ok", items, pagination)
 	}
@@ -322,92 +243,57 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		csstIDs = append(csstIDs, id)
 	}
 
-	// 2) query tabel class_section_subject_teachers → bentuk csstMap
-	csstMap := make(map[uuid.UUID]*CSSTIncluded)
+	// 2) query tabel class_section_subject_teachers → bentuk csstMap (pakai compact)
+	csstMap := make(map[uuid.UUID]dto.ClassSectionSubjectTeacherCompactResponse)
 
 	if len(csstIDs) > 0 {
 		var csstRows []studentCSSTModel.ClassSectionSubjectTeacherModel
 		if err := ctl.DB.WithContext(c.Context()).
 			Model(&studentCSSTModel.ClassSectionSubjectTeacherModel{}).
 			Where("class_section_subject_teacher_school_id = ?", schoolID).
+			Where("class_section_subject_teacher_deleted_at IS NULL").
 			Where("class_section_subject_teacher_id IN ?", csstIDs).
 			Find(&csstRows).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal mengambil data csst")
 		}
 
-		for i := range csstRows {
-			cs := csstRows[i]
-			item := &CSSTIncluded{
-				ID:               cs.ClassSectionSubjectTeacherID,
-				Slug:             cs.ClassSectionSubjectTeacherSlug,
-				SubjectName:      cs.ClassSectionSubjectTeacherSubjectNameCache,
-				SubjectCode:      cs.ClassSectionSubjectTeacherSubjectCodeCache,
-				SubjectSlug:      cs.ClassSectionSubjectTeacherSubjectSlugCache,
-				TeacherNameCache: cs.ClassSectionSubjectTeacherSchoolTeacherNameCache,
-				ClassSectionID:   cs.ClassSectionSubjectTeacherClassSectionID,
-				ClassSectionName: cs.ClassSectionSubjectTeacherClassSectionNameCache,
-				ClassSectionCode: cs.ClassSectionSubjectTeacherClassSectionCodeCache,
-				ClassSectionSlug: cs.ClassSectionSubjectTeacherClassSectionSlugCache,
-				DeliveryMode:     string(cs.ClassSectionSubjectTeacherDeliveryMode),
-
-				QuotaTotal: cs.ClassSectionSubjectTeacherQuotaTotal,
-				QuotaTaken: cs.ClassSectionSubjectTeacherQuotaTaken,
-
-				MinPassingScore: cs.ClassSectionSubjectTeacherMinPassingScore,
-				ClassRoomName:   cs.ClassSectionSubjectTeacherClassRoomNameCache,
-
-				TotalBooks: cs.ClassSectionSubjectTeacherTotalBooks,
-				CreatedAt:  cs.ClassSectionSubjectTeacherCreatedAt.Format(time.RFC3339),
-				UpdatedAt:  cs.ClassSectionSubjectTeacherUpdatedAt.Format(time.RFC3339),
-
-				Status:   string(cs.ClassSectionSubjectTeacherStatus),
-				IsActive: cs.ClassSectionSubjectTeacherStatus == studentCSSTModel.ClassStatusActive,
-
-				SchoolID: cs.ClassSectionSubjectTeacherSchoolID,
-			}
-
-			if cs.ClassSectionSubjectTeacherCompletedAt != nil {
-				s := cs.ClassSectionSubjectTeacherCompletedAt.Format(time.RFC3339)
-				item.CompletedAt = &s
-			}
-
-			if cs.ClassSectionSubjectTeacherDeletedAt.Valid {
-				s := cs.ClassSectionSubjectTeacherDeletedAt.Time.Format(time.RFC3339)
-				item.DeletedAt = &s
-			}
-
-			csstMap[cs.ClassSectionSubjectTeacherID] = item
+		compactList := dto.FromClassSectionSubjectTeacherModelsCompact(csstRows)
+		for i := range compactList {
+			c := compactList[i]
+			csstMap[c.ClassSectionSubjectTeacherID] = c
 		}
-
 	}
 
 	// 3) pilih satu CSST utama (kontrak sekarang: 1 CSST per respons nested)
-	var mainCSST *CSSTIncluded
+	var mainCSST dto.ClassSectionSubjectTeacherCompactResponse
 	var mainCSSTID uuid.UUID
+	hasMain := false
+
 	for id, v := range csstMap {
 		mainCSST = v
 		mainCSSTID = id
+		hasMain = true
 		break
 	}
 
 	// 4) kumpulkan students HANYA untuk CSST utama
 	students := make([]dto.StudentCSSTItem, 0, len(rows))
 	for i := range rows {
-		if rows[i].StudentCSSTCSSTID == mainCSSTID {
+		if hasMain && rows[i].StudentCSSTCSSTID == mainCSSTID {
 			students = append(students, toStudentCSSTItem(&rows[i]))
 		}
 	}
 
 	// kalau entah bagaimana CSST tidak ada, tapi students ada → balikin students saja
-	if mainCSST == nil {
+	if !hasMain {
 		return helper.JsonList(c, "ok", fiber.Map{
 			"students": students,
 		}, pagination)
 	}
 
 	wrapped := &CSSTWithStudents{
-		CSSTIncluded: *mainCSST,
-		Students:     students,
+		ClassSectionSubjectTeacherCompactResponse: mainCSST,
+		Students: students,
 	}
 
 	return helper.JsonList(c, "ok", fiber.Map{

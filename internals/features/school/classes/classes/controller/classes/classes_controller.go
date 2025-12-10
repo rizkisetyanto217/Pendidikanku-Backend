@@ -602,7 +602,6 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 					// - *_class_subject_cache  → nilai default dari mapel
 					// - *_min_passing_score    → override khusus per CSST (awal nil)
 					minPassing := cs.ClassSubjectMinPassingScore
-
 					csst := &csstModel.ClassSectionSubjectTeacherModel{
 						ClassSectionSubjectTeacherSchoolID: schoolID,
 						ClassSectionSubjectTeacherSlug:     &uniqueCSSTSlug,
@@ -612,18 +611,26 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 						ClassSectionSubjectTeacherGroupURL:    nil,
 
 						// agregat & kapasitas
-						ClassSectionSubjectTeacherTotalAttendance:          0,
-						ClassSectionSubjectTeacherTotalMeetingsTarget:      nil,
-						ClassSectionSubjectTeacherQuotaTotal:               nil, // quota khusus CSST (boleh nil)
-						ClassSectionSubjectTeacherQuotaTaken:               0,
-						ClassSectionSubjectTeacherTotalAssessments:         0,
-						ClassSectionSubjectTeacherTotalAssessmentsGraded:   0,
-						ClassSectionSubjectTeacherTotalAssessmentsUngraded: 0,
-						ClassSectionSubjectTeacherTotalStudentsPassed:      0,
+						ClassSectionSubjectTeacherTotalAttendance:     0,
+						ClassSectionSubjectTeacherTotalMeetingsTarget: nil,
+						ClassSectionSubjectTeacherQuotaTotal:          nil, // quota khusus CSST (boleh nil)
+						ClassSectionSubjectTeacherQuotaTaken:          0,
+
+						// total assessment (semua jenis)
+						ClassSectionSubjectTeacherTotalAssessments: 0,
+
+						// total per jenis assessment (training / daily_exam / exam)
+						ClassSectionSubjectTeacherTotalAssessmentsTraining:  0,
+						ClassSectionSubjectTeacherTotalAssessmentsDailyExam: 0,
+						ClassSectionSubjectTeacherTotalAssessmentsExam:      0,
+
+						// agregat hasil akhir
+						ClassSectionSubjectTeacherTotalStudentsPassed: 0,
 
 						// delivery dari class (pakai enum ClassDeliveryMode)
 						ClassSectionSubjectTeacherDeliveryMode: deliveryMode,
 
+						// snapshot attendance entry mode (biarin nil, nanti diisi sesuai aturan school)
 						ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache: nil,
 
 						// SECTION cache

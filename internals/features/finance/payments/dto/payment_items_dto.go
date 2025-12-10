@@ -1,4 +1,3 @@
-// file: internals/features/finance/payments/dto/payment_item_dto.go
 package dto
 
 import (
@@ -21,12 +20,12 @@ type CreatePaymentItemRequest struct {
 	PaymentItemPaymentID uuid.UUID `json:"payment_item_payment_id" validate:"required"`
 	PaymentItemIndex     int16     `json:"payment_item_index" validate:"required,min=1"`
 
-	// Target per item
-	PaymentItemStudentBillID        *uuid.UUID `json:"payment_item_student_bill_id"`
+	// === Target per item (mirror DDL baru) ===
+	PaymentItemUserGeneralBillingID *uuid.UUID `json:"payment_item_user_general_billing_id"`
 	PaymentItemGeneralBillingID     *uuid.UUID `json:"payment_item_general_billing_id"`
-	PaymentItemGeneralBillingKindID *uuid.UUID `json:"payment_item_general_billing_kind_id"`
 	PaymentItemBillBatchID          *uuid.UUID `json:"payment_item_bill_batch_id"`
 
+	// Subjek murid per item
 	PaymentItemSchoolStudentID *uuid.UUID `json:"payment_item_school_student_id"`
 	PaymentItemClassID         *uuid.UUID `json:"payment_item_class_id"`
 	PaymentItemEnrollmentID    *uuid.UUID `json:"payment_item_enrollment_id"`
@@ -39,7 +38,6 @@ type CreatePaymentItemRequest struct {
 	PaymentItemFeeRuleOptionCodeSnapshot  *string        `json:"payment_item_fee_rule_option_code_snapshot"`
 	PaymentItemFeeRuleOptionIndexSnapshot *int16         `json:"payment_item_fee_rule_option_index_snapshot"`
 	PaymentItemFeeRuleAmountSnapshot      *int           `json:"payment_item_fee_rule_amount_snapshot"`
-	PaymentItemFeeRuleGBKIDSnapshot       *uuid.UUID     `json:"payment_item_fee_rule_gbk_id_snapshot"`
 	PaymentItemFeeRuleScopeSnapshot       *m.FeeScope    `json:"payment_item_fee_rule_scope_snapshot"`
 	PaymentItemFeeRuleNoteSnapshot        *string        `json:"payment_item_fee_rule_note_snapshot"`
 	PaymentItemMeta                       datatypes.JSON `json:"payment_item_meta"`
@@ -62,14 +60,14 @@ type CreatePaymentItemRequest struct {
 }
 
 func (r *CreatePaymentItemRequest) Validate() error {
-	// minimal 1 target (mirror CK di DB)
-	hasTarget := r.PaymentItemStudentBillID != nil ||
+	// minimal 1 target (mirror CK di DB baru)
+	hasTarget := r.PaymentItemUserGeneralBillingID != nil ||
 		r.PaymentItemGeneralBillingID != nil ||
-		r.PaymentItemGeneralBillingKindID != nil ||
+		r.PaymentItemBillBatchID != nil ||
 		r.PaymentItemSchoolStudentID != nil
 
 	if !hasTarget {
-		return errors.New("wajib menyertakan salah satu target: payment_item_student_bill_id / payment_item_general_billing_id / payment_item_general_billing_kind_id / payment_item_school_student_id")
+		return errors.New("wajib menyertakan salah satu target: payment_item_user_general_billing_id / payment_item_general_billing_id / payment_item_bill_batch_id / payment_item_school_student_id")
 	}
 
 	if r.PaymentItemAmountIDR < 0 {
@@ -99,9 +97,9 @@ func (r *CreatePaymentItemRequest) ToModel() *m.PaymentItemModel {
 		PaymentItemPaymentID: r.PaymentItemPaymentID,
 		PaymentItemIndex:     r.PaymentItemIndex,
 
-		PaymentItemStudentBillID:        r.PaymentItemStudentBillID,
+		// target (baru)
+		PaymentItemUserGeneralBillingID: r.PaymentItemUserGeneralBillingID,
 		PaymentItemGeneralBillingID:     r.PaymentItemGeneralBillingID,
-		PaymentItemGeneralBillingKindID: r.PaymentItemGeneralBillingKindID,
 		PaymentItemBillBatchID:          r.PaymentItemBillBatchID,
 
 		PaymentItemSchoolStudentID: r.PaymentItemSchoolStudentID,
@@ -114,9 +112,9 @@ func (r *CreatePaymentItemRequest) ToModel() *m.PaymentItemModel {
 		PaymentItemFeeRuleOptionCodeSnapshot:  r.PaymentItemFeeRuleOptionCodeSnapshot,
 		PaymentItemFeeRuleOptionIndexSnapshot: r.PaymentItemFeeRuleOptionIndexSnapshot,
 		PaymentItemFeeRuleAmountSnapshot:      r.PaymentItemFeeRuleAmountSnapshot,
-		PaymentItemFeeRuleGBKIDSnapshot:       r.PaymentItemFeeRuleGBKIDSnapshot,
-		PaymentItemFeeRuleScopeSnapshot:       r.PaymentItemFeeRuleScopeSnapshot,
-		PaymentItemFeeRuleNoteSnapshot:        r.PaymentItemFeeRuleNoteSnapshot,
+
+		PaymentItemFeeRuleScopeSnapshot: r.PaymentItemFeeRuleScopeSnapshot,
+		PaymentItemFeeRuleNoteSnapshot:  r.PaymentItemFeeRuleNoteSnapshot,
 
 		PaymentItemAcademicTermID:           r.PaymentItemAcademicTermID,
 		PaymentItemAcademicTermAcademicYear: r.PaymentItemAcademicTermAcademicYear,
@@ -137,18 +135,20 @@ func (r *CreatePaymentItemRequest) ToModel() *m.PaymentItemModel {
 	}
 }
 
-/* =========================================================
-   UPDATE (PATCH) PAYMENT ITEM
-========================================================= */
+/*
+	=========================================================
+	  UPDATE (PATCH) PAYMENT ITEM
 
+=========================================================
+*/
 type UpdatePaymentItemRequest struct {
 	PaymentItemSchoolID  PatchField[uuid.UUID] `json:"payment_item_school_id"`
 	PaymentItemPaymentID PatchField[uuid.UUID] `json:"payment_item_payment_id"`
 	PaymentItemIndex     PatchField[int16]     `json:"payment_item_index"`
 
-	PaymentItemStudentBillID        PatchField[uuid.UUID] `json:"payment_item_student_bill_id"`
+	// targets (baru)
+	PaymentItemUserGeneralBillingID PatchField[uuid.UUID] `json:"payment_item_user_general_billing_id"`
 	PaymentItemGeneralBillingID     PatchField[uuid.UUID] `json:"payment_item_general_billing_id"`
-	PaymentItemGeneralBillingKindID PatchField[uuid.UUID] `json:"payment_item_general_billing_kind_id"`
 	PaymentItemBillBatchID          PatchField[uuid.UUID] `json:"payment_item_bill_batch_id"`
 
 	PaymentItemSchoolStudentID PatchField[uuid.UUID] `json:"payment_item_school_student_id"`
@@ -161,7 +161,6 @@ type UpdatePaymentItemRequest struct {
 	PaymentItemFeeRuleOptionCodeSnapshot  PatchField[string]         `json:"payment_item_fee_rule_option_code_snapshot"`
 	PaymentItemFeeRuleOptionIndexSnapshot PatchField[int16]          `json:"payment_item_fee_rule_option_index_snapshot"`
 	PaymentItemFeeRuleAmountSnapshot      PatchField[int]            `json:"payment_item_fee_rule_amount_snapshot"`
-	PaymentItemFeeRuleGBKIDSnapshot       PatchField[uuid.UUID]      `json:"payment_item_fee_rule_gbk_id_snapshot"`
 	PaymentItemFeeRuleScopeSnapshot       PatchField[m.FeeScope]     `json:"payment_item_fee_rule_scope_snapshot"`
 	PaymentItemFeeRuleNoteSnapshot        PatchField[string]         `json:"payment_item_fee_rule_note_snapshot"`
 	PaymentItemMeta                       PatchField[datatypes.JSON] `json:"payment_item_meta"`
@@ -196,14 +195,13 @@ func (p *UpdatePaymentItemRequest) Apply(mo *m.PaymentItemModel) error {
 	}
 
 	// targets
-	targetPatched := p.PaymentItemStudentBillID.Set ||
+	targetPatched := p.PaymentItemUserGeneralBillingID.Set ||
 		p.PaymentItemGeneralBillingID.Set ||
-		p.PaymentItemGeneralBillingKindID.Set ||
+		p.PaymentItemBillBatchID.Set ||
 		p.PaymentItemSchoolStudentID.Set
 
-	applyPtr(&mo.PaymentItemStudentBillID, p.PaymentItemStudentBillID)
+	applyPtr(&mo.PaymentItemUserGeneralBillingID, p.PaymentItemUserGeneralBillingID)
 	applyPtr(&mo.PaymentItemGeneralBillingID, p.PaymentItemGeneralBillingID)
-	applyPtr(&mo.PaymentItemGeneralBillingKindID, p.PaymentItemGeneralBillingKindID)
 	applyPtr(&mo.PaymentItemBillBatchID, p.PaymentItemBillBatchID)
 
 	applyPtr(&mo.PaymentItemSchoolStudentID, p.PaymentItemSchoolStudentID)
@@ -243,7 +241,6 @@ func (p *UpdatePaymentItemRequest) Apply(mo *m.PaymentItemModel) error {
 		applyPtr(&mo.PaymentItemFeeRuleAmountSnapshot, p.PaymentItemFeeRuleAmountSnapshot)
 	}
 
-	applyPtr(&mo.PaymentItemFeeRuleGBKIDSnapshot, p.PaymentItemFeeRuleGBKIDSnapshot)
 	applyPtr(&mo.PaymentItemFeeRuleScopeSnapshot, p.PaymentItemFeeRuleScopeSnapshot)
 	applyPtr(&mo.PaymentItemFeeRuleNoteSnapshot, p.PaymentItemFeeRuleNoteSnapshot)
 	applyVal(&mo.PaymentItemMeta, p.PaymentItemMeta)
@@ -264,25 +261,27 @@ func (p *UpdatePaymentItemRequest) Apply(mo *m.PaymentItemModel) error {
 	applyPtr(&mo.PaymentItemTitle, p.PaymentItemTitle)
 	applyPtr(&mo.PaymentItemDescription, p.PaymentItemDescription)
 
-	// jaga constraint target-any
+	// jaga constraint target-any (mirror ck_payment_item_target_any)
 	if targetPatched {
-		hasTarget := mo.PaymentItemStudentBillID != nil ||
+		hasTarget := mo.PaymentItemUserGeneralBillingID != nil ||
 			mo.PaymentItemGeneralBillingID != nil ||
-			mo.PaymentItemGeneralBillingKindID != nil ||
+			mo.PaymentItemBillBatchID != nil ||
 			mo.PaymentItemSchoolStudentID != nil
 
 		if !hasTarget {
-			return errors.New("setidaknya satu target harus diisi: payment_item_student_bill_id / payment_item_general_billing_id / payment_item_general_billing_kind_id / payment_item_school_student_id")
+			return errors.New("setidaknya satu target harus diisi: payment_item_user_general_billing_id / payment_item_general_billing_id / payment_item_bill_batch_id / payment_item_school_student_id")
 		}
 	}
 
 	return nil
 }
 
-/* =========================================================
-   RESPONSE DTO
-========================================================= */
+/*
+	=========================================================
+	  RESPONSE DTO
 
+=========================================================
+*/
 type PaymentItemResponse struct {
 	PaymentItemID uuid.UUID `json:"payment_item_id"`
 
@@ -290,9 +289,8 @@ type PaymentItemResponse struct {
 	PaymentItemPaymentID uuid.UUID `json:"payment_item_payment_id"`
 	PaymentItemIndex     int16     `json:"payment_item_index"`
 
-	PaymentItemStudentBillID        *uuid.UUID `json:"payment_item_student_bill_id"`
+	PaymentItemUserGeneralBillingID *uuid.UUID `json:"payment_item_user_general_billing_id"`
 	PaymentItemGeneralBillingID     *uuid.UUID `json:"payment_item_general_billing_id"`
-	PaymentItemGeneralBillingKindID *uuid.UUID `json:"payment_item_general_billing_kind_id"`
 	PaymentItemBillBatchID          *uuid.UUID `json:"payment_item_bill_batch_id"`
 
 	PaymentItemSchoolStudentID *uuid.UUID `json:"payment_item_school_student_id"`
@@ -305,7 +303,7 @@ type PaymentItemResponse struct {
 	PaymentItemFeeRuleOptionCodeSnapshot  *string        `json:"payment_item_fee_rule_option_code_snapshot"`
 	PaymentItemFeeRuleOptionIndexSnapshot *int16         `json:"payment_item_fee_rule_option_index_snapshot"`
 	PaymentItemFeeRuleAmountSnapshot      *int           `json:"payment_item_fee_rule_amount_snapshot"`
-	PaymentItemFeeRuleGBKIDSnapshot       *uuid.UUID     `json:"payment_item_fee_rule_gbk_id_snapshot"`
+
 	PaymentItemFeeRuleScopeSnapshot       *m.FeeScope    `json:"payment_item_fee_rule_scope_snapshot"`
 	PaymentItemFeeRuleNoteSnapshot        *string        `json:"payment_item_fee_rule_note_snapshot"`
 	PaymentItemMeta                       datatypes.JSON `json:"payment_item_meta"`
@@ -339,9 +337,8 @@ func FromPaymentItemModel(mo *m.PaymentItemModel) *PaymentItemResponse {
 		PaymentItemPaymentID: mo.PaymentItemPaymentID,
 		PaymentItemIndex:     mo.PaymentItemIndex,
 
-		PaymentItemStudentBillID:        mo.PaymentItemStudentBillID,
+		PaymentItemUserGeneralBillingID: mo.PaymentItemUserGeneralBillingID,
 		PaymentItemGeneralBillingID:     mo.PaymentItemGeneralBillingID,
-		PaymentItemGeneralBillingKindID: mo.PaymentItemGeneralBillingKindID,
 		PaymentItemBillBatchID:          mo.PaymentItemBillBatchID,
 
 		PaymentItemSchoolStudentID: mo.PaymentItemSchoolStudentID,
@@ -354,7 +351,6 @@ func FromPaymentItemModel(mo *m.PaymentItemModel) *PaymentItemResponse {
 		PaymentItemFeeRuleOptionCodeSnapshot:  mo.PaymentItemFeeRuleOptionCodeSnapshot,
 		PaymentItemFeeRuleOptionIndexSnapshot: mo.PaymentItemFeeRuleOptionIndexSnapshot,
 		PaymentItemFeeRuleAmountSnapshot:      mo.PaymentItemFeeRuleAmountSnapshot,
-		PaymentItemFeeRuleGBKIDSnapshot:       mo.PaymentItemFeeRuleGBKIDSnapshot,
 		PaymentItemFeeRuleScopeSnapshot:       mo.PaymentItemFeeRuleScopeSnapshot,
 		PaymentItemFeeRuleNoteSnapshot:        mo.PaymentItemFeeRuleNoteSnapshot,
 		PaymentItemMeta:                       mo.PaymentItemMeta,

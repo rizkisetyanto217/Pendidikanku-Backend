@@ -3,8 +3,8 @@ package controller
 
 import (
 	"strings"
-	"time"
 
+	csstDto "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/dto"
 	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 	dto "madinahsalam_backend/internals/features/school/classes/class_sections/dto"
 	classSectionModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
@@ -288,63 +288,6 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		secIDs = append(secIDs, id)
 	}
 
-	// ---- Tipe nested untuk CSST ----
-	type CSSTIncluded struct {
-		ID       uuid.UUID `json:"class_section_subject_teacher_id"`
-		SchoolID uuid.UUID `json:"class_section_subject_teacher_school_id"`
-
-		ClassSectionID  uuid.UUID                   `json:"class_section_subject_teacher_class_section_id"`
-		ClassSubjectID  uuid.UUID                   `json:"class_section_subject_teacher_class_subject_id"`
-		Slug            *string                     `json:"class_section_subject_teacher_slug,omitempty"`
-		Description     *string                     `json:"class_section_subject_teacher_description,omitempty"`
-		GroupURL        *string                     `json:"class_section_subject_teacher_group_url,omitempty"`
-		DeliveryMode    csstModel.ClassDeliveryMode `json:"class_section_subject_teacher_delivery_mode"`
-		TotalAttendance int                         `json:"class_section_subject_teacher_total_attendance"`
-		QuotaTaken      int                         `json:"class_section_subject_teacher_quota_taken"`
-
-		TotalAssessments         int `json:"class_section_subject_teacher_total_assessments"`
-		TotalAssessmentsGraded   int `json:"class_section_subject_teacher_total_assessments_graded"`
-		TotalAssessmentsUngraded int `json:"class_section_subject_teacher_total_assessments_ungraded"`
-		TotalStudentsPassed      int `json:"class_section_subject_teacher_total_students_passed"`
-		TotalBooks               int `json:"class_section_subject_teacher_total_books"`
-
-		TotalMeetingsTarget *int `json:"class_section_subject_teacher_total_meetings_target,omitempty"`
-		QuotaTotal          *int `json:"class_section_subject_teacher_quota_total,omitempty"`
-
-		// Cache class_section
-		ClassSectionSlugCache *string `json:"class_section_subject_teacher_class_section_slug_cache,omitempty"`
-		ClassSectionNameCache *string `json:"class_section_subject_teacher_class_section_name_cache,omitempty"`
-		ClassSectionCodeCache *string `json:"class_section_subject_teacher_class_section_code_cache,omitempty"`
-
-		// Cache subject
-		SubjectIDCache   *uuid.UUID `json:"class_section_subject_teacher_subject_id,omitempty"`
-		SubjectNameCache *string    `json:"class_section_subject_teacher_subject_name_cache,omitempty"`
-		SubjectCodeCache *string    `json:"class_section_subject_teacher_subject_code_cache,omitempty"`
-		SubjectSlugCache *string    `json:"class_section_subject_teacher_subject_slug_cache,omitempty"`
-
-		// Cache room & teacher
-		ClassRoomNameCache              *string `json:"class_section_subject_teacher_class_room_name_cache,omitempty"`
-		SchoolTeacherNameCache          *string `json:"class_section_subject_teacher_school_teacher_name_cache,omitempty"`
-		AssistantSchoolTeacherNameCache *string `json:"class_section_subject_teacher_assistant_school_teacher_name_cache,omitempty"`
-
-		// Cache academic term
-		AcademicTermID            *uuid.UUID `json:"class_section_subject_teacher_academic_term_id,omitempty"`
-		AcademicTermNameCache     *string    `json:"class_section_subject_teacher_academic_term_name_cache,omitempty"`
-		AcademicTermSlugCache     *string    `json:"class_section_subject_teacher_academic_term_slug_cache,omitempty"`
-		AcademicYearCache         *string    `json:"class_section_subject_teacher_academic_year_cache,omitempty"`
-		AcademicTermAngkatanCache *int       `json:"class_section_subject_teacher_academic_term_angkatan_cache,omitempty"`
-
-		MinPassingScore *int `json:"class_section_subject_teacher_min_passing_score,omitempty"`
-
-		// status enum + completed_at + helper is_active (turunan dari status)
-		Status      string     `json:"class_section_subject_teacher_status"`
-		CompletedAt *time.Time `json:"class_section_subject_teacher_completed_at,omitempty"`
-		IsActive    bool       `json:"class_section_subject_teacher_is_active"`
-
-		CreatedAt time.Time `json:"class_section_subject_teacher_created_at"`
-		UpdatedAt time.Time `json:"class_section_subject_teacher_updated_at"`
-	}
-
 	// 2) Map section_id → ClassSectionCompactResponse
 	classSectionMap := make(map[uuid.UUID]*dto.ClassSectionCompactResponse)
 
@@ -371,8 +314,8 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 4) Query CSST & kumpulkan ke slice flat
-	var csstList []*CSSTIncluded
+	// 4) Query CSST & kumpulkan ke slice flat (pakai DTO compact bawaan CSST)
+	var csstList []csstDto.ClassSectionSubjectTeacherCompactResponse
 
 	if includeCSST && len(secIDs) > 0 {
 		var csstRows []csstModel.ClassSectionSubjectTeacherModel
@@ -387,62 +330,8 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data subject teachers")
 		}
 
-		for i := range csstRows {
-			r := csstRows[i]
-
-			ci := &CSSTIncluded{
-				ID:       r.ClassSectionSubjectTeacherID,
-				SchoolID: r.ClassSectionSubjectTeacherSchoolID,
-
-				ClassSectionID: r.ClassSectionSubjectTeacherClassSectionID,
-				ClassSubjectID: r.ClassSectionSubjectTeacherClassSubjectID,
-				Slug:           r.ClassSectionSubjectTeacherSlug,
-				Description:    r.ClassSectionSubjectTeacherDescription,
-				GroupURL:       r.ClassSectionSubjectTeacherGroupURL,
-				DeliveryMode:   r.ClassSectionSubjectTeacherDeliveryMode,
-
-				TotalAttendance:          r.ClassSectionSubjectTeacherTotalAttendance,
-				QuotaTaken:               r.ClassSectionSubjectTeacherQuotaTaken,
-				TotalAssessments:         r.ClassSectionSubjectTeacherTotalAssessments,
-				TotalAssessmentsGraded:   r.ClassSectionSubjectTeacherTotalAssessmentsGraded,
-				TotalAssessmentsUngraded: r.ClassSectionSubjectTeacherTotalAssessmentsUngraded,
-				TotalStudentsPassed:      r.ClassSectionSubjectTeacherTotalStudentsPassed,
-				TotalBooks:               r.ClassSectionSubjectTeacherTotalBooks,
-
-				TotalMeetingsTarget: r.ClassSectionSubjectTeacherTotalMeetingsTarget,
-				QuotaTotal:          r.ClassSectionSubjectTeacherQuotaTotal,
-
-				ClassSectionSlugCache: r.ClassSectionSubjectTeacherClassSectionSlugCache,
-				ClassSectionNameCache: r.ClassSectionSubjectTeacherClassSectionNameCache,
-				ClassSectionCodeCache: r.ClassSectionSubjectTeacherClassSectionCodeCache,
-
-				SubjectIDCache:   r.ClassSectionSubjectTeacherSubjectID,
-				SubjectNameCache: r.ClassSectionSubjectTeacherSubjectNameCache,
-				SubjectCodeCache: r.ClassSectionSubjectTeacherSubjectCodeCache,
-				SubjectSlugCache: r.ClassSectionSubjectTeacherSubjectSlugCache,
-
-				ClassRoomNameCache:              r.ClassSectionSubjectTeacherClassRoomNameCache,
-				SchoolTeacherNameCache:          r.ClassSectionSubjectTeacherSchoolTeacherNameCache,
-				AssistantSchoolTeacherNameCache: r.ClassSectionSubjectTeacherAssistantSchoolTeacherNameCache,
-
-				AcademicTermID:            r.ClassSectionSubjectTeacherAcademicTermID,
-				AcademicTermNameCache:     r.ClassSectionSubjectTeacherAcademicTermNameCache,
-				AcademicTermSlugCache:     r.ClassSectionSubjectTeacherAcademicTermSlugCache,
-				AcademicYearCache:         r.ClassSectionSubjectTeacherAcademicYearCache,
-				AcademicTermAngkatanCache: r.ClassSectionSubjectTeacherAcademicTermAngkatanCache,
-
-				MinPassingScore: r.ClassSectionSubjectTeacherMinPassingScore,
-
-				Status:      string(r.ClassSectionSubjectTeacherStatus),
-				CompletedAt: r.ClassSectionSubjectTeacherCompletedAt,
-				IsActive:    r.ClassSectionSubjectTeacherStatus == csstModel.ClassStatusActive,
-
-				CreatedAt: r.ClassSectionSubjectTeacherCreatedAt,
-				UpdatedAt: r.ClassSectionSubjectTeacherUpdatedAt,
-			}
-
-			csstList = append(csstList, ci)
-		}
+		// Reuse mapper compact dari paket CSST DTO
+		csstList = csstDto.FromClassSectionSubjectTeacherModelsCompact(csstRows)
 	}
 
 	// siapkan includePayload (selalu ada di response)
@@ -460,7 +349,7 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		includePayload["class_sections"] = classSectionList
 	}
 
-	// kalau diminta includeCSST → pakai csstList flat
+	// kalau diminta includeCSST → pakai csstList flat (compact)
 	if includeCSST {
 		includePayload["csst"] = csstList
 	}

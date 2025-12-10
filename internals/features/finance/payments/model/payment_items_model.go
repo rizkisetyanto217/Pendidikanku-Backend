@@ -7,13 +7,6 @@ import (
 	"gorm.io/datatypes"
 )
 
-/*
-  payment_items = DETAIL / SNAPSHOT per kebutuhan
-  - 1 row = 1 kebutuhan/tagihan yang ikut dibayar dalam 1 payment
-  - nyambung ke payments via payment_item_payment_id
-  - di sini yang lengkap: fee_rule snapshot, term snapshot, invoice per item, dst.
-*/
-
 type PaymentItemModel struct {
 	PaymentItemID uuid.UUID `gorm:"column:payment_item_id;type:uuid;default:gen_random_uuid();primaryKey" json:"payment_item_id"`
 
@@ -22,11 +15,14 @@ type PaymentItemModel struct {
 	PaymentItemPaymentID uuid.UUID `gorm:"column:payment_item_payment_id;type:uuid;not null" json:"payment_item_payment_id"`
 	PaymentItemIndex     int16     `gorm:"column:payment_item_index;not null" json:"payment_item_index"`
 
-	// === Target per item ===
-	PaymentItemStudentBillID        *uuid.UUID `gorm:"column:payment_item_student_bill_id;type:uuid" json:"payment_item_student_bill_id"`
+	// === Target per item (SESUI DDL BARU) ===
+	PaymentItemUserGeneralBillingID *uuid.UUID `gorm:"column:payment_item_user_general_billing_id;type:uuid" json:"payment_item_user_general_billing_id"`
 	PaymentItemGeneralBillingID     *uuid.UUID `gorm:"column:payment_item_general_billing_id;type:uuid" json:"payment_item_general_billing_id"`
-	PaymentItemGeneralBillingKindID *uuid.UUID `gorm:"column:payment_item_general_billing_kind_id;type:uuid" json:"payment_item_general_billing_kind_id"`
 	PaymentItemBillBatchID          *uuid.UUID `gorm:"column:payment_item_bill_batch_id;type:uuid" json:"payment_item_bill_batch_id"`
+
+	// ❌ Kolom lama yang tidak ada di DB → hapus / jangan dipetakan:
+	// PaymentItemStudentBillID        *uuid.UUID `gorm:"-" json:"payment_item_student_bill_id"`
+	// PaymentItemGeneralBillingKindID *uuid.UUID `gorm:"-" json:"payment_item_general_billing_kind_id"`
 
 	// Subjek murid per item
 	PaymentItemSchoolStudentID *uuid.UUID `gorm:"column:payment_item_school_student_id;type:uuid" json:"payment_item_school_student_id"`
@@ -43,7 +39,6 @@ type PaymentItemModel struct {
 	PaymentItemFeeRuleOptionCodeSnapshot  *string    `gorm:"column:payment_item_fee_rule_option_code_snapshot;type:varchar(20)" json:"payment_item_fee_rule_option_code_snapshot"`
 	PaymentItemFeeRuleOptionIndexSnapshot *int16     `gorm:"column:payment_item_fee_rule_option_index_snapshot" json:"payment_item_fee_rule_option_index_snapshot"`
 	PaymentItemFeeRuleAmountSnapshot      *int       `gorm:"column:payment_item_fee_rule_amount_snapshot" json:"payment_item_fee_rule_amount_snapshot"`
-	PaymentItemFeeRuleGBKIDSnapshot       *uuid.UUID `gorm:"column:payment_item_fee_rule_gbk_id_snapshot;type:uuid" json:"payment_item_fee_rule_gbk_id_snapshot"`
 	PaymentItemFeeRuleScopeSnapshot       *FeeScope  `gorm:"column:payment_item_fee_rule_scope_snapshot;type:fee_scope" json:"payment_item_fee_rule_scope_snapshot"`
 	PaymentItemFeeRuleNoteSnapshot        *string    `gorm:"column:payment_item_fee_rule_note_snapshot" json:"payment_item_fee_rule_note_snapshot"`
 
@@ -67,9 +62,6 @@ type PaymentItemModel struct {
 	PaymentItemCreatedAt time.Time  `gorm:"column:payment_item_created_at;not null;default:now()" json:"payment_item_created_at"`
 	PaymentItemUpdatedAt time.Time  `gorm:"column:payment_item_updated_at;not null;default:now()" json:"payment_item_updated_at"`
 	PaymentItemDeletedAt *time.Time `gorm:"column:payment_item_deleted_at" json:"payment_item_deleted_at"`
-
-	// OPTIONAL: relasi balik ke header kalau mau preload
-	// Payment   PaymentModel `gorm:"foreignKey:PaymentItemPaymentID;references:PaymentID" json:"payment,omitempty"`
 }
 
 func (PaymentItemModel) TableName() string {

@@ -588,3 +588,80 @@ func FromSubjectModelsToCompact(rows []m.SubjectModel) []SubjectCompactResponse 
 	}
 	return out
 }
+
+/* ================= LOW-LEVEL LIST HELPERS (ROW + SELECT COLS) ================= */
+
+// Kolom-kolom yang dipakai untuk list (tanpa join)
+var SubjectListSelectColumns = []string{
+	"subject_id",
+	"subject_school_id",
+	"subject_code",
+	"subject_name",
+	"subject_desc",
+	"subject_slug",
+	"subject_image_url",
+	"subject_image_object_key",
+	"subject_image_url_old",
+	"subject_image_object_key_old",
+	"subject_image_delete_pending_until",
+	"subject_is_active",
+	"subject_created_at",
+	"subject_updated_at",
+	"subject_deleted_at",
+}
+
+// Struct row untuk Scan() di list controller
+type SubjectRow struct {
+	SubjectID                      uuid.UUID  `gorm:"column:subject_id"`
+	SubjectSchoolID                uuid.UUID  `gorm:"column:subject_school_id"`
+	SubjectCode                    string     `gorm:"column:subject_code"`
+	SubjectName                    string     `gorm:"column:subject_name"`
+	SubjectDesc                    *string    `gorm:"column:subject_desc"`
+	SubjectSlug                    string     `gorm:"column:subject_slug"`
+	SubjectImageURL                *string    `gorm:"column:subject_image_url"`
+	SubjectImageObjectKey          *string    `gorm:"column:subject_image_object_key"`
+	SubjectImageURLOld             *string    `gorm:"column:subject_image_url_old"`
+	SubjectImageObjectKeyOld       *string    `gorm:"column:subject_image_object_key_old"`
+	SubjectImageDeletePendingUntil *time.Time `gorm:"column:subject_image_delete_pending_until"`
+	SubjectIsActive                bool       `gorm:"column:subject_is_active"`
+	SubjectCreatedAt               time.Time  `gorm:"column:subject_created_at"`
+	SubjectUpdatedAt               time.Time  `gorm:"column:subject_updated_at"`
+	SubjectDeletedAt               *time.Time `gorm:"column:subject_deleted_at"`
+}
+
+// 1 row → full response
+func (r SubjectRow) ToResponse() SubjectResponse {
+	return SubjectResponse(r)
+}
+
+// rows → full responses
+func SubjectRowsToResponses(rows []SubjectRow) []SubjectResponse {
+	out := make([]SubjectResponse, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.ToResponse())
+	}
+	return out
+}
+
+// 1 row → compact response
+func (r SubjectRow) ToCompactResponse() SubjectCompactResponse {
+	return SubjectCompactResponse{
+		SubjectID:       r.SubjectID,
+		SubjectSchoolID: r.SubjectSchoolID,
+		SubjectCode:     r.SubjectCode,
+		SubjectName:     r.SubjectName,
+		SubjectSlug:     r.SubjectSlug,
+		SubjectDesc:     r.SubjectDesc,
+		SubjectImageURL: r.SubjectImageURL,
+		SubjectIsActive: r.SubjectIsActive,
+	}
+}
+
+// rows → compact responses
+func SubjectRowsToCompactResponses(rows []SubjectRow) []SubjectCompactResponse {
+	out := make([]SubjectCompactResponse, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.ToCompactResponse())
+	}
+	return out
+}

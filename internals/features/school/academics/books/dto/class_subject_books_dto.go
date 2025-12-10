@@ -153,20 +153,17 @@ func (r *UpdateClassSubjectBookRequest) Apply(m *model.ClassSubjectBookModel) er
 ========================================================= */
 
 type ListClassSubjectBookQuery struct {
-	Limit          *int       `query:"limit"           validate:"omitempty,min=1,max=200"`
-	Offset         *int       `query:"offset"          validate:"omitempty,min=0"`
-	ClassSubjectID *uuid.UUID `query:"class_subject_id" validate:"omitempty"`
-	BookID         *uuid.UUID `query:"book_id"         validate:"omitempty"`
-	IsActive       *bool      `query:"is_active"       validate:"omitempty"`
-	IsPrimary      *bool      `query:"is_primary"      validate:"omitempty"`
-	IsRequired     *bool      `query:"is_required"     validate:"omitempty"`
-	WithDeleted    *bool      `query:"with_deleted"    validate:"omitempty"`
-
-	// q: cari di slug relasi & judul buku cache & nama/slug subject cache (LOWER LIKE/TRGM)
-	Q *string `query:"q" validate:"omitempty,max=100"`
-
-	// created_at_asc|created_at_desc|updated_at_asc|updated_at_desc
-	Sort *string `query:"sort" validate:"omitempty,oneof=created_at_asc created_at_desc updated_at_asc updated_at_desc"`
+	ID             *uuid.UUID `query:"id"`
+	IDs            string     `query:"ids"`
+	ClassSubjectID *uuid.UUID `query:"class_subject_id"`
+	SubjectID      *uuid.UUID `query:"subject_id"` // 🔎 baru: filter berdasarkan subject id
+	BookID         *uuid.UUID `query:"book_id"`
+	IsActive       *bool      `query:"is_active"`
+	IsPrimary      *bool      `query:"is_primary"`
+	IsRequired     *bool      `query:"is_required"`
+	WithDeleted    *bool      `query:"with_deleted"`
+	Sort           *string    `query:"sort"`
+	Q              *string    `query:"q"`
 }
 
 /* =========================================================
@@ -307,6 +304,115 @@ func FromModels(list []model.ClassSubjectBookModel) []ClassSubjectBookResponse {
 	out := make([]ClassSubjectBookResponse, 0, len(list))
 	for _, it := range list {
 		out = append(out, FromModel(it))
+	}
+	return out
+}
+
+/* =========================================================
+   4) LOW-LEVEL LIST HELPERS (ROW + SELECT COLS)
+   - Dipakai oleh controller yang pakai Table/Scan manual.
+========================================================= */
+
+// Kolom-kolom yang biasa di-select di list (tanpa join)
+var ClassSubjectBookListSelectColumns = []string{
+	"class_subject_book_id",
+	"class_subject_book_school_id",
+	"class_subject_book_class_subject_id",
+	"class_subject_book_subject_id",
+	"class_subject_book_book_id",
+	"class_subject_book_slug",
+	"class_subject_book_is_primary",
+	"class_subject_book_is_required",
+	"class_subject_book_order",
+	"class_subject_book_is_active",
+	"class_subject_book_desc",
+	"class_subject_book_created_at",
+	"class_subject_book_updated_at",
+	"class_subject_book_deleted_at",
+
+	// caches BOOK (inline di csb)
+	"class_subject_book_book_title_cache",
+	"class_subject_book_book_author_cache",
+	"class_subject_book_book_slug_cache",
+	"class_subject_book_book_publisher_cache",
+	"class_subject_book_book_publication_year_cache",
+	"class_subject_book_book_image_url_cache",
+
+	// caches SUBJECT (inline di csb)
+	"class_subject_book_subject_code_cache",
+	"class_subject_book_subject_name_cache",
+	"class_subject_book_subject_slug_cache",
+}
+
+// Struct row untuk Scan() di list controller
+type ClassSubjectBookRow struct {
+	ClassSubjectBookID             uuid.UUID  `gorm:"column:class_subject_book_id"`
+	ClassSubjectBookSchoolID       uuid.UUID  `gorm:"column:class_subject_book_school_id"`
+	ClassSubjectBookClassSubjectID uuid.UUID  `gorm:"column:class_subject_book_class_subject_id"`
+	ClassSubjectBookSubjectID      *uuid.UUID `gorm:"column:class_subject_book_subject_id"`
+	ClassSubjectBookBookID         uuid.UUID  `gorm:"column:class_subject_book_book_id"`
+	ClassSubjectBookSlug           *string    `gorm:"column:class_subject_book_slug"`
+	ClassSubjectBookIsPrimary      bool       `gorm:"column:class_subject_book_is_primary"`
+	ClassSubjectBookIsRequired     bool       `gorm:"column:class_subject_book_is_required"`
+	ClassSubjectBookOrder          *int       `gorm:"column:class_subject_book_order"`
+	ClassSubjectBookIsActive       bool       `gorm:"column:class_subject_book_is_active"`
+	ClassSubjectBookDesc           *string    `gorm:"column:class_subject_book_desc"`
+	ClassSubjectBookCreatedAt      time.Time  `gorm:"column:class_subject_book_created_at"`
+	ClassSubjectBookUpdatedAt      time.Time  `gorm:"column:class_subject_book_updated_at"`
+	ClassSubjectBookDeletedAt      *time.Time `gorm:"column:class_subject_book_deleted_at"`
+
+	// BOOK caches
+	ClassSubjectBookBookTitleCache           *string `gorm:"column:class_subject_book_book_title_cache"`
+	ClassSubjectBookBookAuthorCache          *string `gorm:"column:class_subject_book_book_author_cache"`
+	ClassSubjectBookBookSlugCache            *string `gorm:"column:class_subject_book_book_slug_cache"`
+	ClassSubjectBookBookPublisherCache       *string `gorm:"column:class_subject_book_book_publisher_cache"`
+	ClassSubjectBookBookPublicationYearCache *int16  `gorm:"column:class_subject_book_book_publication_year_cache"`
+	ClassSubjectBookBookImageURLCache        *string `gorm:"column:class_subject_book_book_image_url_cache"`
+
+	// SUBJECT caches
+	ClassSubjectBookSubjectCodeCache *string `gorm:"column:class_subject_book_subject_code_cache"`
+	ClassSubjectBookSubjectNameCache *string `gorm:"column:class_subject_book_subject_name_cache"`
+	ClassSubjectBookSubjectSlugCache *string `gorm:"column:class_subject_book_subject_slug_cache"`
+}
+
+// Konversi 1 row → response
+func (r ClassSubjectBookRow) ToResponse() ClassSubjectBookResponse {
+	return ClassSubjectBookResponse{
+		ClassSubjectBookID:             r.ClassSubjectBookID,
+		ClassSubjectBookSchoolID:       r.ClassSubjectBookSchoolID,
+		ClassSubjectBookClassSubjectID: r.ClassSubjectBookClassSubjectID,
+		ClassSubjectBookBookID:         r.ClassSubjectBookBookID,
+
+		ClassSubjectBookSlug:       r.ClassSubjectBookSlug,
+		ClassSubjectBookIsPrimary:  r.ClassSubjectBookIsPrimary,
+		ClassSubjectBookIsRequired: r.ClassSubjectBookIsRequired,
+		ClassSubjectBookOrder:      r.ClassSubjectBookOrder,
+		ClassSubjectBookIsActive:   r.ClassSubjectBookIsActive,
+		ClassSubjectBookDesc:       r.ClassSubjectBookDesc,
+
+		ClassSubjectBookBookTitleCache:           r.ClassSubjectBookBookTitleCache,
+		ClassSubjectBookBookAuthorCache:          r.ClassSubjectBookBookAuthorCache,
+		ClassSubjectBookBookSlugCache:            r.ClassSubjectBookBookSlugCache,
+		ClassSubjectBookBookPublisherCache:       r.ClassSubjectBookBookPublisherCache,
+		ClassSubjectBookBookPublicationYearCache: r.ClassSubjectBookBookPublicationYearCache,
+		ClassSubjectBookBookImageURLCache:        r.ClassSubjectBookBookImageURLCache,
+
+		ClassSubjectBookSubjectID:        r.ClassSubjectBookSubjectID,
+		ClassSubjectBookSubjectCodeCache: r.ClassSubjectBookSubjectCodeCache,
+		ClassSubjectBookSubjectNameCache: r.ClassSubjectBookSubjectNameCache,
+		ClassSubjectBookSubjectSlugCache: r.ClassSubjectBookSubjectSlugCache,
+
+		ClassSubjectBookCreatedAt: r.ClassSubjectBookCreatedAt,
+		ClassSubjectBookUpdatedAt: r.ClassSubjectBookUpdatedAt,
+		ClassSubjectBookDeletedAt: r.ClassSubjectBookDeletedAt,
+	}
+}
+
+// Konversi slice row → slice response
+func ClassSubjectBookRowsToResponses(rows []ClassSubjectBookRow) []ClassSubjectBookResponse {
+	out := make([]ClassSubjectBookResponse, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.ToResponse())
 	}
 	return out
 }

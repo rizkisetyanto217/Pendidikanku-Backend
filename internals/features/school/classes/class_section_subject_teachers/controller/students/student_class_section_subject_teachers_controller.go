@@ -31,64 +31,12 @@ func NewStudentCSSTController(db *gorm.DB, v interface{ Struct(any) error }) *St
 /* =========================================================
    Mapper: Model → DTO (1:1 dengan model)
 ========================================================= */
+/* =========================================================
+   Mapper: Model → DTO (delegasi ke DTO)
+========================================================= */
 
 func toStudentCSSTItem(m *model.StudentClassSectionSubjectTeacherModel) dto.StudentCSSTItem {
-	var deletedAt *time.Time
-	if m.StudentCSSTDeletedAt.Valid {
-		t := m.StudentCSSTDeletedAt.Time
-		deletedAt = &t
-	}
-
-	return dto.StudentCSSTItem{
-		StudentCSSTID:       m.StudentCSSTID,
-		StudentCSSTSchoolID: m.StudentCSSTSchoolID,
-
-		StudentCSSTStudentID: m.StudentCSSTStudentID,
-		StudentCSSTCSSTID:    m.StudentCSSTCSSTID,
-
-		StudentCSSTIsActive: m.StudentCSSTIsActive,
-		StudentCSSTFrom:     m.StudentCSSTFrom,
-		StudentCSSTTo:       m.StudentCSSTTo,
-
-		StudentCSSTScoreTotal:    m.StudentCSSTScoreTotal,
-		StudentCSSTScoreMaxTotal: m.StudentCSSTScoreMaxTotal,
-		StudentCSSTScorePercent:  m.StudentCSSTScorePercent,
-		StudentCSSTGradeLetter:   m.StudentCSSTGradeLetter,
-		StudentCSSTGradePoint:    m.StudentCSSTGradePoint,
-		StudentCSSTIsPassed:      m.StudentCSSTIsPassed,
-
-		// 🆕 diselaraskan dengan nama field di model + DTO + SQL
-		StudentCSSTUserProfileNameCache:        m.StudentCSSTUserProfileNameCache,
-		StudentCSSTUserProfileAvatarURLCache:   m.StudentCSSTUserProfileAvatarURLCache,
-		StudentCSSTUserProfileWAURLCache:       m.StudentCSSTUserProfileWAURLCache,
-		StudentCSSTUserProfileParentNameCache:  m.StudentCSSTUserProfileParentNameCache,
-		StudentCSSTUserProfileParentWAURLCache: m.StudentCSSTUserProfileParentWAURLCache,
-		StudentCSSTUserProfileGenderCache:      m.StudentCSSTUserProfileGenderCache,
-		StudentCSSTSchoolStudentCodeCache:      m.StudentCSSTSchoolStudentCodeCache,
-
-		StudentCSSTEditsHistory: m.StudentCSSTEditsHistory,
-
-		// NOTES
-		StudentCSSTStudentNotes:                 m.StudentCSSTStudentNotes,
-		StudentCSSTStudentNotesUpdatedAt:        m.StudentCSSTStudentNotesUpdatedAt,
-		StudentCSSTHomeroomNotes:                m.StudentCSSTHomeroomNotes,
-		StudentCSSTHomeroomNotesUpdatedAt:       m.StudentCSSTHomeroomNotesUpdatedAt,
-		StudentCSSTSubjectTeacherNotes:          m.StudentCSSTSubjectTeacherNotes,
-		StudentCSSTSubjectTeacherNotesUpdatedAt: m.StudentCSSTSubjectTeacherNotesUpdatedAt,
-
-		StudentCSSTSlug: m.StudentCSSTSlug,
-		StudentCSSTMeta: m.StudentCSSTMeta,
-
-		StudentCSSTCreatedAt: m.StudentCSSTCreatedAt,
-		StudentCSSTUpdatedAt: m.StudentCSSTUpdatedAt,
-		StudentCSSTDeletedAt: deletedAt,
-
-		// Expanded relasi (Student/Section/ClassSubject/Teacher) sementara kosong.
-		Student:      nil,
-		Section:      nil,
-		ClassSubject: nil,
-		Teacher:      nil,
-	}
+	return dto.FromStudentCSSTModel(m)
 }
 
 /* =========================================================
