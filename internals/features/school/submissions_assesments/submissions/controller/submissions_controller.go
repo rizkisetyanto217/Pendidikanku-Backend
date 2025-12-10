@@ -37,47 +37,6 @@ func NewSubmissionController(db *gorm.DB) *SubmissionController {
 	}
 }
 
-func clampPage(n int) int {
-	if n <= 0 {
-		return 1
-	}
-	return n
-}
-func clampPerPage(n int) int {
-	if n <= 0 {
-		return 20
-	}
-	if n > 200 {
-		return 200
-	}
-	return n
-}
-
-func applyFilters(q *gorm.DB, f *dto.ListSubmissionsQuery) *gorm.DB {
-	if f == nil {
-		return q
-	}
-	if f.SchoolID != nil {
-		q = q.Where("submission_school_id = ?", *f.SchoolID)
-	}
-	if f.AssessmentID != nil {
-		q = q.Where("submission_assessment_id = ?", *f.AssessmentID)
-	}
-	if f.StudentID != nil {
-		q = q.Where("submission_student_id = ?", *f.StudentID)
-	}
-	if f.Status != nil {
-		q = q.Where("submission_status = ?", *f.Status)
-	}
-	if f.SubmittedFrom != nil {
-		q = q.Where("submission_submitted_at >= ?", *f.SubmittedFrom)
-	}
-	if f.SubmittedTo != nil {
-		q = q.Where("submission_submitted_at < ?", *f.SubmittedTo)
-	}
-	return q
-}
-
 func applySort(q *gorm.DB, sort string) *gorm.DB {
 	switch strings.TrimSpace(sort) {
 	case "created_at":
@@ -290,14 +249,6 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 			now := time.Now()
 			sub.SubmissionSubmittedAt = &now
 		}
-
-		// TODO: isi snapshot cache user_profile & kode siswa jika mau:
-		// - submission_user_profile_name_snapshot
-		// - submission_user_profile_avatar_url_snapshot
-		// - submission_user_profile_whatsapp_url_snapshot
-		// - submission_user_profile_gender_snapshot
-		// - submission_school_student_code_cache
-		// Bisa diambil dari school_students + user_profiles di sini.
 
 		// submission_scores & submission_quiz_finished dibiarkan default:
 		//   - scores: NULL (nanti diisi saat grading)

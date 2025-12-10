@@ -266,10 +266,12 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teacher_min_passing_score                     INT,
 
   -- Status & audit
-  class_section_subject_teacher_is_active   BOOLEAN     NOT NULL DEFAULT TRUE,
-  class_section_subject_teacher_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  class_section_subject_teacher_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  class_section_subject_teacher_deleted_at  TIMESTAMPTZ,
+  -- Status & audit
+  class_section_subject_teacher_status        class_status_enum NOT NULL DEFAULT 'active',
+  class_section_subject_teacher_completed_at  TIMESTAMPTZ,
+  class_section_subject_teacher_created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_section_subject_teacher_updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_section_subject_teacher_deleted_at    TIMESTAMPTZ,
 
   -- CHECKS
   CONSTRAINT ck_csst_capacity_nonneg
@@ -346,8 +348,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_one_active_per_section_subject_alive
     class_section_subject_teacher_class_subject_id
   )
   WHERE class_section_subject_teacher_deleted_at IS NULL
-    AND class_section_subject_teacher_is_active = TRUE;
-
+    AND class_section_subject_teacher_status = 'active';
+    
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_slug_per_tenant_alive
   ON class_section_subject_teachers (
     class_section_subject_teacher_school_id,

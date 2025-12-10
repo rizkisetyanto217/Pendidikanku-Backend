@@ -579,11 +579,11 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 					secCodePtr := secCode
 					secSlugPtr := &secSlugCache
 
-					// room cache (kalau kamu pakai)
+					// room cache (kalau kamu pakai) – sekarang cuma ID saja, tanpa slug cache
 					roomID := sec.ClassSectionClassRoomID
-					roomSlug := sec.ClassSectionClassRoomSlugCache
 
 					// ================= DELIVERY MODE (from class) =================
+					// enum di model: type ClassDeliveryMode string
 					deliveryMode := csstModel.DeliveryModeOffline // default
 					if m.ClassDeliveryMode != nil {
 						dm := strings.TrimSpace(*m.ClassDeliveryMode)
@@ -621,7 +621,7 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 						ClassSectionSubjectTeacherTotalAssessmentsUngraded: 0,
 						ClassSectionSubjectTeacherTotalStudentsPassed:      0,
 
-						// delivery dari class
+						// delivery dari class (pakai enum ClassDeliveryMode)
 						ClassSectionSubjectTeacherDeliveryMode: deliveryMode,
 
 						ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache: nil,
@@ -633,9 +633,9 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 						ClassSectionSubjectTeacherClassSectionCodeCache: secCodePtr,
 						ClassSectionSubjectTeacherClassSectionURLCache:  nil,
 
-						// ROOM cache
+						// ROOM cache (slug/cache detail diisi nanti kalau perlu via update)
 						ClassSectionSubjectTeacherClassRoomID:        roomID,
-						ClassSectionSubjectTeacherClassRoomSlugCache: roomSlug,
+						ClassSectionSubjectTeacherClassRoomSlugCache: nil,
 						ClassSectionSubjectTeacherClassRoomCache:     nil,
 
 						// PEOPLE cache — teacher boleh kosong (nil)
@@ -665,8 +665,8 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 						ClassSectionSubjectTeacherMinPassingScoreClassSubjectCache: minPassing,
 						ClassSectionSubjectTeacherMinPassingScore:                  nil,
 
-						// status
-						ClassSectionSubjectTeacherIsActive: true,
+						// status awal pakai enum ClassStatus
+						ClassSectionSubjectTeacherStatus: csstModel.ClassStatusActive,
 					}
 
 					if err := tx.Create(csst).Error; err != nil {
@@ -682,6 +682,7 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 					createdCSSTs = append(createdCSSTs, *csst)
 				}
 			}
+
 		}
 	}
 

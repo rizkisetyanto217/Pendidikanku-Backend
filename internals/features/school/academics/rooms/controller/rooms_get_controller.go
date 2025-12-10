@@ -1,16 +1,21 @@
-// file: internals/features/school/class_rooms/controller/class_room_controller.go
+// file: internals/features/school/academics/rooms/controller/class_room_controller.go
 package controller
 
 import (
 	"strconv"
 	"strings"
-	"time"
 
 	dto "madinahsalam_backend/internals/features/school/academics/rooms/dto"
 	model "madinahsalam_backend/internals/features/school/academics/rooms/model"
 
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
+
+	// 🔽 DTO & model untuk include
+	csstdto "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/dto"
+	csstmodel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
+	sectiondto "madinahsalam_backend/internals/features/school/classes/class_sections/dto"
+	sectionmodel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -193,108 +198,52 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	// untuk inject count ke payload utama
 	classSectionsCount := make(map[uuid.UUID]int)
 
-	// --- type lite utk include ---
-	type sectionLite struct {
-		ID            uuid.UUID  `json:"id"`
-		ClassID       *uuid.UUID `json:"class_id,omitempty"`
-		TeacherID     *uuid.UUID `json:"teacher_id,omitempty"`
-		ClassRoomID   *uuid.UUID `json:"class_room_id,omitempty"`
-		Slug          string     `json:"slug"`
-		Name          string     `json:"name"`
-		Code          *string    `json:"code,omitempty"`
-		Schedule      *string    `json:"schedule,omitempty"`
-		Capacity      *int       `json:"capacity,omitempty"`
-		TotalStudents int        `json:"total_students"`
-		GroupURL      *string    `json:"group_url,omitempty"`
-		IsActive      bool       `json:"is_active"`
-		CreatedAt     time.Time  `json:"created_at"`
-		UpdatedAt     time.Time  `json:"updated_at"`
-	}
-
-	type csstLite struct {
-		ID              uuid.UUID  `json:"id"`
-		ClassSectionID  *uuid.UUID `json:"class_section_id,omitempty"`
-		SchoolTeacherID *uuid.UUID `json:"school_teacher_id,omitempty"`
-		ClassRoomID     *uuid.UUID `json:"class_room_id,omitempty"`
-		Role            *string    `json:"role,omitempty"`
-		IsActive        bool       `json:"is_active"`
-		CreatedAt       time.Time  `json:"created_at"`
-		UpdatedAt       time.Time  `json:"updated_at"`
-	}
-
 	// =========================================================
-	// INCLUDE: class_sections (flat array) → include.class_sections
+	// INCLUDE: class_sections (flat array, pakai DTO compact)
 	// =========================================================
 	if includeClassSections && len(roomIDs) > 0 {
-		var secs []sectionLite
+		var secs []sectionmodel.ClassSectionModel
 		if err := ctl.DB.WithContext(reqCtx(c)).
-			Table("class_sections").
-			Select(`
-				class_section_id                AS id,
-				class_section_class_id          AS class_id,
-				class_section_school_teacher_id AS teacher_id,
-				class_section_class_room_id     AS class_room_id,
-				class_section_slug              AS slug,
-				class_section_name              AS name,
-				class_section_code              AS code,
-				class_section_schedule          AS schedule,
-				class_section_quota_total       AS capacity,
-				class_section_total_students_active AS total_students,
-				class_section_group_url         AS group_url,
-				class_section_is_active         AS is_active,
-				class_section_created_at        AS created_at,
-				class_section_updated_at        AS updated_at
-			`).
 			Where("class_section_school_id = ? AND class_section_deleted_at IS NULL", schoolID).
 			Where("class_section_class_room_id IN ?", roomIDs).
 			Order("class_section_created_at DESC").
-			Scan(&secs).Error; err != nil {
+			Find(&secs).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil class sections")
 		}
 
 		if len(secs) > 0 {
 			// hitung count per room di map
 			for i := range secs {
-				if secs[i].ClassRoomID == nil || *secs[i].ClassRoomID == uuid.Nil {
+				if secs[i].ClassSectionClassRoomID == nil || *secs[i].ClassSectionClassRoomID == uuid.Nil {
 					continue
 				}
-				rid := *secs[i].ClassRoomID
+				rid := *secs[i].ClassSectionClassRoomID
 				classSectionsCount[rid] = classSectionsCount[rid] + 1
 			}
-			includeMap["class_sections"] = secs
+			// pakai compact DTO resmi
+			includeMap["class_sections"] = sectiondto.FromSectionModelsToCompact(secs)
 		} else {
-			includeMap["class_sections"] = []sectionLite{}
+			includeMap["class_sections"] = []sectiondto.ClassSectionCompactResponse{}
 		}
 	}
 
 	// =========================================================
-	// INCLUDE: CSST (class_section_subject_teachers) → include.csst
+	// INCLUDE: CSST (class_section_subject_teachers) → DTO compact
 	// =========================================================
 	if includeCSST && len(roomIDs) > 0 {
-		var cssts []csstLite
+		var cssts []csstmodel.ClassSectionSubjectTeacherModel
 		if err := ctl.DB.WithContext(reqCtx(c)).
-			Table("class_section_subject_teachers").
-			Select(`
-				class_section_subject_teacher_id                  AS id,
-				class_section_subject_teacher_class_section_id    AS class_section_id,
-				class_section_subject_teacher_school_teacher_id   AS school_teacher_id,
-				class_section_subject_teacher_class_room_id       AS class_room_id,
-				class_section_subject_teacher_role                AS role,
-				class_section_subject_teacher_is_active           AS is_active,
-				class_section_subject_teacher_created_at          AS created_at,
-				class_section_subject_teacher_updated_at          AS updated_at
-			`).
 			Where("class_section_subject_teacher_school_id = ? AND class_section_subject_teacher_deleted_at IS NULL", schoolID).
 			Where("class_section_subject_teacher_class_room_id IN ?", roomIDs).
 			Order("class_section_subject_teacher_created_at DESC").
-			Scan(&cssts).Error; err != nil {
+			Find(&cssts).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data CSST")
 		}
 
 		if len(cssts) > 0 {
-			includeMap["csst"] = cssts
+			includeMap["class_section_subject_teachers"] = csstdto.FromClassSectionSubjectTeacherModelsCompact(cssts)
 		} else {
-			includeMap["csst"] = []csstLite{}
+			includeMap["class_section_subject_teachers"] = []csstdto.ClassSectionSubjectTeacherCompactResponse{}
 		}
 	}
 

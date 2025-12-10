@@ -334,10 +334,15 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		AcademicYearCache         *string    `json:"class_section_subject_teacher_academic_year_cache,omitempty"`
 		AcademicTermAngkatanCache *int       `json:"class_section_subject_teacher_academic_term_angkatan_cache,omitempty"`
 
-		MinPassingScore *int      `json:"class_section_subject_teacher_min_passing_score,omitempty"`
-		IsActive        bool      `json:"class_section_subject_teacher_is_active"`
-		CreatedAt       time.Time `json:"class_section_subject_teacher_created_at"`
-		UpdatedAt       time.Time `json:"class_section_subject_teacher_updated_at"`
+		MinPassingScore *int `json:"class_section_subject_teacher_min_passing_score,omitempty"`
+
+		// 🆕 status enum + completed_at + helper is_active (turunan dari status)
+		Status      string     `json:"class_section_subject_teacher_status"`
+		CompletedAt *time.Time `json:"class_section_subject_teacher_completed_at,omitempty"`
+		IsActive    bool       `json:"class_section_subject_teacher_is_active"`
+
+		CreatedAt time.Time `json:"class_section_subject_teacher_created_at"`
+		UpdatedAt time.Time `json:"class_section_subject_teacher_updated_at"`
 	}
 
 	// 2) Tipe nested untuk ClassSection + CSST list
@@ -494,15 +499,21 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 				AcademicTermAngkatanCache: r.ClassSectionSubjectTeacherAcademicTermAngkatanCache,
 
 				MinPassingScore: r.ClassSectionSubjectTeacherMinPassingScore,
-				IsActive:        r.ClassSectionSubjectTeacherIsActive,
-				CreatedAt:       r.ClassSectionSubjectTeacherCreatedAt,
-				UpdatedAt:       r.ClassSectionSubjectTeacherUpdatedAt,
+
+				// 🆕 status & flag aktif (mirror class_section)
+				Status:      string(r.ClassSectionSubjectTeacherStatus),
+				CompletedAt: r.ClassSectionSubjectTeacherCompletedAt,
+				IsActive:    r.ClassSectionSubjectTeacherStatus == csstModel.ClassStatusActive,
+
+				CreatedAt: r.ClassSectionSubjectTeacherCreatedAt,
+				UpdatedAt: r.ClassSectionSubjectTeacherUpdatedAt,
 			}
 
 			if sec, ok := classSectionMap[r.ClassSectionSubjectTeacherClassSectionID]; ok {
 				sec.SubjectTeachers = append(sec.SubjectTeachers, ci)
 			}
 		}
+
 	}
 
 	// siapkan includePayload (selalu ada di response)

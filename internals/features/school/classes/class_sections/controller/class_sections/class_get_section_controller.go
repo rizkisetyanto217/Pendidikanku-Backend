@@ -533,9 +533,21 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 			Where("class_section_subject_teacher_class_section_id IN ?", targetIDs)
 
 		// mode=compact → hormati filter is_active
+		// - is_active=true  → status = active
+		// - is_active=false → status <> active (inactive/completed/dll)
 		// mode=full    → kirim semua CSST terkait
 		if activeOnly != nil && isCompact {
-			csstQ = csstQ.Where("class_section_subject_teacher_is_active = ?", *activeOnly)
+			if *activeOnly {
+				csstQ = csstQ.Where(
+					"class_section_subject_teacher_status = ?",
+					csstModel.ClassStatusActive,
+				)
+			} else {
+				csstQ = csstQ.Where(
+					"class_section_subject_teacher_status <> ?",
+					csstModel.ClassStatusActive,
+				)
+			}
 		}
 
 		if err := csstQ.Find(&csstRows).Error; err != nil {
@@ -558,16 +570,19 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 					continue
 				}
 				lite := csstDTO.CSSTLiteSliceFromModels(list)
+
 				activeCnt := 0
 				for _, it := range list {
-					if it.ClassSectionSubjectTeacherIsActive {
+					if it.ClassSectionSubjectTeacherStatus == csstModel.ClassStatusActive {
 						activeCnt++
 					}
 				}
+
 				out[idx]["class_section_subject_teacher"] = lite
 				out[idx]["class_section_subject_teacher_count"] = len(lite)
 				out[idx]["class_section_subject_teacher_active_count"] = activeCnt
 			}
+
 		}
 
 		// include=csst → top-level include.csst (semua csst di page ini)

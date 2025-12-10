@@ -39,13 +39,17 @@ type CSSTIncluded struct {
 	MinPassingScore *int    `json:"class_section_subject_teacher_min_passing_score,omitempty"`
 	ClassRoomName   *string `json:"class_section_subject_teacher_class_room_name_cache,omitempty"`
 
-	// Tambahan info CSST
-	TotalBooks int       `json:"class_section_subject_teacher_total_books"`
-	CreatedAt  string    `json:"class_section_subject_teacher_created_at"`
-	UpdatedAt  string    `json:"class_section_subject_teacher_updated_at"`
-	IsActive   bool      `json:"class_section_subject_teacher_is_active"`
-	DeletedAt  *string   `json:"class_section_subject_teacher_deleted_at,omitempty"`
-	SchoolID   uuid.UUID `json:"class_section_subject_teacher_school_id"`
+	TotalBooks int    `json:"class_section_subject_teacher_total_books"`
+	CreatedAt  string `json:"class_section_subject_teacher_created_at"`
+	UpdatedAt  string `json:"class_section_subject_teacher_updated_at"`
+
+	// 🆕 status enum + completed_at + helper is_active (buat kompat FE)
+	Status      string  `json:"class_section_subject_teacher_status"`
+	CompletedAt *string `json:"class_section_subject_teacher_completed_at,omitempty"`
+	IsActive    bool    `json:"class_section_subject_teacher_is_active"`
+
+	DeletedAt *string   `json:"class_section_subject_teacher_deleted_at,omitempty"`
+	SchoolID  uuid.UUID `json:"class_section_subject_teacher_school_id"`
 }
 
 // CSST di atas + murid-murid di bawahnya
@@ -241,6 +245,7 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		items := make([]CSSTIncluded, 0, len(csstRows))
 		for i := range csstRows {
 			cs := csstRows[i]
+
 			item := CSSTIncluded{
 				ID:               cs.ClassSectionSubjectTeacherID,
 				Slug:             cs.ClassSectionSubjectTeacherSlug,
@@ -259,16 +264,30 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 
 				MinPassingScore: cs.ClassSectionSubjectTeacherMinPassingScore,
 				ClassRoomName:   cs.ClassSectionSubjectTeacherClassRoomNameCache,
-				IsActive:        cs.ClassSectionSubjectTeacherIsActive,
-				SchoolID:        cs.ClassSectionSubjectTeacherSchoolID,
-				CreatedAt:       cs.ClassSectionSubjectTeacherCreatedAt.Format(time.RFC3339),
-				UpdatedAt:       cs.ClassSectionSubjectTeacherUpdatedAt.Format(time.RFC3339),
-				TotalBooks:      cs.ClassSectionSubjectTeacherTotalBooks,
+
+				TotalBooks: cs.ClassSectionSubjectTeacherTotalBooks,
+				CreatedAt:  cs.ClassSectionSubjectTeacherCreatedAt.Format(time.RFC3339),
+				UpdatedAt:  cs.ClassSectionSubjectTeacherUpdatedAt.Format(time.RFC3339),
+
+				// 🆕 status + is_active helper
+				Status:   string(cs.ClassSectionSubjectTeacherStatus),
+				IsActive: cs.ClassSectionSubjectTeacherStatus == studentCSSTModel.ClassStatusActive,
+
+				SchoolID: cs.ClassSectionSubjectTeacherSchoolID,
 			}
+
+			// completed_at (kalau ada)
+			if cs.ClassSectionSubjectTeacherCompletedAt != nil {
+				s := cs.ClassSectionSubjectTeacherCompletedAt.Format(time.RFC3339)
+				item.CompletedAt = &s
+			}
+
+			// deleted_at (soft delete)
 			if cs.ClassSectionSubjectTeacherDeletedAt.Valid {
 				s := cs.ClassSectionSubjectTeacherDeletedAt.Time.Format(time.RFC3339)
 				item.DeletedAt = &s
 			}
+
 			items = append(items, item)
 		}
 
@@ -336,18 +355,30 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 
 				MinPassingScore: cs.ClassSectionSubjectTeacherMinPassingScore,
 				ClassRoomName:   cs.ClassSectionSubjectTeacherClassRoomNameCache,
-				IsActive:        cs.ClassSectionSubjectTeacherIsActive,
-				SchoolID:        cs.ClassSectionSubjectTeacherSchoolID,
-				CreatedAt:       cs.ClassSectionSubjectTeacherCreatedAt.Format(time.RFC3339),
-				UpdatedAt:       cs.ClassSectionSubjectTeacherUpdatedAt.Format(time.RFC3339),
-				TotalBooks:      cs.ClassSectionSubjectTeacherTotalBooks,
+
+				TotalBooks: cs.ClassSectionSubjectTeacherTotalBooks,
+				CreatedAt:  cs.ClassSectionSubjectTeacherCreatedAt.Format(time.RFC3339),
+				UpdatedAt:  cs.ClassSectionSubjectTeacherUpdatedAt.Format(time.RFC3339),
+
+				Status:   string(cs.ClassSectionSubjectTeacherStatus),
+				IsActive: cs.ClassSectionSubjectTeacherStatus == studentCSSTModel.ClassStatusActive,
+
+				SchoolID: cs.ClassSectionSubjectTeacherSchoolID,
 			}
+
+			if cs.ClassSectionSubjectTeacherCompletedAt != nil {
+				s := cs.ClassSectionSubjectTeacherCompletedAt.Format(time.RFC3339)
+				item.CompletedAt = &s
+			}
+
 			if cs.ClassSectionSubjectTeacherDeletedAt.Valid {
 				s := cs.ClassSectionSubjectTeacherDeletedAt.Time.Format(time.RFC3339)
 				item.DeletedAt = &s
 			}
+
 			csstMap[cs.ClassSectionSubjectTeacherID] = item
 		}
+
 	}
 
 	// 3) pilih satu CSST utama (kontrak sekarang: 1 CSST per respons nested)

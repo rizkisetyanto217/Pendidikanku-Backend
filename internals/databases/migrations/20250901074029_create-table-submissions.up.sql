@@ -1,5 +1,4 @@
-
-
+-- +migrate Up
 BEGIN;
 
 -- =========================================================
@@ -11,6 +10,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- =========================================================
 -- 4) SUBMISSIONS (pengumpulan tugas oleh siswa)
+--   Versi terbaru (tanpa snapshot student)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS submissions (
   submission_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -28,13 +28,6 @@ CREATE TABLE IF NOT EXISTS submissions (
     REFERENCES school_students(school_student_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
-  -- Cache user profile & siswa (snapshot, optional)
-  submission_user_profile_name_snapshot          VARCHAR(80),
-  submission_user_profile_avatar_url_snapshot    VARCHAR(255),
-  submission_user_profile_whatsapp_url_snapshot        VARCHAR(50),
-  submission_user_profile_gender_snapshot        VARCHAR(20),
-  submission_school_student_code_cache        VARCHAR(50),
-
   -- isi & status pengumpulan
   submission_text   TEXT,
   submission_status VARCHAR(24) NOT NULL DEFAULT 'submitted'
@@ -50,6 +43,7 @@ CREATE TABLE IF NOT EXISTS submissions (
   -- JSON untuk menyimpan detail komponen nilai
   submission_scores JSONB,
 
+  -- khusus quiz (0 = belum selesai, 1 = selesai)
   submission_quiz_finished SMALLINT NOT NULL DEFAULT 0,
 
   submission_feedback TEXT,
@@ -65,6 +59,8 @@ CREATE TABLE IF NOT EXISTS submissions (
   submission_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   submission_deleted_at TIMESTAMPTZ
 );
+
+
 
 -- ============== INDEXES (submissions) ==============
 
@@ -109,6 +105,7 @@ CREATE INDEX IF NOT EXISTS brin_submissions_created_at
 CREATE INDEX IF NOT EXISTS gin_submissions_scores
   ON submissions USING GIN (submission_scores);
 
+COMMIT;
 
 -- =========================================================
 -- 5) SUBMISSION_URLS (lampiran kiriman user)

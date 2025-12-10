@@ -26,6 +26,15 @@ const (
 	AttendanceEntryBoth        AttendanceEntryMode = "both"
 )
 
+/* ===== ENUM: class_status_enum (IKUTI DB) ===== */
+type ClassStatus string
+
+const (
+	ClassStatusActive    ClassStatus = "active"
+	ClassStatusInactive  ClassStatus = "inactive"
+	ClassStatusCompleted ClassStatus = "completed"
+)
+
 /*
 =========================================================
 
@@ -111,10 +120,11 @@ type ClassSectionSubjectTeacherModel struct {
 	ClassSectionSubjectTeacherMinPassingScore                  *int `gorm:"column:class_section_subject_teacher_min_passing_score" json:"class_section_subject_teacher_min_passing_score,omitempty"`
 
 	/* ===== Status & audit ===== */
-	ClassSectionSubjectTeacherIsActive  bool           `gorm:"not null;default:true;column:class_section_subject_teacher_is_active" json:"class_section_subject_teacher_is_active"`
-	ClassSectionSubjectTeacherCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:class_section_subject_teacher_created_at" json:"class_section_subject_teacher_created_at"`
-	ClassSectionSubjectTeacherUpdatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:class_section_subject_teacher_updated_at" json:"class_section_subject_teacher_updated_at"`
-	ClassSectionSubjectTeacherDeletedAt gorm.DeletedAt `gorm:"column:class_section_subject_teacher_deleted_at;index" json:"class_section_subject_teacher_deleted_at,omitempty"`
+	ClassSectionSubjectTeacherStatus      ClassStatus    `gorm:"type:class_status_enum;not null;default:'active';column:class_section_subject_teacher_status" json:"class_section_subject_teacher_status"`
+	ClassSectionSubjectTeacherCompletedAt *time.Time     `gorm:"type:timestamptz;column:class_section_subject_teacher_completed_at" json:"class_section_subject_teacher_completed_at,omitempty"`
+	ClassSectionSubjectTeacherCreatedAt   time.Time      `gorm:"type:timestamptz;not null;default:now();column:class_section_subject_teacher_created_at" json:"class_section_subject_teacher_created_at"`
+	ClassSectionSubjectTeacherUpdatedAt   time.Time      `gorm:"type:timestamptz;not null;default:now();column:class_section_subject_teacher_updated_at" json:"class_section_subject_teacher_updated_at"`
+	ClassSectionSubjectTeacherDeletedAt   gorm.DeletedAt `gorm:"column:class_section_subject_teacher_deleted_at;index" json:"class_section_subject_teacher_deleted_at,omitempty"`
 }
 
 func (ClassSectionSubjectTeacherModel) TableName() string {

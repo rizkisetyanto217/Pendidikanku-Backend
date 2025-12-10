@@ -709,15 +709,15 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 			}
 		}
 
-		// Track status aktif lama (kalau nanti mau dipakai untuk logic lanjutan)
-		wasActive := row.ClassSectionSubjectTeacherIsActive
-		newActive := wasActive
-		if req.ClassSectionSubjectTeacherIsActive != nil {
-			newActive = *req.ClassSectionSubjectTeacherIsActive
-		}
+		// Track status lama (enum) sebelum apply
+		oldStatus := row.ClassSectionSubjectTeacherStatus
 
 		// Apply perubahan dasar ke row
+		// (mapping status / is_active → status sudah di-handle di DTO.Apply)
 		req.Apply(&row)
+
+		// Status baru sesudah apply
+		newStatus := row.ClassSectionSubjectTeacherStatus
 
 		// Jika CLASS_SUBJECT berubah → refresh subject cache (+ KKM default + cache class_subject KKM)
 		if classSubjectChanged {
@@ -937,8 +937,8 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 			return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 		}
 
-		_ = wasActive
-		_ = newActive // disimpan kalau nanti mau dipakai untuk sync lain (misal lembaga_stats)
+		_ = oldStatus
+		_ = newStatus // disimpan kalau nanti mau dipakai untuk sync / logic lain
 
 		// ✅ Tidak ada lagi sync ke school_teachers di sini
 		return helper.JsonUpdated(c, "Penugasan guru berhasil diperbarui", dto.FromClassSectionSubjectTeacherModel(row))

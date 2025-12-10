@@ -66,10 +66,9 @@ func (r CreateSubmissionRequest) ToModel() subModel.SubmissionModel {
 		SubmissionStatus:      status,
 		SubmissionSubmittedAt: r.SubmissionSubmittedAt,
 		SubmissionIsLate:      r.SubmissionIsLate,
-		// snapshot user_profile & student code akan diisi di service (bukan dari request)
-		// submission_scores           → nil (default)
-		// submission_quiz_finished    → 0 (default)
-		// created_at / updated_at     → DB default now()
+		// submission_scores        → nil (default)
+		// submission_quiz_finished → 0 (default)
+		// created_at / updated_at  → DB default now()
 	}
 }
 
@@ -247,24 +246,18 @@ type SubmissionResponse struct {
 	SubmissionAssessmentID uuid.UUID `json:"submission_assessment_id"`
 	SubmissionStudentID    uuid.UUID `json:"submission_student_id"`
 
-	// snapshot user_profile & student
-	SubmissionUserProfileNameSnapshot        *string `json:"submission_user_profile_name_snapshot,omitempty"`
-	SubmissionUserProfileAvatarURLSnapshot   *string `json:"submission_user_profile_avatar_url_snapshot,omitempty"`
-	SubmissionUserProfileWhatsappURLSnapshot *string `json:"submission_user_profile_whatsapp_url_snapshot,omitempty"`
-	SubmissionUserProfileGenderSnapshot      *string `json:"submission_user_profile_gender_snapshot,omitempty"`
-	SubmissionSchoolStudentCodeCache         *string `json:"submission_school_student_code_cache,omitempty"`
-
 	SubmissionText        *string                   `json:"submission_text,omitempty"`
 	SubmissionStatus      subModel.SubmissionStatus `json:"submission_status"`
 	SubmissionSubmittedAt *time.Time                `json:"submission_submitted_at,omitempty"`
 	SubmissionIsLate      *bool                     `json:"submission_is_late,omitempty"`
 
-	SubmissionScore             *float64       `json:"submission_score,omitempty"`
-	SubmissionScores            map[string]any `json:"submission_scores,omitempty"`
-	SubmissionQuizFinished      int            `json:"submission_quiz_finished"`
-	SubmissionFeedback          *string        `json:"submission_feedback,omitempty"`
-	SubmissionGradedByTeacherID *uuid.UUID     `json:"submission_graded_by_teacher_id,omitempty"`
-	SubmissionGradedAt          *time.Time     `json:"submission_graded_at,omitempty"`
+	SubmissionScore        *float64       `json:"submission_score,omitempty"`
+	SubmissionScores       map[string]any `json:"submission_scores,omitempty"`
+	SubmissionQuizFinished int            `json:"submission_quiz_finished"`
+	SubmissionFeedback     *string        `json:"submission_feedback,omitempty"`
+
+	SubmissionGradedByTeacherID *uuid.UUID `json:"submission_graded_by_teacher_id,omitempty"`
+	SubmissionGradedAt          *time.Time `json:"submission_graded_at,omitempty"`
 
 	SubmissionCreatedAt time.Time  `json:"submission_created_at"`
 	SubmissionUpdatedAt time.Time  `json:"submission_updated_at"`
@@ -290,21 +283,16 @@ func FromModel(m *subModel.SubmissionModel) SubmissionResponse {
 		SubmissionAssessmentID: m.SubmissionAssessmentID,
 		SubmissionStudentID:    m.SubmissionStudentID,
 
-		SubmissionUserProfileNameSnapshot:        m.SubmissionUserProfileNameSnapshot,
-		SubmissionUserProfileAvatarURLSnapshot:   m.SubmissionUserProfileAvatarURLSnapshot,
-		SubmissionUserProfileWhatsappURLSnapshot: m.SubmissionUserProfileWhatsappURLSnapshot,
-		SubmissionUserProfileGenderSnapshot:      m.SubmissionUserProfileGenderSnapshot,
-		SubmissionSchoolStudentCodeCache:         m.SubmissionSchoolStudentCodeCache,
-
 		SubmissionText:        m.SubmissionText,
 		SubmissionStatus:      m.SubmissionStatus,
 		SubmissionSubmittedAt: m.SubmissionSubmittedAt,
 		SubmissionIsLate:      m.SubmissionIsLate,
 
-		SubmissionScore:             m.SubmissionScore,
-		SubmissionScores:            scores,
-		SubmissionQuizFinished:      m.SubmissionQuizFinished,
-		SubmissionFeedback:          m.SubmissionFeedback,
+		SubmissionScore:        m.SubmissionScore,
+		SubmissionScores:       scores,
+		SubmissionQuizFinished: m.SubmissionQuizFinished,
+		SubmissionFeedback:     m.SubmissionFeedback,
+
 		SubmissionGradedByTeacherID: m.SubmissionGradedByTeacherID,
 		SubmissionGradedAt:          m.SubmissionGradedAt,
 
