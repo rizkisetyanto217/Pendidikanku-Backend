@@ -8,7 +8,10 @@ import (
 	model "madinahsalam_backend/internals/features/school/academics/books/model"
 	classSubjectDTO "madinahsalam_backend/internals/features/school/academics/subjects/dto"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+
+	"madinahsalam_backend/internals/helpers/dbtime"
 )
 
 /* =========================================================
@@ -209,6 +212,17 @@ func ToBookResponse(m *model.BookModel) BookResponse {
 	}
 }
 
+// Versi timezone-aware: konversi semua time ke timezone sekolah (berdasarkan token)
+func ToBookResponseWithSchoolTime(c *fiber.Ctx, m *model.BookModel) BookResponse {
+	resp := ToBookResponse(m)
+
+	resp.BookCreatedAt = dbtime.ToSchoolTime(c, resp.BookCreatedAt)
+	resp.BookUpdatedAt = dbtime.ToSchoolTime(c, resp.BookUpdatedAt)
+	resp.BookImageDeletePendingUntil = dbtime.ToSchoolTimePtr(c, resp.BookImageDeletePendingUntil)
+
+	return resp
+}
+
 func (r *BookCreateRequest) ToModel() *model.BookModel {
 	return &model.BookModel{
 		BookSchoolID:    r.BookSchoolID,
@@ -357,6 +371,27 @@ func ToBookCompactList(models []*model.BookModel) []BookCompact {
 			continue
 		}
 		out = append(out, ToBookCompact(m))
+	}
+	return out
+}
+
+// Versi compact + timezone sekolah
+func ToBookCompactWithSchoolTime(c *fiber.Ctx, m *model.BookModel) BookCompact {
+	resp := ToBookCompact(m)
+
+	resp.BookCreatedAt = dbtime.ToSchoolTime(c, resp.BookCreatedAt)
+	resp.BookUpdatedAt = dbtime.ToSchoolTime(c, resp.BookUpdatedAt)
+
+	return resp
+}
+
+func ToBookCompactListWithSchoolTime(c *fiber.Ctx, models []*model.BookModel) []BookCompact {
+	out := make([]BookCompact, 0, len(models))
+	for _, m := range models {
+		if m == nil {
+			continue
+		}
+		out = append(out, ToBookCompactWithSchoolTime(c, m))
 	}
 	return out
 }

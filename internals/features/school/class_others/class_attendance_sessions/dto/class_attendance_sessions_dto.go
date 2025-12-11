@@ -7,7 +7,9 @@ import (
 	"time"
 
 	model "madinahsalam_backend/internals/features/school/class_others/class_attendance_sessions/model"
+	dbtime "madinahsalam_backend/internals/helpers/dbtime"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
 
@@ -500,6 +502,40 @@ func FromClassAttendanceSessionModelsCompact(models []model.ClassAttendanceSessi
 	return out
 }
 
+// =========================
+//   COMPACT + school time
+// =========================
+
+func FromClassAttendanceSessionModelCompactWithSchoolTime(
+	c *fiber.Ctx,
+	m model.ClassAttendanceSessionModel,
+) ClassAttendanceSessionCompactResponse {
+	out := FromClassAttendanceSessionModelCompact(m)
+
+	out.ClassAttendanceSessionDate = dbtime.ToSchoolTime(c, out.ClassAttendanceSessionDate)
+	if out.ClassAttendanceSessionStartsAt != nil {
+		t := dbtime.ToSchoolTime(c, *out.ClassAttendanceSessionStartsAt)
+		out.ClassAttendanceSessionStartsAt = &t
+	}
+	if out.ClassAttendanceSessionEndsAt != nil {
+		t := dbtime.ToSchoolTime(c, *out.ClassAttendanceSessionEndsAt)
+		out.ClassAttendanceSessionEndsAt = &t
+	}
+
+	return out
+}
+
+func FromClassAttendanceSessionModelsCompactWithSchoolTime(
+	c *fiber.Ctx,
+	models []model.ClassAttendanceSessionModel,
+) []ClassAttendanceSessionCompactResponse {
+	out := make([]ClassAttendanceSessionCompactResponse, 0, len(models))
+	for _, m := range models {
+		out = append(out, FromClassAttendanceSessionModelCompactWithSchoolTime(c, m))
+	}
+	return out
+}
+
 /* ========================================================
    4) Mapping: Create/Read (FULL)
    ======================================================== */
@@ -647,6 +683,59 @@ func FromClassAttendanceSessionModels(models []model.ClassAttendanceSessionModel
 	out := make([]ClassAttendanceSessionResponse, 0, len(models))
 	for _, m := range models {
 		out = append(out, FromClassAttendanceSessionModel(m))
+	}
+	return out
+}
+
+// =========================
+//   FULL + school time
+// =========================
+
+func FromClassAttendanceSessionModelWithSchoolTime(
+	c *fiber.Ctx,
+	m model.ClassAttendanceSessionModel,
+) ClassAttendanceSessionResponse {
+	out := FromClassAttendanceSessionModel(m)
+
+	// Occurrence
+	out.ClassAttendanceSessionDate = dbtime.ToSchoolTime(c, out.ClassAttendanceSessionDate)
+	if out.ClassAttendanceSessionStartsAt != nil {
+		t := dbtime.ToSchoolTime(c, *out.ClassAttendanceSessionStartsAt)
+		out.ClassAttendanceSessionStartsAt = &t
+	}
+	if out.ClassAttendanceSessionEndsAt != nil {
+		t := dbtime.ToSchoolTime(c, *out.ClassAttendanceSessionEndsAt)
+		out.ClassAttendanceSessionEndsAt = &t
+	}
+
+	// Overrides
+	if out.ClassAttendanceSessionOriginalStartAt != nil {
+		t := dbtime.ToSchoolTime(c, *out.ClassAttendanceSessionOriginalStartAt)
+		out.ClassAttendanceSessionOriginalStartAt = &t
+	}
+	if out.ClassAttendanceSessionOriginalEndAt != nil {
+		t := dbtime.ToSchoolTime(c, *out.ClassAttendanceSessionOriginalEndAt)
+		out.ClassAttendanceSessionOriginalEndAt = &t
+	}
+
+	// Audit
+	out.ClassAttendanceSessionCreatedAt = dbtime.ToSchoolTime(c, out.ClassAttendanceSessionCreatedAt)
+	out.ClassAttendanceSessionUpdatedAt = dbtime.ToSchoolTime(c, out.ClassAttendanceSessionUpdatedAt)
+	if out.ClassAttendanceSessionDeletedAt != nil {
+		t := dbtime.ToSchoolTime(c, *out.ClassAttendanceSessionDeletedAt)
+		out.ClassAttendanceSessionDeletedAt = &t
+	}
+
+	return out
+}
+
+func FromClassAttendanceSessionModelsWithSchoolTime(
+	c *fiber.Ctx,
+	models []model.ClassAttendanceSessionModel,
+) []ClassAttendanceSessionResponse {
+	out := make([]ClassAttendanceSessionResponse, 0, len(models))
+	for _, m := range models {
+		out = append(out, FromClassAttendanceSessionModelWithSchoolTime(c, m))
 	}
 	return out
 }
@@ -867,4 +956,55 @@ type TeacherSessionAttendanceItem struct {
 type TeacherSessionAttendanceListResponse struct {
 	Items []TeacherSessionAttendanceItem `json:"items"`
 	Meta  ListMeta                       `json:"meta"`
+}
+
+
+// Di dto/class_attendance_session_dto.go
+
+func (r ClassAttendanceSessionResponse) WithSchoolTime(c *fiber.Ctx) ClassAttendanceSessionResponse {
+	out := r
+
+	out.ClassAttendanceSessionDate = dbtime.ToSchoolTime(c, out.ClassAttendanceSessionDate)
+	if out.ClassAttendanceSessionStartsAt != nil {
+		t := dbtime.ToSchoolTime(c, *out.ClassAttendanceSessionStartsAt)
+		out.ClassAttendanceSessionStartsAt = &t
+	}
+	if out.ClassAttendanceSessionEndsAt != nil {
+		t := dbtime.ToSchoolTime(c, *out.ClassAttendanceSessionEndsAt)
+		out.ClassAttendanceSessionEndsAt = &t
+	}
+
+	if out.ClassAttendanceSessionOriginalStartAt != nil {
+		t := dbtime.ToSchoolTime(c, *out.ClassAttendanceSessionOriginalStartAt)
+		out.ClassAttendanceSessionOriginalStartAt = &t
+	}
+	if out.ClassAttendanceSessionOriginalEndAt != nil {
+		t := dbtime.ToSchoolTime(c, *out.ClassAttendanceSessionOriginalEndAt)
+		out.ClassAttendanceSessionOriginalEndAt = &t
+	}
+
+	out.ClassAttendanceSessionCreatedAt = dbtime.ToSchoolTime(c, out.ClassAttendanceSessionCreatedAt)
+	out.ClassAttendanceSessionUpdatedAt = dbtime.ToSchoolTime(c, out.ClassAttendanceSessionUpdatedAt)
+	if out.ClassAttendanceSessionDeletedAt != nil {
+		t := dbtime.ToSchoolTime(c, *out.ClassAttendanceSessionDeletedAt)
+		out.ClassAttendanceSessionDeletedAt = &t
+	}
+
+	return out
+}
+
+func (r ClassAttendanceSessionCompactResponse) WithSchoolTime(c *fiber.Ctx) ClassAttendanceSessionCompactResponse {
+	out := r
+
+	out.ClassAttendanceSessionDate = dbtime.ToSchoolTime(c, out.ClassAttendanceSessionDate)
+	if out.ClassAttendanceSessionStartsAt != nil {
+		t := dbtime.ToSchoolTime(c, *out.ClassAttendanceSessionStartsAt)
+		out.ClassAttendanceSessionStartsAt = &t
+	}
+	if out.ClassAttendanceSessionEndsAt != nil {
+		t := dbtime.ToSchoolTime(c, *out.ClassAttendanceSessionEndsAt)
+		out.ClassAttendanceSessionEndsAt = &t
+	}
+
+	return out
 }

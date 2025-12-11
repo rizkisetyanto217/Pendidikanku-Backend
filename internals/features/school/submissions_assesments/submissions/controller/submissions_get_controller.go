@@ -162,10 +162,10 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// 11) Mapping ke DTO
+	// 11) Mapping ke DTO (timezone-aware)
 	items := make([]any, 0, len(rows))
 	for i := range rows {
-		items = append(items, dto.FromModel(&rows[i]))
+		items = append(items, dto.FromModelWithCtx(c, &rows[i]))
 	}
 
 	// 12) Build pagination full (TotalPages, HasNext, HasPrev, dsb)

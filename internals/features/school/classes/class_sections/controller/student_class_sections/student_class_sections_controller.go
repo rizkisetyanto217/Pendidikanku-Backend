@@ -153,7 +153,8 @@ func (ctl *StudentClassSectionController) Create(c *fiber.Ctx) error {
 	}
 
 	return helper.JsonOK(c, "Berhasil", fiber.Map{
-		"item": dto.FromModel(m),
+		// ✅ pakai DBTime-aware DTO
+		"item": dto.FromModelWithSchoolTime(c, m),
 	})
 }
 
@@ -189,7 +190,8 @@ func (ctl *StudentClassSectionController) GetDetail(c *fiber.Ctx) error {
 	}
 
 	return helper.JsonOK(c, "OK", fiber.Map{
-		"item": dto.FromModel(&m),
+		// ✅ pakai DBTime-aware DTO
+		"item": dto.FromModelWithSchoolTime(c, &m),
 	})
 }
 
@@ -242,7 +244,8 @@ func (ctl *StudentClassSectionController) Patch(c *fiber.Ctx) error {
 	}
 
 	return helper.JsonOK(c, "Berhasil patch", fiber.Map{
-		"item": dto.FromModel(&m),
+		// ✅ pakai DBTime-aware DTO
+		"item": dto.FromModelWithSchoolTime(c, &m),
 	})
 }
 
@@ -286,6 +289,7 @@ func (ctl *StudentClassSectionController) Delete(c *fiber.Ctx) error {
 	}
 
 	return helper.JsonOK(c, "Berhasil hapus", fiber.Map{
-		"item": dto.FromModel(&m),
+		// ✅ pakai DBTime-aware DTO
+		"item": dto.FromModelWithSchoolTime(c, &m),
 	})
 }

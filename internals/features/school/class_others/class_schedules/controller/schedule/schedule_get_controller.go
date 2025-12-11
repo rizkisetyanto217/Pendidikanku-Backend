@@ -317,9 +317,9 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 	if !needRules && !needCSST {
 		resp := make([]ruleDTO.ClassScheduleResponse, 0, len(schedRows))
 		for _, row := range schedRows {
-			resp = append(resp, ruleDTO.FromModel(row))
+			// 🔁 semua time → timezone sekolah via DTO
+			resp = append(resp, ruleDTO.FromModel(row).WithSchoolTime(c))
 		}
-		// includes kosong
 		emptyIncludes := classScheduleIncludesPayload{}
 		return helper.JsonListEx(c, "ok", resp, pg, emptyIncludes)
 	}
@@ -360,15 +360,14 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 	combined := make([]classScheduleWithNested, 0, len(schedRows))
 	for _, sched := range schedRows {
 		item := classScheduleWithNested{
-			Schedule: ruleDTO.FromModel(sched),
+			// ⬇️ di-convert ke school time di sini
+			Schedule: ruleDTO.FromModel(sched).WithSchoolTime(c),
 		}
 
-		// nested=rules → attach rules per schedule
 		if nested.Rules && rulesBySched != nil {
 			item.Rules = rulesBySched[sched.ClassScheduleID]
 		}
 
-		// nested=csst → attach csst per schedule
 		if nested.CSST && csstBySched != nil {
 			if csstRow, ok := csstBySched[sched.ClassScheduleID]; ok {
 				rowCopy := csstRow

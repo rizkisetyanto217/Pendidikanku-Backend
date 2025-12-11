@@ -9,6 +9,9 @@ import (
 	"strings"
 	"time"
 
+	dbtime "madinahsalam_backend/internals/helpers/dbtime"
+
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
 	attendanceModel "madinahsalam_backend/internals/features/school/class_others/class_attendance_sessions/model"
@@ -542,4 +545,44 @@ func pint(i *int) int {
 		return 0
 	}
 	return *i
+}
+
+/* ===================== TIME HELPERS (School Time) ===================== */
+/*
+   Dipanggil dari controller:
+   - DB tetap simpan UTC
+   - Response ke client pakai timezone sekolah (berdasar school context di fiber.Ctx)
+*/
+
+func NormalizeParticipantTimesToSchoolTime(
+	c *fiber.Ctx,
+	m *attendanceModel.ClassAttendanceSessionParticipantModel,
+) {
+	if m == nil {
+		return
+	}
+
+	if m.ClassAttendanceSessionParticipantCheckinAt != nil {
+		m.ClassAttendanceSessionParticipantCheckinAt = dbtime.ToSchoolTimePtr(c, m.ClassAttendanceSessionParticipantCheckinAt)
+	}
+	if m.ClassAttendanceSessionParticipantCheckoutAt != nil {
+		m.ClassAttendanceSessionParticipantCheckoutAt = dbtime.ToSchoolTimePtr(c, m.ClassAttendanceSessionParticipantCheckoutAt)
+	}
+	if m.ClassAttendanceSessionParticipantMarkedAt != nil {
+		m.ClassAttendanceSessionParticipantMarkedAt = dbtime.ToSchoolTimePtr(c, m.ClassAttendanceSessionParticipantMarkedAt)
+	}
+	if m.ClassAttendanceSessionParticipantLockedAt != nil {
+		m.ClassAttendanceSessionParticipantLockedAt = dbtime.ToSchoolTimePtr(c, m.ClassAttendanceSessionParticipantLockedAt)
+	}
+}
+
+// Versi slice: enak buat List
+func NormalizeParticipantsSliceToSchoolTime(
+	c *fiber.Ctx,
+	list []attendanceModel.ClassAttendanceSessionParticipantModel,
+) []attendanceModel.ClassAttendanceSessionParticipantModel {
+	for i := range list {
+		NormalizeParticipantTimesToSchoolTime(c, &list[i])
+	}
+	return list
 }

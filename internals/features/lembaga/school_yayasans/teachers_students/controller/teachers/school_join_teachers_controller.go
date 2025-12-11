@@ -14,6 +14,7 @@ import (
 
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
+	helperDbTime "madinahsalam_backend/internals/helpers/dbtime"
 
 	schoolModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/schools/model"
 
@@ -206,7 +207,8 @@ func (ctrl *SchoolTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat slug guru")
 		}
 
-		now := time.Now()
+		// gunakan waktu di timezone sekolah (via helper dbtime)
+		now, _ := helperDbTime.GetDBTime(c)
 
 		// insert record + isi snapshot + SIMPAN teacher code di kolom school_teacher_code
 		rec := &teacherModel.SchoolTeacherModel{
@@ -225,7 +227,7 @@ func (ctrl *SchoolTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 			SchoolTeacherCreatedAt: now,
 			SchoolTeacherUpdatedAt: now,
 
-			SchoolTeacherUserTeacherFullNameCache:        sptr(ut.Name),
+			SchoolTeacherUserTeacherFullNameCache:    sptr(ut.Name),
 			SchoolTeacherUserTeacherAvatarURLCache:   ut.AvatarURL,
 			SchoolTeacherUserTeacherWhatsappURLCache: ut.WhatsappURL,
 			SchoolTeacherUserTeacherTitlePrefixCache: ut.TitlePrefix,
@@ -268,7 +270,12 @@ func (ctrl *SchoolTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 		return toJSONErr(c, err)
 	}
 
-	return helper.JsonCreated(c, "Berhasil bergabung sebagai pengajar", teacherDTO.NewSchoolTeacherResponse(&created))
+	// ✅ DTO pakai timezone sekolah (signature baru: (c *fiber.Ctx, m *Model))
+	return helper.JsonCreated(
+		c,
+		"Berhasil bergabung sebagai pengajar",
+		teacherDTO.NewSchoolTeacherResponse(c, &created),
+	)
 }
 
 /* ===================== Helpers ===================== */

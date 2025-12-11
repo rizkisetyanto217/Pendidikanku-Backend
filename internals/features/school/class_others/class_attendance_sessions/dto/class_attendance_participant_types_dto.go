@@ -1,4 +1,3 @@
-// file: internals/features/attendance/dto/class_attendance_session_participant_type_dto.go
 package dto
 
 import (
@@ -6,10 +5,12 @@ import (
 	"time"
 
 	"github.com/go-playground/validator/v10"
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
 	model "madinahsalam_backend/internals/features/school/class_others/class_attendance_sessions/model"
+	dbtime "madinahsalam_backend/internals/helpers/dbtime"
 )
 
 /* =========================================================
@@ -198,6 +199,18 @@ func FromModel(m *model.ClassAttendanceSessionParticipantTypeModel) ClassAttenda
 		ClassAttendanceSessionParticipantTypeCreatedAt: m.ClassAttendanceSessionParticipantTypeCreatedAt,
 		ClassAttendanceSessionParticipantTypeUpdatedAt: m.ClassAttendanceSessionParticipantTypeUpdatedAt,
 	}
+}
+
+// ✅ versi timezone-aware, dipakai controller
+func FromModelWithSchoolTime(c *fiber.Ctx, m *model.ClassAttendanceSessionParticipantTypeModel) ClassAttendanceSessionParticipantTypeItem {
+	item := FromModel(m)
+
+	item.ClassAttendanceSessionParticipantTypeCreatedAt =
+		dbtime.ToSchoolTime(c, item.ClassAttendanceSessionParticipantTypeCreatedAt)
+	item.ClassAttendanceSessionParticipantTypeUpdatedAt =
+		dbtime.ToSchoolTime(c, item.ClassAttendanceSessionParticipantTypeUpdatedAt)
+
+	return item
 }
 
 type Page[T any] struct {

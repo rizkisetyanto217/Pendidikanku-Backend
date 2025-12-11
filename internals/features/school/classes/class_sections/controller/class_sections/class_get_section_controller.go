@@ -78,7 +78,7 @@ func academicTermLiteFromSectionModel(cs *secModel.ClassSectionModel) *AcademicT
 	}
 }
 
-// dari slice ClassSectionModel → unique list AcademicTermLite (buat include["academic_term"])
+// dari slice ClassSectionModel → unique list AcademicTermLite (buat include["academic_terms"])
 func buildAcademicTermInclude(list []secModel.ClassSectionModel) []AcademicTermLite {
 	out := make([]AcademicTermLite, 0, len(list))
 	seen := make(map[string]struct{}, len(list))
@@ -441,7 +441,7 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 
 	if activeOnly != nil {
 		if *activeOnly {
-			// hanya section dengan status ACTIVE
+			// hanya section dengan status ACTIVE (enum)
 			tx = tx.Where("class_section_status = ?", secModel.ClassStatusActive)
 		} else {
 			// semua section yang TIDAK active (inactive / completed / dst)
@@ -487,9 +487,11 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 	)
 
 	if isCompact {
-		compactItems = secDTO.FromSectionModelsToCompact(rows)
+		// pakai compact DTO yang baru (dengan teacher lite & term caches) + timezone sekolah
+		compactItems = secDTO.FromSectionModelsToCompactWithSchoolTime(c, rows)
 	} else {
-		fullItems = secDTO.FromSectionModels(rows)
+		// pakai full DTO yang sinkron dengan model & SQL + timezone sekolah
+		fullItems = secDTO.FromSectionModelsWithSchoolTime(c, rows)
 	}
 
 	// idsInPage: pakai urutan dari rows (common untuk kedua mode)
@@ -503,9 +505,9 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 	// includePayload: selalu ada "include": {} di response (bisa kosong)
 	includePayload := fiber.Map{}
 
-	// top-level include: academic_term
+	// top-level include: academic_terms (plural, biar konsisten dengan controller classes)
 	if includeAcademicTerm {
-		includePayload["academic_term"] = buildAcademicTermInclude(rows)
+		includePayload["academic_terms"] = buildAcademicTermInclude(rows)
 	}
 
 	// Kalau nggak perlu CSST sama sekali, nggak perlu student sections,

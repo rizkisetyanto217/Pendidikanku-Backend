@@ -7,10 +7,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 
 	qmodel "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/model"
+	"madinahsalam_backend/internals/helpers/dbtime"
 )
 
 /* =========================================================
@@ -310,6 +312,50 @@ func FromModelsQuizQuestions(arr []qmodel.QuizQuestionModel) []*QuizQuestionResp
 	out := make([]*QuizQuestionResponse, 0, len(arr))
 	for i := range arr {
 		out = append(out, FromModelQuizQuestion(&arr[i]))
+	}
+	return out
+}
+
+// ==============================
+//  MAPPER DENGAN TIMEZONE SEKOLAH
+// ==============================
+
+// Versi aware timezone sekolah.
+// - CreatedAt / UpdatedAt question dikonversi via dbtime.ToSchoolTime
+// - Kalau Quiz di-preload, waktu di QuizLite juga ikut dikonversi.
+func FromModelQuizQuestionWithCtx(c *fiber.Ctx, m *qmodel.QuizQuestionModel) *QuizQuestionResponse {
+	if m == nil {
+		return nil
+	}
+
+	// Pakai mapper lama dulu
+	resp := FromModelQuizQuestion(m)
+
+	// Override created_at / updated_at pake timezone sekolah
+	createdLocal := dbtime.ToSchoolTime(c, m.QuizQuestionCreatedAt)
+	updatedLocal := dbtime.ToSchoolTime(c, m.QuizQuestionUpdatedAt)
+
+	resp.QuizQuestionCreatedAt = createdLocal.Format(timeRFC3339)
+	resp.QuizQuestionUpdatedAt = updatedLocal.Format(timeRFC3339)
+
+	// Kalau Quiz ikut di-preload dan sudah dibentuk QuizLite, convert juga
+	if resp.Quiz != nil {
+		resp.Quiz.QuizCreatedAt = dbtime.ToSchoolTime(c, m.Quiz.QuizCreatedAt)
+		resp.Quiz.QuizUpdatedAt = dbtime.ToSchoolTime(c, m.Quiz.QuizUpdatedAt)
+
+		if resp.Quiz.QuizDeletedAt != nil {
+			v := dbtime.ToSchoolTime(c, *resp.Quiz.QuizDeletedAt)
+			resp.Quiz.QuizDeletedAt = &v
+		}
+	}
+
+	return resp
+}
+
+func FromModelsQuizQuestionsWithCtx(c *fiber.Ctx, arr []qmodel.QuizQuestionModel) []*QuizQuestionResponse {
+	out := make([]*QuizQuestionResponse, 0, len(arr))
+	for i := range arr {
+		out = append(out, FromModelQuizQuestionWithCtx(c, &arr[i]))
 	}
 	return out
 }

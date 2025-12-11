@@ -3,7 +3,7 @@ package router
 
 import (
 	csstController "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/controller/csst"
-	csstStudentController "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/controller/students"
+	csstStudentController "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/controller/student_csst"
 	schoolkuMiddleware "madinahsalam_backend/internals/middlewares/features"
 
 	"github.com/gofiber/fiber/v2"

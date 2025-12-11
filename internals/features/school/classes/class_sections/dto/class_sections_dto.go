@@ -15,6 +15,8 @@ import (
 	m "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 
 	"gorm.io/datatypes"
+
+	dbtime "madinahsalam_backend/internals/helpers/dbtime"
 )
 
 /* =========================================================
@@ -311,6 +313,23 @@ type ClassSectionResponse struct {
 	ClassSectionTotalClassClassSectionSubjectTeachersActive int `json:"class_section_total_class_class_section_subject_teachers_active"`
 }
 
+// =================== TZ Helpers: FULL ===================
+
+// Konversi semua field time ke timezone sekolah (dari token/middleware)
+func (r ClassSectionResponse) WithSchoolTime(c *fiber.Ctx) ClassSectionResponse {
+	out := r
+
+	out.ClassSectionCreatedAt = dbtime.ToSchoolTime(c, r.ClassSectionCreatedAt)
+	out.ClassSectionUpdatedAt = dbtime.ToSchoolTime(c, r.ClassSectionUpdatedAt)
+	out.ClassSectionCompletedAt = dbtime.ToSchoolTimePtr(c, r.ClassSectionCompletedAt)
+	out.ClassSectionDeletedAt = dbtime.ToSchoolTimePtr(c, r.ClassSectionDeletedAt)
+
+	// Image soft-delete schedule ikut timezone sekolah juga
+	out.ClassSectionImageDeletePendingUntil = dbtime.ToSchoolTimePtr(c, r.ClassSectionImageDeletePendingUntil)
+
+	return out
+}
+
 func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 	var deletedAt *time.Time
 	if cs.ClassSectionDeletedAt.Valid {
@@ -429,6 +448,11 @@ func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 		ClassSectionTotalClassClassSectionSubjectTeachers:       cs.ClassSectionTotalClassClassSectionSubjectTeachers,
 		ClassSectionTotalClassClassSectionSubjectTeachersActive: cs.ClassSectionTotalClassClassSectionSubjectTeachersActive,
 	}
+}
+
+// Versi langsung TZ-aware dari single model
+func FromModelClassSectionWithSchoolTime(c *fiber.Ctx, cs *m.ClassSectionModel) ClassSectionResponse {
+	return FromModelClassSection(cs).WithSchoolTime(c)
 }
 
 /* ----------------- PATCH REQUEST ----------------- */
@@ -1039,6 +1063,14 @@ type ClassSectionCompactResponse struct {
 	ClassSectionAssistantSchoolTeacher   *TeacherPersonLite `json:"class_section_assistant_school_teacher,omitempty"`
 }
 
+// =================== TZ Helpers: COMPACT ===================
+
+func (r ClassSectionCompactResponse) WithSchoolTime(c *fiber.Ctx) ClassSectionCompactResponse {
+	out := r
+	out.ClassSectionCompletedAt = dbtime.ToSchoolTimePtr(c, r.ClassSectionCompletedAt)
+	return out
+}
+
 /* ----------------- MAPPERS: FULL & COMPACT UNTUK LIST ----------------- */
 
 // FULL: tetap seperti sebelumnya
@@ -1057,6 +1089,26 @@ func FromSectionModelPtrs(list []*m.ClassSectionModel) []ClassSectionResponse {
 			continue
 		}
 		out = append(out, FromModelClassSection(cs))
+	}
+	return out
+}
+
+// FULL + TZ-aware
+func FromSectionModelsWithSchoolTime(c *fiber.Ctx, list []m.ClassSectionModel) []ClassSectionResponse {
+	out := make([]ClassSectionResponse, 0, len(list))
+	for i := range list {
+		out = append(out, FromModelClassSection(&list[i]).WithSchoolTime(c))
+	}
+	return out
+}
+
+func FromSectionModelPtrsWithSchoolTime(c *fiber.Ctx, list []*m.ClassSectionModel) []ClassSectionResponse {
+	out := make([]ClassSectionResponse, 0, len(list))
+	for _, cs := range list {
+		if cs == nil {
+			continue
+		}
+		out = append(out, FromModelClassSection(cs).WithSchoolTime(c))
 	}
 	return out
 }
@@ -1101,11 +1153,24 @@ func FromModelClassSectionToCompact(cs *m.ClassSectionModel) ClassSectionCompact
 	}
 }
 
+func FromModelClassSectionToCompactWithSchoolTime(c *fiber.Ctx, cs *m.ClassSectionModel) ClassSectionCompactResponse {
+	return FromModelClassSectionToCompact(cs).WithSchoolTime(c)
+}
+
 // COMPACT: batch by-value
 func FromSectionModelsToCompact(list []m.ClassSectionModel) []ClassSectionCompactResponse {
 	out := make([]ClassSectionCompactResponse, 0, len(list))
 	for i := range list {
 		out = append(out, FromModelClassSectionToCompact(&list[i]))
+	}
+	return out
+}
+
+// COMPACT: TZ-aware batch by-value
+func FromSectionModelsToCompactWithSchoolTime(c *fiber.Ctx, list []m.ClassSectionModel) []ClassSectionCompactResponse {
+	out := make([]ClassSectionCompactResponse, 0, len(list))
+	for i := range list {
+		out = append(out, FromModelClassSectionToCompact(&list[i]).WithSchoolTime(c))
 	}
 	return out
 }
@@ -1118,6 +1183,18 @@ func FromSectionModelPtrsToCompact(list []*m.ClassSectionModel) []ClassSectionCo
 			continue
 		}
 		out = append(out, FromModelClassSectionToCompact(cs))
+	}
+	return out
+}
+
+// COMPACT: TZ-aware batch []*Model
+func FromSectionModelPtrsToCompactWithSchoolTime(c *fiber.Ctx, list []*m.ClassSectionModel) []ClassSectionCompactResponse {
+	out := make([]ClassSectionCompactResponse, 0, len(list))
+	for _, cs := range list {
+		if cs == nil {
+			continue
+		}
+		out = append(out, FromModelClassSectionToCompact(cs).WithSchoolTime(c))
 	}
 	return out
 }

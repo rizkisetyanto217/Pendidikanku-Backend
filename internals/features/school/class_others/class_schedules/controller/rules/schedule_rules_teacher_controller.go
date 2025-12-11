@@ -134,11 +134,17 @@ func (ctl *ClassScheduleRuleListController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusInternalServerError, "Gagal mengambil data rules")
 	}
 
+	items := ruleDTO.FromRuleModels(rows)
+	for i := range items {
+		items[i] = items[i].WithSchoolTime(c)
+	}
+
 	resp := ClassScheduleRuleListResponse{
-		Items: ruleDTO.FromRuleModels(rows),
+		Items: items,
 		Meta:  listMeta{Limit: limit, Offset: offset, Total: int(total)},
 	}
 	return helper.JsonOK(c, "Daftar rules berhasil diambil", resp)
+
 }
 
 /*
@@ -243,9 +249,15 @@ func (ctl *ClassScheduleRuleListController) ListPublic(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusInternalServerError, "Gagal mengambil data rules")
 	}
 
+	items := ruleDTO.FromRuleModels(rows)
+	for i := range items {
+		items[i] = items[i].WithSchoolTime(c)
+	}
+
 	resp := ClassScheduleRuleListResponse{
-		Items: ruleDTO.FromRuleModels(rows),
+		Items: items,
 		Meta:  listMeta{Limit: limit, Offset: offset, Total: int(total)},
 	}
 	return helper.JsonOK(c, "Daftar rules berhasil diambil", resp)
+
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	model "madinahsalam_backend/internals/features/school/classes/classes/model"
+	"madinahsalam_backend/internals/helpers/dbtime"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -579,6 +580,27 @@ func FromModel(m *model.ClassModel) ClassResponse {
 	}
 }
 
+// =================== TZ Helpers untuk DTO ===================
+
+// Konversi field waktu ke timezone sekolah (berdasarkan token/middleware)
+func (r ClassResponse) WithSchoolTime(c *fiber.Ctx) ClassResponse {
+	out := r
+
+	out.ClassStartDate = dbtime.ToSchoolTimePtr(c, r.ClassStartDate)
+	out.ClassEndDate = dbtime.ToSchoolTimePtr(c, r.ClassEndDate)
+
+	out.ClassRegistrationOpensAt = dbtime.ToSchoolTimePtr(c, r.ClassRegistrationOpensAt)
+	out.ClassRegistrationClosesAt = dbtime.ToSchoolTimePtr(c, r.ClassRegistrationClosesAt)
+
+	out.ClassCompletedAt = dbtime.ToSchoolTimePtr(c, r.ClassCompletedAt)
+	out.ClassImageDeletePendingUntil = dbtime.ToSchoolTimePtr(c, r.ClassImageDeletePendingUntil)
+
+	out.ClassCreatedAt = dbtime.ToSchoolTime(c, r.ClassCreatedAt)
+	out.ClassUpdatedAt = dbtime.ToSchoolTime(c, r.ClassUpdatedAt)
+
+	return out
+}
+
 /*
 =========================================================
 QUERY / FILTER DTO (untuk list)
@@ -983,5 +1005,19 @@ func ToClassCompactList(rows []model.ClassModel) []ClassCompact {
 	for i := range rows {
 		out = append(out, FromModelCompact(&rows[i]))
 	}
+	return out
+}
+
+// Versi TZ-aware untuk compact
+func (r ClassCompact) WithSchoolTime(c *fiber.Ctx) ClassCompact {
+	out := r
+
+	out.ClassStartDate = dbtime.ToSchoolTimePtr(c, r.ClassStartDate)
+	out.ClassEndDate = dbtime.ToSchoolTimePtr(c, r.ClassEndDate)
+	out.ClassCompletedAt = dbtime.ToSchoolTimePtr(c, r.ClassCompletedAt)
+
+	out.ClassCreatedAt = dbtime.ToSchoolTime(c, r.ClassCreatedAt)
+	out.ClassUpdatedAt = dbtime.ToSchoolTime(c, r.ClassUpdatedAt)
+
 	return out
 }

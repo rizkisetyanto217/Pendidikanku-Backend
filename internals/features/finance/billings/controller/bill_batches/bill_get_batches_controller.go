@@ -20,7 +20,6 @@ import (
 // school_id diambil dari token/context
 // GET /api/a/spp/bill-batches
 // =======================================================
-
 func (h *BillBatchHandler) ListBillBatches(c *fiber.Ctx) error {
 	// === Resolve school context dari token/context ===
 	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
@@ -115,7 +114,8 @@ func (h *BillBatchHandler) ListBillBatches(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
 
-	data := dto.ToBillBatchResponses(rows)
+	// ⬇️ di sini yang diganti
+	data := dto.ToBillBatchResponsesWithCtx(c, rows)
 
 	// === Pagination untuk JsonList ===
 	var pagination helper.Pagination

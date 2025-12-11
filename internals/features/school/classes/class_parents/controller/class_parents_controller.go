@@ -14,6 +14,7 @@ import (
 	classModel "madinahsalam_backend/internals/features/school/classes/classes/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
+	dbtime "madinahsalam_backend/internals/helpers/dbtime"
 	helperOSS "madinahsalam_backend/internals/helpers/oss"
 
 	"github.com/gofiber/fiber/v2"
@@ -132,8 +133,11 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug")
 	}
 
-	// 7) Build entity dari DTO
-	ent := p.ToModel()
+	// 7) Build entity dari DTO (pakai dbtime untuk CreatedAt/UpdatedAt)
+	ent, err := p.ToModelWithContext(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mendapatkan waktu server")
+	}
 	ent.ClassParentSchoolID = schoolID
 	slugCopy := uniqueSlug
 	ent.ClassParentSlug = &slugCopy
@@ -177,7 +181,7 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 
 	_ = uploadedURL // biar nggak unused kalau nggak dipakai log
 
-	return helper.JsonCreated(c, "Berhasil membuat parent kelas", cpdto.FromModelClassParent(ent))
+	return helper.JsonCreated(c, "Berhasil membuat parent kelas", cpdto.FromModelClassParentWithContext(c, ent))
 }
 
 /*
@@ -196,6 +200,9 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
+
+	// Ambil "now" versi dbtime sekali, dipakai untuk beberapa update timestamp
+	nowDB, _ := dbtime.GetDBTime(c)
 
 	tx := ctl.DB.WithContext(c.Context()).Begin()
 	if tx.Error != nil {
@@ -278,8 +285,11 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		oldLevel = &lv
 	}
 
-	// Apply patch ke entity
-	p.Apply(&ent)
+	// Apply patch ke entity (pakai dbtime untuk UpdatedAt)
+	if err := p.ApplyWithContext(c, &ent); err != nil {
+		_ = tx.Rollback()
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengupdate data (waktu server)")
+	}
 
 	// Slug handling
 	if p.ClassParentSlug.Present {
@@ -369,11 +379,11 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		imap := map[string]any{
 			"class_parent_image_url":        url,
 			"class_parent_image_object_key": key,
-			"class_parent_updated_at":       time.Now(),
+			"class_parent_updated_at":       nowDB,
 		}
 
 		if ent.ClassParentImageURL != nil && *ent.ClassParentImageURL != "" {
-			due := time.Now().Add(helperOSS.GetRetentionDuration())
+			due := nowDB.Add(helperOSS.GetRetentionDuration())
 			imap["class_parent_image_url_old"] = ent.ClassParentImageURL
 			imap["class_parent_image_object_key_old"] = ent.ClassParentImageObjectKey
 			imap["class_parent_image_delete_pending_until"] = &due
@@ -445,7 +455,7 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 				"class_class_parent_name_cache":  newName,
 				"class_class_parent_slug_cache":  newSlug,
 				"class_class_parent_level_cache": newLevel,
-				"class_updated_at":               time.Now(),
+				"class_updated_at":               nowDB,
 			}).Error; err != nil {
 
 			_ = tx.Rollback()
@@ -460,7 +470,7 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 				class_section_class_parent_name_cache  = $2,
 				class_section_class_parent_slug_cache  = $3,
 				class_section_class_parent_level_cache = $4,
-				class_section_updated_at                  = NOW()
+				class_section_updated_at                  = $6
 			FROM classes AS c
 			WHERE
 				cs.class_section_class_id = c.class_id
@@ -482,6 +492,7 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 				return *ent.ClassParentLevel
 			}(),
 			ent.ClassParentSchoolID,
+			nowDB,
 		).Error
 
 		if execErr != nil {
@@ -493,7 +504,7 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		execErr2 := tx.Exec(`
 			UPDATE class_section_subject_teachers AS csst
 			SET
-				class_section_subject_teacher_updated_at = NOW()
+				class_section_subject_teacher_updated_at = $3
 			FROM class_sections AS sec
 			JOIN classes AS c
 			  ON sec.class_section_class_id = c.class_id
@@ -504,6 +515,7 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		`,
 			ent.ClassParentID,
 			ent.ClassParentSchoolID,
+			nowDB,
 		).Error
 
 		if execErr2 != nil {
@@ -519,7 +531,7 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 	_ = uploadedURL
 	_ = movedOld
 
-	return helper.JsonUpdated(c, "Berhasil memperbarui parent kelas", cpdto.FromModelClassParent(&ent))
+	return helper.JsonUpdated(c, "Berhasil memperbarui parent kelas", cpdto.FromModelClassParentWithContext(c, &ent))
 }
 
 /*
@@ -579,8 +591,8 @@ func (ctl *ClassParentController) Delete(c *fiber.Ctx) error {
 		)
 	}
 
-	// Soft delete
-	now := time.Now()
+	// Soft delete pakai dbtime
+	now, _ := dbtime.GetDBTime(c)
 	if err := ctl.DB.WithContext(c.Context()).
 		Model(&classParentModel.ClassParentModel{}).
 		Where("class_parent_id = ?", ent.ClassParentID).

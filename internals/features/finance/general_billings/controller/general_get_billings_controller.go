@@ -168,10 +168,9 @@ func (ctl *GeneralBillingController) List(c *fiber.Ctx) error {
 	if err := listQ.Find(&items).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
-
 	out := make([]*dto.GeneralBillingResponse, 0, len(items))
 	for i := range items {
-		out = append(out, dto.FromModelGeneralBilling(&items[i]))
+		out = append(out, dto.FromModelGeneralBilling(c, &items[i]))
 	}
 
 	// === Build pagination untuk JsonList ===

@@ -4,11 +4,11 @@ package controller
 import (
 	"errors"
 	"strings"
-	"time"
 
 	secModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
+	dbtime "madinahsalam_backend/internals/helpers/dbtime"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -51,7 +51,7 @@ func (ctrl *ClassSectionController) loadSectionForDKM(c *fiber.Ctx) (*secModel.C
 
 // --- helpers: (re)generate student code (+hash) dan simpan ---
 // NOTE: menyimpan plaintext student code ke kolom m.ClassSectionCode (sudah ada di model)
-func (ctrl *ClassSectionController) ensureStudentJoinCode(tx *gorm.DB, m *secModel.ClassSectionModel) (string, error) {
+func (ctrl *ClassSectionController) ensureStudentJoinCode(c *fiber.Ctx, tx *gorm.DB, m *secModel.ClassSectionModel) (string, error) {
 	// jika sudah ada plaintext code tersimpan, pakai itu
 	if m.ClassSectionCode != nil && strings.TrimSpace(*m.ClassSectionCode) != "" {
 		return strings.TrimSpace(*m.ClassSectionCode), nil
@@ -66,7 +66,11 @@ func (ctrl *ClassSectionController) ensureStudentJoinCode(tx *gorm.DB, m *secMod
 	if err != nil {
 		return "", fiber.NewError(fiber.StatusInternalServerError, "Gagal meng-hash student join code")
 	}
-	now := time.Now()
+
+	now, err := dbtime.GetDBTime(c)
+	if err != nil {
+		return "", fiber.NewError(fiber.StatusInternalServerError, "Gagal mendapatkan waktu server")
+	}
 
 	// set di struct (biar response pakai nilai terbaru)
 	m.ClassSectionCode = &plain
@@ -87,7 +91,7 @@ func (ctrl *ClassSectionController) ensureStudentJoinCode(tx *gorm.DB, m *secMod
 
 // --- helpers: (re)generate teacher code (+hash) dan simpan ---
 // NOTE: plaintext teacher code TIDAK disimpan di DB; dikembalikan di response sekali saat generate/rotate
-func (ctrl *ClassSectionController) rotateTeacherJoinCode(tx *gorm.DB, m *secModel.ClassSectionModel) (string, error) {
+func (ctrl *ClassSectionController) rotateTeacherJoinCode(c *fiber.Ctx, tx *gorm.DB, m *secModel.ClassSectionModel) (string, error) {
 	plain, err := buildSectionJoinCode(m.ClassSectionSlug+"-t", m.ClassSectionID)
 	if err != nil {
 		return "", fiber.NewError(fiber.StatusInternalServerError, "Gagal membangun teacher join code")
@@ -96,7 +100,11 @@ func (ctrl *ClassSectionController) rotateTeacherJoinCode(tx *gorm.DB, m *secMod
 	if err != nil {
 		return "", fiber.NewError(fiber.StatusInternalServerError, "Gagal meng-hash teacher join code")
 	}
-	now := time.Now()
+
+	now, err := dbtime.GetDBTime(c)
+	if err != nil {
+		return "", fiber.NewError(fiber.StatusInternalServerError, "Gagal mendapatkan waktu server")
+	}
 
 	// set di struct (biar set_at di response sinkron)
 	m.ClassSectionTeacherCodeHash = hashed
@@ -131,7 +139,7 @@ func (ctrl *ClassSectionController) GetStudentJoinCode(c *fiber.Ctx) error {
 		}
 	}()
 
-	code, er := ctrl.ensureStudentJoinCode(tx, m)
+	code, er := ctrl.ensureStudentJoinCode(c, tx, m)
 	if er != nil {
 		_ = tx.Rollback()
 		return er
@@ -166,7 +174,7 @@ func (ctrl *ClassSectionController) GetTeacherJoinCode(c *fiber.Ctx) error {
 		}
 	}()
 
-	code, er := ctrl.rotateTeacherJoinCode(tx, m)
+	code, er := ctrl.rotateTeacherJoinCode(c, tx, m)
 	if er != nil {
 		_ = tx.Rollback()
 		return er
@@ -204,7 +212,7 @@ func (ctrl *ClassSectionController) GetJoinCodes(c *fiber.Ctx) error {
 		}
 	}()
 
-	studentCode, er := ctrl.ensureStudentJoinCode(tx, m)
+	studentCode, er := ctrl.ensureStudentJoinCode(c, tx, m)
 	if er != nil {
 		_ = tx.Rollback()
 		return er
@@ -212,7 +220,7 @@ func (ctrl *ClassSectionController) GetJoinCodes(c *fiber.Ctx) error {
 
 	var teacherCode string
 	if rotateTeacher {
-		tc, er2 := ctrl.rotateTeacherJoinCode(tx, m)
+		tc, er2 := ctrl.rotateTeacherJoinCode(c, tx, m)
 		if er2 != nil {
 			_ = tx.Rollback()
 			return er2
@@ -276,7 +284,12 @@ func (ctrl *ClassSectionController) RotateStudentJoinCode(c *fiber.Ctx) error {
 		_ = tx.Rollback()
 		return er
 	}
-	now := time.Now()
+
+	now, errTime := dbtime.GetDBTime(c)
+	if errTime != nil {
+		_ = tx.Rollback()
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mendapatkan waktu server")
+	}
 
 	// update struct
 	m.ClassSectionCode = &plain
@@ -323,7 +336,7 @@ func (ctrl *ClassSectionController) RotateTeacherJoinCode(c *fiber.Ctx) error {
 		}
 	}()
 
-	plain, er := ctrl.rotateTeacherJoinCode(tx, m)
+	plain, er := ctrl.rotateTeacherJoinCode(c, tx, m)
 	if er != nil {
 		_ = tx.Rollback()
 		return er

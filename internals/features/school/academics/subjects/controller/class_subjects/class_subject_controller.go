@@ -314,9 +314,17 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 	}
 
 	if status == fiber.StatusCreated {
-		return helper.JsonCreated(c, "Class subject berhasil diproses", csDTO.FromClassSubjectModel(m))
+		return helper.JsonCreated(
+			c,
+			"Class subject berhasil diproses",
+			csDTO.FromClassSubjectModelWithSchoolTime(c, m),
+		)
 	}
-	return helper.JsonOK(c, "Class subject sudah ada (idempotent)", csDTO.FromClassSubjectModel(m))
+	return helper.JsonOK(
+		c,
+		"Class subject sudah ada (idempotent)",
+		csDTO.FromClassSubjectModelWithSchoolTime(c, m),
+	)
 }
 
 /*
@@ -576,7 +584,11 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 
 	// Response
 	m := c.Locals("updated_class_subject").(csModel.ClassSubjectModel)
-	return helper.JsonUpdated(c, "Class subject berhasil diperbarui", csDTO.FromClassSubjectModel(m))
+	return helper.JsonUpdated(
+		c,
+		"Class subject berhasil diperbarui",
+		csDTO.FromClassSubjectModelWithSchoolTime(c, m),
+	)
 }
 
 /*
@@ -704,5 +716,9 @@ func (h *ClassSubjectController) Delete(c *fiber.Ctx) error {
 	}
 
 	m := c.Locals("deleted_class_subject").(csModel.ClassSubjectModel)
-	return helper.JsonDeleted(c, "Class subject berhasil dihapus", csDTO.FromClassSubjectModel(m))
+	return helper.JsonDeleted(
+		c,
+		"Class subject berhasil dihapus",
+		csDTO.FromClassSubjectModelWithSchoolTime(c, m),
+	)
 }

@@ -11,6 +11,8 @@ import (
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
+	dbtime "madinahsalam_backend/internals/helpers/dbtime"
+
 	quizDTO "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/dto"
 	quizModel "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/model"
 	submissionModel "madinahsalam_backend/internals/features/school/submissions_assesments/submissions/model"
@@ -46,17 +48,20 @@ func getSortClauseAssessment(sortBy, sortDir *string) string {
 	return col + " " + dir
 }
 
-// parseYmd versi lokal (YYYY-MM-DD → time.Time di awal hari, local time)
-func parseYmd(s string) (*time.Time, error) {
+// parseYmd versi lokal (YYYY-MM-DD → time.Time di awal hari, pakai loc sekolah)
+func parseYmd(s string, loc *time.Location) (*time.Time, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return nil, nil
 	}
-	t, err := time.ParseInLocation("2006-01-02", s, time.Local)
+	if loc == nil {
+		loc = time.UTC
+	}
+	t, err := time.ParseInLocation("2006-01-02", s, loc)
 	if err != nil {
 		return nil, err
 	}
-	tt := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.Local)
+	tt := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, loc)
 	return &tt, nil
 }
 
@@ -71,18 +76,20 @@ func resolveTimelineDateRange(c *fiber.Ctx) (*time.Time, *time.Time, error) {
 	var df, dt *time.Time
 	var err error
 
+	loc := dbtime.GetSchoolLocation(c)
+
 	monthRaw := strings.TrimSpace(c.Query("month"))
 	rangeRaw := strings.ToLower(strings.TrimSpace(c.Query("range")))
 
 	// date_from/date_to (optional)
 	if s := strings.TrimSpace(c.Query("date_from")); s != "" {
-		df, err = parseYmd(s)
+		df, err = parseYmd(s, loc)
 		if err != nil {
 			return nil, nil, helper.JsonError(c, fiber.StatusBadRequest, "date_from tidak valid (YYYY-MM-DD)")
 		}
 	}
 	if s := strings.TrimSpace(c.Query("date_to")); s != "" {
-		dt, err = parseYmd(s)
+		dt, err = parseYmd(s, loc)
 		if err != nil {
 			return nil, nil, helper.JsonError(c, fiber.StatusBadRequest, "date_to tidak valid (YYYY-MM-DD)")
 		}
@@ -100,8 +107,8 @@ func resolveTimelineDateRange(c *fiber.Ctx) (*time.Time, *time.Time, error) {
 			rangeRaw == "sepekan"
 
 	if isTodayRange || isWeekRange {
-		now := time.Now().In(time.Local)
-		todayLocal := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+		now := dbtime.NowInSchool(c)
+		todayLocal := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
 		start := todayLocal
 		var end time.Time
@@ -118,12 +125,15 @@ func resolveTimelineDateRange(c *fiber.Ctx) (*time.Time, *time.Time, error) {
 
 	// month=YYYY-MM → override ke full 1 bulan
 	if monthRaw != "" && !isTodayRange && !isWeekRange {
-		mt, err2 := time.ParseInLocation("2006-01", monthRaw, time.Local)
+		if loc == nil {
+			loc = time.UTC
+		}
+		mt, err2 := time.ParseInLocation("2006-01", monthRaw, loc)
 		if err2 != nil {
 			return nil, nil, helper.JsonError(c, fiber.StatusBadRequest, "month tidak valid (YYYY-MM)")
 		}
-		firstOfMonth := time.Date(mt.Year(), mt.Month(), 1, 0, 0, 0, 0, time.Local)
-		lastOfMonth := time.Date(mt.Year(), mt.Month()+1, 0, 0, 0, 0, 0, time.Local)
+		firstOfMonth := time.Date(mt.Year(), mt.Month(), 1, 0, 0, 0, 0, loc)
+		lastOfMonth := time.Date(mt.Year(), mt.Month()+1, 0, 0, 0, 0, 0, loc)
 
 		df = &firstOfMonth
 		dt = &lastOfMonth
@@ -616,7 +626,8 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 	// MODE = COMPACT (non-timeline)
 	// ============================
 	if !isStudentTimeline && !isTeacherTimeline && isCompactMode {
-		compactItems := dto.FromAssessmentModelsCompact(rows)
+		// pakai versi yang sudah aware timezone sekolah
+		compactItems := dto.FromAssessmentModelsCompactWithSchoolTime(c, rows)
 		return helper.JsonListEx(
 			c,
 			"OK",
@@ -650,7 +661,8 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 	out := make([]assessmentWithExpand, 0, len(rows))
 	for i := range rows {
 		item := assessmentWithExpand{
-			AssessmentResponse: dto.FromModelAssesment(rows[i]),
+			// pakai versi yang sudah konversi waktu ke timezone sekolah
+			AssessmentResponse: dto.FromModelAssesmentWithSchoolTime(c, rows[i]),
 		}
 
 		if isStudentTimeline || isTeacherTimeline {
@@ -740,13 +752,12 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 	// HITUNG PROGRESS TIMELINE
 	// ===============================
 	if isStudentTimeline || isTeacherTimeline {
-		now := time.Now().In(time.Local)
+		now := dbtime.NowInSchool(c)
 
 		for i := range rows {
-			var (
-				start = rows[i].AssessmentStartAt
-				due   = rows[i].AssessmentDueAt
-			)
+			// pakai waktu yang sudah di-convert ke timezone sekolah untuk progress
+			start := dbtime.ToSchoolTimePtr(c, rows[i].AssessmentStartAt)
+			due := dbtime.ToSchoolTimePtr(c, rows[i].AssessmentDueAt)
 
 			state := "unknown"
 			overdue := false
@@ -779,8 +790,9 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 
 			if isStudentTimeline {
 				if sub, ok := submissionMap[rows[i].AssessmentID]; ok {
-					p.SubmittedAt = sub.SubmittedAt
-					p.GradedAt = sub.GradedAt
+					// untuk response, kirim dalam timezone sekolah
+					p.SubmittedAt = dbtime.ToSchoolTimePtr(c, sub.SubmittedAt)
+					p.GradedAt = dbtime.ToSchoolTimePtr(c, sub.GradedAt)
 					p.Score = sub.Score
 					p.Status = sub.Status
 

@@ -67,7 +67,8 @@ func (ctl *GeneralBillingController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return helper.JsonCreated(c, "general_billing created", dto.FromModelGeneralBilling(gb))
+	// 🔹 pakai DTO yg sudah aware timezone sekolah
+	return helper.JsonCreated(c, "general_billing created", dto.FromModelGeneralBilling(c, gb))
 }
 
 // ========== Patch ==========
@@ -123,7 +124,8 @@ func (ctl *GeneralBillingController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return helper.JsonOK(c, "general_billing updated", dto.FromModelGeneralBilling(&gb))
+	// 🔹 pakai DTO yg sudah konversi created/updated/deleted + due_date ke timezone sekolah
+	return helper.JsonOK(c, "general_billing updated", dto.FromModelGeneralBilling(c, &gb))
 }
 
 // ========== Delete (soft delete) ==========

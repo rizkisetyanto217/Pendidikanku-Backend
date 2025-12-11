@@ -6,10 +6,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
 	sessModel "madinahsalam_backend/internals/features/school/class_others/class_attendance_sessions/model"
 	model "madinahsalam_backend/internals/features/school/class_others/class_schedules/model"
+	"madinahsalam_backend/internals/helpers/dbtime"
 )
 
 /* =========================================================
@@ -493,4 +495,27 @@ func FromModels(list []model.ClassScheduleModel) []ClassScheduleResponse {
 		out = append(out, FromModel(m))
 	}
 	return out
+}
+
+// =================== TZ Helpers untuk DTO ===================
+
+// Konversi semua field time ke timezone sekolah (dari token/middleware)
+func (r ClassScheduleResponse) WithSchoolTime(c *fiber.Ctx) ClassScheduleResponse {
+	out := r
+
+	// start/end date biasanya disimpan sebagai "midnight UTC" atau DATE,
+	// tapi tetap aman dikonversi ke school time (akan bergeser ke jam lokal).
+	out.ClassScheduleStartDate = dbtime.ToSchoolTime(c, r.ClassScheduleStartDate)
+	out.ClassScheduleEndDate = dbtime.ToSchoolTime(c, r.ClassScheduleEndDate)
+
+	out.ClassScheduleCreatedAt = dbtime.ToSchoolTime(c, r.ClassScheduleCreatedAt)
+	out.ClassScheduleUpdatedAt = dbtime.ToSchoolTimePtr(c, r.ClassScheduleUpdatedAt)
+	out.ClassScheduleDeletedAt = dbtime.ToSchoolTimePtr(c, r.ClassScheduleDeletedAt)
+
+	return out
+}
+
+// Opsional helper kalau mau pakai di tempat lain
+func FromModelWithSchoolTime(c *fiber.Ctx, m model.ClassScheduleModel) ClassScheduleResponse {
+	return FromModel(m).WithSchoolTime(c)
 }

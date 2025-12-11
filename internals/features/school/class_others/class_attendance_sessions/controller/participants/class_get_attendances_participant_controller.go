@@ -1,3 +1,4 @@
+// file: internals/features/attendance/controller/class_attendance_session_participant_controller.go
 package controller
 
 import (
@@ -10,7 +11,7 @@ import (
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
-	// DTO BARU (pindah namespace)
+	// DTO BARU (pindah namespace ke sessions/sessions)
 	attendanceDTO "madinahsalam_backend/internals/features/school/class_others/class_attendance_sessions/dto"
 
 	"github.com/gofiber/fiber/v2"
@@ -195,6 +196,9 @@ func (ctl *ClassAttendanceSessionParticipantController) List(c *fiber.Ctx) error
 		Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
+
+	// Konversi waktu ke timezone sekolah (client-facing)
+	rows = attendanceDTO.NormalizeParticipantsSliceToSchoolTime(c, rows)
 
 	// Response
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{

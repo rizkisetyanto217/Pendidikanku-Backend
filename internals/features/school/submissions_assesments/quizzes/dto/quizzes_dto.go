@@ -6,10 +6,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
 	model "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/model"
+	"madinahsalam_backend/internals/helpers/dbtime"
 )
 
 /* ==============================
@@ -304,6 +306,38 @@ func FromModels(rows []model.QuizModel) []QuizResponse {
 	out := make([]QuizResponse, 0, len(rows))
 	for i := range rows {
 		out = append(out, FromModel(&rows[i]))
+	}
+	return out
+}
+
+// ==============================
+//  MAPPERS DENGAN TIMEZONE SEKOLAH
+// ==============================
+
+// Versi aware timezone sekolah untuk Quiz.
+// - QuizCreatedAt / QuizUpdatedAt / QuizDeletedAt dikonversi via dbtime.ToSchoolTime
+func FromModelWithCtx(c *fiber.Ctx, m *model.QuizModel) QuizResponse {
+	// Pakai mapper lama dulu
+	resp := FromModel(m)
+
+	// Override waktu dengan timezone sekolah
+	resp.QuizCreatedAt = dbtime.ToSchoolTime(c, m.QuizCreatedAt)
+	resp.QuizUpdatedAt = dbtime.ToSchoolTime(c, m.QuizUpdatedAt)
+
+	if m.QuizDeletedAt.Valid {
+		t := dbtime.ToSchoolTime(c, m.QuizDeletedAt.Time)
+		resp.QuizDeletedAt = &t
+	} else {
+		resp.QuizDeletedAt = nil
+	}
+
+	return resp
+}
+
+func FromModelsWithCtx(c *fiber.Ctx, rows []model.QuizModel) []QuizResponse {
+	out := make([]QuizResponse, 0, len(rows))
+	for i := range rows {
+		out = append(out, FromModelWithCtx(c, &rows[i]))
 	}
 	return out
 }

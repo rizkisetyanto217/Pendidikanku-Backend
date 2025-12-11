@@ -127,7 +127,8 @@ func (ctrl *QuizController) List(c *fiber.Ctx) error {
 	// 10) DTO mapping
 	out := make([]dto.QuizResponse, 0, len(rows))
 	for i := range rows {
-		resp := dto.FromModel(&rows[i]) // ⬅️ cukup satu fungsi ini saja
+		// Pakai versi timezone-aware
+		resp := dto.FromModelWithCtx(c, &rows[i])
 
 		// WithQuestionsCount → pakai denorm quiz_total_questions
 		if q.WithQuestionsCount {

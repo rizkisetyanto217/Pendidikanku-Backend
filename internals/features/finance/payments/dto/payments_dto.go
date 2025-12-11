@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 
 	model "madinahsalam_backend/internals/features/finance/payments/model"
+	"madinahsalam_backend/internals/helpers/dbtime"
 )
 
 /* =========================================================
@@ -135,8 +137,13 @@ func (r *CreatePaymentRequest) Validate() error {
 	return nil
 }
 
-func (r *CreatePaymentRequest) ToModel() *model.PaymentModel {
-	now := time.Now()
+// sekarang pakai dbtime, dan controller tidak perlu import dbtime lagi
+func (r *CreatePaymentRequest) ToModel(c *fiber.Ctx) *model.PaymentModel {
+	now, err := dbtime.GetDBTime(c)
+	if err != nil {
+		// fallback kalau suatu saat GetDBTime beneran query ke DB dan error
+		now = dbtime.NowInSchool(c)
+	}
 
 	out := &model.PaymentModel{
 		PaymentSchoolID:  r.PaymentSchoolID,
@@ -204,6 +211,10 @@ func (r *CreatePaymentRequest) ToModel() *model.PaymentModel {
 
 	return out
 }
+
+/* =========================================================
+   UPDATE (tetap, tidak perlu dbtime)
+========================================================= */
 
 type UpdatePaymentRequest struct {
 	PaymentSchoolID PatchField[uuid.UUID] `json:"payment_school_id"`
@@ -310,7 +321,7 @@ func (p *UpdatePaymentRequest) Apply(m *model.PaymentModel) error {
 	applyPtr(&m.PaymentSignature, p.PaymentSignature)
 	applyPtr(&m.PaymentIdempotencyKey, p.PaymentIdempotencyKey)
 
-	// timestamps
+	// timestamps (biarkan apa adanya; DB akan simpan sebagai UTC)
 	applyPtr(&m.PaymentRequestedAt, p.PaymentRequestedAt)
 	applyPtr(&m.PaymentExpiresAt, p.PaymentExpiresAt)
 	applyPtr(&m.PaymentPaidAt, p.PaymentPaidAt)
@@ -354,6 +365,10 @@ func (p *UpdatePaymentRequest) Apply(m *model.PaymentModel) error {
 
 	return nil
 }
+
+/* =========================================================
+   RESPONSE
+========================================================= */
 
 type PaymentResponse struct {
 	PaymentID uuid.UUID `json:"payment_id"`
@@ -411,7 +426,8 @@ type PaymentResponse struct {
 	PaymentDeletedAt *time.Time `json:"payment_deleted_at"`
 }
 
-func FromModel(m *model.PaymentModel) *PaymentResponse {
+// sekarang FromModel pakai dbtime dan butuh *fiber.Ctx
+func FromModel(c *fiber.Ctx, m *model.PaymentModel) *PaymentResponse {
 	if m == nil {
 		return nil
 	}
@@ -436,18 +452,18 @@ func FromModel(m *model.PaymentModel) *PaymentResponse {
 		PaymentSignature:        m.PaymentSignature,
 		PaymentIdempotencyKey:   m.PaymentIdempotencyKey,
 
-		PaymentRequestedAt: m.PaymentRequestedAt,
-		PaymentExpiresAt:   m.PaymentExpiresAt,
-		PaymentPaidAt:      m.PaymentPaidAt,
-		PaymentCanceledAt:  m.PaymentCanceledAt,
-		PaymentFailedAt:    m.PaymentFailedAt,
-		PaymentRefundedAt:  m.PaymentRefundedAt,
+		PaymentRequestedAt: dbtime.ToSchoolTimePtr(c, m.PaymentRequestedAt),
+		PaymentExpiresAt:   dbtime.ToSchoolTimePtr(c, m.PaymentExpiresAt),
+		PaymentPaidAt:      dbtime.ToSchoolTimePtr(c, m.PaymentPaidAt),
+		PaymentCanceledAt:  dbtime.ToSchoolTimePtr(c, m.PaymentCanceledAt),
+		PaymentFailedAt:    dbtime.ToSchoolTimePtr(c, m.PaymentFailedAt),
+		PaymentRefundedAt:  dbtime.ToSchoolTimePtr(c, m.PaymentRefundedAt),
 
 		PaymentManualChannel:          m.PaymentManualChannel,
 		PaymentManualReference:        m.PaymentManualReference,
 		PaymentManualReceivedByUserID: m.PaymentManualReceivedByUser,
 		PaymentManualVerifiedByUserID: m.PaymentManualVerifiedByUser,
-		PaymentManualVerifiedAt:       m.PaymentManualVerifiedAt,
+		PaymentManualVerifiedAt:       dbtime.ToSchoolTimePtr(c, m.PaymentManualVerifiedAt),
 
 		PaymentEntryType:     m.PaymentEntryType,
 		PaymentSubjectUserID: m.PaymentSubjectUserID,
@@ -467,8 +483,8 @@ func FromModel(m *model.PaymentModel) *PaymentResponse {
 		PaymentMeta:        m.PaymentMeta,
 		PaymentAttachments: m.PaymentAttachments,
 
-		PaymentCreatedAt: m.PaymentCreatedAt,
-		PaymentUpdatedAt: m.PaymentUpdatedAt,
-		PaymentDeletedAt: m.PaymentDeletedAt,
+		PaymentCreatedAt: dbtime.ToSchoolTime(c, m.PaymentCreatedAt),
+		PaymentUpdatedAt: dbtime.ToSchoolTime(c, m.PaymentUpdatedAt),
+		PaymentDeletedAt: dbtime.ToSchoolTimePtr(c, m.PaymentDeletedAt),
 	}
 }

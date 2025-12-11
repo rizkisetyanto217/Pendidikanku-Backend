@@ -292,13 +292,13 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 
 	// ========== mapping sesuai view ==========
 	if view == "compact" || view == "summary" {
-		compact := dto.FromModelsCompact(rows)
+		compact := dto.FromModelsCompactWithContext(c, rows)
 		// untuk sekarang, include/nested hanya dipakai di view=full
 		return helper.JsonList(c, "ok", compact, pagination)
 	}
 
 	// default: full payload
-	resp := dto.FromModels(rows)
+	resp := dto.FromModelsWithContext(c, rows)
 
 	// (opsional) enrich convenience fields tambahan (Username, dll.)
 	enrichEnrollmentExtras(c.Context(), ctl.DB, schoolID, resp)

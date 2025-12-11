@@ -27,6 +27,9 @@ import (
 ======================================================
 */
 func (ctl *ClassAttendanceSessionTypeController) List(c *fiber.Ctx) error {
+	// kalau ada helper lain yang butuh DB di Locals
+	c.Locals("DB", ctl.DB)
+
 	schoolID, err := getSchoolIDFromCtx(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
@@ -50,6 +53,7 @@ func (ctl *ClassAttendanceSessionTypeController) List(c *fiber.Ctx) error {
 	name := strings.TrimSpace(c.Query("name")) // 🔍 filter khusus by name
 
 	dbq := ctl.DB.
+		WithContext(c.Context()).
 		Model(&model.ClassAttendanceSessionTypeModel{}).
 		Where("class_attendance_session_type_school_id = ?", schoolID)
 
@@ -107,6 +111,7 @@ func (ctl *ClassAttendanceSessionTypeController) List(c *fiber.Ctx) error {
 	//  Response by mode
 	// =========================
 	if mode == "compact" {
+		// compact: nggak ada field waktu, jadi nggak perlu dbtime
 		return helper.JsonList(
 			c,
 			"attendance session types list (compact)",
@@ -115,11 +120,11 @@ func (ctl *ClassAttendanceSessionTypeController) List(c *fiber.Ctx) error {
 		)
 	}
 
-	// default: full
+	// default: full → pakai versi timezone-aware
 	return helper.JsonList(
 		c,
 		"attendance session types list",
-		dto.NewClassAttendanceSessionTypeDTOs(rows),
+		dto.NewClassAttendanceSessionTypeDTOsWithSchoolTime(c, rows),
 		pagination,
 	)
 }

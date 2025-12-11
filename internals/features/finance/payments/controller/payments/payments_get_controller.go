@@ -90,7 +90,8 @@ func (h *PaymentController) List(c *fiber.Ctx) error {
 			}
 		}
 
-		return helper.JsonOK(c, "payment detail", dto.FromModel(&p))
+		// ⬇️ pakai DTO baru yang butuh *fiber.Ctx
+		return helper.JsonOK(c, "payment detail", dto.FromModel(c, &p))
 	}
 
 	// ===================== MODE LIST =====================
@@ -254,16 +255,17 @@ func (h *PaymentController) List(c *fiber.Ctx) error {
 
 	// Mapping sesuai view
 	if view == "compact" {
-		compact := dto.FromModelsCompact(rows)
+		compact := dto.FromModelsCompact(rows) // ⬅️ tanpa c
 		return helper.JsonList(c, "my payments", compact, pag)
 	}
 
 	full := make([]*dto.PaymentResponse, 0, len(rows))
 	for i := range rows {
-		full = append(full, dto.FromModel(&rows[i]))
+		full = append(full, dto.FromModel(c, &rows[i])) // ⬅️ ini tetap pakai c
 	}
 
 	return helper.JsonList(c, "my payments", full, pag)
+
 }
 
 /* ============== small utils ============== */

@@ -499,10 +499,10 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoSchool(c *fiber.Ctx) err
 
 	log.Printf("[SCS][JOIN] user=%s school=%s section=%s", userID, schoolID, sec.ClassSectionID)
 
-	// Pakai DTO join terbaru
-	scsResp := dto.FromModel(scs) // FromModel mengembalikan value
+	// Pakai DTO join terbaru + normalisasi waktu ke school time
+	scsResp := dto.FromModelWithSchoolTime(c, scs)
 	joinResp := dto.ClassSectionJoinResponse{
-		UserClassSection: &scsResp, // 🔧 jadikan pointer
+		UserClassSection: &scsResp,
 		ClassSectionID:   sec.ClassSectionID.String(),
 	}
 

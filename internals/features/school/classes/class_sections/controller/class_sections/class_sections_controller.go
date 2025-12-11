@@ -19,6 +19,7 @@ import (
 
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
+	dbtime "madinahsalam_backend/internals/helpers/dbtime"
 	helperOSS "madinahsalam_backend/internals/helpers/oss"
 
 	semstats "madinahsalam_backend/internals/features/lembaga/stats/semester_stats/service"
@@ -497,7 +498,13 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal meng-hash join code")
 	}
-	now := time.Now()
+
+	now, err := dbtime.GetDBTime(c)
+	if err != nil {
+		_ = tx.Rollback()
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mendapatkan waktu server")
+	}
+
 	m.ClassSectionCode = &plainCode
 	m.ClassSectionStudentCodeHash = hashed
 	m.ClassSectionStudentCodeSetAt = &now
@@ -618,7 +625,6 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "Section berhasil dibuat", secDTO.FromModelClassSection(m))
 }
 
-// PATCH /admin/class-sections/:id
 // PATCH /admin/class-sections/:id
 func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 	sectionID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
@@ -975,7 +981,12 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 	if beforeStatus != secModel.ClassStatusCompleted &&
 		existing.ClassSectionStatus == secModel.ClassStatusCompleted &&
 		existing.ClassSectionCompletedAt == nil {
-		t := time.Now()
+
+		t, errTime := dbtime.GetDBTime(c)
+		if errTime != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mendapatkan waktu server")
+		}
 		existing.ClassSectionCompletedAt = &t
 	}
 
@@ -1109,7 +1120,13 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 				}
 			}
 
-			deletePendingUntil := time.Now().Add(30 * 24 * time.Hour)
+			baseNow, errTime := dbtime.GetDBTime(c)
+			if errTime != nil {
+				_ = tx.Rollback()
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mendapatkan waktu server")
+			}
+			deletePendingUntil := baseNow.Add(30 * 24 * time.Hour)
+
 			if err := tx.Table("class_sections").
 				Where("class_section_id = ?", existing.ClassSectionID).
 				Updates(map[string]any{
@@ -1243,7 +1260,12 @@ func (ctrl *ClassSectionController) SoftDeleteClassSection(c *fiber.Ctx) error {
 
 	// status sebelum delete (untuk stats)
 	wasActive := m.ClassSectionStatus == secModel.ClassStatusActive
-	now := time.Now()
+
+	now, errTime := dbtime.GetDBTime(c)
+	if errTime != nil {
+		_ = tx.Rollback()
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mendapatkan waktu server")
+	}
 
 	if err := tx.Model(&secModel.ClassSectionModel{}).
 		Where("class_section_id = ?", m.ClassSectionID).

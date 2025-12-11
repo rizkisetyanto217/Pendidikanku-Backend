@@ -5,10 +5,12 @@ import (
 	"errors"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 
 	model "madinahsalam_backend/internals/features/finance/general_billings/model"
+	"madinahsalam_backend/internals/helpers/dbtime"
 )
 
 /* =========================================================
@@ -94,9 +96,9 @@ type PatchUserGeneralBillingRequest struct {
 	UserGeneralBillingPaidAt    PatchField[time.Time] `json:"user_general_billing_paid_at"`
 	UserGeneralBillingNote      PatchField[string]    `json:"user_general_billing_note"`
 
-	UserGeneralBillingTitleSnapshot    PatchField[string]                    `json:"user_general_billing_title_snapshot"`
+	UserGeneralBillingTitleSnapshot    PatchField[string]                       `json:"user_general_billing_title_snapshot"`
 	UserGeneralBillingCategorySnapshot PatchField[model.GeneralBillingCategory] `json:"user_general_billing_category_snapshot"`
-	UserGeneralBillingBillCodeSnapshot PatchField[string]                    `json:"user_general_billing_bill_code_snapshot"`
+	UserGeneralBillingBillCodeSnapshot PatchField[string]                       `json:"user_general_billing_bill_code_snapshot"`
 
 	// Meta: bisa null (hapus), set object baru, atau tidak diubah
 	UserGeneralBillingMeta PatchField[map[string]any] `json:"user_general_billing_meta"`
@@ -255,11 +257,17 @@ type UserGeneralBillingResponse struct {
 	UserGeneralBillingDeletedAt *time.Time `json:"user_general_billing_deleted_at,omitempty"`
 }
 
-func FromModelUserGeneralBilling(m model.UserGeneralBillingModel) UserGeneralBillingResponse {
+func FromModelUserGeneralBilling(c *fiber.Ctx, m model.UserGeneralBillingModel) UserGeneralBillingResponse {
 	var meta map[string]any
 	if m.UserGeneralBillingMeta != nil {
 		meta = map[string]any(m.UserGeneralBillingMeta)
 	}
+
+	// 🔹 Konversi semua waktu ke timezone sekolah
+	paidAt := dbtime.ToSchoolTimePtr(c, m.UserGeneralBillingPaidAt)
+	createdAt := dbtime.ToSchoolTime(c, m.UserGeneralBillingCreatedAt)
+	updatedAt := dbtime.ToSchoolTime(c, m.UserGeneralBillingUpdatedAt)
+	deletedAt := dbtime.ToSchoolTimePtr(c, m.UserGeneralBillingDeletedAt)
 
 	return UserGeneralBillingResponse{
 		UserGeneralBillingID:               m.UserGeneralBillingID,
@@ -269,15 +277,15 @@ func FromModelUserGeneralBilling(m model.UserGeneralBillingModel) UserGeneralBil
 		UserGeneralBillingBillingID:        m.UserGeneralBillingBillingID,
 		UserGeneralBillingAmountIDR:        m.UserGeneralBillingAmountIDR,
 		UserGeneralBillingStatus:           m.UserGeneralBillingStatus,
-		UserGeneralBillingPaidAt:           m.UserGeneralBillingPaidAt,
+		UserGeneralBillingPaidAt:           paidAt,
 		UserGeneralBillingNote:             m.UserGeneralBillingNote,
 		UserGeneralBillingTitleSnapshot:    m.UserGeneralBillingTitleSnapshot,
 		UserGeneralBillingCategorySnapshot: m.UserGeneralBillingCategorySnapshot,
 		UserGeneralBillingBillCodeSnapshot: m.UserGeneralBillingBillCodeSnapshot,
 		UserGeneralBillingMeta:             meta,
-		UserGeneralBillingCreatedAt:        m.UserGeneralBillingCreatedAt,
-		UserGeneralBillingUpdatedAt:        m.UserGeneralBillingUpdatedAt,
-		UserGeneralBillingDeletedAt:        m.UserGeneralBillingDeletedAt,
+		UserGeneralBillingCreatedAt:        createdAt,
+		UserGeneralBillingUpdatedAt:        updatedAt,
+		UserGeneralBillingDeletedAt:        deletedAt,
 	}
 }
 

@@ -6,9 +6,11 @@ import (
 	"strings"
 	"time"
 
-	teacherModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
-
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+
+	teacherModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
+	helperDbTime "madinahsalam_backend/internals/helpers/dbtime"
 )
 
 /* ========================
@@ -18,8 +20,8 @@ import (
 type DTOTeacherSectionItem struct {
 	ClassSectionID             uuid.UUID `json:"class_section_id"`
 	ClassSectionRole           string    `json:"class_section_role"` // "homeroom" | "teacher" | "assistant"
-	From                       *string   `json:"from,omitempty"` // "YYYY-MM-DD"
-	To                         *string   `json:"to,omitempty"`   // "YYYY-MM-DD"
+	From                       *string   `json:"from,omitempty"`     // "YYYY-MM-DD"
+	To                         *string   `json:"to,omitempty"`       // "YYYY-MM-DD"
 	ClassSectionName           *string   `json:"class_section_name,omitempty"`
 	ClassSectionSlug           *string   `json:"class_section_slug,omitempty"`
 	ClassSectionImageURL       *string   `json:"class_section_image_url,omitempty"`
@@ -27,14 +29,14 @@ type DTOTeacherSectionItem struct {
 }
 
 type DTOTeacherCSSTItem struct {
-	CSSTID               uuid.UUID  `json:"csst_id"`
-	From                 *string    `json:"from,omitempty"`
-	To                   *string    `json:"to,omitempty"`
-	SubjectName          *string    `json:"subject_name,omitempty"`
-	SubjectSlug          *string    `json:"subject_slug,omitempty"`
-	ClassSectionID       *uuid.UUID `json:"class_section_id,omitempty"`
-	ClassSectionName     *string    `json:"class_section_name,omitempty"`
-	ClassSectionSlug     *string    `json:"class_section_slug,omitempty"`
+	CSSTID           uuid.UUID  `json:"csst_id"`
+	From             *string    `json:"from,omitempty"`
+	To               *string    `json:"to,omitempty"`
+	SubjectName      *string    `json:"subject_name,omitempty"`
+	SubjectSlug      *string    `json:"subject_slug,omitempty"`
+	ClassSectionID   *uuid.UUID `json:"class_section_id,omitempty"`
+	ClassSectionName *string    `json:"class_section_name,omitempty"`
+	ClassSectionSlug *string    `json:"class_section_slug,omitempty"`
 }
 
 /* ========================
@@ -210,10 +212,18 @@ func (r *UpdateSchoolTeacherRequest) Normalize() {
 }
 
 /* ========================
+   🧠 Time helpers (DB → school TZ)
+   ======================== */
+
+func normalizeTimePtr(c *fiber.Ctx, t *time.Time) *time.Time {
+	return helperDbTime.ToSchoolTimePtr(c, t)
+}
+
+/* ========================
    🔁 Converters (Model -> DTO)
    ======================== */
 
-func NewSchoolTeacherResponse(m *teacherModel.SchoolTeacherModel) *SchoolTeacher {
+func NewSchoolTeacherResponse(c *fiber.Ctx, m *teacherModel.SchoolTeacherModel) *SchoolTeacher {
 	if m == nil {
 		return nil
 	}
@@ -226,7 +236,8 @@ func NewSchoolTeacherResponse(m *teacherModel.SchoolTeacherModel) *SchoolTeacher
 
 	var delAt *time.Time
 	if m.SchoolTeacherDeletedAt.Valid {
-		delAt = &m.SchoolTeacherDeletedAt.Time
+		t := helperDbTime.ToSchoolTime(c, m.SchoolTeacherDeletedAt.Time)
+		delAt = &t
 	}
 
 	return &SchoolTeacher{
@@ -239,11 +250,11 @@ func NewSchoolTeacherResponse(m *teacherModel.SchoolTeacherModel) *SchoolTeacher
 		SchoolTeacherEmployment: emp,
 		SchoolTeacherIsActive:   m.SchoolTeacherIsActive,
 
-		SchoolTeacherJoinedAt: m.SchoolTeacherJoinedAt,
-		SchoolTeacherLeftAt:   m.SchoolTeacherLeftAt,
+		SchoolTeacherJoinedAt: normalizeTimePtr(c, m.SchoolTeacherJoinedAt),
+		SchoolTeacherLeftAt:   normalizeTimePtr(c, m.SchoolTeacherLeftAt),
 
 		SchoolTeacherIsVerified: m.SchoolTeacherIsVerified,
-		SchoolTeacherVerifiedAt: m.SchoolTeacherVerifiedAt,
+		SchoolTeacherVerifiedAt: normalizeTimePtr(c, m.SchoolTeacherVerifiedAt),
 
 		SchoolTeacherIsPublic: m.SchoolTeacherIsPublic,
 		SchoolTeacherNotes:    m.SchoolTeacherNotes,
@@ -259,16 +270,16 @@ func NewSchoolTeacherResponse(m *teacherModel.SchoolTeacherModel) *SchoolTeacher
 		SchoolTeacherSections: []DTOTeacherSectionItem{},
 		SchoolTeacherCSST:     []DTOTeacherCSSTItem{},
 
-		SchoolTeacherCreatedAt: m.SchoolTeacherCreatedAt,
-		SchoolTeacherUpdatedAt: m.SchoolTeacherUpdatedAt,
+		SchoolTeacherCreatedAt: helperDbTime.ToSchoolTime(c, m.SchoolTeacherCreatedAt),
+		SchoolTeacherUpdatedAt: helperDbTime.ToSchoolTime(c, m.SchoolTeacherUpdatedAt),
 		SchoolTeacherDeletedAt: delAt,
 	}
 }
 
-func NewSchoolTeacherResponses(items []teacherModel.SchoolTeacherModel) []*SchoolTeacher {
+func NewSchoolTeacherResponses(c *fiber.Ctx, items []teacherModel.SchoolTeacherModel) []*SchoolTeacher {
 	out := make([]*SchoolTeacher, 0, len(items))
 	for i := range items {
-		out = append(out, NewSchoolTeacherResponse(&items[i]))
+		out = append(out, NewSchoolTeacherResponse(c, &items[i]))
 	}
 	return out
 }
@@ -480,7 +491,11 @@ func (r UpdateSchoolTeacherRequest) ApplyToModel(m *teacherModel.SchoolTeacherMo
 	return nil
 }
 
-func NewSchoolTeacherCompact(m *teacherModel.SchoolTeacherModel) *SchoolTeacherCompact {
+/* ========================
+   📦 Compact (model -> DTO)
+   ======================== */
+
+func NewSchoolTeacherCompact(c *fiber.Ctx, m *teacherModel.SchoolTeacherModel) *SchoolTeacherCompact {
 	if m == nil {
 		return nil
 	}
@@ -499,7 +514,7 @@ func NewSchoolTeacherCompact(m *teacherModel.SchoolTeacherModel) *SchoolTeacherC
 		SchoolTeacherEmployment: emp,
 		SchoolTeacherIsActive:   m.SchoolTeacherIsActive,
 
-		SchoolTeacherJoinedAt: m.SchoolTeacherJoinedAt,
+		SchoolTeacherJoinedAt: helperDbTime.ToSchoolTimePtr(c, m.SchoolTeacherJoinedAt),
 
 		SchoolTeacherUserTeacherFullNameCache:    m.SchoolTeacherUserTeacherFullNameCache,
 		SchoolTeacherUserTeacherAvatarURLCache:   m.SchoolTeacherUserTeacherAvatarURLCache,
@@ -510,10 +525,10 @@ func NewSchoolTeacherCompact(m *teacherModel.SchoolTeacherModel) *SchoolTeacherC
 	}
 }
 
-func NewSchoolTeacherCompacts(items []teacherModel.SchoolTeacherModel) []*SchoolTeacherCompact {
+func NewSchoolTeacherCompacts(c *fiber.Ctx, items []teacherModel.SchoolTeacherModel) []*SchoolTeacherCompact {
 	out := make([]*SchoolTeacherCompact, 0, len(items))
 	for i := range items {
-		out = append(out, NewSchoolTeacherCompact(&items[i]))
+		out = append(out, NewSchoolTeacherCompact(c, &items[i]))
 	}
 	return out
 }

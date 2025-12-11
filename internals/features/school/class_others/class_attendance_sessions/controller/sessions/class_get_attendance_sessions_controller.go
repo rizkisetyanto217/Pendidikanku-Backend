@@ -413,6 +413,10 @@ func (ctrl *ClassAttendanceSessionController) listStudentTimeline(
 				ClassAttendanceSessionTypeId:       r.TypeID,
 				ClassAttendanceSessionTypeSnapshot: jsonToMap(r.TypeSnap),
 			}
+
+			// 🔁 convert ke school time via DTO, bukan via dbtime di controller
+			sess = sess.WithSchoolTime(c)
+
 			item.Session = sess
 		}
 
@@ -650,6 +654,10 @@ func (ctrl *ClassAttendanceSessionController) listTeacherTimeline(
 				ClassAttendanceSessionTypeId:       r.TypeID,
 				ClassAttendanceSessionTypeSnapshot: jsonToMap(r.TypeSnap),
 			}
+
+			// 🔁 convert ke school time via DTO, bukan via dbtime di controller
+			sess = sess.WithSchoolTime(c)
+
 			item.Session = sess
 		}
 
@@ -1204,7 +1212,7 @@ func (ctrl *ClassAttendanceSessionController) listSessionsDefault(
 			typeSnap = jsonToMap(r.TypeSnap)
 		}
 
-		return sessiondto.ClassAttendanceSessionResponse{
+		resp := sessiondto.ClassAttendanceSessionResponse{
 			ClassAttendanceSessionId:         r.ID,
 			ClassAttendanceSessionSchoolId:   r.SchoolID,
 			ClassAttendanceSessionScheduleId: r.ScheduleID,
@@ -1251,6 +1259,9 @@ func (ctrl *ClassAttendanceSessionController) listSessionsDefault(
 			ClassAttendanceSessionUpdatedAt: r.UpdatedAt,
 			ClassAttendanceSessionDeletedAt: r.DeletedAt,
 		}
+
+		// ⬇️ ini kuncinya
+		return resp.WithSchoolTime(c)
 	}
 
 	buildCompact := func(r row) sessiondto.ClassAttendanceSessionCompactResponse {
@@ -1264,7 +1275,7 @@ func (ctrl *ClassAttendanceSessionController) listSessionsDefault(
 			typeSnap = jsonToMap(r.TypeSnap)
 		}
 
-		return sessiondto.ClassAttendanceSessionCompactResponse{
+		resp := sessiondto.ClassAttendanceSessionCompactResponse{
 			ClassAttendanceSessionId:       r.ID,
 			ClassAttendanceSessionSchoolId: r.SchoolID,
 
@@ -1287,6 +1298,9 @@ func (ctrl *ClassAttendanceSessionController) listSessionsDefault(
 			ClassAttendanceSessionTypeId:       r.TypeID,
 			ClassAttendanceSessionTypeSnapshot: typeSnap,
 		}
+
+		// ⬇️ timezone fix via DTO
+		return resp.WithSchoolTime(c)
 	}
 
 	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)

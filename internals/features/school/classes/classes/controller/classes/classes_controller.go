@@ -33,6 +33,7 @@ import (
 
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
+	dbtime "madinahsalam_backend/internals/helpers/dbtime"
 	helperOSS "madinahsalam_backend/internals/helpers/oss"
 
 	csModel "madinahsalam_backend/internals/features/school/academics/subjects/model"
@@ -758,10 +759,10 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	log.Printf("[CLASSES][CREATE] ✅ done in %s", time.Since(start))
 
 	// 🔚 Response:
-	// - Selalu kirim "class"
+	// - Selalu kirim "class" (TZ-aware)
 	// - Tambahan "class_sections" & "class_section_subject_teachers" kalau ada yang otomatis dibuat
 	resp := fiber.Map{
-		"class": dto.FromModel(m),
+		"class": dto.FromModel(m).WithSchoolTime(c),
 	}
 	if len(createdSections) > 0 {
 		resp["class_sections"] = classSectionDto.FromSectionModels(createdSections)
@@ -787,6 +788,12 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
 		return err
+	}
+
+	// Ambil "now" versi DB/timezone sekolah untuk update image, dll
+	nowDB, err := dbtime.GetDBTime(c)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mendapatkan waktu server")
 	}
 
 	// ---- Parse payload tri-state (JSON / multipart) ----
@@ -1000,7 +1007,7 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 					}
 				}
 
-				deletePendingUntil := time.Now().Add(30 * 24 * time.Hour)
+				deletePendingUntil := nowDB.Add(30 * 24 * time.Hour)
 
 				_ = tx.Model(&classmodel.ClassModel{}).
 					Where("class_id = ?", existing.ClassID).
@@ -1020,6 +1027,7 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 							return oldObjKey
 						}(),
 						"class_image_delete_pending_until": deletePendingUntil,
+						"class_updated_at":                 nowDB,
 					})
 			}
 		}
@@ -1047,8 +1055,8 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
-	// ✅ Response disederhanakan: langsung 1 object class sebagai data
-	return helper.JsonUpdated(c, "Kelas berhasil diperbarui", dto.FromModel(&existing))
+	// ✅ Response: pakai WithSchoolTime supaya timestamp sudah timezone sekolah
+	return helper.JsonUpdated(c, "Kelas berhasil diperbarui", dto.FromModel(&existing).WithSchoolTime(c))
 }
 
 /* =========================== DELETE (soft) =========================== */
@@ -1064,6 +1072,12 @@ func (ctrl *ClassController) DeleteClass(c *fiber.Ctx) error {
 	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
 		return err
+	}
+
+	// Ambil "now" dari dbtime (timezone sekolah)
+	now, err := dbtime.GetDBTime(c)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mendapatkan waktu server")
 	}
 
 	// Lock row + cek school_id untuk guard
@@ -1123,7 +1137,6 @@ func (ctrl *ClassController) DeleteClass(c *fiber.Ctx) error {
 
 	wasActive := (m.ClassStatus == classmodel.ClassStatusActive)
 
-	now := time.Now()
 	updates := map[string]any{
 		"class_deleted_at": &now,
 		"class_updated_at": now,

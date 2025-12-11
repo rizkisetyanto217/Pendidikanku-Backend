@@ -1,13 +1,14 @@
-// file: internals/features/school/classes/attendance/dto/class_attendance_session_type_dto.go
 package dto
 
 import (
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
 	attendanceModel "madinahsalam_backend/internals/features/school/class_others/class_attendance_sessions/model"
+	dbtime "madinahsalam_backend/internals/helpers/dbtime"
 )
 
 /* ======================================================
@@ -98,6 +99,34 @@ func NewClassAttendanceSessionTypeDTO(m *attendanceModel.ClassAttendanceSessionT
 }
 
 /* ======================================================
+   Mapper: Model -> DTO (timezone-aware)
+====================================================== */
+
+func NewClassAttendanceSessionTypeDTOWithSchoolTime(
+	c *fiber.Ctx,
+	m *attendanceModel.ClassAttendanceSessionTypeModel,
+) *ClassAttendanceSessionTypeDTO {
+	dto := NewClassAttendanceSessionTypeDTO(m)
+	if dto == nil {
+		return nil
+	}
+
+	// convert created_at & updated_at ke waktu sekolah
+	dto.ClassAttendanceSessionTypeCreatedAt =
+		dbtime.ToSchoolTime(c, dto.ClassAttendanceSessionTypeCreatedAt)
+	dto.ClassAttendanceSessionTypeUpdatedAt =
+		dbtime.ToSchoolTime(c, dto.ClassAttendanceSessionTypeUpdatedAt)
+
+	// optional: kalau mau deleted_at juga ikut timezone
+	if dto.ClassAttendanceSessionTypeDeletedAt.Valid {
+		dto.ClassAttendanceSessionTypeDeletedAt.Time =
+			dbtime.ToSchoolTime(c, dto.ClassAttendanceSessionTypeDeletedAt.Time)
+	}
+
+	return dto
+}
+
+/* ======================================================
    Mapper: Slice Model -> Slice DTO
 ====================================================== */
 
@@ -113,12 +142,22 @@ func NewClassAttendanceSessionTypeDTOs(list []*attendanceModel.ClassAttendanceSe
 	return out
 }
 
-// file: internals/features/school/classes/attendance/dto/class_attendance_session_type_dto.go
-// (lanjutan dari kode yang sudah ada)
+func NewClassAttendanceSessionTypeDTOsWithSchoolTime(
+	c *fiber.Ctx,
+	list []*attendanceModel.ClassAttendanceSessionTypeModel,
+) []*ClassAttendanceSessionTypeDTO {
+	if len(list) == 0 {
+		return []*ClassAttendanceSessionTypeDTO{}
+	}
 
-/* ======================================================
-   DTO: COMPACT versi (tanpa tenant, meta, audit)
-====================================================== */
+	out := make([]*ClassAttendanceSessionTypeDTO, 0, len(list))
+	for _, m := range list {
+		out = append(out, NewClassAttendanceSessionTypeDTOWithSchoolTime(c, m))
+	}
+	return out
+}
+
+// ===== COMPACT part tetap sama (nggak ada field waktu) =====
 
 type ClassAttendanceSessionTypeCompactDTO struct {
 	// PK
@@ -146,10 +185,6 @@ type ClassAttendanceSessionTypeCompactDTO struct {
 	ClassAttendanceSessionTypeAttendanceCloseOffsetMinutes *int   `json:"class_attendance_session_type_attendance_close_offset_minutes,omitempty"`
 }
 
-/* ======================================================
-   Mapper: Model -> Compact DTO
-====================================================== */
-
 func NewClassAttendanceSessionTypeCompactDTO(m *attendanceModel.ClassAttendanceSessionTypeModel) *ClassAttendanceSessionTypeCompactDTO {
 	if m == nil {
 		return nil
@@ -174,10 +209,6 @@ func NewClassAttendanceSessionTypeCompactDTO(m *attendanceModel.ClassAttendanceS
 		ClassAttendanceSessionTypeAttendanceCloseOffsetMinutes: m.ClassAttendanceSessionTypeAttendanceCloseOffsetMinutes,
 	}
 }
-
-/* ======================================================
-   Mapper: Slice Model -> Slice Compact DTO
-====================================================== */
 
 func NewClassAttendanceSessionTypeCompactDTOs(list []*attendanceModel.ClassAttendanceSessionTypeModel) []*ClassAttendanceSessionTypeCompactDTO {
 	if len(list) == 0 {

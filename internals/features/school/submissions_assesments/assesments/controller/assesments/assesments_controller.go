@@ -568,7 +568,7 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 	}
 
 	return helper.JsonCreated(c, msg, fiber.Map{
-		"assessment": dto.FromModelAssesment(row),
+		"assessment": dto.FromModelAssesmentWithSchoolTime(c, row),
 		"quizzes":    quizDTO.FromModels(createdQuizzes),
 	})
 }
@@ -886,7 +886,11 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 			}
 		}
 
-		return helper.JsonUpdated(c, "Assessment (mode session) diperbarui", dto.FromModelAssesment(existing))
+		return helper.JsonUpdated(
+			c,
+			"Assessment (mode session) diperbarui",
+			dto.FromModelAssesmentWithSchoolTime(c, existing),
+		)
 	}
 
 	// ===== MODE: date =====
@@ -1011,7 +1015,11 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 		}
 	}
 
-	return helper.JsonUpdated(c, "Assessment (mode date) diperbarui", dto.FromModelAssesment(existing))
+	return helper.JsonUpdated(
+		c,
+		"Assessment (mode date) diperbarui",
+		dto.FromModelAssesmentWithSchoolTime(c, existing),
+	)
 }
 
 /* ========================================================

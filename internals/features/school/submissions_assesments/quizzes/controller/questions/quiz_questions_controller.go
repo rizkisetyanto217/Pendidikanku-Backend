@@ -7,7 +7,6 @@ import (
 	"errors"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -18,6 +17,7 @@ import (
 	qmodel "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
+	dbtime "madinahsalam_backend/internals/helpers/dbtime"
 )
 
 /* =========================================================
@@ -351,7 +351,11 @@ func (ctl *QuizQuestionsController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	now := time.Now()
+	now, err := dbtime.GetDBTime(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mendapatkan waktu server")
+	}
+
 	if err := ctl.DB.Model(&qmodel.QuizQuestionModel{}).
 		Where("quiz_question_id = ?", id).
 		Update("quiz_question_deleted_at", now).Error; err != nil {

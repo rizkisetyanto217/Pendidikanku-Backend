@@ -30,7 +30,6 @@ func NewPaymentGatewayEventController(db *gorm.DB) *PaymentGatewayEventControlle
 func (h *PaymentGatewayEventController) RegisterRoutes(r fiber.Router) {
 	gr := r.Group("/payment-gateway-events")
 	gr.Get("/", h.ListEvents)      // GET /payment-gateway-events?provider=&status=&payment_id=&school_id=&q=&start=&end=&page=&limit=
-	gr.Get("/:id", h.GetByID)      // GET /payment-gateway-events/:id
 	gr.Post("/", h.CreateEvent)    // POST /payment-gateway-events
 	gr.Patch("/:id", h.PatchEvent) // PATCH /payment-gateway-events/:id
 }
@@ -107,6 +106,7 @@ func (h *PaymentGatewayEventController) ListEvents(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
+	// ...
 	var rows []model.PaymentGatewayEventModel
 	if err := db.Order("gateway_event_received_at DESC").
 		Limit(limit).Offset(offset).
@@ -116,7 +116,7 @@ func (h *PaymentGatewayEventController) ListEvents(c *fiber.Ctx) error {
 
 	out := make([]*dto.PaymentGatewayEventResponse, 0, len(rows))
 	for i := range rows {
-		out = append(out, dto.FromModelPGW(&rows[i]))
+		out = append(out, dto.FromModelPGW(c, &rows[i]))
 	}
 
 	return c.JSON(fiber.Map{
@@ -125,37 +125,15 @@ func (h *PaymentGatewayEventController) ListEvents(c *fiber.Ctx) error {
 		"total": total,
 		"data":  out,
 	})
+
 }
 
-/* =======================================================================
-   Detail
-======================================================================= */
+/*
+	=======================================================================
+	  Create (manual insert event)
 
-func (h *PaymentGatewayEventController) GetByID(c *fiber.Ctx) error {
-	id, err := uuid.Parse(c.Params("id"))
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "invalid id")
-	}
-
-	var m model.PaymentGatewayEventModel
-	if err := h.DB.First(
-		&m,
-		"gateway_event_id = ? AND gateway_event_deleted_at IS NULL",
-		id,
-	).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fiber.NewError(fiber.StatusNotFound, "event not found")
-		}
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(dto.FromModelPGW(&m))
-}
-
-/* =======================================================================
-   Create (manual insert event)
-======================================================================= */
-
+=======================================================================
+*/
 func (h *PaymentGatewayEventController) CreateEvent(c *fiber.Ctx) error {
 	var req dto.CreatePaymentGatewayEventRequest
 	if err := c.BodyParser(&req); err != nil {
@@ -174,13 +152,15 @@ func (h *PaymentGatewayEventController) CreateEvent(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(dto.FromModelPGW(m))
+	return c.Status(fiber.StatusCreated).JSON(dto.FromModelPGW(c, m))
 }
 
-/* =======================================================================
-   Patch (tri-state)
-======================================================================= */
+/*
+	=======================================================================
+	  Patch (tri-state)
 
+=======================================================================
+*/
 func (h *PaymentGatewayEventController) PatchEvent(c *fiber.Ctx) error {
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {
@@ -208,8 +188,7 @@ func (h *PaymentGatewayEventController) PatchEvent(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	// Auto-set processed_at:
-	// kalau status sudah success/failed dan processed_at masih null → isi sekarang
+	// Auto-set processed_at jika status success/failed dan masih null
 	if (m.GatewayEventStatus == model.GatewayEventStatusSuccess ||
 		m.GatewayEventStatus == model.GatewayEventStatusFailed) &&
 		m.GatewayEventProcessedAt == nil {
@@ -220,7 +199,7 @@ func (h *PaymentGatewayEventController) PatchEvent(c *fiber.Ctx) error {
 	if err := h.DB.Save(&m).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
-	return c.JSON(dto.FromModelPGW(&m))
+	return c.JSON(dto.FromModelPGW(c, &m))
 }
 
 /* =======================================================================

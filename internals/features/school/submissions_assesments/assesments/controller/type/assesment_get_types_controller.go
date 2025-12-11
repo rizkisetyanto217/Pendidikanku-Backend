@@ -243,7 +243,8 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 		return helper.JsonList(c, "ok", data, meta)
 	}
 
-	// default: mode full
-	data := dto.FromModels(rows)
+	// default: mode full (pakai timezone sekolah)
+	data := dto.FromModelsWithCtx(c, rows)
 	return helper.JsonList(c, "ok", data, meta)
+
 }

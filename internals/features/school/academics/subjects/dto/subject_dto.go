@@ -14,6 +14,7 @@ import (
 
 	m "madinahsalam_backend/internals/features/school/academics/subjects/model"
 	helper "madinahsalam_backend/internals/helpers"
+	"madinahsalam_backend/internals/helpers/dbtime"
 )
 
 /* =========================================================
@@ -522,6 +523,7 @@ type SubjectResponse struct {
 	SubjectDeletedAt               *time.Time `json:"subject_deleted_at,omitempty"`
 }
 
+// Versi lama (raw, langsung dari model – pakai timezone DB, biasanya UTC)
 func FromSubjectModel(mo m.SubjectModel) SubjectResponse {
 	var deletedAt *time.Time
 	if mo.SubjectDeletedAt.Valid {
@@ -551,6 +553,26 @@ func FromSubjectModels(rows []m.SubjectModel) []SubjectResponse {
 	out := make([]SubjectResponse, 0, len(rows))
 	for i := range rows {
 		out = append(out, FromSubjectModel(rows[i]))
+	}
+	return out
+}
+
+// 🔹 Versi baru: model → response dengan timezone sekolah
+func FromSubjectModelWithSchoolTime(c *fiber.Ctx, mo m.SubjectModel) SubjectResponse {
+	resp := FromSubjectModel(mo)
+
+	resp.SubjectCreatedAt = dbtime.ToSchoolTime(c, resp.SubjectCreatedAt)
+	resp.SubjectUpdatedAt = dbtime.ToSchoolTime(c, resp.SubjectUpdatedAt)
+	resp.SubjectDeletedAt = dbtime.ToSchoolTimePtr(c, resp.SubjectDeletedAt)
+	resp.SubjectImageDeletePendingUntil = dbtime.ToSchoolTimePtr(c, resp.SubjectImageDeletePendingUntil)
+
+	return resp
+}
+
+func FromSubjectModelsWithSchoolTime(c *fiber.Ctx, rows []m.SubjectModel) []SubjectResponse {
+	out := make([]SubjectResponse, 0, len(rows))
+	for i := range rows {
+		out = append(out, FromSubjectModelWithSchoolTime(c, rows[i]))
 	}
 	return out
 }
@@ -629,16 +651,51 @@ type SubjectRow struct {
 	SubjectDeletedAt               *time.Time `gorm:"column:subject_deleted_at"`
 }
 
-// 1 row → full response
+// 1 row → full response (raw timezone)
 func (r SubjectRow) ToResponse() SubjectResponse {
 	return SubjectResponse(r)
 }
 
-// rows → full responses
+// rows → full responses (raw timezone)
 func SubjectRowsToResponses(rows []SubjectRow) []SubjectResponse {
 	out := make([]SubjectResponse, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, r.ToResponse())
+	}
+	return out
+}
+
+// 🔹 1 row → full response dengan timezone sekolah
+func (r SubjectRow) ToResponseWithSchoolTime(c *fiber.Ctx) SubjectResponse {
+	created := dbtime.ToSchoolTime(c, r.SubjectCreatedAt)
+	updated := dbtime.ToSchoolTime(c, r.SubjectUpdatedAt)
+	deleted := dbtime.ToSchoolTimePtr(c, r.SubjectDeletedAt)
+	deletePending := dbtime.ToSchoolTimePtr(c, r.SubjectImageDeletePendingUntil)
+
+	return SubjectResponse{
+		SubjectID:                      r.SubjectID,
+		SubjectSchoolID:                r.SubjectSchoolID,
+		SubjectCode:                    r.SubjectCode,
+		SubjectName:                    r.SubjectName,
+		SubjectDesc:                    r.SubjectDesc,
+		SubjectSlug:                    r.SubjectSlug,
+		SubjectImageURL:                r.SubjectImageURL,
+		SubjectImageObjectKey:          r.SubjectImageObjectKey,
+		SubjectImageURLOld:             r.SubjectImageURLOld,
+		SubjectImageObjectKeyOld:       r.SubjectImageObjectKeyOld,
+		SubjectImageDeletePendingUntil: deletePending,
+		SubjectIsActive:                r.SubjectIsActive,
+		SubjectCreatedAt:               created,
+		SubjectUpdatedAt:               updated,
+		SubjectDeletedAt:               deleted,
+	}
+}
+
+// 🔹 rows → full responses dengan timezone sekolah
+func SubjectRowsToResponsesWithSchoolTime(c *fiber.Ctx, rows []SubjectRow) []SubjectResponse {
+	out := make([]SubjectResponse, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.ToResponseWithSchoolTime(c))
 	}
 	return out
 }

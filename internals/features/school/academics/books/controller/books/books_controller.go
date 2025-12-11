@@ -155,19 +155,6 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 	p.BookSchoolID = schoolID
 	log.Printf("[BOOKS][CREATE] school_id=%s", schoolID)
 
-	// Owner global → lolos; selain itu wajib teacher di school ini
-	if !helperAuth.IsOwner(c) {
-		if err := helperAuth.EnsureTeacherSchool(c, schoolID); err != nil {
-			if fe, ok := err.(*fiber.Error); ok {
-				return helper.JsonError(c, fe.Code, fe.Message)
-			}
-			return helper.JsonError(c, fiber.StatusForbidden, err.Error())
-		}
-	}
-
-	p.BookSchoolID = schoolID
-	log.Printf("[BOOKS][CREATE] school_id=%s", schoolID)
-
 	// 3) Slug unik
 	baseSlug := ""
 	if p.BookSlug != nil && strings.TrimSpace(*p.BookSlug) != "" {
@@ -256,8 +243,8 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 	// 6) Reload (best-effort)
 	_ = h.DB.WithContext(c.Context()).First(ent, "book_id = ?", ent.BookID).Error
 
-	// 7) Response
-	resp := dto.ToBookResponse(ent)
+	// 7) Response → pakai versi timezone sekolah
+	resp := dto.ToBookResponseWithSchoolTime(c, ent)
 	log.Printf("[BOOKS][CREATE] respond book_id=%s image_url=%v", ent.BookID, resp.BookImageURL)
 
 	// data langsung = objek buku (tanpa wrapper "book", tanpa uploaded_image_url)
@@ -501,8 +488,8 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 
 	// --- Sinkron cache ke class_subject_books ---
 	upd := map[string]any{
-		"class_subject_book_book_title_cache":        m.BookTitle,
-		"class_subject_book_book_author_cache":       nilIfEmptyPtr(m.BookAuthor),
+		"class_subject_book_book_title_cache":     m.BookTitle,
+		"class_subject_book_book_author_cache":    nilIfEmptyPtr(m.BookAuthor),
 		"class_subject_book_book_slug_cache":      nilIfEmptyPtr(m.BookSlug),
 		"class_subject_book_book_image_url_cache": nilIfEmptyPtr(m.BookImageURL),
 	}
@@ -533,8 +520,8 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal commit transaksi")
 	}
 
-	// --- Response ---
-	resp := dto.ToBookResponse(&m)
+	// --- Response (pakai timezone sekolah) ---
+	resp := dto.ToBookResponseWithSchoolTime(c, &m)
 	return helper.JsonUpdated(c, "Buku berhasil diperbarui", resp)
 }
 
@@ -610,7 +597,6 @@ func (h *BooksController) Delete(c *fiber.Ctx) error {
 	}
 
 	if urlCount > 0 || csbCount > 0 {
-		// Bisa kamu tweak kalimatnya biar lebih friendly
 		return helper.JsonError(
 			c,
 			fiber.StatusConflict,

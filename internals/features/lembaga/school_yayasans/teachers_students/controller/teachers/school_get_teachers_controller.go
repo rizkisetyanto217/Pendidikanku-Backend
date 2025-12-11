@@ -21,6 +21,10 @@ import (
 	"github.com/google/uuid"
 )
 
+/* =========================
+   Helper lokal tanggal (untuk filter query)
+   ========================= */
+
 func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 	// (opsional) kalau ada helper lain yang butuh DB di Locals
 	if c.Locals("DB") == nil {
@@ -217,14 +221,14 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 	var data interface{}
 
 	if isCompact {
-		// Compact: DTO compact guru
-		compacts := teacherDTO.NewSchoolTeacherCompacts(rows)
+		// Compact: DTO compact guru (pakai timezone sekolah)
+		compacts := teacherDTO.NewSchoolTeacherCompacts(c, rows)
 		data = compacts
 	} else {
 		// Full: DTO full guru (tanpa nesting user_teacher/user/user_profile)
 		base := make([]*teacherDTO.SchoolTeacher, 0, len(rows))
 		for i := range rows {
-			base = append(base, teacherDTO.NewSchoolTeacherResponse(&rows[i]))
+			base = append(base, teacherDTO.NewSchoolTeacherResponse(c, &rows[i]))
 		}
 		data = base
 	}
@@ -431,7 +435,6 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 	// =========================================
 	// SIDE CAR: CSST (compact)
 	// =========================================
-	// SIDE CAR: CSST (compact)
 	if wantWithCSST && len(teacherIDs) > 0 {
 		var csstRows []csstModel.ClassSectionSubjectTeacherModel
 		if err := ctrl.DB.WithContext(c.Context()).
@@ -458,5 +461,4 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 
 	// Tidak ada include yang diminta → plain list
 	return helper.JsonList(c, "ok", data, pg)
-
 }

@@ -213,13 +213,9 @@ func (h *PaymentItemController) CreatePaymentItem(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "create payment_item failed: "+err.Error())
 	}
 
-	// NOTE:
-	// Di sini kamu BISA tambahin side-effect:
-	// - update total header payment_amount_idr = sum(items)
-	// - atau trigger ApplyStudentBillSideEffects/ApplyEnrollmentSideEffects khusus item
-	// Untuk sekarang, kita biarin simpel.
+	// NOTE: side-effect lain bisa ditambah nanti (sync header etc.)
 
-	return helper.JsonCreated(c, "payment_item created", dto.FromPaymentItemModel(item))
+	return helper.JsonCreated(c, "payment_item created", dto.FromPaymentItemModel(c, item))
 }
 
 /* =========================================================
@@ -276,10 +272,7 @@ func (h *PaymentItemController) PatchPaymentItem(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "save failed: "+err.Error())
 	}
 
-	// NOTE: kalau mau sync header amount
-	// bisa hitung ulang total di sini.
-
-	return helper.JsonUpdated(c, "payment_item updated", dto.FromPaymentItemModel(&item))
+	return helper.JsonUpdated(c, "payment_item updated", dto.FromPaymentItemModel(c, &item))
 }
 
 /* =========================================================
@@ -325,7 +318,5 @@ func (h *PaymentItemController) DeletePaymentItem(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal delete payment_item: "+err.Error())
 	}
 
-	// kalau mau, di sini bisa re-hit total payment header
-
-	return helper.JsonOK(c, "payment_item deleted", dto.FromPaymentItemModel(&item))
+	return helper.JsonOK(c, "payment_item deleted", dto.FromPaymentItemModel(c, &item))
 }

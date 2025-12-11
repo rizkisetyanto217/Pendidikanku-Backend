@@ -554,11 +554,15 @@ func (ctl *ClassAttendanceSessionParticipantController) CreateAttendanceParticip
 		Order("class_attendance_session_participant_url_is_primary DESC, class_attendance_session_participant_url_order ASC, class_attendance_session_participant_url_created_at ASC").
 		Find(&urls)
 
+	// 🔁 Normalisasi waktu ke timezone sekolah untuk response
+	attendanceDTO.NormalizeParticipantTimesToSchoolTime(c, &created)
+
 	c.Set("Location", "/class-attendance-session-participants/"+created.ClassAttendanceSessionParticipantID.String())
 	return helper.JsonCreated(c, "Kehadiran & lampiran berhasil dibuat", fiber.Map{
 		"attendance": created,
 		"urls":       urls,
 	})
+
 }
 
 /*

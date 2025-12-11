@@ -263,7 +263,10 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 		out := make([]roomCompactWithCounts, 0, len(rooms))
 		for _, m := range rooms {
 			item := roomCompactWithCounts{
-				ClassRoomCompact: dto.ToClassRoomCompact(m),
+				// 🔹 DULU:
+				// ClassRoomCompact: dto.ToClassRoomCompact(m),
+				// 🔹 SEKARANG: timezone-aware
+				ClassRoomCompact: dto.ToClassRoomCompactWithSchoolTime(c, m),
 			}
 			if n, ok := classSectionsCount[m.ClassRoomID]; ok {
 				nn := n
@@ -288,7 +291,10 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	outFull := make([]roomWithCounts, 0, len(rooms))
 	for _, m := range rooms {
 		item := roomWithCounts{
-			ClassRoomResponse: dto.ToClassRoomResponse(m),
+			// 🔹 DULU:
+			// ClassRoomResponse: dto.ToClassRoomResponse(m),
+			// 🔹 SEKARANG: timezone-aware
+			ClassRoomResponse: dto.ToClassRoomResponseWithSchoolTime(c, m),
 		}
 		if n, ok := classSectionsCount[m.ClassRoomID]; ok {
 			nn := n

@@ -257,7 +257,8 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	//  MODE VIEW=COMPACT
 	// =====================================================================
 	if viewCompact {
-		out := dto.FromModelsStudentClassSectionCompact(rows)
+		// 🔁 PAKAI VERSI SCHOOL TIME
+		out := dto.FromModelsStudentClassSectionCompactWithSchoolTime(c, rows)
 		// include selalu ada, minimal {}
 		return helper.JsonListWithInclude(c, "OK", out, nil, pagination)
 	}
@@ -268,7 +269,8 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	if !includeClassSections && !includeCSST {
 		out := make([]dto.StudentClassSectionResp, 0, len(rows))
 		for i := range rows {
-			out = append(out, dto.FromModel(&rows[i]))
+			// 🔁 PAKAI VERSI SCHOOL TIME
+			out = append(out, dto.FromModelWithSchoolTime(c, &rows[i]))
 		}
 		return helper.JsonListWithInclude(c, "OK", out, nil, pagination)
 	}
@@ -374,7 +376,8 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 
 	out := make([]StudentClassSectionWithClassSectionResp, 0, len(rows))
 	for i := range rows {
-		base := dto.FromModel(&rows[i])
+		// 🔁 BASE RESPON SUDAH DI-SCHOOL-TIME-KAN
+		base := dto.FromModelWithSchoolTime(c, &rows[i])
 
 		var included *dto.ClassSectionCompactResponse
 		if cs, ok := classSectionMap[rows[i].StudentClassSectionSectionID]; ok {

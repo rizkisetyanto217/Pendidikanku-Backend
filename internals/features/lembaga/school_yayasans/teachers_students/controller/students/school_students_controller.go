@@ -151,7 +151,7 @@ func (h *SchoolStudentController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return helper.JsonCreated(c, "created", dto.FromModel(m))
+	return helper.JsonCreated(c, "created", dto.FromModel(c, m))
 }
 
 // PUT /api/a/school-students/:id
@@ -199,7 +199,7 @@ func (h *SchoolStudentController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return helper.JsonUpdated(c, "updated", dto.FromModel(&m))
+	return helper.JsonUpdated(c, "updated", dto.FromModel(c, &m))
 }
 
 // PATCH /api/a/school-students/:id
@@ -247,7 +247,7 @@ func (h *SchoolStudentController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return helper.JsonUpdated(c, "patched", dto.FromModel(&m))
+	return helper.JsonUpdated(c, "patched", dto.FromModel(c, &m))
 }
 
 // DELETE /api/a/school-students/:id  (soft delete)
@@ -310,5 +310,5 @@ func (h *SchoolStudentController) Restore(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return helper.JsonOK(c, "restored", dto.FromModel(&m))
+	return helper.JsonOK(c, "restored", dto.FromModel(c, &m))
 }

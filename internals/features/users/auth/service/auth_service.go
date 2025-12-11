@@ -392,7 +392,6 @@ func getTenantProfilesMapStr(ctx context.Context, db *gorm.DB, ids []uuid.UUID) 
 	return res
 }
 
-// letakkan di dekat helper lain (atas file)
 // Ambil school_tenant_profile sebagai string (enum::text) untuk school aktif
 func getSchoolTenantProfileStr(ctx context.Context, db *gorm.DB, schoolID uuid.UUID) *string {
 	if db == nil || schoolID == uuid.Nil {
@@ -413,6 +412,37 @@ func getSchoolTenantProfileStr(ctx context.Context, db *gorm.DB, schoolID uuid.U
 			return nil
 		}
 		log.Printf("[WARN] getSchoolTenantProfileStr: %v", err)
+		return nil
+	}
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// ⬇️ TAMBAHKAN INI DI BAWAHNYA
+
+// Ambil school_timezone sebagai string (IANA, mis: "Asia/Jakarta") untuk school aktif
+func getSchoolTimezoneStr(ctx context.Context, db *gorm.DB, schoolID uuid.UUID) *string {
+	if db == nil || schoolID == uuid.Nil {
+		return nil
+	}
+	ctxQ, cancel := context.WithTimeout(ctx, qryTimeoutShort)
+	defer cancel()
+
+	var s string
+	err := db.WithContext(ctxQ).
+		Raw(`SELECT school_timezone FROM schools WHERE school_id = ? LIMIT 1`, schoolID).
+		Scan(&s).Error
+	if err != nil {
+		low := strings.ToLower(err.Error())
+		if strings.Contains(low, "does not exist") ||
+			strings.Contains(low, "undefined") ||
+			strings.Contains(low, "no such table") {
+			return nil
+		}
+		log.Printf("[WARN] getSchoolTimezoneStr: %v", err)
 		return nil
 	}
 	s = strings.TrimSpace(s)
@@ -1210,8 +1240,10 @@ func buildAccessClaims(
 	schoolRoles []SchoolRoleWithTenant,
 	teacherRecords []TeacherRecord,
 	studentRecords []StudentRecord,
+	schoolTimezone *string,
 	now time.Time,
 ) jwt.MapClaims {
+
 	// --- tentukan single school_id ---
 	var schoolID string
 	if activeSchoolID != nil && strings.TrimSpace(*activeSchoolID) != "" {
@@ -1256,6 +1288,11 @@ func buildAccessClaims(
 		claims["student_id"] = studentID
 	}
 
+	// ⬇️ TAMBAHKAN INI
+	if schoolTimezone != nil && strings.TrimSpace(*schoolTimezone) != "" {
+		claims["school_timezone"] = strings.TrimSpace(*schoolTimezone)
+	}
+
 	return claims
 }
 
@@ -1267,10 +1304,12 @@ func buildLoginResponseUser(
 	isOwner bool,
 	activeSchoolID *string,
 	tenantProfile *string, // single (active), opsional
+	schoolTimezone *string, // ⬅️ NEW
 	schoolRoles []SchoolRoleWithTenant, // sudah 1 sekolah (karena difilter slug)
 	teacherRecords []TeacherRecord,
 	studentRecords []StudentRecord,
 ) fiber.Map {
+
 	// --- 1) tentukan school_id tunggal ---
 	var schoolID string
 	if activeSchoolID != nil && strings.TrimSpace(*activeSchoolID) != "" {
@@ -1322,6 +1361,11 @@ func buildLoginResponseUser(
 
 	if tenantProfile != nil && *tenantProfile != "" {
 		resp["school_tenant_profile"] = *tenantProfile
+	}
+
+	// ⬇️ NEW
+	if schoolTimezone != nil && strings.TrimSpace(*schoolTimezone) != "" {
+		resp["school_timezone"] = strings.TrimSpace(*schoolTimezone)
 	}
 
 	// --- 5) teacher_id & student_id (single, bukan array) ---
@@ -1425,6 +1469,14 @@ func issueTokensWithRoles(
 		}
 	}
 
+	// ⬇️ NEW: Ambil school_timezone dari activeSchoolID
+	var schoolTimezone *string
+	if activeSchoolID != nil {
+		if mid, err := uuid.Parse(*activeSchoolID); err == nil {
+			schoolTimezone = getSchoolTimezoneStr(c.Context(), db, mid)
+		}
+	}
+
 	accessClaims := buildAccessClaims(
 		user,
 		rolesClaim,
@@ -1435,8 +1487,10 @@ func issueTokensWithRoles(
 		combined,
 		teacherRecords,
 		studentRecords,
+		schoolTimezone,
 		now,
 	)
+
 	refreshClaims := buildRefreshClaims(user.ID, now)
 
 	accessToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims).
@@ -1474,6 +1528,7 @@ func issueTokensWithRoles(
 		isOwner,
 		activeSchoolID,
 		tenantProfile,
+		schoolTimezone,
 		combined,
 		teacherRecords,
 		studentRecords,
@@ -1496,6 +1551,101 @@ func createRefreshTokenFast(db *gorm.DB, rt *authModel.RefreshTokenModel) error 
 		return authRepo.CreateRefreshToken(tx, rt)
 	})
 }
+
+/*
+	==========================
+	  LOGOUT
+
+==========================
+*/
+func Logout(db *gorm.DB, c *fiber.Ctx) error {
+	// Jika request hanya mengandalkan cookie (tanpa Bearer), wajib CSRF
+	authHeader := strings.TrimSpace(c.Get("Authorization"))
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		if err := enforceCSRF(c); err != nil {
+			return helpers.JsonError(c, fiber.StatusForbidden, err.Error())
+		}
+	}
+
+	// Blacklist access (opsional)
+	accessToken := helpers.GetRawAccessToken(c) // idealnya ambil dari Authorization
+	ttl := resolveBlacklistTTL(accessToken)
+	if strings.TrimSpace(accessToken) != "" {
+		if jwtSecret, _ := getJWTSecret(); strings.TrimSpace(jwtSecret) != "" {
+			expiresAt := nowUTC().Add(ttl)
+			if err := helpersAuth.Add(c.Context(), db, accessToken, jwtSecret, expiresAt); err != nil {
+				log.Printf("[WARN] blacklist add failed: %v", err)
+			}
+		}
+	}
+
+	// Hapus refresh di DB by hash
+	if rt := strings.TrimSpace(c.Cookies("refresh_token")); rt != "" {
+		if err := deleteRefreshTokenByHash(c.Context(), db, rt); err != nil {
+			log.Printf("[WARN] delete refresh failed: %v", err)
+		}
+	}
+
+	// Bersihkan cookies
+	expired := nowUTC().Add(-time.Hour)
+	// refresh cookie: path harus sama dengan saat set
+	c.Cookie(&fiber.Cookie{
+		Name:     "refresh_token",
+		Value:    "",
+		HTTPOnly: true,
+		Secure:   true,
+		SameSite: "Strict",
+		Path:     "/api/auth/refresh-token",
+		Expires:  expired, MaxAge: -1,
+	})
+	// XSRF
+	c.Cookie(&fiber.Cookie{
+		Name:     "XSRF-TOKEN",
+		Value:    "",
+		HTTPOnly: false,
+		Secure:   true,
+		SameSite: "Strict",
+		Path:     "/",
+		Expires:  expired, MaxAge: -1,
+	})
+
+	return helpers.JsonOK(c, "Logout successful", nil)
+}
+
+func resolveBlacklistTTL(accessToken string) time.Duration {
+	ttl := 2 * time.Minute
+	if v := os.Getenv("BLACKLIST_TTL_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	jwtSecret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
+	if jwtSecret == "" || accessToken == "" {
+		return ttl
+	}
+	if tok, err := jwt.Parse(accessToken, func(t *jwt.Token) (any, error) {
+		return []byte(jwtSecret), nil
+	}); err == nil {
+		if claims, ok := tok.Claims.(jwt.MapClaims); ok && tok.Valid {
+			if exp, ok := claims["exp"].(float64); ok {
+				until := time.Until(time.Unix(int64(exp), 0))
+				if until > 0 {
+					return until + 60*time.Second
+				}
+				return time.Minute
+			}
+		}
+	}
+	return ttl
+}
+
+/* ==========================
+   UTIL
+========================== */
+
+// func CheckSecurityAnswer(db *gorm.DB, c *fiber.Ctx) error {
+// 	return helpers.JsonError(c, fiber.StatusGone, "Security Q/A sudah tidak didukung. Gunakan alur reset password via email OTP atau magic link.")
+// }
 
 /* ==========================
    LOGIN GOOGLE (refactor: tx + upsert profile + snapshot)
@@ -1723,99 +1873,4 @@ func createRefreshTokenFast(db *gorm.DB, rt *authModel.RefreshTokenModel) error 
 // func shortRand() string {
 // 	// ringkas: 4 chars hex dari unixnano
 // 	return strconv.FormatInt(time.Now().UnixNano()%0xffff, 16)
-// }
-
-/*
-	==========================
-	  LOGOUT
-
-==========================
-*/
-func Logout(db *gorm.DB, c *fiber.Ctx) error {
-	// Jika request hanya mengandalkan cookie (tanpa Bearer), wajib CSRF
-	authHeader := strings.TrimSpace(c.Get("Authorization"))
-	if !strings.HasPrefix(authHeader, "Bearer ") {
-		if err := enforceCSRF(c); err != nil {
-			return helpers.JsonError(c, fiber.StatusForbidden, err.Error())
-		}
-	}
-
-	// Blacklist access (opsional)
-	accessToken := helpers.GetRawAccessToken(c) // idealnya ambil dari Authorization
-	ttl := resolveBlacklistTTL(accessToken)
-	if strings.TrimSpace(accessToken) != "" {
-		if jwtSecret, _ := getJWTSecret(); strings.TrimSpace(jwtSecret) != "" {
-			expiresAt := nowUTC().Add(ttl)
-			if err := helpersAuth.Add(c.Context(), db, accessToken, jwtSecret, expiresAt); err != nil {
-				log.Printf("[WARN] blacklist add failed: %v", err)
-			}
-		}
-	}
-
-	// Hapus refresh di DB by hash
-	if rt := strings.TrimSpace(c.Cookies("refresh_token")); rt != "" {
-		if err := deleteRefreshTokenByHash(c.Context(), db, rt); err != nil {
-			log.Printf("[WARN] delete refresh failed: %v", err)
-		}
-	}
-
-	// Bersihkan cookies
-	expired := nowUTC().Add(-time.Hour)
-	// refresh cookie: path harus sama dengan saat set
-	c.Cookie(&fiber.Cookie{
-		Name:     "refresh_token",
-		Value:    "",
-		HTTPOnly: true,
-		Secure:   true,
-		SameSite: "Strict",
-		Path:     "/api/auth/refresh-token",
-		Expires:  expired, MaxAge: -1,
-	})
-	// XSRF
-	c.Cookie(&fiber.Cookie{
-		Name:     "XSRF-TOKEN",
-		Value:    "",
-		HTTPOnly: false,
-		Secure:   true,
-		SameSite: "Strict",
-		Path:     "/",
-		Expires:  expired, MaxAge: -1,
-	})
-
-	return helpers.JsonOK(c, "Logout successful", nil)
-}
-
-func resolveBlacklistTTL(accessToken string) time.Duration {
-	ttl := 2 * time.Minute
-	if v := os.Getenv("BLACKLIST_TTL_SECONDS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			return time.Duration(n) * time.Second
-		}
-	}
-	jwtSecret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
-	if jwtSecret == "" || accessToken == "" {
-		return ttl
-	}
-	if tok, err := jwt.Parse(accessToken, func(t *jwt.Token) (any, error) {
-		return []byte(jwtSecret), nil
-	}); err == nil {
-		if claims, ok := tok.Claims.(jwt.MapClaims); ok && tok.Valid {
-			if exp, ok := claims["exp"].(float64); ok {
-				until := time.Until(time.Unix(int64(exp), 0))
-				if until > 0 {
-					return until + 60*time.Second
-				}
-				return time.Minute
-			}
-		}
-	}
-	return ttl
-}
-
-/* ==========================
-   UTIL
-========================== */
-
-// func CheckSecurityAnswer(db *gorm.DB, c *fiber.Ctx) error {
-// 	return helpers.JsonError(c, fiber.StatusGone, "Security Q/A sudah tidak didukung. Gunakan alur reset password via email OTP atau magic link.")
 // }

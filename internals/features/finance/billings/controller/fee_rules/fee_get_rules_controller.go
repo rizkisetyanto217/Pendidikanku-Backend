@@ -10,6 +10,7 @@ import (
 	feeRuleModel "madinahsalam_backend/internals/features/finance/billings/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
+	dbtime "madinahsalam_backend/internals/helpers/dbtime"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -178,7 +179,11 @@ func (h *FeeRuleHandler) ListFeeRules(c *fiber.Ctx) error {
 				Scan(&trs).Error; err != nil {
 				return helper.JsonError(c, fiber.StatusInternalServerError, "gagal mengambil academic_terms: "+err.Error())
 			}
+
+			// Convert start/end date ke timezone sekolah juga
 			for _, t := range trs {
+				t.StartDate = dbtime.ToSchoolTime(c, t.StartDate)
+				t.EndDate = dbtime.ToSchoolTime(c, t.EndDate)
 				termMap[t.ID] = t
 			}
 		}
@@ -187,7 +192,8 @@ func (h *FeeRuleHandler) ListFeeRules(c *fiber.Ctx) error {
 	// ============================
 	// Compose DATA (plain / nested)
 	// ============================
-	base := dto.ToFeeRuleResponses(list)
+	// ⬇️ Versi context-aware: waktu di FeeRuleResponse sudah di-convert via dbtime
+	base := dto.ToFeeRuleResponsesWithCtx(c, list)
 
 	type FeeRuleWithTerm struct {
 		dto.FeeRuleResponse `json:",inline"`

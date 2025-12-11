@@ -1,4 +1,4 @@
-// file: internals/features/lembaga/classes/user_classes/main/controller/user_my_class_controller.go
+// internals/features/school/classes/classes/controller/classes/classes_get_controller.go
 package controller
 
 import (
@@ -28,6 +28,7 @@ import (
 
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
+	"madinahsalam_backend/internals/helpers/dbtime"
 )
 
 // =====================================================
@@ -233,7 +234,8 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 
 		// ⬇️ hanya kelas yang sedang dibuka untuk pendaftaran
 		if q.OpenForRegistration != nil && *q.OpenForRegistration {
-			now := time.Now().UTC()
+			// pakai waktu sekolah (bukan UTC raw)
+			now, _ := dbtime.GetDBTime(c)
 
 			// status harus ACTIVE
 			tx = tx.Where(aliasClass+".class_status = ?", classmodel.ClassStatusActive)
@@ -528,6 +530,9 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	// ==============================
 	if isCompact {
 		compactList := dto.ToClassCompactList(rows)
+		for i := range compactList {
+			compactList[i] = compactList[i].WithSchoolTime(c)
+		}
 		return helper.JsonList(c, "ok", compactList, pagination)
 	}
 
@@ -595,8 +600,8 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 					ID:           r.ID,
 					Name:         r.Name,
 					AcademicYear: r.AcademicYear,
-					StartDate:    r.Start,
-					EndDate:      r.End,
+					StartDate:    dbtime.ToSchoolTimePtr(c, r.Start),
+					EndDate:      dbtime.ToSchoolTimePtr(c, r.End),
 					IsActive:     r.IsActive,
 					Angkatan:     r.Angkatan,
 				}
@@ -735,7 +740,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		if r == nil {
 			continue
 		}
-		base := dto.FromModel(r)
+		base := dto.FromModel(r).WithSchoolTime(c)
 		item := &classWithExpand{ClassResponse: &base}
 
 		// nested academic_terms (opsional)

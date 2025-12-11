@@ -4,10 +4,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
 	linkModel "madinahsalam_backend/internals/features/school/academics/books/model"
 	csModel "madinahsalam_backend/internals/features/school/academics/subjects/model"
+	dbtime "madinahsalam_backend/internals/helpers/dbtime"
 )
 
 /* =========================================================
@@ -271,10 +273,30 @@ func FromClassSubjectModel(m csModel.ClassSubjectModel) ClassSubjectResponse {
 	}
 }
 
+// 🚩 raw UTC → tanpa konversi (tetap dipakai kalau perlu)
 func FromClassSubjectModels(list []csModel.ClassSubjectModel) []ClassSubjectResponse {
 	out := make([]ClassSubjectResponse, 0, len(list))
 	for _, m := range list {
 		out = append(out, FromClassSubjectModel(m))
+	}
+	return out
+}
+
+// ✅ versi timezone-aware
+func FromClassSubjectModelWithSchoolTime(c *fiber.Ctx, m csModel.ClassSubjectModel) ClassSubjectResponse {
+	resp := FromClassSubjectModel(m)
+
+	resp.CreatedAt = dbtime.ToSchoolTime(c, resp.CreatedAt)
+	resp.UpdatedAt = dbtime.ToSchoolTimePtr(c, resp.UpdatedAt)
+	resp.DeletedAt = dbtime.ToSchoolTimePtr(c, resp.DeletedAt)
+
+	return resp
+}
+
+func FromClassSubjectModelsWithSchoolTime(c *fiber.Ctx, list []csModel.ClassSubjectModel) []ClassSubjectResponse {
+	out := make([]ClassSubjectResponse, 0, len(list))
+	for _, m := range list {
+		out = append(out, FromClassSubjectModelWithSchoolTime(c, m))
 	}
 	return out
 }
@@ -375,6 +397,33 @@ func NewClassSubjectWithBooksResponse(
 	bookByID map[uuid.UUID]linkModel.BookModel,
 ) ClassSubjectWithBooksResponse {
 	base := FromClassSubjectModel(cs)
+
+	out := make([]ClassSubjectBookWithBook, 0, len(links))
+	for _, l := range links {
+		if b, ok := bookByID[l.ClassSubjectBookBookID]; ok {
+			out = append(out, ClassSubjectBookWithBook{
+				ClassSubjectBookID:       l.ClassSubjectBookID,
+				ClassSubjectBookIsActive: l.ClassSubjectBookIsActive,
+				ClassSubjectBookDesc:     l.ClassSubjectBookDesc,
+				Book:                     bookLiteFromModel(b),
+			})
+		}
+	}
+
+	return ClassSubjectWithBooksResponse{
+		ClassSubjectResponse: base,
+		ClassSubjectBooks:    out,
+	}
+}
+
+// Versi timezone-aware untuk detail with books (kalau mau dipakai)
+func NewClassSubjectWithBooksResponseWithSchoolTime(
+	c *fiber.Ctx,
+	cs csModel.ClassSubjectModel,
+	links []linkModel.ClassSubjectBookModel,
+	bookByID map[uuid.UUID]linkModel.BookModel,
+) ClassSubjectWithBooksResponse {
+	base := FromClassSubjectModelWithSchoolTime(c, cs)
 
 	out := make([]ClassSubjectBookWithBook, 0, len(links))
 	for _, l := range links {

@@ -223,14 +223,14 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 		if mode == "compact" {
 			comp := make([]dto.SchoolStudentCompact, 0, len(rows))
 			for i := range rows {
-				comp = append(comp, dto.ToSchoolStudentCompact(&rows[i]))
+				comp = append(comp, dto.ToSchoolStudentCompact(c, &rows[i]))
 			}
 			return helper.JsonListWithInclude(c, "ok", comp, nil, pg)
 		}
 
 		baseResp := make([]dto.SchoolStudentResp, 0, len(rows))
 		for i := range rows {
-			baseResp = append(baseResp, dto.FromModel(&rows[i]))
+			baseResp = append(baseResp, dto.FromModel(c, &rows[i]))
 		}
 		return helper.JsonListWithInclude(c, "ok", baseResp, nil, pg)
 	}
@@ -399,14 +399,14 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 	if mode == "compact" {
 		comp := make([]dto.SchoolStudentCompact, 0, len(rows))
 		for i := range rows {
-			comp = append(comp, dto.ToSchoolStudentCompact(&rows[i]))
+			comp = append(comp, dto.ToSchoolStudentCompact(c, &rows[i]))
 		}
 		return helper.JsonListWithInclude(c, "ok", comp, includePayload, pg)
 	}
 
 	baseResp := make([]dto.SchoolStudentResp, 0, len(rows))
 	for i := range rows {
-		baseResp = append(baseResp, dto.FromModel(&rows[i]))
+		baseResp = append(baseResp, dto.FromModel(c, &rows[i]))
 	}
 	return helper.JsonListWithInclude(c, "ok", baseResp, includePayload, pg)
 }

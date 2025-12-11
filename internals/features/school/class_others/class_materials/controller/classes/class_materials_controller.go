@@ -5,12 +5,13 @@ import (
 	"errors"
 	"log"
 	"strings"
-	"time"
 
 	"madinahsalam_backend/internals/features/school/class_others/class_materials/dto"
 	"madinahsalam_backend/internals/features/school/class_others/class_materials/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
+
+	dbtime "madinahsalam_backend/internals/helpers/dbtime"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -86,9 +87,6 @@ func validateClassMaterialUpdateDTO(req *dto.ClassMaterialUpdateRequestDTO) map[
 	return errors
 }
 
-
-
-
 // POST /api/t/csst/:csst_id/materials
 // 🔐 khusus DKM/Admin sekolah (bukan guru biasa)
 func (h *ClassMaterialsController) TeacherCreate(c *fiber.Ctx) error {
@@ -121,8 +119,15 @@ func (h *ClassMaterialsController) TeacherCreate(c *fiber.Ctx) error {
 		return helper.JsonValidationError(c, ferrs)
 	}
 
+	// pakai waktu dari DB (dbtime helper)
+	now, err := dbtime.GetDBTime(c)
+	if err != nil {
+		log.Printf("[TeacherCreate] get db time error: %v", err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "failed to get server time")
+	}
+
 	var m model.ClassMaterialsModel
-	dto.ApplyCreateDTOToModel(&req, &m, schoolID, csstID, createdBy)
+	dto.ApplyCreateDTOToModel(&req, &m, schoolID, csstID, createdBy, now)
 
 	if err := h.DB.Create(&m).Error; err != nil {
 		log.Printf("[TeacherCreate] insert error: %v", err)
@@ -176,7 +181,14 @@ func (h *ClassMaterialsController) TeacherUpdate(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "failed to fetch material")
 	}
 
-	dto.ApplyUpdateDTOToModel(&req, &m)
+	// pakai waktu dari DB (dbtime helper)
+	now, err := dbtime.GetDBTime(c)
+	if err != nil {
+		log.Printf("[TeacherUpdate] get db time error: %v", err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "failed to get server time")
+	}
+
+	dto.ApplyUpdateDTOToModel(&req, &m, now)
 
 	if err := h.DB.Save(&m).Error; err != nil {
 		log.Printf("[TeacherUpdate] save error: %v", err)
@@ -208,17 +220,20 @@ func (h *ClassMaterialsController) TeacherSoftDelete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid material_id")
 	}
 
-	now := time.Now()
+	// pakai waktu dari DB (dbtime helper)
+	now, err := dbtime.GetDBTime(c)
+	if err != nil {
+		log.Printf("[TeacherSoftDelete] get db time error: %v", err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "failed to get server time")
+	}
+
+	fields := dto.BuildSoftDeleteFields(now)
 
 	res := h.DB.
 		Model(&model.ClassMaterialsModel{}).
 		Where("class_material_id = ? AND class_material_school_id = ? AND class_material_csst_id = ? AND NOT class_material_deleted",
 			materialID, schoolID, csstID).
-		Updates(map[string]any{
-			"class_material_deleted":    true,
-			"class_material_deleted_at": now,
-			"class_material_updated_at": now,
-		})
+		Updates(fields)
 	if res.Error != nil {
 		log.Printf("[TeacherSoftDelete] update error: %v", res.Error)
 		return helper.JsonError(c, fiber.StatusInternalServerError, "failed to delete material")

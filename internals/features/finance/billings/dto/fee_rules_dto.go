@@ -6,10 +6,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 
-	// ✅ Model FeeRule yang benar (bukan billings)
+	"github.com/gofiber/fiber/v2"
+
+	// ✅ Model FeeRule yang benar (bukan general billings)
 	fee "madinahsalam_backend/internals/features/finance/billings/model"
+	dbtime "madinahsalam_backend/internals/helpers/dbtime"
 )
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -203,14 +205,6 @@ type GenerateStudentBillsResponse struct {
 // MAPPERS — Model <-> DTO
 ////////////////////////////////////////////////////////////////////////////////
 
-func deletedAtToTimePtr(d gorm.DeletedAt) *time.Time {
-	if d.Valid {
-		t := d.Time
-		return &t
-	}
-	return nil
-}
-
 func mapAmountOptionsModelToDTO(src []fee.AmountOption) []AmountOptionDTO {
 	if len(src) == 0 {
 		return nil
@@ -241,8 +235,17 @@ func mapAmountOptionsDTOToModel(src []AmountOptionDTO) []fee.AmountOption {
 	return out
 }
 
-// Model -> Response
+// ===============================
+// Model -> Response (UTC / default)
+// ===============================
+
+// Versi lama tetap ada (backward-compatible), pakai timezone default (UTC/AsiaJakarta via dbtime dengan ctx=nil)
 func ToFeeRuleResponse(m fee.FeeRuleModel) FeeRuleResponse {
+	return ToFeeRuleResponseWithCtx(nil, m)
+}
+
+// Versi baru: context-aware, pakai timezone sekolah via dbtime
+func ToFeeRuleResponseWithCtx(c *fiber.Ctx, m fee.FeeRuleModel) FeeRuleResponse {
 	return FeeRuleResponse{
 		FeeRuleID:              m.FeeRuleID,
 		FeeRuleSchoolID:        m.FeeRuleSchoolID,
@@ -265,13 +268,18 @@ func ToFeeRuleResponse(m fee.FeeRuleModel) FeeRuleResponse {
 
 		FeeRuleAmountOptions: mapAmountOptionsModelToDTO(m.FeeRuleAmountOptions),
 
-		FeeRuleEffectiveFrom: m.FeeRuleEffectiveFrom,
-		FeeRuleEffectiveTo:   m.FeeRuleEffectiveTo,
+		FeeRuleEffectiveFrom: dbtime.ToSchoolTimePtr(c, m.FeeRuleEffectiveFrom),
+		FeeRuleEffectiveTo:   dbtime.ToSchoolTimePtr(c, m.FeeRuleEffectiveTo),
 		FeeRuleNote:          m.FeeRuleNote,
 
-		FeeRuleCreatedAt: m.FeeRuleCreatedAt,
-		FeeRuleUpdatedAt: m.FeeRuleUpdatedAt,
-		FeeRuleDeletedAt: deletedAtToTimePtr(m.FeeRuleDeletedAt),
+		FeeRuleCreatedAt: dbtime.ToSchoolTime(c, m.FeeRuleCreatedAt),
+		FeeRuleUpdatedAt: dbtime.ToSchoolTime(c, m.FeeRuleUpdatedAt),
+		FeeRuleDeletedAt: func() *time.Time {
+			if m.FeeRuleDeletedAt.Valid {
+				return dbtime.ToSchoolTimePtr(c, &m.FeeRuleDeletedAt.Time)
+			}
+			return nil
+		}(),
 	}
 }
 
@@ -369,11 +377,16 @@ func ApplyFeeRuleUpdate(m *fee.FeeRuleModel, d FeeRuleUpdateDTO) {
 	}
 }
 
-// List helper
+// List helper (legacy) — tetap ada
 func ToFeeRuleResponses(list []fee.FeeRuleModel) []FeeRuleResponse {
+	return ToFeeRuleResponsesWithCtx(nil, list)
+}
+
+// List helper context-aware
+func ToFeeRuleResponsesWithCtx(c *fiber.Ctx, list []fee.FeeRuleModel) []FeeRuleResponse {
 	out := make([]FeeRuleResponse, 0, len(list))
-	for _, v := range list {
-		out = append(out, ToFeeRuleResponse(v))
+	for i := range list {
+		out = append(out, ToFeeRuleResponseWithCtx(c, list[i]))
 	}
 	return out
 }

@@ -284,7 +284,7 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	}
 
 	// Map → DTO pakai helper di DTO
-	items := csbDTO.ClassSubjectBookRowsToResponses(rows)
+	items := csbDTO.ClassSubjectBookRowsToResponsesWithSchoolTime(c, rows)
 
 	// ===== Pagination meta (jsonresponse helper) =====
 	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)

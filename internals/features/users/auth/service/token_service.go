@@ -81,6 +81,7 @@ func RefreshToken(db *gorm.DB, c *fiber.Ctx) error {
 	now := nowUTC()
 
 	// Build claims lagi (ringkas pakai helper lama)
+	// Build claims lagi (ringkas pakai helper lama)
 	isOwner := hasGlobalRole(rolesClaim, "owner")
 	schoolIDs := deriveSchoolIDsFromRolesClaim(rolesClaim)
 	activeSchoolID := helpersAuth.GetActiveSchoolIDIfSingle(rolesClaim)
@@ -89,13 +90,36 @@ func RefreshToken(db *gorm.DB, c *fiber.Ctx) error {
 	tpMap := getTenantProfilesMapStr(c.Context(), db, schoolUUIDsFromClaim(rolesClaim))
 	combined := combineRolesWithTenant(rolesClaim, tpMap)
 
+	// tenant_profile dari activeSchoolID (kalau ada)
 	var tenantProfile *string
 	if activeSchoolID != nil {
 		if mid, err := uuid.Parse(*activeSchoolID); err == nil {
 			tenantProfile = getSchoolTenantProfileStr(c.Context(), db, mid)
 		}
 	}
-	accessClaims := buildAccessClaims(*userFull, rolesClaim, schoolIDs, isOwner, activeSchoolID, tenantProfile, combined, teacherRecords, studentRecords, now)
+
+	// ⬇️ NEW: school_timezone dari activeSchoolID
+	var schoolTimezone *string
+	if activeSchoolID != nil {
+		if mid, err := uuid.Parse(*activeSchoolID); err == nil {
+			schoolTimezone = getSchoolTimezoneStr(c.Context(), db, mid)
+		}
+	}
+
+	accessClaims := buildAccessClaims(
+		*userFull,
+		rolesClaim,
+		schoolIDs,
+		isOwner,
+		activeSchoolID,
+		tenantProfile,
+		combined,
+		teacherRecords,
+		studentRecords,
+		schoolTimezone, // ⬅️ argumen baru
+		now,
+	)
+
 	refreshClaims := buildRefreshClaims(userFull.ID, now)
 
 	newAccess, err := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims).SignedString([]byte(jwtSecret))

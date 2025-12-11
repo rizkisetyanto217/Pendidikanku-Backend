@@ -5,10 +5,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 
 	model "madinahsalam_backend/internals/features/school/class_others/class_schedules/model"
+	"madinahsalam_backend/internals/helpers/dbtime"
 )
 
 /* =========================================================
@@ -305,3 +307,15 @@ var (
 type fmtErr string
 
 func (e fmtErr) Error() string { return string(e) }
+
+// =================== TZ Helpers untuk DTO ===================
+
+// Konversi field waktu ke timezone sekolah (berdasarkan token/middleware)
+func (r ClassScheduleRuleResponse) WithSchoolTime(c *fiber.Ctx) ClassScheduleRuleResponse {
+	out := r
+
+	out.ClassScheduleRuleCreatedAt = dbtime.ToSchoolTime(c, r.ClassScheduleRuleCreatedAt)
+	out.ClassScheduleRuleUpdatedAt = dbtime.ToSchoolTime(c, r.ClassScheduleRuleUpdatedAt)
+
+	return out
+}

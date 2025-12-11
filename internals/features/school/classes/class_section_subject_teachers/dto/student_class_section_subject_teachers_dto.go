@@ -5,7 +5,9 @@ import (
 	"time"
 
 	model "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
+	dbtime "madinahsalam_backend/internals/helpers/dbtime"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 )
@@ -218,7 +220,7 @@ type StudentCSSTItem struct {
 	StudentCSSTGradePoint    *float64 `json:"student_csst_grade_point,omitempty"`
 	StudentCSSTIsPassed      *bool    `json:"student_csst_is_passed,omitempty"`
 
-	// 🆕 diselaraskan dengan kolom di migration + model
+	// diselaraskan dengan kolom di migration + model
 	StudentCSSTUserProfileNameCache         *string        `json:"student_csst_user_profile_name_cache,omitempty"`
 	StudentCSSTUserProfileAvatarURLCache    *string        `json:"student_csst_user_profile_avatar_url_cache,omitempty"`
 	StudentCSSTUserProfileWhatsappURLCache  *string        `json:"student_csst_user_profile_wa_url_cache,omitempty"` // json tetap pakai _wa_ biar backwards compatible
@@ -318,15 +320,58 @@ type StudentCSSTUpdateNotesRequest struct {
 	Notes *string `json:"notes"` // optional: string atau null
 }
 
-// FromStudentCSSTModel: mapper 1:1 Model → DTO
+/* =========================================================
+   MAPPERS
+========================================================= */
+
+// Versi lama: mapper tanpa konversi timezone (pakai DB time apa adanya)
 func FromStudentCSSTModel(m *model.StudentClassSectionSubjectTeacherModel) StudentCSSTItem {
+	return fromStudentCSSTModelInternal(nil, m)
+}
+
+// Optional helper kalau mau dipakai di tempat lain (DB time)
+func FromStudentCSSTModels(rows []model.StudentClassSectionSubjectTeacherModel) []StudentCSSTItem {
+	out := make([]StudentCSSTItem, 0, len(rows))
+	for i := range rows {
+		out = append(out, FromStudentCSSTModel(&rows[i]))
+	}
+	return out
+}
+
+// Versi baru: mapper dengan konversi ke timezone sekolah (pakai dbtime + context)
+func FromStudentCSSTModelWithSchoolTime(
+	c *fiber.Ctx,
+	m *model.StudentClassSectionSubjectTeacherModel,
+) StudentCSSTItem {
+	return fromStudentCSSTModelInternal(c, m)
+}
+
+func FromStudentCSSTModelsWithSchoolTime(
+	c *fiber.Ctx,
+	rows []model.StudentClassSectionSubjectTeacherModel,
+) []StudentCSSTItem {
+	out := make([]StudentCSSTItem, 0, len(rows))
+	for i := range rows {
+		out = append(out, FromStudentCSSTModelWithSchoolTime(c, &rows[i]))
+	}
+	return out
+}
+
+/* =========================================================
+   INTERNAL CORE MAPPER (pakai dbtime)
+========================================================= */
+
+func fromStudentCSSTModelInternal(
+	c *fiber.Ctx,
+	m *model.StudentClassSectionSubjectTeacherModel,
+) StudentCSSTItem {
 	if m == nil {
 		return StudentCSSTItem{}
 	}
 
 	var deletedAt *time.Time
 	if m.StudentCSSTDeletedAt.Valid {
-		t := m.StudentCSSTDeletedAt.Time
+		t := dbtime.ToSchoolTime(c, m.StudentCSSTDeletedAt.Time)
 		deletedAt = &t
 	}
 
@@ -338,8 +383,8 @@ func FromStudentCSSTModel(m *model.StudentClassSectionSubjectTeacherModel) Stude
 		StudentCSSTCSSTID:    m.StudentCSSTCSSTID,
 
 		StudentCSSTIsActive: m.StudentCSSTIsActive,
-		StudentCSSTFrom:     m.StudentCSSTFrom,
-		StudentCSSTTo:       m.StudentCSSTTo,
+		StudentCSSTFrom:     dbtime.ToSchoolTimePtr(c, m.StudentCSSTFrom),
+		StudentCSSTTo:       dbtime.ToSchoolTimePtr(c, m.StudentCSSTTo),
 
 		StudentCSSTScoreTotal:    m.StudentCSSTScoreTotal,
 		StudentCSSTScoreMaxTotal: m.StudentCSSTScoreMaxTotal,
@@ -357,28 +402,20 @@ func FromStudentCSSTModel(m *model.StudentClassSectionSubjectTeacherModel) Stude
 		StudentCSSTSchoolStudentCodeCache:       m.StudentCSSTSchoolStudentCodeCache,
 		StudentCSSTEditsHistory:                 m.StudentCSSTEditsHistory,
 		StudentCSSTStudentNotes:                 m.StudentCSSTStudentNotes,
-		StudentCSSTStudentNotesUpdatedAt:        m.StudentCSSTStudentNotesUpdatedAt,
+		StudentCSSTStudentNotesUpdatedAt:        dbtime.ToSchoolTimePtr(c, m.StudentCSSTStudentNotesUpdatedAt),
 		StudentCSSTHomeroomNotes:                m.StudentCSSTHomeroomNotes,
-		StudentCSSTHomeroomNotesUpdatedAt:       m.StudentCSSTHomeroomNotesUpdatedAt,
+		StudentCSSTHomeroomNotesUpdatedAt:       dbtime.ToSchoolTimePtr(c, m.StudentCSSTHomeroomNotesUpdatedAt),
 		StudentCSSTSubjectTeacherNotes:          m.StudentCSSTSubjectTeacherNotes,
-		StudentCSSTSubjectTeacherNotesUpdatedAt: m.StudentCSSTSubjectTeacherNotesUpdatedAt,
+		StudentCSSTSubjectTeacherNotesUpdatedAt: dbtime.ToSchoolTimePtr(c, m.StudentCSSTSubjectTeacherNotesUpdatedAt),
 		StudentCSSTSlug:                         m.StudentCSSTSlug,
 		StudentCSSTMeta:                         m.StudentCSSTMeta,
-		StudentCSSTCreatedAt:                    m.StudentCSSTCreatedAt,
-		StudentCSSTUpdatedAt:                    m.StudentCSSTUpdatedAt,
+		StudentCSSTCreatedAt:                    dbtime.ToSchoolTime(c, m.StudentCSSTCreatedAt),
+		StudentCSSTUpdatedAt:                    dbtime.ToSchoolTime(c, m.StudentCSSTUpdatedAt),
 		StudentCSSTDeletedAt:                    deletedAt,
-		Student:                                 nil,
-		Section:                                 nil,
-		ClassSubject:                            nil,
-		Teacher:                                 nil,
-	}
-}
 
-// Optional helper kalau mau dipakai di tempat lain
-func FromStudentCSSTModels(rows []model.StudentClassSectionSubjectTeacherModel) []StudentCSSTItem {
-	out := make([]StudentCSSTItem, 0, len(rows))
-	for i := range rows {
-		out = append(out, FromStudentCSSTModel(&rows[i]))
+		Student:      nil,
+		Section:      nil,
+		ClassSubject: nil,
+		Teacher:      nil,
 	}
-	return out
 }

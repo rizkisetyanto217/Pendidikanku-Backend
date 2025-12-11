@@ -319,7 +319,8 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 
 	// 7) Response
 	resp := fiber.Map{
-		"schedule":           d.FromModel(header),
+		// 🔁 convert semua time field ke timezone sekolah lewat dbtime (dari DTO)
+		"schedule":           d.FromModelWithSchoolTime(c, header),
 		"sessions_provided":  len(sessionsProvided),
 		"sessions_generated": sessionsGenerated,
 		"generated":          doGen,
@@ -328,6 +329,7 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 		resp["generation_warning"] = genErr.Error()
 	}
 	return helper.JsonCreated(c, "Schedule created", resp)
+
 }
 
 /* =========================
@@ -397,7 +399,9 @@ func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
 		return writePGError(c, err)
 	}
 
-	return helper.JsonUpdated(c, "Schedule updated", d.FromModel(existing))
+	// 🔁 normalize ke timezone sekolah sebelum dikirim ke FE
+	return helper.JsonUpdated(c, "Schedule updated", d.FromModelWithSchoolTime(c, existing))
+
 }
 
 func (ctl *ClassScheduleController) Delete(c *fiber.Ctx) error {

@@ -1,4 +1,4 @@
-// file: internals/features/school/classes/class_materials/dto/class_materials_dto.go
+// file: internals/features/school/class_others/class_materials/dto/class_materials_dto.go
 package dto
 
 import (
@@ -190,15 +190,18 @@ func FromModel(m *model.ClassMaterialsModel) *ClassMaterialResponseDTO {
 	}
 }
 
+/* =========================================================
+   Mutators (pakai now dari dbtime helper)
+========================================================= */
+
 // dipakai di POST
 func ApplyCreateDTOToModel(
 	req *ClassMaterialCreateRequestDTO,
 	m *model.ClassMaterialsModel,
 	schoolID, csstID uuid.UUID,
 	createdBy *uuid.UUID,
+	now time.Time, // pakai waktu dari dbtime helper
 ) {
-	now := time.Now()
-
 	m.ClassMaterialSchoolID = schoolID
 	m.ClassMaterialCSSTID = csstID
 	m.ClassMaterialCreatedByUserID = createdBy
@@ -259,9 +262,11 @@ func ApplyCreateDTOToModel(
 }
 
 // dipakai di PATCH
-func ApplyUpdateDTOToModel(req *ClassMaterialUpdateRequestDTO, m *model.ClassMaterialsModel) {
-	now := time.Now()
-
+func ApplyUpdateDTOToModel(
+	req *ClassMaterialUpdateRequestDTO,
+	m *model.ClassMaterialsModel,
+	now time.Time, // pakai waktu dari dbtime helper
+) {
 	if req.ClassMaterialTitle != nil {
 		m.ClassMaterialTitle = *req.ClassMaterialTitle
 	}
@@ -329,4 +334,16 @@ func ApplyUpdateDTOToModel(req *ClassMaterialUpdateRequestDTO, m *model.ClassMat
 	}
 
 	m.ClassMaterialUpdatedAt = now
+}
+
+/* =========================================================
+   Soft delete helper (biar controller tinggal manggil)
+========================================================= */
+
+func BuildSoftDeleteFields(now time.Time) map[string]any {
+	return map[string]any{
+		"class_material_deleted":    true,
+		"class_material_deleted_at": now,
+		"class_material_updated_at": now,
+	}
 }

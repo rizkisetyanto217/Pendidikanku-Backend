@@ -71,5 +71,6 @@ func (h *PaymentItemController) ListPaymentItems(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal baca payment_items: "+err.Error())
 	}
 
-	return helper.JsonOK(c, "ok", dto.FromPaymentItemModels(items))
+	// 🔹 DTO sekarang butuh *fiber.Ctx supaya bisa konversi waktu ke timezone sekolah
+	return helper.JsonOK(c, "ok", dto.FromPaymentItemModels(c, items))
 }

@@ -20,9 +20,8 @@ import (
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
-	classSectionModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
-
 	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
+	classSectionModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
 
 	dto "madinahsalam_backend/internals/features/school/academics/rooms/dto"
 	model "madinahsalam_backend/internals/features/school/academics/rooms/model"
@@ -299,8 +298,8 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 	// (Best-effort) refresh entity
 	_ = ctl.DB.WithContext(reqCtx(c)).First(&m, "class_room_id = ?", m.ClassRoomID).Error
 
-	// 🎯 Response
-	resp := dto.ToClassRoomResponse(m)
+	// 🎯 Response → pakai versi timezone sekolah
+	resp := dto.ToClassRoomResponseWithSchoolTime(c, m)
 	return helper.JsonCreated(c, "Created", resp)
 }
 
@@ -313,37 +312,27 @@ func (ctl *ClassRoomController) Patch(c *fiber.Ctx) error {
 		c.Locals("DB", ctl.DB)
 	}
 
-	// =====================================================
-	// 1) Ambil school_id DARI TOKEN (bukan slug)
-	//    - pakai helperAuth.ResolveSchoolIDFromContext
-	// =====================================================
+	// 1) Ambil school_id dari token
 	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
-		// helper ini sudah balikin JsonError yang proper (401 / context not found)
 		return err
 	}
 	if schoolID == uuid.Nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "School context tidak ditemukan di token")
 	}
 
-	// =====================================================
-	// 2) Hanya DKM/Admin school ini yang boleh PATCH
-	// =====================================================
+	// 2) Hanya DKM/Admin school ini
 	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return err
 	}
 
-	// =====================================================
-	// 3) Ambil param id (class_room_id)
-	// =====================================================
+	// 3) Param id
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// =====================================================
-	// 4) Parse payload & validasi DTO
-	// =====================================================
+	// 4) Parse payload & validasi
 	var req dto.UpdateClassRoomRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
@@ -352,9 +341,7 @@ func (ctl *ClassRoomController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Validasi gagal: "+err.Error())
 	}
 
-	// =====================================================
-	// 5) Ambil data lama (pastikan milik school ini & belum dihapus)
-	// =====================================================
+	// 5) Ambil data lama
 	var m model.ClassRoomModel
 	if err := ctl.DB.WithContext(reqCtx(c)).
 		Where("class_room_id = ? AND class_room_school_id = ? AND class_room_deleted_at IS NULL", id, schoolID).
@@ -366,18 +353,12 @@ func (ctl *ClassRoomController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// =====================================================
-	// 6) Terapkan patch (mutasi in-place di model)
-	// =====================================================
+	// 6) Apply patch
 	if err := req.ApplyPatch(&m); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Gagal menerapkan perubahan: "+err.Error())
 	}
 
-	// =====================================================
-	// 7) Auto-update slug ketika nama berubah
-	//    - kalau nama diganti & slug tidak dikirim → generate baru
-	//    - kalau slug dikirim → normalisasi + pastikan unik
-	// =====================================================
+	// 7) Slug logic (auto/ganti)
 	if req.ClassRoomName != nil {
 		if req.ClassRoomSlug == nil || strings.TrimSpace(*req.ClassRoomSlug) == "" {
 			// generate dari nama
@@ -421,21 +402,16 @@ func (ctl *ClassRoomController) Patch(c *fiber.Ctx) error {
 	}
 	// === END slug logic ===
 
-	// =====================================================
-	// 8) Save ke DB
-	// =====================================================
+	// 8) Save DB
 	if err := ctl.DB.WithContext(reqCtx(c)).Save(&m).Error; err != nil {
 		if isUniqueViolation(err) {
-			// anggap bentrok slug/kode, nama boleh sama
 			return helper.JsonError(c, fiber.StatusConflict, "Slug atau kode ruang sudah digunakan")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengubah data")
 	}
 
-	// =====================================================
-	// 9) Response
-	// =====================================================
-	return helper.JsonUpdated(c, "Updated", dto.ToClassRoomResponse(m))
+	// 9) Response → pakai timezone sekolah
+	return helper.JsonUpdated(c, "Updated", dto.ToClassRoomResponseWithSchoolTime(c, m))
 }
 
 /* ============================ DELETE ============================ */
@@ -445,35 +421,27 @@ func (ctl *ClassRoomController) Delete(c *fiber.Ctx) error {
 		c.Locals("DB", ctl.DB)
 	}
 
-	// =====================================================
-	// 1) Ambil school_id dari TOKEN (bukan slug/path)
-	// =====================================================
+	// 1) school_id dari token
 	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
-		return err // sudah JsonError di dalam
+		return err
 	}
 	if schoolID == uuid.Nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "School context tidak ditemukan di token")
 	}
 
-	// =====================================================
-	// 2) Hanya DKM/Admin school ini yang boleh DELETE
-	// =====================================================
+	// 2) Hanya DKM/Admin
 	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return err
 	}
 
-	// =====================================================
-	// 3) Ambil param id (class_room_id)
-	// =====================================================
+	// 3) Param id
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil || id == uuid.Nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	/* ========== GUARD: cek apakah room masih dipakai ========== */
-
-	// 1) Dipakai di class_sections ?
+	// GUARD pemakaian di class_sections
 	var secCount int64
 	if err := ctl.DB.Model(&classSectionModel.ClassSectionModel{}).
 		Where(`
@@ -485,7 +453,7 @@ func (ctl *ClassRoomController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengecek pemakaian room di kelas/rombel")
 	}
 
-	// 2) Dipakai di class_section_subject_teachers (CSST) ?
+	// GUARD pemakaian di CSST
 	var csstCount int64
 	if err := ctl.DB.Model(&csstModel.ClassSectionSubjectTeacherModel{}).
 		Where(`
@@ -505,8 +473,7 @@ func (ctl *ClassRoomController) Delete(c *fiber.Ctx) error {
 		)
 	}
 
-	/* ========== Aman → soft delete ========== */
-
+	// Soft delete
 	tx := ctl.DB.WithContext(reqCtx(c)).
 		Model(&model.ClassRoomModel{}).
 		Where("class_room_id = ? AND class_room_school_id = ? AND class_room_deleted_at IS NULL", id, schoolID).
@@ -569,7 +536,7 @@ func (ctl *ClassRoomController) Restore(c *fiber.Ctx) error {
 		})
 	if tx.Error != nil {
 		if isUniqueViolation(tx.Error) {
-			// Restore bisa bentrok because slug/kode terbentur entri alive lain
+			// Restore bisa bentrok karena slug/kode terbentur entri alive lain
 			return helper.JsonError(c, fiber.StatusConflict, "Gagal restore: slug atau kode sudah dipakai entri lain")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal restore data")
@@ -586,7 +553,9 @@ func (ctl *ClassRoomController) Restore(c *fiber.Ctx) error {
 		// kalau gagal ambil ulang, minimal beri flag restored
 		return helper.JsonOK(c, "Restored", fiber.Map{"restored": true})
 	}
-	return helper.JsonOK(c, "Restored", dto.ToClassRoomResponse(m))
+
+	// 🔹 pakai response timezone-aware
+	return helper.JsonOK(c, "Restored", dto.ToClassRoomResponseWithSchoolTime(c, m))
 }
 
 /* =======================================================

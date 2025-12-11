@@ -6,7 +6,9 @@ import (
 	"time"
 
 	subModel "madinahsalam_backend/internals/features/school/submissions_assesments/submissions/model"
+	"madinahsalam_backend/internals/helpers/dbtime"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
 
@@ -306,6 +308,30 @@ func FromModels(list []subModel.SubmissionModel) []SubmissionResponse {
 	out := make([]SubmissionResponse, 0, len(list))
 	for i := range list {
 		out = append(out, FromModel(&list[i]))
+	}
+	return out
+}
+
+// Versi timezone-aware: semua time field dikonversi ke timezone sekolah
+func FromModelWithCtx(c *fiber.Ctx, m *subModel.SubmissionModel) SubmissionResponse {
+	resp := FromModel(m)
+
+	// SubmittedAt & graded_at (pointer)
+	resp.SubmissionSubmittedAt = dbtime.ToSchoolTimePtr(c, m.SubmissionSubmittedAt)
+	resp.SubmissionGradedAt = dbtime.ToSchoolTimePtr(c, m.SubmissionGradedAt)
+
+	// Created / Updated / Deleted
+	resp.SubmissionCreatedAt = dbtime.ToSchoolTime(c, m.SubmissionCreatedAt)
+	resp.SubmissionUpdatedAt = dbtime.ToSchoolTime(c, m.SubmissionUpdatedAt)
+	resp.SubmissionDeletedAt = dbtime.ToSchoolTimePtr(c, resp.SubmissionDeletedAt)
+
+	return resp
+}
+
+func FromModelsWithCtx(c *fiber.Ctx, list []subModel.SubmissionModel) []SubmissionResponse {
+	out := make([]SubmissionResponse, 0, len(list))
+	for i := range list {
+		out = append(out, FromModelWithCtx(c, &list[i]))
 	}
 	return out
 }

@@ -6,11 +6,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	gbmodel "madinahsalam_backend/internals/features/finance/general_billings/model"
 	sppmodel "madinahsalam_backend/internals/features/finance/billings/model"
+	gbmodel "madinahsalam_backend/internals/features/finance/general_billings/model"
+	"madinahsalam_backend/internals/helpers/dbtime"
 )
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -287,4 +289,26 @@ func toPtrTimeFromDeletedAt(d gorm.DeletedAt) *time.Time {
 		return &t
 	}
 	return nil
+}
+
+func ToBillBatchResponseWithCtx(c *fiber.Ctx, m *sppmodel.BillBatchModel) BillBatchResponse {
+	// pakai mapper biasa dulu (by value)
+	resp := ToBillBatchResponse(*m)
+
+	// Konversi timezone sesuai sekolah
+	resp.BillBatchDueDate = dbtime.ToSchoolTimePtr(c, m.BillBatchDueDate)
+
+	resp.BillBatchCreatedAt = dbtime.ToSchoolTime(c, m.BillBatchCreatedAt)
+	resp.BillBatchUpdatedAt = dbtime.ToSchoolTime(c, m.BillBatchUpdatedAt)
+	resp.BillBatchDeletedAt = dbtime.ToSchoolTimePtr(c, resp.BillBatchDeletedAt)
+
+	return resp
+}
+
+func ToBillBatchResponsesWithCtx(c *fiber.Ctx, list []sppmodel.BillBatchModel) []BillBatchResponse {
+	out := make([]BillBatchResponse, 0, len(list))
+	for i := range list {
+		out = append(out, ToBillBatchResponseWithCtx(c, &list[i]))
+	}
+	return out
 }

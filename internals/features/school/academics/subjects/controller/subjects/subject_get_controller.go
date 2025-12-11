@@ -173,7 +173,7 @@ func (h *SubjectsController) List(c *fiber.Ctx) error {
 	}
 
 	// default: full
-	return helper.JsonList(c, "ok", subjectDTO.SubjectRowsToResponses(rows), meta)
+	return helper.JsonList(c, "ok", subjectDTO.SubjectRowsToResponsesWithSchoolTime(c, rows), meta)
 }
 
 /* ================= Helpers lokal ================= */

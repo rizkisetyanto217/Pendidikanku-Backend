@@ -82,7 +82,8 @@ func (h *FeeRuleHandler) CreateFeeRule(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
 
-	return helper.JsonCreated(c, "fee rule created", dto.ToFeeRuleResponse(m))
+	// ⬇️ pakai versi context-aware (waktu di-convert ke timezone sekolah)
+	return helper.JsonCreated(c, "fee rule created", dto.ToFeeRuleResponseWithCtx(c, m))
 }
 
 // PATCH /:school_id/spp/fee-rules/:id
@@ -121,7 +122,9 @@ func (h *FeeRuleHandler) UpdateFeeRule(c *fiber.Ctx) error {
 	if err := h.DB.Save(&m).Error; err != nil {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
-	return helper.JsonOK(c, "fee rule updated", dto.ToFeeRuleResponse(m))
+
+	// ⬇️ pakai versi context-aware juga di sini
+	return helper.JsonOK(c, "fee rule updated", dto.ToFeeRuleResponseWithCtx(c, m))
 }
 
 // =======================================================

@@ -22,6 +22,7 @@ import (
 
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
+	dbtime "madinahsalam_backend/internals/helpers/dbtime"
 	helperOSS "madinahsalam_backend/internals/helpers/oss"
 )
 
@@ -230,6 +231,12 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
+	// Ambil waktu server (DB) sekali untuk request ini
+	now, err := dbtime.GetDBTime(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mendapatkan waktu server")
+	}
+
 	// ---------- Transaksi ----------
 	var created *model.SubmissionModel
 
@@ -246,8 +253,9 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 		if (sub.SubmissionStatus == model.SubmissionStatusSubmitted ||
 			sub.SubmissionStatus == model.SubmissionStatusResubmitted) &&
 			sub.SubmissionSubmittedAt == nil {
-			now := time.Now()
-			sub.SubmissionSubmittedAt = &now
+
+			t := now
+			sub.SubmissionSubmittedAt = &t
 		}
 
 		// submission_scores & submission_quiz_finished dibiarkan default:
@@ -533,8 +541,13 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 		}
 	}
 
-	// ── Transaksi ──
 	err = ctrl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
+		// Ambil waktu DB sekali untuk PATCH ini
+		now, errNow := dbtime.GetDBTime(c)
+		if errNow != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mendapatkan waktu server")
+		}
+
 		// existing live rows
 		var existing []model.SubmissionURLModel
 		if err := tx.Where(`
@@ -658,7 +671,7 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 			}
 
 			if len(patch) > 0 {
-				patch["submission_url_updated_at"] = time.Now()
+				patch["submission_url_updated_at"] = now
 				if err := tx.Model(&model.SubmissionURLModel{}).
 					Where("submission_url_id = ? AND submission_url_school_id = ? AND submission_url_submission_id = ? AND submission_url_deleted_at IS NULL",
 						*u.ID, schoolID, subID).
@@ -751,6 +764,12 @@ func (ctrl *SubmissionController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
+	// Ambil waktu DB sebagai basis delete & retention
+	now, err := dbtime.GetDBTime(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mendapatkan waktu server")
+	}
+
 	// Opsional move ke spam
 	move := true
 	if v := strings.TrimSpace(c.Query("move")); v != "" {
@@ -758,7 +777,7 @@ func (ctrl *SubmissionController) Delete(c *fiber.Ctx) error {
 	}
 
 	updates := map[string]any{
-		"submission_url_deleted_at": time.Now(),
+		"submission_url_deleted_at": now,
 	}
 
 	// jika move, copy ke spam & update href/object_key → lalu set delete_pending_until
@@ -776,7 +795,7 @@ func (ctrl *SubmissionController) Delete(c *fiber.Ctx) error {
 					days = n
 				}
 			}
-			updates["submission_url_delete_pending_until"] = time.Now().Add(time.Duration(days) * 24 * time.Hour)
+			updates["submission_url_delete_pending_until"] = now.Add(time.Duration(days) * 24 * time.Hour)
 		}
 	}
 

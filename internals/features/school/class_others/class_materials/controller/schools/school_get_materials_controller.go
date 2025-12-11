@@ -1,3 +1,4 @@
+// file: internals/features/school/materials/controller/school_material_list_controller.go
 package controller
 
 import (
@@ -5,6 +6,8 @@ import (
 	materialModel "madinahsalam_backend/internals/features/school/class_others/class_materials/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
+
+	dbtime "madinahsalam_backend/internals/helpers/dbtime"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -74,7 +77,16 @@ func (ctl *SchoolMaterialController) ListSchoolMaterials(c *fiber.Ctx) error {
 	}
 
 	resp := dto.NewSchoolMaterialResponseList(materials)
-	pagination := helper.BuildPaginationFromOffset(total, paging.Offset, paging.Limit)
 
+	// convert semua time ke timezone sekolah
+	for _, r := range resp {
+		r.SchoolMaterialPublishedAt = dbtime.ToSchoolTimePtr(c, r.SchoolMaterialPublishedAt)
+		r.SchoolMaterialDeletedAt = dbtime.ToSchoolTimePtr(c, r.SchoolMaterialDeletedAt)
+
+		r.SchoolMaterialCreatedAt = dbtime.ToSchoolTime(c, r.SchoolMaterialCreatedAt)
+		r.SchoolMaterialUpdatedAt = dbtime.ToSchoolTime(c, r.SchoolMaterialUpdatedAt)
+	}
+
+	pagination := helper.BuildPaginationFromOffset(total, paging.Offset, paging.Limit)
 	return helper.JsonList(c, "ok", resp, pagination)
 }

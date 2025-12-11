@@ -2,7 +2,7 @@
 package route
 
 import (
-	classSectionStudentsController "madinahsalam_backend/internals/features/school/classes/class_sections/controller/class_section_students"
+	classSectionStudentsController "madinahsalam_backend/internals/features/school/classes/class_sections/controller/student_class_sections"
 	classSectionController "madinahsalam_backend/internals/features/school/classes/class_sections/controller/class_sections"
 
 	"github.com/gofiber/fiber/v2"

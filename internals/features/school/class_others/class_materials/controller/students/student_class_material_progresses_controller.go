@@ -2,14 +2,13 @@
 package controller
 
 import (
-	"time"
-
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
+	"madinahsalam_backend/internals/helpers/dbtime"
 
 	dto "madinahsalam_backend/internals/features/school/class_others/class_materials/dto"
 	model "madinahsalam_backend/internals/features/school/class_others/class_materials/model"
@@ -26,7 +25,6 @@ type StudentClassMaterialProgressController struct {
 func NewStudentClassMaterialProgressController(db *gorm.DB) *StudentClassMaterialProgressController {
 	return &StudentClassMaterialProgressController{DB: db}
 }
-
 
 /* =======================================================
    Ping / Upsert progress materi murid
@@ -61,7 +59,8 @@ func (ctl *StudentClassMaterialProgressController) PingMyClassMaterialProgress(c
 		return err
 	}
 
-	now := time.Now()
+	// 🔹 waktu "sekarang" pakai dbtime (timezone sekolah)
+	now, _ := dbtime.GetDBTime(c)
 
 	// Upsert berdasarkan (school_id, scsst_id, class_material_id)
 	var progress model.StudentClassMaterialProgressModel
@@ -86,7 +85,8 @@ func (ctl *StudentClassMaterialProgressController) PingMyClassMaterialProgress(c
 		if err := tx.Create(newModel).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "failed to create material progress")
 		}
-		resp := dto.NewStudentClassMaterialProgressResponse(newModel)
+		// 🔹 response pakai timezone sekolah
+		resp := dto.NewStudentClassMaterialProgressResponseWithSchoolTime(c, newModel)
 		return helper.JsonOK(c, "ok", resp)
 	}
 
@@ -97,6 +97,7 @@ func (ctl *StudentClassMaterialProgressController) PingMyClassMaterialProgress(c
 		return helper.JsonError(c, fiber.StatusInternalServerError, "failed to update material progress")
 	}
 
-	resp := dto.NewStudentClassMaterialProgressResponse(&progress)
+	// 🔹 response pakai timezone sekolah
+	resp := dto.NewStudentClassMaterialProgressResponseWithSchoolTime(c, &progress)
 	return helper.JsonOK(c, "ok", resp)
 }

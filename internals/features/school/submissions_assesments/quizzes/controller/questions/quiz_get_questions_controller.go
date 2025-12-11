@@ -136,8 +136,8 @@ func (ctl *QuizQuestionsController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// 9) DTO
-	out := qdto.FromModelsQuizQuestions(rows)
+	// 9) DTO (pakai timezone sekolah)
+	out := qdto.FromModelsQuizQuestionsWithCtx(c, rows)
 
 	// 10) Pagination
 	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)

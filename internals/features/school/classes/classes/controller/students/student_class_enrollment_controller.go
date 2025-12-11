@@ -358,8 +358,8 @@ func (ctl *StudentClassEnrollmentController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// response
-	resp := enrollDTO.FromModelStudentClassEnrollment(&m)
+	// response (pakai mapper timezone-aware)
+	resp := enrollDTO.FromModelStudentClassEnrollmentWithContext(c, &m)
 	list := []enrollDTO.StudentClassEnrollmentResponse{resp}
 	enrichEnrollmentExtras(c.Context(), ctl.DB, schoolID, list)
 	return helper.JsonCreated(c, "created", list[0])
@@ -408,7 +408,7 @@ func (ctl *StudentClassEnrollmentController) Update(c *fiber.Ctx) error {
 	if err := ctl.DB.WithContext(c.Context()).Save(&m).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	return helper.JsonUpdated(c, "updated", enrollDTO.FromModelStudentClassEnrollment(&m))
+	return helper.JsonUpdated(c, "updated", enrollDTO.FromModelStudentClassEnrollmentWithContext(c, &m))
 }
 
 // PATCH /:school_id/class-enrollments/:id/status
@@ -496,7 +496,7 @@ func (ctl *StudentClassEnrollmentController) UpdateStatus(c *fiber.Ctx) error {
 	if err := ctl.DB.WithContext(c.Context()).Save(&m).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	return helper.JsonUpdated(c, "status updated", enrollDTO.FromModelStudentClassEnrollment(&m))
+	return helper.JsonUpdated(c, "status updated", enrollDTO.FromModelStudentClassEnrollmentWithContext(c, &m))
 }
 
 // PATCH /:school_id/class-enrollments/:id/payment
@@ -541,7 +541,7 @@ func (ctl *StudentClassEnrollmentController) AssignPayment(c *fiber.Ctx) error {
 	if err := ctl.DB.WithContext(c.Context()).Save(&m).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	return helper.JsonUpdated(c, "payment assigned", enrollDTO.FromModelStudentClassEnrollment(&m))
+	return helper.JsonUpdated(c, "payment assigned", enrollDTO.FromModelStudentClassEnrollmentWithContext(c, &m))
 }
 
 // DELETE /:school_id/class-enrollments/:id

@@ -168,7 +168,13 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 		return err
 	}
 
-	return helper.JsonCreated(c, "Relasi buku berhasil dibuat", csbDTO.FromModel(created))
+	// ... di dalam func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
+
+	return helper.JsonCreated(
+		c,
+		"Relasi buku berhasil dibuat",
+		csbDTO.FromModelWithSchoolTime(c, created),
+	)
 }
 
 /* ================= Helpers: EXISTS-based tenant checks ================= */
@@ -425,7 +431,13 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 		return err
 	}
 
-	return helper.JsonUpdated(c, "Relasi buku berhasil diperbarui", csbDTO.FromModel(updated))
+	// ... di dalam func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
+
+	return helper.JsonUpdated(
+		c,
+		"Relasi buku berhasil diperbarui",
+		csbDTO.FromModelWithSchoolTime(c, updated),
+	)
 }
 
 /*
@@ -519,5 +531,11 @@ func (h *ClassSubjectBookController) Delete(c *fiber.Ctx) error {
 		return err
 	}
 
-	return helper.JsonDeleted(c, "Relasi buku berhasil dihapus", csbDTO.FromModel(deleted))
+	// ... di dalam func (h *ClassSubjectBookController) Delete(c *fiber.Ctx) error {
+
+	return helper.JsonDeleted(
+		c,
+		"Relasi buku berhasil dihapus",
+		csbDTO.FromModelWithSchoolTime(c, deleted),
+	)
 }

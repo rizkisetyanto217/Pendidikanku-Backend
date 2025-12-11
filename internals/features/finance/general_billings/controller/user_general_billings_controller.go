@@ -86,7 +86,8 @@ func (ctl *UserGeneralBillingController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	return helper.JsonCreated(c, "created", dto.FromModelUserGeneralBilling(m))
+	// 🔹 DTO sudah handle konversi timezone lewat dbtime
+	return helper.JsonCreated(c, "created", dto.FromModelUserGeneralBilling(c, m))
 }
 
 // PATCH /finance/user-general-billings/:id
@@ -112,7 +113,7 @@ func (ctl *UserGeneralBillingController) Patch(c *fiber.Ctx) error {
 	changed := p.Apply(&m)
 	if !changed {
 		// tidak ada perubahan — tetap kembalikan state saat ini
-		return helper.JsonOK(c, "no changes", dto.FromModelUserGeneralBilling(m))
+		return helper.JsonOK(c, "no changes", dto.FromModelUserGeneralBilling(c, m))
 	}
 
 	m.UserGeneralBillingUpdatedAt = time.Now()
@@ -133,7 +134,7 @@ func (ctl *UserGeneralBillingController) Patch(c *fiber.Ctx) error {
 		}
 	}
 
-	return helper.JsonUpdated(c, "updated", dto.FromModelUserGeneralBilling(m))
+	return helper.JsonUpdated(c, "updated", dto.FromModelUserGeneralBilling(c, m))
 }
 
 // DELETE /finance/user-general-billings/:id  (soft delete)

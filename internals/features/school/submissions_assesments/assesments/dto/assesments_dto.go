@@ -5,7 +5,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+
+	dbtime "madinahsalam_backend/internals/helpers/dbtime"
 
 	sessionModel "madinahsalam_backend/internals/features/school/class_others/class_attendance_sessions/model"
 	assessModel "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/model"
@@ -378,7 +381,7 @@ func buildAssessmentResponse(m assessModel.AssessmentModel, isOpen bool) Assessm
 	}
 }
 
-// Converter Model → Response DTO (tanpa session collect)
+// Converter Model → Response DTO (tanpa session collect) — versi lama (UTC)
 func FromModelAssesment(m assessModel.AssessmentModel) AssessmentResponse {
 	now := time.Now().UTC()
 	isOpen := assessService.ComputeIsOpen(&m, now)
@@ -398,7 +401,50 @@ func FromAssesmentModels(rows []assessModel.AssessmentModel) []AssessmentRespons
 	return out
 }
 
-// Versi dengan CollectSession
+// Versi baru: FULL DTO pakai dbtime (timezone sekolah)
+func FromModelAssesmentWithSchoolTime(c *fiber.Ctx, m assessModel.AssessmentModel) AssessmentResponse {
+	now, _ := dbtime.GetDBTime(c)
+	isOpen := assessService.ComputeIsOpen(&m, now)
+
+	resp := buildAssessmentResponse(m, isOpen)
+
+	// override waktu ke timezone sekolah
+	resp.AssessmentStartAt = dbtime.ToSchoolTimePtr(c, m.AssessmentStartAt)
+	resp.AssessmentDueAt = dbtime.ToSchoolTimePtr(c, m.AssessmentDueAt)
+	resp.AssessmentPublishedAt = dbtime.ToSchoolTimePtr(c, m.AssessmentPublishedAt)
+	resp.AssessmentClosedAt = dbtime.ToSchoolTimePtr(c, m.AssessmentClosedAt)
+
+	resp.AssessmentCreatedAt = dbtime.ToSchoolTime(c, m.AssessmentCreatedAt)
+	resp.AssessmentUpdatedAt = dbtime.ToSchoolTime(c, m.AssessmentUpdatedAt)
+
+	return resp
+}
+
+func FromAssesmentModelsWithSchoolTime(c *fiber.Ctx, rows []assessModel.AssessmentModel) []AssessmentResponse {
+	out := make([]AssessmentResponse, 0, len(rows))
+	now, _ := dbtime.GetDBTime(c)
+
+	for i := range rows {
+		m := rows[i]
+		isOpen := assessService.ComputeIsOpen(&m, now)
+
+		resp := buildAssessmentResponse(m, isOpen)
+
+		resp.AssessmentStartAt = dbtime.ToSchoolTimePtr(c, m.AssessmentStartAt)
+		resp.AssessmentDueAt = dbtime.ToSchoolTimePtr(c, m.AssessmentDueAt)
+		resp.AssessmentPublishedAt = dbtime.ToSchoolTimePtr(c, m.AssessmentPublishedAt)
+		resp.AssessmentClosedAt = dbtime.ToSchoolTimePtr(c, m.AssessmentClosedAt)
+
+		resp.AssessmentCreatedAt = dbtime.ToSchoolTime(c, m.AssessmentCreatedAt)
+		resp.AssessmentUpdatedAt = dbtime.ToSchoolTime(c, m.AssessmentUpdatedAt)
+
+		out = append(out, resp)
+	}
+
+	return out
+}
+
+// Versi dengan CollectSession (masih pakai UTC, kalau mau dibikin school time bisa ditambah varian baru)
 func FromModelAssesmentWithCollectSession(
 	m assessModel.AssessmentModel,
 	sess *sessionModel.ClassAttendanceSessionModel,
@@ -495,6 +541,7 @@ type AssessmentCompactResponse struct {
 	AssessmentUpdatedAt time.Time `json:"assessment_updated_at"`
 }
 
+// Versi compact lama (UTC)
 func FromAssessmentModelCompact(m assessModel.AssessmentModel) AssessmentCompactResponse {
 	now := time.Now().UTC()
 	isOpen := assessService.ComputeIsOpen(&m, now)
@@ -558,6 +605,47 @@ func FromAssessmentModelsCompact(rows []assessModel.AssessmentModel) []Assessmen
 			AssessmentCreatedAt: m.AssessmentCreatedAt,
 			AssessmentUpdatedAt: m.AssessmentUpdatedAt,
 		})
+	}
+
+	return out
+}
+
+// Versi compact + dbtime (dipakai di controller List)
+func FromAssessmentModelsCompactWithSchoolTime(c *fiber.Ctx, rows []assessModel.AssessmentModel) []AssessmentCompactResponse {
+	out := make([]AssessmentCompactResponse, 0, len(rows))
+	now, _ := dbtime.GetDBTime(c)
+
+	for i := range rows {
+		m := rows[i]
+		isOpen := assessService.ComputeIsOpen(&m, now)
+
+		item := AssessmentCompactResponse{
+			AssessmentID: m.AssessmentID,
+
+			AssessmentClassSectionSubjectTeacherID: m.AssessmentClassSectionSubjectTeacherID,
+			AssessmentTypeID:                       m.AssessmentTypeID,
+
+			AssessmentSlug:   m.AssessmentSlug,
+			AssessmentTitle:  m.AssessmentTitle,
+			AssessmentKind:   string(m.AssessmentKind),
+			AssessmentStatus: string(m.AssessmentStatus),
+
+			AssessmentStartAt: dbtime.ToSchoolTimePtr(c, m.AssessmentStartAt),
+			AssessmentDueAt:   dbtime.ToSchoolTimePtr(c, m.AssessmentDueAt),
+
+			AssessmentMaxScore:             m.AssessmentMaxScore,
+			AssessmentQuizTotal:            m.AssessmentQuizTotal,
+			AssessmentTotalAttemptsAllowed: m.AssessmentTotalAttemptsAllowed,
+
+			AssessmentIsOpen: isOpen,
+
+			AssessmentTypeCategorySnapshot: string(m.AssessmentTypeCategorySnapshot),
+
+			AssessmentCreatedAt: dbtime.ToSchoolTime(c, m.AssessmentCreatedAt),
+			AssessmentUpdatedAt: dbtime.ToSchoolTime(c, m.AssessmentUpdatedAt),
+		}
+
+		out = append(out, item)
 	}
 
 	return out

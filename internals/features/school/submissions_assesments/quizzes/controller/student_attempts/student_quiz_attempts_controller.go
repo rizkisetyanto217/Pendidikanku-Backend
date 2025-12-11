@@ -565,7 +565,8 @@ func (ctl *StudentQuizAttemptsController) List(c *fiber.Ctx) error {
 	}
 
 	// ===== JSON =====
-	return helper.JsonList(c, "OK", qdto.FromModelsStudentQuizAttempts(rows), pagination)
+	return helper.JsonList(c, "OK", qdto.FromModelsStudentQuizAttemptsWithCtx(c, rows), pagination)
+
 }
 
 // util kecil

@@ -270,10 +270,10 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 	}
 
 	if isCompact {
-		compacts := cpdto.ToClassParentCompactList(rows)
+		compacts := cpdto.ToClassParentCompactListWithContext(c, rows)
 		return helper.JsonListWithInclude(c, "ok", compacts, include, pg)
 	}
 
-	resps := cpdto.ToClassParentResponses(rows)
+	resps := cpdto.ToClassParentResponsesWithContext(c, rows)
 	return helper.JsonListWithInclude(c, "ok", resps, include, pg)
 }

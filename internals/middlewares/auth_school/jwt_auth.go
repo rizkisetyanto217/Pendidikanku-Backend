@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v4"
@@ -99,6 +100,26 @@ func AuthJWT(o AuthJWTOpts) fiber.Handler {
 		// student_id → LocStudentID
 		if sid := strClaim(claims, "student_id"); sid != "" {
 			c.Locals(helperAuth.LocStudentID, sid)
+		}
+
+		// school_timezone → locals (string + *time.Location)
+		if tzRaw, ok := claims["school_timezone"]; ok {
+			if tzStr, ok2 := tzRaw.(string); ok2 && strings.TrimSpace(tzStr) != "" {
+				tzStr = strings.TrimSpace(tzStr)
+
+				// simpan raw string (buat controller/helper yang butuh)
+				c.Locals("school_timezone", tzStr)
+
+				// coba load location
+				if loc, err := time.LoadLocation(tzStr); err == nil {
+					c.Locals("school_loc", loc)
+				} else {
+					// fallback biar nggak panik kalau timezone di DB aneh
+					if def, err2 := time.LoadLocation("Asia/Jakarta"); err2 == nil {
+						c.Locals("school_loc", def)
+					}
+				}
+			}
 		}
 
 		// user_id: ambil id/sub/user_id dalam urutan preferensi

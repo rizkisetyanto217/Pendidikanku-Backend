@@ -13,6 +13,7 @@ import (
 
 	// pakai model class_parent yang baru
 	m "madinahsalam_backend/internals/features/school/classes/class_parents/model"
+	dbtime "madinahsalam_backend/internals/helpers/dbtime"
 )
 
 //
@@ -141,6 +142,7 @@ func (r *ClassParentCreateRequest) Normalize() {
 	r.ClassParentName = strings.TrimSpace(r.ClassParentName)
 }
 
+// Versi lama: pakai time.Now() langsung (masih dipertahankan kalau ada yang pakai)
 func (r ClassParentCreateRequest) ToModel() *m.ClassParentModel {
 	now := time.Now()
 
@@ -171,6 +173,42 @@ func (r ClassParentCreateRequest) ToModel() *m.ClassParentModel {
 	cp.ClassParentImageObjectKey = r.ClassParentImageObjectKey
 
 	return cp
+}
+
+// Versi baru: pakai dbtime.GetDBTime(c) → sekarang di timezone sekolah
+func (r ClassParentCreateRequest) ToModelWithContext(c *fiber.Ctx) (*m.ClassParentModel, error) {
+	now, err := dbtime.GetDBTime(c)
+	if err != nil {
+		return nil, err
+	}
+
+	reqMap := r.ClassParentRequirements.ToJSONMap()
+	if reqMap == nil {
+		reqMap = datatypes.JSONMap{}
+	}
+
+	cp := &m.ClassParentModel{
+		ClassParentSchoolID:     r.ClassParentSchoolID,
+		ClassParentName:         r.ClassParentName,
+		ClassParentCode:         r.ClassParentCode,
+		ClassParentSlug:         r.ClassParentSlug,
+		ClassParentDescription:  r.ClassParentDescription,
+		ClassParentLevel:        r.ClassParentLevel,
+		ClassParentRequirements: reqMap,
+		ClassParentCreatedAt:    now,
+		ClassParentUpdatedAt:    now,
+	}
+
+	if r.ClassParentIsActive != nil {
+		cp.ClassParentIsActive = *r.ClassParentIsActive
+	} else {
+		cp.ClassParentIsActive = true
+	}
+
+	cp.ClassParentImageURL = r.ClassParentImageURL
+	cp.ClassParentImageObjectKey = r.ClassParentImageObjectKey
+
+	return cp, nil
 }
 
 //
@@ -217,6 +255,7 @@ type ClassParentResponse struct {
 	ClassParentDeletedAt *time.Time `json:"class_parent_deleted_at,omitempty"`
 }
 
+// Versi lama (tanpa konversi timezone, masih disimpan kalau ada yang pakai)
 func FromModelClassParent(cp *m.ClassParentModel) ClassParentResponse {
 	var deletedAt *time.Time
 	if cp.ClassParentDeletedAt.Valid {
@@ -258,6 +297,65 @@ func FromModelClassParent(cp *m.ClassParentModel) ClassParentResponse {
 		ClassParentCreatedAt:               cp.ClassParentCreatedAt,
 		ClassParentUpdatedAt:               cp.ClassParentUpdatedAt,
 		ClassParentDeletedAt:               deletedAt,
+	}
+}
+
+// Versi baru: mapping + konversi timezone ke timezone sekolah
+func FromModelClassParentWithContext(c *fiber.Ctx, cp *m.ClassParentModel) ClassParentResponse {
+	if cp == nil {
+		return ClassParentResponse{}
+	}
+
+	// DeletedAt: sql.NullTime → *time.Time + convert zone
+	var deletedAt *time.Time
+	if cp.ClassParentDeletedAt.Valid {
+		t := dbtime.ToSchoolTime(c, cp.ClassParentDeletedAt.Time)
+		deletedAt = &t
+	}
+
+	// Image delete pending until
+	var pendingUntil *time.Time
+	if cp.ClassParentImageDeletePendingUntil != nil {
+		t := dbtime.ToSchoolTime(c, *cp.ClassParentImageDeletePendingUntil)
+		pendingUntil = &t
+	}
+
+	return ClassParentResponse{
+		ClassParentID:          cp.ClassParentID,
+		ClassParentSchoolID:    cp.ClassParentSchoolID,
+		ClassParentName:        cp.ClassParentName,
+		ClassParentCode:        cp.ClassParentCode,
+		ClassParentSlug:        cp.ClassParentSlug,
+		ClassParentDescription: cp.ClassParentDescription,
+		ClassParentLevel:       cp.ClassParentLevel,
+		ClassParentIsActive:    cp.ClassParentIsActive,
+
+		// STATS (ALL)
+		ClassParentClassCount:         cp.ClassParentClassCount,
+		ClassParentClassSectionCount:  cp.ClassParentClassSectionCount,
+		ClassParentStudentCount:       cp.ClassParentStudentCount,
+		ClassParentStudentMaleCount:   cp.ClassParentStudentMaleCount,
+		ClassParentStudentFemaleCount: cp.ClassParentStudentFemaleCount,
+		ClassParentTeacherCount:       cp.ClassParentTeacherCount,
+
+		// STATS (ACTIVE ONLY)
+		ClassParentClassActiveCount:         cp.ClassParentClassActiveCount,
+		ClassParentClassSectionActiveCount:  cp.ClassParentClassSectionActiveCount,
+		ClassParentStudentActiveCount:       cp.ClassParentStudentActiveCount,
+		ClassParentStudentMaleActiveCount:   cp.ClassParentStudentMaleActiveCount,
+		ClassParentStudentFemaleActiveCount: cp.ClassParentStudentFemaleActiveCount,
+		ClassParentTeacherActiveCount:       cp.ClassParentTeacherActiveCount,
+
+		ClassParentRequirements:            cp.ClassParentRequirements,
+		ClassParentImageURL:                cp.ClassParentImageURL,
+		ClassParentImageObjectKey:          cp.ClassParentImageObjectKey,
+		ClassParentImageURLOld:             cp.ClassParentImageURLOld,
+		ClassParentImageObjectKeyOld:       cp.ClassParentImageObjectKeyOld,
+		ClassParentImageDeletePendingUntil: pendingUntil,
+
+		ClassParentCreatedAt: dbtime.ToSchoolTime(c, cp.ClassParentCreatedAt),
+		ClassParentUpdatedAt: dbtime.ToSchoolTime(c, cp.ClassParentUpdatedAt),
+		ClassParentDeletedAt: deletedAt,
 	}
 }
 
@@ -331,6 +429,7 @@ func (p *ClassParentPatchRequest) Normalize() {
 	}
 }
 
+// Versi lama (pakai time.Now, masih disimpan)
 func (p ClassParentPatchRequest) Apply(cp *m.ClassParentModel) {
 	if p.ClassParentName.Present && p.ClassParentName.Value != nil {
 		cp.ClassParentName = *p.ClassParentName.Value
@@ -426,6 +525,110 @@ func (p ClassParentPatchRequest) Apply(cp *m.ClassParentModel) {
 	cp.ClassParentUpdatedAt = time.Now()
 }
 
+// Versi baru: Apply + set UpdatedAt dengan dbtime.GetDBTime(c)
+func (p ClassParentPatchRequest) ApplyWithContext(c *fiber.Ctx, cp *m.ClassParentModel) error {
+	if cp == nil {
+		return nil
+	}
+
+	if p.ClassParentName.Present && p.ClassParentName.Value != nil {
+		cp.ClassParentName = *p.ClassParentName.Value
+	}
+	if p.ClassParentCode.Present {
+		if p.ClassParentCode.Value == nil {
+			cp.ClassParentCode = nil
+		} else {
+			cp.ClassParentCode = *p.ClassParentCode.Value
+		}
+	}
+	if p.ClassParentSlug.Present {
+		if p.ClassParentSlug.Value == nil {
+			cp.ClassParentSlug = nil
+		} else {
+			cp.ClassParentSlug = *p.ClassParentSlug.Value
+		}
+	}
+	if p.ClassParentDescription.Present {
+		if p.ClassParentDescription.Value == nil {
+			cp.ClassParentDescription = nil
+		} else {
+			cp.ClassParentDescription = *p.ClassParentDescription.Value
+		}
+	}
+	if p.ClassParentLevel.Present {
+		if p.ClassParentLevel.Value == nil {
+			cp.ClassParentLevel = nil
+		} else {
+			cp.ClassParentLevel = *p.ClassParentLevel.Value
+		}
+	}
+	if p.ClassParentIsActive.Present && p.ClassParentIsActive.Value != nil {
+		cp.ClassParentIsActive = **p.ClassParentIsActive.Value
+	}
+
+	if p.ClassParentClassCount.Present {
+		if p.ClassParentClassCount.Value == nil {
+			cp.ClassParentClassCount = 0
+		} else {
+			cp.ClassParentClassCount = **p.ClassParentClassCount.Value
+		}
+	}
+
+	if p.ClassParentRequirements.Present {
+		if p.ClassParentRequirements.Value == nil {
+			cp.ClassParentRequirements = datatypes.JSONMap{}
+		} else {
+			cp.ClassParentRequirements = p.ClassParentRequirements.Value.ToJSONMap()
+			if cp.ClassParentRequirements == nil {
+				cp.ClassParentRequirements = datatypes.JSONMap{}
+			}
+		}
+	}
+
+	if p.ClassParentImageURL.Present {
+		if p.ClassParentImageURL.Value == nil {
+			cp.ClassParentImageURL = nil
+		} else {
+			cp.ClassParentImageURL = *p.ClassParentImageURL.Value
+		}
+	}
+	if p.ClassParentImageObjectKey.Present {
+		if p.ClassParentImageObjectKey.Value == nil {
+			cp.ClassParentImageObjectKey = nil
+		} else {
+			cp.ClassParentImageObjectKey = *p.ClassParentImageObjectKey.Value
+		}
+	}
+	if p.ClassParentImageURLOld.Present {
+		if p.ClassParentImageURLOld.Value == nil {
+			cp.ClassParentImageURLOld = nil
+		} else {
+			cp.ClassParentImageURLOld = *p.ClassParentImageURLOld.Value
+		}
+	}
+	if p.ClassParentImageObjectKeyOld.Present {
+		if p.ClassParentImageObjectKeyOld.Value == nil {
+			cp.ClassParentImageObjectKeyOld = nil
+		} else {
+			cp.ClassParentImageObjectKeyOld = *p.ClassParentImageObjectKeyOld.Value
+		}
+	}
+	if p.ClassParentImageDeletePendingUntil.Present {
+		if p.ClassParentImageDeletePendingUntil.Value == nil {
+			cp.ClassParentImageDeletePendingUntil = nil
+		} else {
+			cp.ClassParentImageDeletePendingUntil = *p.ClassParentImageDeletePendingUntil.Value
+		}
+	}
+
+	now, err := dbtime.GetDBTime(c)
+	if err != nil {
+		return err
+	}
+	cp.ClassParentUpdatedAt = now
+	return nil
+}
+
 //
 // =========================================================
 // LIST QUERY + HELPERS
@@ -444,10 +647,20 @@ type ListClassParentQuery struct {
 	CreatedLt *time.Time `query:"created_lt"`
 }
 
+// Lama (tanpa timezone convert)
 func ToClassParentResponses(rows []m.ClassParentModel) []ClassParentResponse {
 	out := make([]ClassParentResponse, 0, len(rows))
 	for i := range rows {
 		out = append(out, FromModelClassParent(&rows[i]))
+	}
+	return out
+}
+
+// Baru: ToClassParentResponsesWithContext → sudah konversi timezone
+func ToClassParentResponsesWithContext(c *fiber.Ctx, rows []m.ClassParentModel) []ClassParentResponse {
+	out := make([]ClassParentResponse, 0, len(rows))
+	for i := range rows {
+		out = append(out, FromModelClassParentWithContext(c, &rows[i]))
 	}
 	return out
 }
@@ -704,6 +917,7 @@ type ClassParentCompact struct {
 	ClassParentIsDeleted bool      `json:"class_parent_is_deleted"`
 }
 
+// Lama (tanpa timezone convert)
 func ToClassParentCompact(cp *m.ClassParentModel) ClassParentCompact {
 	return ClassParentCompact{
 		ClassParentID:                      cp.ClassParentID,
@@ -731,6 +945,38 @@ func ToClassParentCompactList(rows []m.ClassParentModel) []ClassParentCompact {
 	out := make([]ClassParentCompact, 0, len(rows))
 	for i := range rows {
 		out = append(out, ToClassParentCompact(&rows[i]))
+	}
+	return out
+}
+
+// Baru: compact dengan konversi timezone
+func ToClassParentCompactWithContext(c *fiber.Ctx, cp *m.ClassParentModel) ClassParentCompact {
+	return ClassParentCompact{
+		ClassParentID:                      cp.ClassParentID,
+		ClassParentSchoolID:                cp.ClassParentSchoolID,
+		ClassParentClassSectionActiveCount: cp.ClassParentClassSectionActiveCount,
+		ClassParentClassSectionCount:       cp.ClassParentClassSectionCount,
+		ClassParentStudentActiveCount:      cp.ClassParentStudentActiveCount,
+		ClassParentStudentCount:            cp.ClassParentStudentCount,
+
+		ClassParentName:     cp.ClassParentName,
+		ClassParentCode:     cp.ClassParentCode,
+		ClassParentSlug:     cp.ClassParentSlug,
+		ClassParentLevel:    cp.ClassParentLevel,
+		ClassParentIsActive: cp.ClassParentIsActive,
+
+		ClassParentImageURL: cp.ClassParentImageURL,
+
+		ClassParentCreatedAt: dbtime.ToSchoolTime(c, cp.ClassParentCreatedAt),
+		ClassParentUpdatedAt: dbtime.ToSchoolTime(c, cp.ClassParentUpdatedAt),
+		ClassParentIsDeleted: cp.ClassParentDeletedAt.Valid,
+	}
+}
+
+func ToClassParentCompactListWithContext(c *fiber.Ctx, rows []m.ClassParentModel) []ClassParentCompact {
+	out := make([]ClassParentCompact, 0, len(rows))
+	for i := range rows {
+		out = append(out, ToClassParentCompactWithContext(c, &rows[i]))
 	}
 	return out
 }

@@ -39,9 +39,10 @@ func parseUUIDParam(c *fiber.Ctx, name string) (uuid.UUID, error) {
 
 /* ========================= Helpers ========================= */
 
-func mapToResponse(m *assessmentModel.AssessmentTypeModel) dto.AssessmentTypeResponse {
-	// supaya tetep 1 sumber kebenaran di dto.FromModel
-	return dto.FromModel(*m)
+// mapper tunggal → selalu lewat DTO yang sudah aware timezone sekolah
+func mapToResponse(c *fiber.Ctx, m *assessmentModel.AssessmentTypeModel) dto.AssessmentTypeResponse {
+	// sumber kebenaran tetap di DTO; versi ini sudah konversi CreatedAt/UpdatedAt ke school time
+	return dto.FromModelWithCtx(c, *m)
 }
 
 func isUniqueViolation(err error) bool {
@@ -139,7 +140,8 @@ func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return helper.JsonCreated(c, "Assessment type dibuat", mapToResponse(&row))
+	// ✅ response: waktu sudah dikonversi ke timezone sekolah via DTO
+	return helper.JsonCreated(c, "Assessment type dibuat", mapToResponse(c, &row))
 }
 
 // PATCH /assessment-types/:id — DKM/Admin
@@ -304,8 +306,8 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 	}
 
 	if len(updates) == 0 {
-		// Tidak ada perubahan: balikin data existing saja
-		return helper.JsonOK(c, "OK", mapToResponse(&existing))
+		// Tidak ada perubahan: balikin data existing saja (pakai school time)
+		return helper.JsonOK(c, "OK", mapToResponse(c, &existing))
 	}
 	updates["assessment_type_updated_at"] = time.Now()
 
@@ -338,7 +340,8 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyinkronkan snapshot tipe pada assessment")
 	}
 
-	return helper.JsonUpdated(c, "Assessment type diperbarui", mapToResponse(&after))
+	// ✅ response: CreatedAt/UpdatedAt sudah di-convert dengan dbtime.ToSchoolTime di DTO
+	return helper.JsonUpdated(c, "Assessment type diperbarui", mapToResponse(c, &after))
 }
 
 // DELETE /assessment-types/:id — DKM/Admin

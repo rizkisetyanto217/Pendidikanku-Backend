@@ -9,6 +9,10 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
+
+	"madinahsalam_backend/internals/helpers/dbtime"
+
+	"github.com/gofiber/fiber/v2"
 )
 
 //
@@ -350,6 +354,41 @@ func ToClassRoomResponse(m model.ClassRoomModel) ClassRoomResponse {
 	}
 }
 
+// 🔹 Versi timezone-aware (pakai timezone sekolah)
+func ToClassRoomResponseWithSchoolTime(c *fiber.Ctx, m model.ClassRoomModel) ClassRoomResponse {
+	// convert times ke timezone sekolah dulu
+	localCreated := dbtime.ToSchoolTime(c, m.ClassRoomCreatedAt)
+	localUpdated := dbtime.ToSchoolTime(c, m.ClassRoomUpdatedAt)
+	localDeletePending := dbtime.ToSchoolTimePtr(c, m.ClassRoomImageDeletePendingUntil)
+
+	return ClassRoomResponse{
+		ClassRoomID:                      m.ClassRoomID,
+		ClassRoomSchoolID:                m.ClassRoomSchoolID,
+		ClassRoomName:                    m.ClassRoomName,
+		ClassRoomCode:                    m.ClassRoomCode,
+		ClassRoomSlug:                    m.ClassRoomSlug,
+		ClassRoomLocation:                m.ClassRoomLocation,
+		ClassRoomCapacity:                m.ClassRoomCapacity,
+		ClassRoomDescription:             m.ClassRoomDescription,
+		ClassRoomIsVirtual:               m.ClassRoomIsVirtual,
+		ClassRoomIsActive:                m.ClassRoomIsActive,
+		ClassRoomImageURL:                m.ClassRoomImageURL,
+		ClassRoomImageObjectKey:          m.ClassRoomImageObjectKey,
+		ClassRoomImageURLOld:             m.ClassRoomImageURLOld,
+		ClassRoomImageObjectKeyOld:       m.ClassRoomImageObjectKeyOld,
+		ClassRoomImageDeletePendingUntil: localDeletePending,
+		ClassRoomPlatform:                m.ClassRoomPlatform,
+		ClassRoomJoinURL:                 m.ClassRoomJoinURL,
+		ClassRoomMeetingID:               m.ClassRoomMeetingID,
+		ClassRoomPasscode:                m.ClassRoomPasscode,
+		ClassRoomFeatures:                mustStringsFromJSON(m.ClassRoomFeatures),
+		ClassRoomSchedule:                mustObjectsFromJSON(m.ClassRoomSchedule),
+		ClassRoomNotes:                   mustObjectsFromJSON(m.ClassRoomNotes),
+		ClassRoomCreatedAt:               localCreated.Format(time.RFC3339),
+		ClassRoomUpdatedAt:               localUpdated.Format(time.RFC3339),
+	}
+}
+
 //
 // ========== helpers ==========
 //
@@ -450,6 +489,39 @@ func ToClassRoomCompactList(models []model.ClassRoomModel) []ClassRoomCompact {
 	out := make([]ClassRoomCompact, 0, len(models))
 	for _, m := range models {
 		out = append(out, ToClassRoomCompact(m))
+	}
+	return out
+}
+
+// 🔹 Versi compact + timezone sekolah
+func ToClassRoomCompactWithSchoolTime(c *fiber.Ctx, m model.ClassRoomModel) ClassRoomCompact {
+	localCreated := dbtime.ToSchoolTime(c, m.ClassRoomCreatedAt)
+	localUpdated := dbtime.ToSchoolTime(c, m.ClassRoomUpdatedAt)
+
+	return ClassRoomCompact{
+		ClassRoomID:        m.ClassRoomID,
+		ClassRoomName:      m.ClassRoomName,
+		ClassRoomSlug:      m.ClassRoomSlug,
+		ClassRoomIsActive:  m.ClassRoomIsActive,
+		ClassRoomIsVirtual: m.ClassRoomIsVirtual,
+
+		ClassRoomPlatform:  m.ClassRoomPlatform,
+		ClassRoomJoinURL:   m.ClassRoomJoinURL,
+		ClassRoomMeetingID: m.ClassRoomMeetingID,
+		ClassRoomPasscode:  m.ClassRoomPasscode,
+
+		ClassRoomLocation: m.ClassRoomLocation,
+		ClassRoomCode:     m.ClassRoomCode,
+
+		ClassRoomCreatedAt: localCreated.Format(time.RFC3339),
+		ClassRoomUpdatedAt: localUpdated.Format(time.RFC3339),
+	}
+}
+
+func ToClassRoomCompactListWithSchoolTime(c *fiber.Ctx, models []model.ClassRoomModel) []ClassRoomCompact {
+	out := make([]ClassRoomCompact, 0, len(models))
+	for _, m := range models {
+		out = append(out, ToClassRoomCompactWithSchoolTime(c, m))
 	}
 	return out
 }

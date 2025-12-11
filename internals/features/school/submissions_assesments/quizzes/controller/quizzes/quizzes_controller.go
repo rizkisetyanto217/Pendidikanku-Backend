@@ -65,6 +65,9 @@ func applyFiltersQuizzes(db *gorm.DB, q *dto.ListQuizzesQuery) *gorm.DB {
 	if q.AssessmentID != nil && *q.AssessmentID != uuid.Nil {
 		db = db.Where("quiz_assessment_id = ?", *q.AssessmentID)
 	}
+	if q.AssessmentTypeID != nil && *q.AssessmentTypeID != uuid.Nil {
+		db = db.Where("quiz_assessment_type_id = ?", *q.AssessmentTypeID)
+	}
 	if q.Slug != nil && strings.TrimSpace(*q.Slug) != "" {
 		db = db.Where("LOWER(quiz_slug) = LOWER(?)", strings.TrimSpace(*q.Slug))
 	}
@@ -206,7 +209,8 @@ func (ctrl *QuizController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return helper.JsonCreated(c, "Quiz berhasil dibuat", dto.FromModel(m))
+	// ✅ pakai DTO yang sudah convert waktu ke timezone sekolah
+	return helper.JsonCreated(c, "Quiz berhasil dibuat", dto.FromModelWithCtx(c, m))
 }
 
 // PATCH /quizzes/:id (WRITE — DKM/Teacher/Admin)
@@ -269,7 +273,8 @@ func (ctrl *QuizController) Patch(c *fiber.Ctx) error {
 	}
 
 	if len(updates) == 0 {
-		return helper.JsonOK(c, "Tidak ada perubahan", dto.FromModel(&m))
+		// Tidak ada perubahan, tapi tetap balikin dengan waktu yang sudah di-convert school time
+		return helper.JsonOK(c, "Tidak ada perubahan", dto.FromModelWithCtx(c, &m))
 	}
 
 	if err := ctrl.DB.WithContext(c.Context()).
@@ -285,7 +290,8 @@ func (ctrl *QuizController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return helper.JsonUpdated(c, "Quiz diperbarui", dto.FromModel(&m))
+	// ✅ response pakai mapper timezone-aware
+	return helper.JsonUpdated(c, "Quiz diperbarui", dto.FromModelWithCtx(c, &m))
 }
 
 // DELETE /quizzes/:id (WRITE — DKM/Teacher/Admin)

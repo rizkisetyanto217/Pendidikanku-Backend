@@ -594,8 +594,12 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		}
 
 		// ✅ Tidak ada lagi sync ke school_teachers (JSONB CSST + stats)
+		return helper.JsonCreated(
+			c,
+			"Penugasan guru berhasil dibuat",
+			dto.FromClassSectionSubjectTeacherModel(row).WithSchoolTime(c),
+		)
 
-		return helper.JsonCreated(c, "Penugasan guru berhasil dibuat", dto.FromClassSectionSubjectTeacherModel(row))
 	})
 }
 
@@ -978,7 +982,12 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 		_ = oldStatus
 		_ = newStatus
 
-		return helper.JsonUpdated(c, "Penugasan guru berhasil diperbarui", dto.FromClassSectionSubjectTeacherModel(row))
+		return helper.JsonUpdated(
+			c,
+			"Penugasan guru berhasil diperbarui",
+			dto.FromClassSectionSubjectTeacherModel(row).WithSchoolTime(c),
+		)
+
 	})
 }
 

@@ -4,10 +4,12 @@ import (
 	"errors"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 
 	m "madinahsalam_backend/internals/features/finance/payments/model"
+	"madinahsalam_backend/internals/helpers/dbtime"
 )
 
 /* =========================================================
@@ -276,12 +278,6 @@ func (p *UpdatePaymentItemRequest) Apply(mo *m.PaymentItemModel) error {
 	return nil
 }
 
-/*
-	=========================================================
-	  RESPONSE DTO
-
-=========================================================
-*/
 type PaymentItemResponse struct {
 	PaymentItemID uuid.UUID `json:"payment_item_id"`
 
@@ -299,14 +295,14 @@ type PaymentItemResponse struct {
 
 	PaymentItemAmountIDR int `json:"payment_item_amount_idr"`
 
-	PaymentItemFeeRuleID                  *uuid.UUID     `json:"payment_item_fee_rule_id"`
-	PaymentItemFeeRuleOptionCodeSnapshot  *string        `json:"payment_item_fee_rule_option_code_snapshot"`
-	PaymentItemFeeRuleOptionIndexSnapshot *int16         `json:"payment_item_fee_rule_option_index_snapshot"`
-	PaymentItemFeeRuleAmountSnapshot      *int           `json:"payment_item_fee_rule_amount_snapshot"`
+	PaymentItemFeeRuleID                  *uuid.UUID `json:"payment_item_fee_rule_id"`
+	PaymentItemFeeRuleOptionCodeSnapshot  *string    `json:"payment_item_fee_rule_option_code_snapshot"`
+	PaymentItemFeeRuleOptionIndexSnapshot *int16     `json:"payment_item_fee_rule_option_index_snapshot"`
+	PaymentItemFeeRuleAmountSnapshot      *int       `json:"payment_item_fee_rule_amount_snapshot"`
 
-	PaymentItemFeeRuleScopeSnapshot       *m.FeeScope    `json:"payment_item_fee_rule_scope_snapshot"`
-	PaymentItemFeeRuleNoteSnapshot        *string        `json:"payment_item_fee_rule_note_snapshot"`
-	PaymentItemMeta                       datatypes.JSON `json:"payment_item_meta"`
+	PaymentItemFeeRuleScopeSnapshot *m.FeeScope    `json:"payment_item_fee_rule_scope_snapshot"`
+	PaymentItemFeeRuleNoteSnapshot  *string        `json:"payment_item_fee_rule_note_snapshot"`
+	PaymentItemMeta                 datatypes.JSON `json:"payment_item_meta"`
 
 	PaymentItemAcademicTermID           *uuid.UUID `json:"payment_item_academic_term_id"`
 	PaymentItemAcademicTermAcademicYear *string    `json:"payment_item_academic_term_academic_year_cache"`
@@ -325,10 +321,16 @@ type PaymentItemResponse struct {
 	PaymentItemDeletedAt   *time.Time `json:"payment_item_deleted_at"`
 }
 
-func FromPaymentItemModel(mo *m.PaymentItemModel) *PaymentItemResponse {
+func FromPaymentItemModel(c *fiber.Ctx, mo *m.PaymentItemModel) *PaymentItemResponse {
 	if mo == nil {
 		return nil
 	}
+
+	// 🔹 Konversi semua field waktu ke timezone sekolah
+	invoiceDue := dbtime.ToSchoolTimePtr(c, mo.PaymentItemInvoiceDue)
+	createdAt := dbtime.ToSchoolTime(c, mo.PaymentItemCreatedAt)
+	updatedAt := dbtime.ToSchoolTime(c, mo.PaymentItemUpdatedAt)
+	deletedAt := dbtime.ToSchoolTimePtr(c, mo.PaymentItemDeletedAt)
 
 	return &PaymentItemResponse{
 		PaymentItemID: mo.PaymentItemID,
@@ -363,21 +365,21 @@ func FromPaymentItemModel(mo *m.PaymentItemModel) *PaymentItemResponse {
 
 		PaymentItemInvoiceNumber: mo.PaymentItemInvoiceNumber,
 		PaymentItemInvoiceTitle:  mo.PaymentItemInvoiceTitle,
-		PaymentItemInvoiceDue:    mo.PaymentItemInvoiceDue,
+		PaymentItemInvoiceDue:    invoiceDue,
 
 		PaymentItemTitle:       mo.PaymentItemTitle,
 		PaymentItemDescription: mo.PaymentItemDescription,
 
-		PaymentItemCreatedAt: mo.PaymentItemCreatedAt,
-		PaymentItemUpdatedAt: mo.PaymentItemUpdatedAt,
-		PaymentItemDeletedAt: mo.PaymentItemDeletedAt,
+		PaymentItemCreatedAt: createdAt,
+		PaymentItemUpdatedAt: updatedAt,
+		PaymentItemDeletedAt: deletedAt,
 	}
 }
 
-func FromPaymentItemModels(src []m.PaymentItemModel) []*PaymentItemResponse {
+func FromPaymentItemModels(c *fiber.Ctx, src []m.PaymentItemModel) []*PaymentItemResponse {
 	out := make([]*PaymentItemResponse, 0, len(src))
 	for i := range src {
-		out = append(out, FromPaymentItemModel(&src[i]))
+		out = append(out, FromPaymentItemModel(c, &src[i]))
 	}
 	return out
 }

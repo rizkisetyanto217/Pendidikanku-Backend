@@ -6,7 +6,9 @@ import (
 	"time"
 
 	model "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/model"
+	"madinahsalam_backend/internals/helpers/dbtime"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
 
@@ -464,6 +466,30 @@ func FromModelsCompact(items []model.AssessmentTypeModel) []AssessmentTypeCompac
 	out := make([]AssessmentTypeCompactResponse, 0, len(items))
 	for _, it := range items {
 		out = append(out, FromModelCompact(it))
+	}
+	return out
+}
+
+// ==============================
+//  MAPPER DENGAN TIMEZONE SEKOLAH
+// ==============================
+
+// Versi yang awareness terhadap timezone sekolah.
+// CreatedAt/UpdatedAt akan dikonversi dengan dbtime.ToSchoolTime(c, ...)
+func FromModelWithCtx(c *fiber.Ctx, m model.AssessmentTypeModel) AssessmentTypeResponse {
+	resp := FromModel(m)
+
+	// override 2 field waktu pakai timezone sekolah
+	resp.AssessmentTypeCreatedAt = dbtime.ToSchoolTime(c, m.AssessmentTypeCreatedAt)
+	resp.AssessmentTypeUpdatedAt = dbtime.ToSchoolTime(c, m.AssessmentTypeUpdatedAt)
+
+	return resp
+}
+
+func FromModelsWithCtx(c *fiber.Ctx, items []model.AssessmentTypeModel) []AssessmentTypeResponse {
+	out := make([]AssessmentTypeResponse, 0, len(items))
+	for _, it := range items {
+		out = append(out, FromModelWithCtx(c, it))
 	}
 	return out
 }

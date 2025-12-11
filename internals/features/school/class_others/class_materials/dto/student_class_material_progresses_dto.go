@@ -1,13 +1,16 @@
+// file: internals/features/school/class_others/class_materials/dto/student_class_material_progress_dto.go
 package dto
 
 import (
 	"encoding/json"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 
 	model "madinahsalam_backend/internals/features/school/class_others/class_materials/model"
+	"madinahsalam_backend/internals/helpers/dbtime"
 )
 
 /* =======================================================
@@ -53,6 +56,7 @@ type StudentClassMaterialProgressResponse struct {
 	StudentClassMaterialProgressUpdatedAt       time.Time      `json:"student_class_material_progress_updated_at"`
 }
 
+// 🔹 Versi lama (raw, timezone DB – biasanya UTC)
 func NewStudentClassMaterialProgressResponse(m *model.StudentClassMaterialProgressModel) *StudentClassMaterialProgressResponse {
 	if m == nil {
 		return nil
@@ -82,6 +86,45 @@ func NewStudentClassMaterialProgressResponseList(list []*model.StudentClassMater
 	out := make([]*StudentClassMaterialProgressResponse, 0, len(list))
 	for _, m := range list {
 		out = append(out, NewStudentClassMaterialProgressResponse(m))
+	}
+	return out
+}
+
+// 🔹 Versi baru: sudah dikonversi ke timezone sekolah
+func NewStudentClassMaterialProgressResponseWithSchoolTime(
+	c *fiber.Ctx,
+	m *model.StudentClassMaterialProgressModel,
+) *StudentClassMaterialProgressResponse {
+	if m == nil {
+		return nil
+	}
+
+	resp := NewStudentClassMaterialProgressResponse(m)
+
+	// pointer times
+	resp.StudentClassMaterialProgressFirstStartedAt =
+		dbtime.ToSchoolTimePtr(c, resp.StudentClassMaterialProgressFirstStartedAt)
+	resp.StudentClassMaterialProgressLastActivityAt =
+		dbtime.ToSchoolTimePtr(c, resp.StudentClassMaterialProgressLastActivityAt)
+	resp.StudentClassMaterialProgressCompletedAt =
+		dbtime.ToSchoolTimePtr(c, resp.StudentClassMaterialProgressCompletedAt)
+
+	// audit times
+	resp.StudentClassMaterialProgressCreatedAt =
+		dbtime.ToSchoolTime(c, resp.StudentClassMaterialProgressCreatedAt)
+	resp.StudentClassMaterialProgressUpdatedAt =
+		dbtime.ToSchoolTime(c, resp.StudentClassMaterialProgressUpdatedAt)
+
+	return resp
+}
+
+func NewStudentClassMaterialProgressResponseListWithSchoolTime(
+	c *fiber.Ctx,
+	list []*model.StudentClassMaterialProgressModel,
+) []*StudentClassMaterialProgressResponse {
+	out := make([]*StudentClassMaterialProgressResponse, 0, len(list))
+	for _, m := range list {
+		out = append(out, NewStudentClassMaterialProgressResponseWithSchoolTime(c, m))
 	}
 	return out
 }

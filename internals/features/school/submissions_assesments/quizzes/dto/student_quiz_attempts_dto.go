@@ -6,7 +6,9 @@ import (
 	"time"
 
 	qmodel "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/model"
+	"madinahsalam_backend/internals/helpers/dbtime"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 )
@@ -307,4 +309,36 @@ func FromModelsStudentQuizAttempts(items []qmodel.StudentQuizAttemptModel) []*St
 
 func JSONFromRaw(raw json.RawMessage) datatypes.JSON {
 	return datatypes.JSON(raw)
+}
+
+// Versi timezone-aware: convert semua time field ke timezone sekolah
+func FromModelStudentQuizAttemptWithCtx(c *fiber.Ctx, m *qmodel.StudentQuizAttemptModel) *StudentQuizAttemptResponse {
+	resp := FromModelStudentQuizAttempt(m)
+
+	// Global started/finished
+	resp.StudentQuizAttemptStartedAt = dbtime.ToSchoolTimePtr(c, m.StudentQuizAttemptStartedAt)
+	resp.StudentQuizAttemptFinishedAt = dbtime.ToSchoolTimePtr(c, m.StudentQuizAttemptFinishedAt)
+
+	// Best
+	resp.StudentQuizAttemptBestStartedAt = dbtime.ToSchoolTimePtr(c, m.StudentQuizAttemptBestStartedAt)
+	resp.StudentQuizAttemptBestFinishedAt = dbtime.ToSchoolTimePtr(c, m.StudentQuizAttemptBestFinishedAt)
+
+	// Last
+	resp.StudentQuizAttemptLastStartedAt = dbtime.ToSchoolTimePtr(c, m.StudentQuizAttemptLastStartedAt)
+	resp.StudentQuizAttemptLastFinishedAt = dbtime.ToSchoolTimePtr(c, m.StudentQuizAttemptLastFinishedAt)
+
+	// Created / Updated
+	resp.StudentQuizAttemptCreatedAt = dbtime.ToSchoolTime(c, m.StudentQuizAttemptCreatedAt)
+	resp.StudentQuizAttemptUpdatedAt = dbtime.ToSchoolTime(c, m.StudentQuizAttemptUpdatedAt)
+
+	return resp
+}
+
+func FromModelsStudentQuizAttemptsWithCtx(c *fiber.Ctx, items []qmodel.StudentQuizAttemptModel) []*StudentQuizAttemptResponse {
+	out := make([]*StudentQuizAttemptResponse, 0, len(items))
+	for i := range items {
+		item := items[i]
+		out = append(out, FromModelStudentQuizAttemptWithCtx(c, &item))
+	}
+	return out
 }

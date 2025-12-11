@@ -219,10 +219,8 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 	   MODE default: TANPA include=csst
 	   ============================================ */
 	if !wantCSST {
-		items := make([]dto.StudentCSSTItem, 0, len(rows))
-		for i := range rows {
-			items = append(items, toStudentCSSTItem(&rows[i]))
-		}
+		// gunakan mapper yang sudah konversi waktu ke timezone sekolah
+		items := dto.FromStudentCSSTModelsWithSchoolTime(c, rows)
 		return helper.JsonList(c, "ok", items, pagination)
 	}
 
@@ -280,7 +278,7 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 	students := make([]dto.StudentCSSTItem, 0, len(rows))
 	for i := range rows {
 		if hasMain && rows[i].StudentCSSTCSSTID == mainCSSTID {
-			students = append(students, toStudentCSSTItem(&rows[i]))
+			students = append(students, dto.FromStudentCSSTModelWithSchoolTime(c, &rows[i]))
 		}
 	}
 

@@ -312,7 +312,8 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 	if isCompact {
 		out := make([]bookdto.BookCompact, 0, len(books))
 		for i := range books {
-			item := bookdto.ToBookCompact(&books[i])
+			// 🔹 PAKAI VERSI TIMEZONE-AWARE
+			item := bookdto.ToBookCompactWithSchoolTime(c, &books[i])
 
 			if nestedClassSubjects && csbByBookID != nil {
 				if items, ok := csbByBookID[books[i].BookID]; ok {
@@ -341,7 +342,8 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 	// ===== mode full: pakai BookResponse DTO =====
 	full := make([]bookdto.BookResponse, 0, len(books))
 	for i := range books {
-		item := bookdto.ToBookResponse(&books[i])
+		// 🔹 PAKAI VERSI TIMEZONE-AWARE
+		item := bookdto.ToBookResponseWithSchoolTime(c, &books[i])
 
 		if nestedClassSubjects && csbByBookID != nil {
 			if items, ok := csbByBookID[books[i].BookID]; ok {

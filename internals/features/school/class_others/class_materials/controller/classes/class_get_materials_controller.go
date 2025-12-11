@@ -1,7 +1,9 @@
+// file: internals/features/school/materials/controller/class_materials_controller_list.go
 package controller
 
 import (
 	"log"
+
 	"madinahsalam_backend/internals/features/school/class_others/class_materials/dto"
 	"madinahsalam_backend/internals/features/school/class_others/class_materials/model"
 
@@ -10,6 +12,8 @@ import (
 
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
+
+	dbtime "madinahsalam_backend/internals/helpers/dbtime"
 )
 
 /* =========================================================
@@ -66,7 +70,16 @@ func (h *ClassMaterialsController) List(c *fiber.Ctx) error {
 
 	resp := make([]*dto.ClassMaterialResponseDTO, 0, len(models))
 	for i := range models {
-		resp = append(resp, dto.FromModel(&models[i]))
+		r := dto.FromModel(&models[i])
+
+		// konversi time ke timezone sekolah
+		r.ClassMaterialPublishedAt = dbtime.ToSchoolTimePtr(c, r.ClassMaterialPublishedAt)
+		r.ClassMaterialDeletedAt = dbtime.ToSchoolTimePtr(c, r.ClassMaterialDeletedAt)
+
+		r.ClassMaterialCreatedAt = dbtime.ToSchoolTime(c, r.ClassMaterialCreatedAt)
+		r.ClassMaterialUpdatedAt = dbtime.ToSchoolTime(c, r.ClassMaterialUpdatedAt)
+
+		resp = append(resp, r)
 	}
 
 	pagination := helper.BuildPaginationFromOffset(total, paging.Offset, paging.Limit)

@@ -2,7 +2,7 @@
 package details
 
 import (
-	ucsctrl "madinahsalam_backend/internals/features/school/classes/class_sections/controller/class_section_students" // <-- controller, bukan route
+	ucsctrl "madinahsalam_backend/internals/features/school/classes/class_sections/controller/student_class_sections" // <-- controller, bukan route
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

@@ -215,9 +215,9 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	// Konversi ke DTO (compact / full)
 	var termDTOs interface{}
 	if useCompact {
-		termDTOs = academicsDTO.FromModelsToCompact(list)
+		termDTOs = academicsDTO.FromModelsToCompact(c, list)
 	} else {
-		termDTOs = academicsDTO.FromModels(list)
+		termDTOs = academicsDTO.FromModels(c, list)
 	}
 
 	// ✅ 1) Kalau tidak request include sama sekali → pure list tanpa include

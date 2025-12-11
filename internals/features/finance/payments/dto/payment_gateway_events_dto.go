@@ -5,10 +5,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 
 	model "madinahsalam_backend/internals/features/finance/payments/model"
+	"madinahsalam_backend/internals/helpers/dbtime"
 )
 
 /* =========================================================
@@ -225,10 +227,12 @@ func (p *UpdatePaymentGatewayEventRequest) Apply(m *model.PaymentGatewayEventMod
 	return nil
 }
 
-/* =========================================================
-   RESPONSE
-========================================================= */
+/*
+	=========================================================
+	  RESPONSE
 
+=========================================================
+*/
 type PaymentGatewayEventResponse struct {
 	GatewayEventID uuid.UUID `json:"gateway_event_id"`
 
@@ -258,10 +262,18 @@ type PaymentGatewayEventResponse struct {
 	GatewayEventDeletedAt *time.Time `json:"gateway_event_deleted_at,omitempty"`
 }
 
-func FromModelPGW(m *model.PaymentGatewayEventModel) *PaymentGatewayEventResponse {
+func FromModelPGW(c *fiber.Ctx, m *model.PaymentGatewayEventModel) *PaymentGatewayEventResponse {
 	if m == nil {
 		return nil
 	}
+
+	// 🔹 Konversi semua timestamptz ke timezone sekolah
+	receivedAt := dbtime.ToSchoolTime(c, m.GatewayEventReceivedAt)
+	processedAt := dbtime.ToSchoolTimePtr(c, m.GatewayEventProcessedAt)
+	createdAt := dbtime.ToSchoolTime(c, m.GatewayEventCreatedAt)
+	updatedAt := dbtime.ToSchoolTime(c, m.GatewayEventUpdatedAt)
+	deletedAt := dbtime.ToSchoolTimePtr(c, m.GatewayEventDeletedAt)
+
 	return &PaymentGatewayEventResponse{
 		GatewayEventID: m.GatewayEventID,
 
@@ -283,12 +295,12 @@ func FromModelPGW(m *model.PaymentGatewayEventModel) *PaymentGatewayEventRespons
 		GatewayEventError:    m.GatewayEventError,
 		GatewayEventTryCount: m.GatewayEventTryCount,
 
-		GatewayEventReceivedAt:  m.GatewayEventReceivedAt,
-		GatewayEventProcessedAt: m.GatewayEventProcessedAt,
+		GatewayEventReceivedAt:  receivedAt,
+		GatewayEventProcessedAt: processedAt,
 
-		GatewayEventCreatedAt: m.GatewayEventCreatedAt,
-		GatewayEventUpdatedAt: m.GatewayEventUpdatedAt,
-		GatewayEventDeletedAt: m.GatewayEventDeletedAt,
+		GatewayEventCreatedAt: createdAt,
+		GatewayEventUpdatedAt: updatedAt,
+		GatewayEventDeletedAt: deletedAt,
 	}
 }
 

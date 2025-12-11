@@ -107,9 +107,10 @@ func (ctl *UserGeneralBillingController) List(c *fiber.Ctx) error {
 	}
 
 	// ===== Map ke DTO =====
+	// ===== Map ke DTO =====
 	out := make([]dto.UserGeneralBillingResponse, 0, len(rows))
 	for _, m := range rows {
-		out = append(out, dto.FromModelUserGeneralBilling(m))
+		out = append(out, dto.FromModelUserGeneralBilling(c, m))
 	}
 
 	// ===== Pagination meta =====

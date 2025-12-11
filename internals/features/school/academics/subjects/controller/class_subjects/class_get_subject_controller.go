@@ -1,4 +1,3 @@
-// file: internals/features/lembaga/classes/subjects/main/controller/class_subject_list_controller.go
 package controller
 
 import (
@@ -257,7 +256,8 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 	if isCompact {
 		dataCompact = classSubjectDTO.FromClassSubjectModelsToCompact(rows)
 	} else {
-		dataFull = classSubjectDTO.FromClassSubjectModels(rows)
+		// ✅ pakai versi timezone-aware
+		dataFull = classSubjectDTO.FromClassSubjectModelsWithSchoolTime(c, rows)
 	}
 
 	// Kalau benar-benar nggak ada include & nggak ada nested → simple list

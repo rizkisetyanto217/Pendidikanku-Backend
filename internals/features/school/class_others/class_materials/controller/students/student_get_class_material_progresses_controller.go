@@ -1,8 +1,9 @@
+// file: internals/features/school/classes/class_materials/controller/student_class_material_progress_controller.go
 package controller
 
 import (
-	"madinahsalam_backend/internals/features/school/class_others/class_materials/dto"
-	"madinahsalam_backend/internals/features/school/class_others/class_materials/model"
+	dto "madinahsalam_backend/internals/features/school/class_others/class_materials/dto"
+	model "madinahsalam_backend/internals/features/school/class_others/class_materials/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
@@ -10,6 +11,10 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
+
+/* =======================================================
+   Controller struct
+======================================================= */
 
 /* =======================================================
    List progress materi milik murid yang login
@@ -74,7 +79,8 @@ func (ctl *StudentClassMaterialProgressController) ListMyClassMaterialProgress(c
 		return helper.JsonError(c, fiber.StatusInternalServerError, "failed to list material progress")
 	}
 
-	resp := dto.NewStudentClassMaterialProgressResponseList(progresses)
+	// 🔹 pakai versi DTO yang sudah convert ke timezone sekolah
+	resp := dto.NewStudentClassMaterialProgressResponseListWithSchoolTime(c, progresses)
 	pagination := helper.BuildPaginationFromOffset(total, paging.Offset, paging.Limit)
 
 	return helper.JsonList(c, "ok", resp, pagination)
@@ -124,6 +130,7 @@ func (ctl *StudentClassMaterialProgressController) GetMyClassMaterialProgressByM
 		return helper.JsonError(c, fiber.StatusInternalServerError, "failed to get material progress")
 	}
 
-	resp := dto.NewStudentClassMaterialProgressResponse(&progress)
+	// 🔹 pakai versi timezone-aware
+	resp := dto.NewStudentClassMaterialProgressResponseWithSchoolTime(c, &progress)
 	return helper.JsonOK(c, "ok", resp)
 }

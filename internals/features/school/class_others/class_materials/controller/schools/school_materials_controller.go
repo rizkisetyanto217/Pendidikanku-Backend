@@ -2,14 +2,14 @@
 package controller
 
 import (
-	"time"
-
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
+
+	dbtime "madinahsalam_backend/internals/helpers/dbtime"
 
 	dto "madinahsalam_backend/internals/features/school/class_others/class_materials/dto"
 	materialModel "madinahsalam_backend/internals/features/school/class_others/class_materials/model"
@@ -43,15 +43,12 @@ func NewSchoolMaterialController(db *gorm.DB) *SchoolMaterialController {
 ======================================================= */
 
 func getUserIDFromContext(c *fiber.Ctx) *uuid.UUID {
-	// pakai helperAuth.GetUserIDFromToken (ini yang ada di helper.go kamu)
 	uid, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil || uid == uuid.Nil {
 		return nil
 	}
 	return &uid
 }
-
-
 
 /* =======================================================
    Get Detail School Material
@@ -92,6 +89,13 @@ func (ctl *SchoolMaterialController) GetSchoolMaterialDetail(c *fiber.Ctx) error
 	}
 
 	resp := dto.NewSchoolMaterialResponse(&material)
+
+	// convert ke timezone sekolah
+	resp.SchoolMaterialPublishedAt = dbtime.ToSchoolTimePtr(c, resp.SchoolMaterialPublishedAt)
+	resp.SchoolMaterialDeletedAt = dbtime.ToSchoolTimePtr(c, resp.SchoolMaterialDeletedAt)
+	resp.SchoolMaterialCreatedAt = dbtime.ToSchoolTime(c, resp.SchoolMaterialCreatedAt)
+	resp.SchoolMaterialUpdatedAt = dbtime.ToSchoolTime(c, resp.SchoolMaterialUpdatedAt)
+
 	return helper.JsonOK(c, "ok", resp)
 }
 
@@ -123,7 +127,13 @@ func (ctl *SchoolMaterialController) CreateSchoolMaterial(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "school_material_type is required")
 	}
 
-	model := body.ToModel(schoolID, userID)
+	// pakai waktu dari DB (dbtime helper)
+	now, err := dbtime.GetDBTime(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "failed to get server time")
+	}
+
+	model := body.ToModel(schoolID, userID, now)
 
 	if err := ctl.DB.WithContext(c.Context()).
 		Create(model).Error; err != nil {
@@ -131,6 +141,13 @@ func (ctl *SchoolMaterialController) CreateSchoolMaterial(c *fiber.Ctx) error {
 	}
 
 	resp := dto.NewSchoolMaterialResponse(model)
+
+	// convert time ke timezone sekolah (harusnya sudah, tapi aman)
+	resp.SchoolMaterialPublishedAt = dbtime.ToSchoolTimePtr(c, resp.SchoolMaterialPublishedAt)
+	resp.SchoolMaterialDeletedAt = dbtime.ToSchoolTimePtr(c, resp.SchoolMaterialDeletedAt)
+	resp.SchoolMaterialCreatedAt = dbtime.ToSchoolTime(c, resp.SchoolMaterialCreatedAt)
+	resp.SchoolMaterialUpdatedAt = dbtime.ToSchoolTime(c, resp.SchoolMaterialUpdatedAt)
+
 	return helper.JsonCreated(c, "created", resp)
 }
 
@@ -173,7 +190,13 @@ func (ctl *SchoolMaterialController) UpdateSchoolMaterial(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "failed to get school material")
 	}
 
-	body.ApplyToModel(&material)
+	// pakai waktu dari DB (dbtime helper)
+	now, err := dbtime.GetDBTime(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "failed to get server time")
+	}
+
+	body.ApplyToModel(&material, now)
 
 	if err := ctl.DB.WithContext(c.Context()).
 		Save(&material).Error; err != nil {
@@ -181,6 +204,12 @@ func (ctl *SchoolMaterialController) UpdateSchoolMaterial(c *fiber.Ctx) error {
 	}
 
 	resp := dto.NewSchoolMaterialResponse(&material)
+
+	resp.SchoolMaterialPublishedAt = dbtime.ToSchoolTimePtr(c, resp.SchoolMaterialPublishedAt)
+	resp.SchoolMaterialDeletedAt = dbtime.ToSchoolTimePtr(c, resp.SchoolMaterialDeletedAt)
+	resp.SchoolMaterialCreatedAt = dbtime.ToSchoolTime(c, resp.SchoolMaterialCreatedAt)
+	resp.SchoolMaterialUpdatedAt = dbtime.ToSchoolTime(c, resp.SchoolMaterialUpdatedAt)
+
 	return helper.JsonUpdated(c, "updated", resp)
 }
 
@@ -207,28 +236,25 @@ func (ctl *SchoolMaterialController) DeleteSchoolMaterial(c *fiber.Ctx) error {
 		return err
 	}
 
-	var material materialModel.SchoolMaterialModel
-	if err := ctl.DB.WithContext(c.Context()).
-		Where("school_material_id = ? AND school_material_school_id = ?", materialID, schoolID).
-		Where("school_material_deleted = FALSE").
-		First(&material).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return helper.JsonError(c, fiber.StatusNotFound, "school material not found")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "failed to get school material")
+	// pakai waktu dari DB (dbtime helper)
+	now, err := dbtime.GetDBTime(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "failed to get server time")
 	}
 
-	now := time.Now()
-	material.SchoolMaterialDeleted = true
-	material.SchoolMaterialDeletedAt = &now
+	fields := dto.BuildSoftDeleteFields(now)
 
-	if err := ctl.DB.WithContext(c.Context()).
-		Save(&material).Error; err != nil {
+	res := ctl.DB.WithContext(c.Context()).
+		Model(&materialModel.SchoolMaterialModel{}).
+		Where("school_material_id = ? AND school_material_school_id = ? AND school_material_deleted = FALSE",
+			materialID, schoolID).
+		Updates(fields)
+	if res.Error != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "failed to delete school material")
 	}
+	if res.RowsAffected == 0 {
+		return helper.JsonError(c, fiber.StatusNotFound, "school material not found")
+	}
 
-	return helper.JsonDeleted(c, "deleted", fiber.Map{
-		"school_material_id":    material.SchoolMaterialID,
-		"school_material_title": material.SchoolMaterialTitle,
-	})
+	return helper.JsonDeleted(c, "deleted", nil)
 }

@@ -6,8 +6,8 @@ import (
 	"log"
 	"strings"
 
+	enrollDTO "madinahsalam_backend/internals/features/school/classes/classes/dto"
 	sectionModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
-	dto "madinahsalam_backend/internals/features/school/classes/classes/dto"
 	enrollModel "madinahsalam_backend/internals/features/school/classes/classes/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
@@ -25,6 +25,9 @@ import (
 
 // POST /api/u/classes/my-enrollments/:id/join-section
 func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error {
+	// inject DB ke context (kalau nanti dbtime / helper lain butuh)
+	c.Locals("DB", ctl.DB)
+
 	// ========== school context dari TOKEN ==========
 	schoolID, err := helperAuth.ResolveSchoolIDFromContext(c)
 	if err != nil {
@@ -50,7 +53,7 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 	}
 
 	// Body: class_section_id
-	var body dto.JoinClassSectionRequest
+	var body enrollDTO.JoinClassSectionRequest
 	if err := c.BodyParser(&body); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid body")
 	}
@@ -412,7 +415,7 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 	log.Printf("[JoinSectionCSST] SUCCESS: student_id=%s joined section_id=%s (enrollment_id=%s)",
 		studentID, sec.ClassSectionID, enrollmentID)
 
-	// Balikkan enrollment versi DTO full (biar FE langsung punya data terbaru)
-	resp := dto.FromModelStudentClassEnrollment(&enr)
+	// Balikkan enrollment versi DTO full (biar FE langsung punya data terbaru, sudah timezone-aware)
+	resp := enrollDTO.FromModelStudentClassEnrollmentWithContext(c, &enr)
 	return helper.JsonOK(c, "joined class section", resp)
 }

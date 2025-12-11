@@ -7,7 +7,9 @@ import (
 	"time"
 
 	model "madinahsalam_backend/internals/features/school/academics/books/model"
+	dbtime "madinahsalam_backend/internals/helpers/dbtime"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
 
@@ -308,6 +310,25 @@ func FromModels(list []model.ClassSubjectBookModel) []ClassSubjectBookResponse {
 	return out
 }
 
+// Versi yang otomatis konversi waktu ke timezone sekolah
+func FromModelWithSchoolTime(c *fiber.Ctx, m model.ClassSubjectBookModel) ClassSubjectBookResponse {
+	resp := FromModel(m)
+
+	resp.ClassSubjectBookCreatedAt = dbtime.ToSchoolTime(c, resp.ClassSubjectBookCreatedAt)
+	resp.ClassSubjectBookUpdatedAt = dbtime.ToSchoolTime(c, resp.ClassSubjectBookUpdatedAt)
+	resp.ClassSubjectBookDeletedAt = dbtime.ToSchoolTimePtr(c, resp.ClassSubjectBookDeletedAt)
+
+	return resp
+}
+
+func FromModelsWithSchoolTime(c *fiber.Ctx, list []model.ClassSubjectBookModel) []ClassSubjectBookResponse {
+	out := make([]ClassSubjectBookResponse, 0, len(list))
+	for _, it := range list {
+		out = append(out, FromModelWithSchoolTime(c, it))
+	}
+	return out
+}
+
 /* =========================================================
    4) LOW-LEVEL LIST HELPERS (ROW + SELECT COLS)
    - Dipakai oleh controller yang pakai Table/Scan manual.
@@ -408,11 +429,31 @@ func (r ClassSubjectBookRow) ToResponse() ClassSubjectBookResponse {
 	}
 }
 
+// Versi row → response dengan timezone sekolah
+func (r ClassSubjectBookRow) ToResponseWithSchoolTime(c *fiber.Ctx) ClassSubjectBookResponse {
+	resp := r.ToResponse()
+
+	resp.ClassSubjectBookCreatedAt = dbtime.ToSchoolTime(c, resp.ClassSubjectBookCreatedAt)
+	resp.ClassSubjectBookUpdatedAt = dbtime.ToSchoolTime(c, resp.ClassSubjectBookUpdatedAt)
+	resp.ClassSubjectBookDeletedAt = dbtime.ToSchoolTimePtr(c, resp.ClassSubjectBookDeletedAt)
+
+	return resp
+}
+
 // Konversi slice row → slice response
 func ClassSubjectBookRowsToResponses(rows []ClassSubjectBookRow) []ClassSubjectBookResponse {
 	out := make([]ClassSubjectBookResponse, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, r.ToResponse())
+	}
+	return out
+}
+
+// Versi slice row → slice response + timezone sekolah
+func ClassSubjectBookRowsToResponsesWithSchoolTime(c *fiber.Ctx, rows []ClassSubjectBookRow) []ClassSubjectBookResponse {
+	out := make([]ClassSubjectBookResponse, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.ToResponseWithSchoolTime(c))
 	}
 	return out
 }

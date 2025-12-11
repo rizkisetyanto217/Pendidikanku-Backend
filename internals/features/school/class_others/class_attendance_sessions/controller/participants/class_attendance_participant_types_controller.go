@@ -1,4 +1,3 @@
-// file: internals/features/attendance/controller/class_attendance_session_participant_type_controller.go
 package controller
 
 import (
@@ -83,7 +82,8 @@ func (ctl *ClassAttendanceSessionParticipantTypeController) Create(c *fiber.Ctx)
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return helper.JsonCreated(c, "Berhasil membuat participant type", dto.FromModel(m))
+	// ✅ balikan jam sudah di-convert ke timezone sekolah
+	return helper.JsonCreated(c, "Berhasil membuat participant type", dto.FromModelWithSchoolTime(c, m))
 }
 
 // GET /
@@ -166,7 +166,8 @@ func (ctl *ClassAttendanceSessionParticipantTypeController) List(c *fiber.Ctx) e
 
 	items := make([]dto.ClassAttendanceSessionParticipantTypeItem, len(rows))
 	for i := range rows {
-		items[i] = dto.FromModel(&rows[i])
+		// ✅ convert timestamps per item
+		items[i] = dto.FromModelWithSchoolTime(c, &rows[i])
 	}
 
 	// ===== Meta & response (jsonresponse)
@@ -242,7 +243,8 @@ func (ctl *ClassAttendanceSessionParticipantTypeController) Patch(c *fiber.Ctx) 
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return helper.JsonUpdated(c, "Berhasil mengubah participant type", dto.FromModel(&m))
+	// ✅ balikan jam sudah di-convert
+	return helper.JsonUpdated(c, "Berhasil mengubah participant type", dto.FromModelWithSchoolTime(c, &m))
 }
 
 // DELETE /:id (soft delete)

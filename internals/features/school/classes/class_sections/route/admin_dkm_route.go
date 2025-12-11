@@ -4,7 +4,7 @@ package route
 import (
 	"madinahsalam_backend/internals/constants"
 	classSectionController "madinahsalam_backend/internals/features/school/classes/class_sections/controller/class_sections"
-	classSectionStudentsController "madinahsalam_backend/internals/features/school/classes/class_sections/controller/class_section_students"
+	classSectionStudentsController "madinahsalam_backend/internals/features/school/classes/class_sections/controller/student_class_sections"
 	authMiddleware "madinahsalam_backend/internals/middlewares/auth"
 	schoolkuMiddleware "madinahsalam_backend/internals/middlewares/features"
 

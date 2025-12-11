@@ -223,9 +223,14 @@ func NewSchoolMaterialResponseList(list []*materialModel.SchoolMaterialModel) []
 /* =======================================================
    Mapper: CreateRequest -> Model (untuk INSERT)
    - schoolID & createdByUserID diisi dari context/token
+   - now dari dbtime.GetDBTime(c)
 ======================================================= */
 
-func (req *SchoolMaterialCreateRequest) ToModel(schoolID uuid.UUID, createdByUserID *uuid.UUID) *materialModel.SchoolMaterialModel {
+func (req *SchoolMaterialCreateRequest) ToModel(
+	schoolID uuid.UUID,
+	createdByUserID *uuid.UUID,
+	now time.Time, // pakai waktu dari dbtime helper
+) *materialModel.SchoolMaterialModel {
 	if req == nil {
 		return nil
 	}
@@ -277,14 +282,22 @@ func (req *SchoolMaterialCreateRequest) ToModel(schoolID uuid.UUID, createdByUse
 
 		SchoolMaterialIsActive:    true,
 		SchoolMaterialIsPublished: false,
+		SchoolMaterialDeleted:     false,
+
+		SchoolMaterialCreatedAt: now,
+		SchoolMaterialUpdatedAt: now,
 	}
 }
 
 /* =======================================================
    Mapper: UpdateRequest -> apply ke Model (untuk UPDATE)
+   - now dari dbtime.GetDBTime(c)
 ======================================================= */
 
-func (req *SchoolMaterialUpdateRequest) ApplyToModel(m *materialModel.SchoolMaterialModel) {
+func (req *SchoolMaterialUpdateRequest) ApplyToModel(
+	m *materialModel.SchoolMaterialModel,
+	now time.Time, // pakai waktu dari dbtime helper
+) {
 	if req == nil || m == nil {
 		return
 	}
@@ -348,7 +361,25 @@ func (req *SchoolMaterialUpdateRequest) ApplyToModel(m *materialModel.SchoolMate
 	}
 	if req.SchoolMaterialIsPublished != nil {
 		m.SchoolMaterialIsPublished = *req.SchoolMaterialIsPublished
-		// kalau kamu mau set PublishedAt di sini saat berubah true,
-		// bisa di-handle di service layer (biar ada logic khusus).
+		if *req.SchoolMaterialIsPublished && m.SchoolMaterialPublishedAt == nil {
+			m.SchoolMaterialPublishedAt = &now
+		}
+		if !*req.SchoolMaterialIsPublished {
+			m.SchoolMaterialPublishedAt = nil
+		}
+	}
+
+	m.SchoolMaterialUpdatedAt = now
+}
+
+/* =======================================================
+   Soft delete helper (biar controller tinggal manggil)
+======================================================= */
+
+func BuildSoftDeleteFieldsSchoolMaterial(now time.Time) map[string]any {
+	return map[string]any{
+		"school_material_deleted":    true,
+		"school_material_deleted_at": now,
+		"school_material_updated_at": now,
 	}
 }

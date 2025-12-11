@@ -6,9 +6,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
 	studentmodel "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
+	dbtime "madinahsalam_backend/internals/helpers/dbtime"
 )
 
 /* =========================================================
@@ -390,7 +392,6 @@ type SchoolStudentResp struct {
 	SchoolStudentUserProfileParentWhatsappURLCache *string `json:"school_student_user_profile_parent_whatsapp_url_cache,omitempty"`
 	SchoolStudentUserProfileGenderCache            *string `json:"school_student_user_profile_gender_cache,omitempty"`
 
-	// Nested sections (opsional; default [] kalau tidak diisi controller)
 	SchoolStudentSections []SchoolStudentSectionItem `json:"school_student_class_sections"`
 
 	SchoolStudentCreatedAt time.Time  `json:"school_student_created_at"`
@@ -398,12 +399,18 @@ type SchoolStudentResp struct {
 	SchoolStudentDeletedAt *time.Time `json:"school_student_deleted_at,omitempty"`
 }
 
-func FromModel(m *studentmodel.SchoolStudentModel) SchoolStudentResp {
-	var delAt *time.Time
+func FromModel(c *fiber.Ctx, m *studentmodel.SchoolStudentModel) SchoolStudentResp {
+	// deleted_at: sql.NullTime → *time.Time → timezone sekolah
+	var deletedAt *time.Time
 	if m.SchoolStudentDeletedAt.Valid {
 		t := m.SchoolStudentDeletedAt.Time
-		delAt = &t
+		deletedAt = dbtime.ToSchoolTimePtr(c, &t)
 	}
+
+	joinedAt := dbtime.ToSchoolTimePtr(c, m.SchoolStudentJoinedAt)
+	leftAt := dbtime.ToSchoolTimePtr(c, m.SchoolStudentLeftAt)
+	createdAt := dbtime.ToSchoolTime(c, m.SchoolStudentCreatedAt)
+	updatedAt := dbtime.ToSchoolTime(c, m.SchoolStudentUpdatedAt)
 
 	return SchoolStudentResp{
 		SchoolStudentID:            m.SchoolStudentID,
@@ -415,8 +422,8 @@ func FromModel(m *studentmodel.SchoolStudentModel) SchoolStudentResp {
 		SchoolStudentStatus: m.SchoolStudentStatus,
 		SchoolStudentNote:   m.SchoolStudentNote,
 
-		SchoolStudentJoinedAt: m.SchoolStudentJoinedAt,
-		SchoolStudentLeftAt:   m.SchoolStudentLeftAt,
+		SchoolStudentJoinedAt: joinedAt,
+		SchoolStudentLeftAt:   leftAt,
 
 		SchoolStudentNeedsClassSections: m.SchoolStudentNeedsClassSections,
 
@@ -427,12 +434,11 @@ func FromModel(m *studentmodel.SchoolStudentModel) SchoolStudentResp {
 		SchoolStudentUserProfileParentWhatsappURLCache: m.SchoolStudentUserProfileParentWhatsappURLCache,
 		SchoolStudentUserProfileGenderCache:            m.SchoolStudentUserProfileGenderCache,
 
-		// default: kosong, controller boleh isi manual kalau load nested
 		SchoolStudentSections: []SchoolStudentSectionItem{},
 
-		SchoolStudentCreatedAt: m.SchoolStudentCreatedAt,
-		SchoolStudentUpdatedAt: m.SchoolStudentUpdatedAt,
-		SchoolStudentDeletedAt: delAt,
+		SchoolStudentCreatedAt: createdAt,
+		SchoolStudentUpdatedAt: updatedAt,
+		SchoolStudentDeletedAt: deletedAt,
 	}
 }
 
@@ -453,13 +459,15 @@ type SchoolStudentCompact struct {
 	SchoolStudentUserProfileGenderCache      *string `json:"school_student_user_profile_gender_cache,omitempty"`
 }
 
-func ToSchoolStudentCompact(m *studentmodel.SchoolStudentModel) SchoolStudentCompact {
+func ToSchoolStudentCompact(c *fiber.Ctx, m *studentmodel.SchoolStudentModel) SchoolStudentCompact {
+	joinedAt := dbtime.ToSchoolTimePtr(c, m.SchoolStudentJoinedAt)
+
 	return SchoolStudentCompact{
 		SchoolStudentID:     m.SchoolStudentID,
 		SchoolStudentCode:   m.SchoolStudentCode,
 		SchoolStudentStatus: m.SchoolStudentStatus,
 
-		SchoolStudentJoinedAt: m.SchoolStudentJoinedAt,
+		SchoolStudentJoinedAt: joinedAt,
 
 		SchoolStudentUserProfileNameCache:        m.SchoolStudentUserProfileNameCache,
 		SchoolStudentUserProfileAvatarURLCache:   m.SchoolStudentUserProfileAvatarURLCache,

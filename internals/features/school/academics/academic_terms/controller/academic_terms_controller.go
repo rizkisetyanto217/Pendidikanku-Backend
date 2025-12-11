@@ -132,7 +132,7 @@ func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
 	if err := ctl.DB.Create(&ent).Error; err != nil {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal membuat data")
 	}
-	return helper.JsonCreated(c, "Berhasil membuat tahun akademik", dto.FromModel(ent))
+	return helper.JsonCreated(c, "Berhasil membuat tahun akademik", dto.FromModel(c, ent))
 }
 
 /* =========================================================
@@ -310,7 +310,7 @@ func (ctl *AcademicTermController) Patch(c *fiber.Ctx) error {
 			}
 		}
 
-		out = dto.FromModel(ent)
+		out = dto.FromModel(c, ent)
 		return nil
 	})
 
@@ -444,5 +444,5 @@ func (ctl *AcademicTermController) Restore(c *fiber.Ctx) error {
 		First(&ent).Error; err != nil {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal mengambil data setelah restore")
 	}
-	return helper.JsonUpdated(c, "Berhasil merestore tahun akademik", dto.FromModel(ent))
+	return helper.JsonUpdated(c, "Berhasil merestore tahun akademik", dto.FromModel(c, ent))
 }

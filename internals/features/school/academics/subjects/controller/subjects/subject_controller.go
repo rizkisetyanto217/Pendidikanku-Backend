@@ -100,7 +100,6 @@ func (h *SubjectsController) Create(c *fiber.Ctx) error {
 
 	// 🔒 Hanya DKM/Admin di school ini
 	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
-		// EnsureDKMSchool biasanya mengembalikan *fiber.Error, bungkus ke JSON standar
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
@@ -172,7 +171,6 @@ func (h *SubjectsController) Create(c *fiber.Ctx) error {
 	// 6) Optional upload image → update kolom image di DB
 	uploadedURL := ""
 	if fh := pickImageFile(c, "image", "file"); fh != nil {
-		// gunakan folder yang konsisten
 		keyPrefix := fmt.Sprintf("schools/%s/classes/subjects", schoolID.String())
 		if svc, er := helperOSS.NewOSSServiceFromEnv(""); er == nil {
 			ctx, cancel := context.WithTimeout(c.Context(), 45*time.Second)
@@ -196,7 +194,6 @@ func (h *SubjectsController) Create(c *fiber.Ctx) error {
 						"subject_image_object_key": objKey,
 					}).Error
 
-				// sinkron untuk response
 				ent.SubjectImageURL = &uploadedURL
 				if objKey != "" {
 					ent.SubjectImageObjectKey = &objKey
@@ -211,9 +208,12 @@ func (h *SubjectsController) Create(c *fiber.Ctx) error {
 	_ = h.DB.WithContext(c.Context()).
 		First(&ent, "subject_id = ?", ent.SubjectID).Error
 
-	// Response: langsung subject-nya, tanpa nesting & tanpa uploaded_image_url terpisah
-	return helper.JsonCreated(c, "Berhasil membuat subject", subjectDTO.FromSubjectModel(ent))
-
+	// 🔹 Response: pakai timezone sekolah (dbtime)
+	return helper.JsonCreated(
+		c,
+		"Berhasil membuat subject",
+		subjectDTO.FromSubjectModelWithSchoolTime(c, ent),
+	)
 }
 
 /*
@@ -431,7 +431,6 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 	// ===== Optional: upload image jika ada file =====
 	uploadedURL := ""
 
-	// pakai file dari BindMultipartPatch kalau ada; kalau tidak, fallback pickImageFile
 	if fh == nil {
 		fh = pickImageFile(c, "image", "file")
 	}
@@ -475,7 +474,6 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 				if oldURL != "" {
 					if mv, mvErr := helperOSS.MoveToSpamByPublicURLENV(oldURL, 0); mvErr == nil {
 						movedURL = mv
-						// sinkronkan key lama ke lokasi baru
 						if k, e := helperOSS.ExtractKeyFromPublicURL(movedURL); e == nil {
 							oldObjKey = k
 						} else if k2, e2 := helperOSS.KeyFromPublicURL(movedURL); e2 == nil {
@@ -486,7 +484,6 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 
 				deletePendingUntil := time.Now().Add(30 * 24 * time.Hour)
 
-				// --- update kolom image di DB ---
 				_ = h.DB.WithContext(c.Context()).
 					Model(&subjectModel.SubjectModel{}).
 					Where("subject_id = ?", ent.SubjectID).
@@ -508,7 +505,6 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 						"subject_image_delete_pending_until": deletePendingUntil,
 					}).Error
 
-				// --- sinkron struct untuk response ---
 				ent.SubjectImageURL = &uploadedURL
 				if newObjKey != "" {
 					ent.SubjectImageObjectKey = &newObjKey
@@ -534,17 +530,18 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 	_ = h.DB.WithContext(c.Context()).
 		First(&ent, "subject_id = ?", ent.SubjectID).Error
 
-	// Response: langsung subject yang sudah diupdate
-	return helper.JsonOK(c, "Berhasil memperbarui subject", subjectDTO.FromSubjectModel(ent))
-
+	// 🔹 Response: pakai versi timezone-aware
+	return helper.JsonOK(
+		c,
+		"Berhasil memperbarui subject",
+		subjectDTO.FromSubjectModelWithSchoolTime(c, ent),
+	)
 }
 
 /*
 =========================================================
 
 	DELETE (soft delete, DKM/Admin only) + optional file cleanup
-	- Idempotent: kalau sudah deleted, tetap boleh lanjut cleanup
-	- image_url: diambil dari query/form, fallback ke ent.SubjectImageURL
 
 =========================================================
 */
@@ -557,7 +554,6 @@ func (h *SubjectsController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// Ambil record (alive atau sudah soft-deleted)
 	var ent subjectModel.SubjectModel
 	if err := h.DB.WithContext(c.Context()).
 		First(&ent, "subject_id = ?", id).Error; err != nil {
@@ -567,7 +563,6 @@ func (h *SubjectsController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
-	// Guard: Hanya DKM/Admin pada school terkait
 	if err := helperAuth.EnsureDKMSchool(c, ent.SubjectSchoolID); err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
@@ -575,7 +570,6 @@ func (h *SubjectsController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusForbidden, err.Error())
 	}
 
-	// ===== GUARD: cek apakah subject masih dipakai di class_subjects =====
 	var usedCount int64
 	if err := h.DB.WithContext(c.Context()).
 		Model(&subjectModel.ClassSubjectModel{}).
@@ -596,7 +590,6 @@ func (h *SubjectsController) Delete(c *fiber.Ctx) error {
 		)
 	}
 
-	// Soft delete bila belum
 	now := time.Now()
 	justDeleted := false
 	if !ent.SubjectDeletedAt.Valid {
@@ -612,7 +605,6 @@ func (h *SubjectsController) Delete(c *fiber.Ctx) error {
 		justDeleted = true
 	}
 
-	// === OPSIONAL: cleanup file terkait ===
 	imageURL := strings.TrimSpace(c.Query("image_url"))
 	if imageURL == "" {
 		if v := strings.TrimSpace(c.FormValue("image_url")); v != "" {
@@ -624,7 +616,6 @@ func (h *SubjectsController) Delete(c *fiber.Ctx) error {
 	}
 
 	if imageURL != "" {
-		// Abaikan error seperti semula
 		_, _ = helperOSS.MoveToSpamByPublicURLENV(imageURL, 0)
 	}
 
@@ -642,8 +633,6 @@ func (h *SubjectsController) Delete(c *fiber.Ctx) error {
    Util
    ======================================================= */
 
-// Ambil *multipart.FileHeader dari beberapa kemungkinan field name.
-// Return nil bila tidak ada file.
 func pickImageFile(c *fiber.Ctx, keys ...string) *multipart.FileHeader {
 	if form, err := c.MultipartForm(); err == nil && form != nil {
 		for _, k := range keys {
@@ -654,7 +643,6 @@ func pickImageFile(c *fiber.Ctx, keys ...string) *multipart.FileHeader {
 			}
 		}
 	}
-	// fallback single key
 	if len(keys) > 0 {
 		if fh, err := c.FormFile(keys[0]); err == nil && fh != nil && fh.Size > 0 {
 			return fh

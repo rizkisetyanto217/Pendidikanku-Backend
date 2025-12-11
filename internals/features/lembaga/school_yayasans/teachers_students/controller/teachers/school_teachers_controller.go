@@ -13,6 +13,7 @@ import (
 	statsSvc "madinahsalam_backend/internals/features/lembaga/stats/lembaga_stats/service"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
+	helperDbTime "madinahsalam_backend/internals/helpers/dbtime"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -174,6 +175,14 @@ func (ctrl *SchoolTeacherController) Create(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusConflict, "Pengajar sudah terdaftar")
 		}
 
+		// set created_at / updated_at pakai timezone sekolah
+		if now, _ := helperDbTime.GetDBTime(c); !now.IsZero() {
+			if rec.SchoolTeacherCreatedAt.IsZero() {
+				rec.SchoolTeacherCreatedAt = now
+			}
+			rec.SchoolTeacherUpdatedAt = now
+		}
+
 		// insert guru
 		if err := tx.Create(&rec).Error; err != nil {
 			return err
@@ -198,7 +207,11 @@ func (ctrl *SchoolTeacherController) Create(c *fiber.Ctx) error {
 		return toJSONErr(c, err)
 	}
 
-	return helper.JsonCreated(c, "Pengajar berhasil ditambahkan", teacherDTO.NewSchoolTeacherResponse(&created))
+	return helper.JsonCreated(
+		c,
+		"Pengajar berhasil ditambahkan",
+		teacherDTO.NewSchoolTeacherResponse(c, &created),
+	)
 }
 
 // ===================== UPDATE =====================
@@ -250,7 +263,13 @@ func (ctrl *SchoolTeacherController) Update(c *fiber.Ctx) error {
 	if err := req.ApplyToModel(&before); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
-	before.SchoolTeacherUpdatedAt = time.Now()
+
+	// updated_at pakai timezone sekolah
+	if now, _ := helperDbTime.GetDBTime(c); !now.IsZero() {
+		before.SchoolTeacherUpdatedAt = now
+	} else {
+		before.SchoolTeacherUpdatedAt = time.Now()
+	}
 
 	// save
 	if err := ctrl.DB.WithContext(c.Context()).Save(&before).Error; err != nil {
@@ -294,7 +313,11 @@ func (ctrl *SchoolTeacherController) Update(c *fiber.Ctx) error {
 		}
 	}
 
-	return helper.JsonUpdated(c, "Pengajar diperbarui", teacherDTO.NewSchoolTeacherResponse(&before))
+	return helper.JsonUpdated(
+		c,
+		"Pengajar diperbarui",
+		teacherDTO.NewSchoolTeacherResponse(c, &before),
+	)
 }
 
 // ===================== DELETE =====================

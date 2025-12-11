@@ -6,7 +6,9 @@ import (
 	"time"
 
 	model "madinahsalam_backend/internals/features/school/academics/academic_terms/model"
+	"madinahsalam_backend/internals/helpers/dbtime"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 )
@@ -235,10 +237,11 @@ func (q *AcademicTermFilterDTO) Normalize() {
 
 /* ===================== MAPPERS ===================== */
 
-func FromModel(ent model.AcademicTermModel) AcademicTermResponseDTO {
+func FromModel(c *fiber.Ctx, ent model.AcademicTermModel) AcademicTermResponseDTO {
 	var deletedAt *time.Time
 	if ent.AcademicTermDeletedAt.Valid {
-		t := ent.AcademicTermDeletedAt.Time
+		// pakai helper juga biar konsisten
+		t := dbtime.ToSchoolTime(c, ent.AcademicTermDeletedAt.Time)
 		deletedAt = &t
 	}
 
@@ -247,16 +250,15 @@ func FromModel(ent model.AcademicTermModel) AcademicTermResponseDTO {
 		AcademicTermSchoolID:     ent.AcademicTermSchoolID,
 		AcademicTermAcademicYear: ent.AcademicTermAcademicYear,
 		AcademicTermName:         ent.AcademicTermName,
-		AcademicTermStartDate:    ent.AcademicTermStartDate,
-		AcademicTermEndDate:      ent.AcademicTermEndDate,
-		AcademicTermIsActive:     ent.AcademicTermIsActive,
-		AcademicTermAngkatan:     ent.AcademicTermAngkatan,
 
-		AcademicTermCode:        ent.AcademicTermCode,
-		AcademicTermSlug:        ent.AcademicTermSlug,
-		AcademicTermDescription: ent.AcademicTermDescription,
+		AcademicTermStartDate: dbtime.ToSchoolTime(c, ent.AcademicTermStartDate),
+		AcademicTermEndDate:   dbtime.ToSchoolTime(c, ent.AcademicTermEndDate),
+		AcademicTermIsActive:  ent.AcademicTermIsActive,
 
-		// ALL stats → *_count
+		AcademicTermAngkatan:             ent.AcademicTermAngkatan,
+		AcademicTermCode:                 ent.AcademicTermCode,
+		AcademicTermSlug:                 ent.AcademicTermSlug,
+		AcademicTermDescription:          ent.AcademicTermDescription,
 		AcademicTermClassCount:           ent.AcademicTermClassCount,
 		AcademicTermClassSectionCount:    ent.AcademicTermClassSectionCount,
 		AcademicTermStudentCount:         ent.AcademicTermStudentCount,
@@ -277,16 +279,16 @@ func FromModel(ent model.AcademicTermModel) AcademicTermResponseDTO {
 		AcademicTermStats: ent.AcademicTermStats,
 
 		AcademicTermPeriod:    ent.AcademicTermPeriod,
-		AcademicTermCreatedAt: ent.AcademicTermCreatedAt,
-		AcademicTermUpdatedAt: ent.AcademicTermUpdatedAt,
+		AcademicTermCreatedAt: dbtime.ToSchoolTime(c, ent.AcademicTermCreatedAt),
+		AcademicTermUpdatedAt: dbtime.ToSchoolTime(c, ent.AcademicTermUpdatedAt),
 		AcademicTermDeletedAt: deletedAt,
 	}
 }
 
-func FromModels(list []model.AcademicTermModel) []AcademicTermResponseDTO {
+func FromModels(c *fiber.Ctx, list []model.AcademicTermModel) []AcademicTermResponseDTO {
 	out := make([]AcademicTermResponseDTO, 0, len(list))
 	for _, it := range list {
-		out = append(out, FromModel(it))
+		out = append(out, FromModel(c, it))
 	}
 	return out
 }
@@ -350,7 +352,7 @@ type AcademicTermCompactDTO struct {
 }
 
 // Mapper dari model penuh → compact
-func FromModelToCompact(ent model.AcademicTermModel) AcademicTermCompactDTO {
+func FromModelToCompact(c *fiber.Ctx, ent model.AcademicTermModel) AcademicTermCompactDTO {
 	return AcademicTermCompactDTO{
 		AcademicTermID:                      ent.AcademicTermID,
 		AcademicTermAcademicYear:            ent.AcademicTermAcademicYear,
@@ -359,21 +361,22 @@ func FromModelToCompact(ent model.AcademicTermModel) AcademicTermCompactDTO {
 		AcademicTermStudentCount:            ent.AcademicTermStudentCount,
 		AcademicTermClassSectionActiveCount: ent.AcademicTermClassSectionActiveCount,
 		AcademicTermStudentActiveCount:      ent.AcademicTermStudentActiveCount,
-		AcademicTermStartDate:               ent.AcademicTermStartDate,
-		AcademicTermEndDate:                 ent.AcademicTermEndDate,
-		AcademicTermIsActive:                ent.AcademicTermIsActive,
-		AcademicTermAngkatan:                ent.AcademicTermAngkatan,
-		AcademicTermCode:                    ent.AcademicTermCode,
-		AcademicTermSlug:                    ent.AcademicTermSlug,
-		AcademicTermPeriod:                  ent.AcademicTermPeriod,
+
+		AcademicTermStartDate: dbtime.ToSchoolTime(c, ent.AcademicTermStartDate),
+		AcademicTermEndDate:   dbtime.ToSchoolTime(c, ent.AcademicTermEndDate),
+		AcademicTermIsActive:  ent.AcademicTermIsActive,
+		AcademicTermAngkatan:  ent.AcademicTermAngkatan,
+		AcademicTermCode:      ent.AcademicTermCode,
+		AcademicTermSlug:      ent.AcademicTermSlug,
+		AcademicTermPeriod:    ent.AcademicTermPeriod,
 	}
 }
 
 // Mapper slice model → slice compact DTO
-func FromModelsToCompact(list []model.AcademicTermModel) []AcademicTermCompactDTO {
+func FromModelsToCompact(c *fiber.Ctx, list []model.AcademicTermModel) []AcademicTermCompactDTO {
 	out := make([]AcademicTermCompactDTO, 0, len(list))
 	for _, it := range list {
-		out = append(out, FromModelToCompact(it))
+		out = append(out, FromModelToCompact(c, it))
 	}
 	return out
 }

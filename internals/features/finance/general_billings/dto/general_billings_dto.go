@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
 	model "madinahsalam_backend/internals/features/finance/general_billings/model"
+	"madinahsalam_backend/internals/helpers/dbtime"
 )
 
 /* =========================================================
@@ -303,11 +305,17 @@ type GeneralBillingResponse struct {
 	GeneralBillingDeletedAt *time.Time `json:"general_billing_deleted_at,omitempty"`
 }
 
-func FromModelGeneralBilling(m *model.GeneralBillingModel) *GeneralBillingResponse {
-	// DATE -> "YYYY-MM-DD"
+func FromModelGeneralBilling(c *fiber.Ctx, m *model.GeneralBillingModel) *GeneralBillingResponse {
+	// Konversi created/updated/deleted ke timezone sekolah
+	createdAt := dbtime.ToSchoolTime(c, m.GeneralBillingCreatedAt)
+	updatedAt := dbtime.ToSchoolTime(c, m.GeneralBillingUpdatedAt)
+	deletedAt := dbtime.ToSchoolTimePtr(c, m.GeneralBillingDeletedAt)
+
+	// Due date: tetap string "YYYY-MM-DD" tapi berdasarkan waktu di timezone sekolah
 	var due *string
 	if m.GeneralBillingDueDate != nil {
-		s := m.GeneralBillingDueDate.Format("2006-01-02")
+		localDue := dbtime.ToSchoolTime(c, *m.GeneralBillingDueDate)
+		s := localDue.Format("2006-01-02")
 		due = &s
 	}
 
@@ -332,8 +340,8 @@ func FromModelGeneralBilling(m *model.GeneralBillingModel) *GeneralBillingRespon
 		GeneralBillingIsActive:         m.GeneralBillingIsActive,
 		GeneralBillingDefaultAmountIDR: m.GeneralBillingDefaultAmountIDR,
 
-		GeneralBillingCreatedAt: m.GeneralBillingCreatedAt,
-		GeneralBillingUpdatedAt: m.GeneralBillingUpdatedAt,
-		GeneralBillingDeletedAt: m.GeneralBillingDeletedAt,
+		GeneralBillingCreatedAt: createdAt,
+		GeneralBillingUpdatedAt: updatedAt,
+		GeneralBillingDeletedAt: deletedAt,
 	}
 }

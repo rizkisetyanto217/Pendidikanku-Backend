@@ -1,3 +1,4 @@
+// file: internals/features/school/classes/class_section_subject_teachers/dto/csst_dto.go
 package dto
 
 import (
@@ -10,6 +11,11 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
+
+	// TZ-aware helpers
+	"madinahsalam_backend/internals/helpers/dbtime"
+
+	"github.com/gofiber/fiber/v2"
 )
 
 /* =========================================================
@@ -22,7 +28,7 @@ type FromCSSTOptions struct {
 	IncludeAcademicTerm bool
 }
 
-// Nested academic term (dipakai kalau include=academic_term)
+// Nested academic term (dipakai kalau include/nested=academic_term)
 type AcademicTermLite struct {
 	ID       *uuid.UUID `json:"id,omitempty"`
 	Name     *string    `json:"name,omitempty"`
@@ -151,7 +157,7 @@ type CreateClassSectionSubjectTeacherRequest struct {
 	ClassSectionSubjectTeacherTotalMeetingsTarget *int `json:"class_section_subject_teacher_total_meetings_target" validate:"omitempty"`
 	ClassSectionSubjectTeacherMinPassingScore     *int `json:"class_section_subject_teacher_min_passing_score" validate:"omitempty,gte=0"`
 
-	// Status (enum baru) + kompat lama (bool)
+	// Status (enum baru)
 	// enum: active | inactive | completed
 	ClassSectionSubjectTeacherStatus *csstModel.ClassStatus `json:"class_section_subject_teacher_status" validate:"omitempty,oneof=active inactive completed"`
 }
@@ -179,7 +185,7 @@ type UpdateClassSectionSubjectTeacherRequest struct {
 	ClassSectionSubjectTeacherTotalMeetingsTarget *int `json:"class_section_subject_teacher_total_meetings_target" validate:"omitempty"`
 	ClassSectionSubjectTeacherMinPassingScore     *int `json:"class_section_subject_teacher_min_passing_score" validate:"omitempty,gte=0"`
 
-	// Status (enum) + kompat lama (bool)
+	// Status (enum)
 	ClassSectionSubjectTeacherStatus *csstModel.ClassStatus `json:"class_section_subject_teacher_status" validate:"omitempty,oneof=active inactive completed"`
 }
 
@@ -213,7 +219,7 @@ type ClassSectionSubjectTeacherResponse struct {
 	// total assessments (semua tipe)
 	ClassSectionSubjectTeacherTotalAssessments int `json:"class_section_subject_teacher_total_assessments"`
 
-	// total per tipe assessment (training / daily_exam / exam)
+	// total per tipe assessment
 	ClassSectionSubjectTeacherTotalAssessmentsTraining  int `json:"class_section_subject_teacher_total_assessments_training"`
 	ClassSectionSubjectTeacherTotalAssessmentsDailyExam int `json:"class_section_subject_teacher_total_assessments_daily_exam"`
 	ClassSectionSubjectTeacherTotalAssessmentsExam      int `json:"class_section_subject_teacher_total_assessments_exam"`
@@ -274,8 +280,30 @@ type ClassSectionSubjectTeacherResponse struct {
 	ClassSectionSubjectTeacherUpdatedAt   time.Time             `json:"class_section_subject_teacher_updated_at"`
 	ClassSectionSubjectTeacherDeletedAt   *time.Time            `json:"class_section_subject_teacher_deleted_at,omitempty"`
 
-	// nested academic_term (optional, pakai include)
+	// nested academic_term (optional, pakai include/nested)
 	AcademicTerm *AcademicTermLite `json:"academic_term,omitempty"`
+}
+
+// =================== TZ Helpers untuk DTO ===================
+
+// Konversi semua field time ke timezone sekolah (dari token/middleware)
+func (r ClassSectionSubjectTeacherResponse) WithSchoolTime(c *fiber.Ctx) ClassSectionSubjectTeacherResponse {
+	out := r
+
+	out.ClassSectionSubjectTeacherCreatedAt = dbtime.ToSchoolTime(c, r.ClassSectionSubjectTeacherCreatedAt)
+	out.ClassSectionSubjectTeacherUpdatedAt = dbtime.ToSchoolTime(c, r.ClassSectionSubjectTeacherUpdatedAt)
+	out.ClassSectionSubjectTeacherCompletedAt = dbtime.ToSchoolTimePtr(c, r.ClassSectionSubjectTeacherCompletedAt)
+	out.ClassSectionSubjectTeacherDeletedAt = dbtime.ToSchoolTimePtr(c, r.ClassSectionSubjectTeacherDeletedAt)
+
+	return out
+}
+
+// Opsional helper kalau mau pakai langsung dari model
+func FromClassSectionSubjectTeacherModelWithSchoolTime(
+	c *fiber.Ctx,
+	m csstModel.ClassSectionSubjectTeacherModel,
+) ClassSectionSubjectTeacherResponse {
+	return FromClassSectionSubjectTeacherModel(m).WithSchoolTime(c)
 }
 
 /* =========================================================
@@ -328,7 +356,6 @@ func (r CreateClassSectionSubjectTeacherRequest) ToModel() csstModel.ClassSectio
 
 	// ====== Status (enum) + fallback ======
 	status := csstModel.ClassStatusActive
-
 	if r.ClassSectionSubjectTeacherStatus != nil {
 		status = *r.ClassSectionSubjectTeacherStatus
 	}
@@ -412,9 +439,9 @@ func fromClassSectionSubjectTeacherModelWithOptions(
 	}
 
 	// status (derived)
-	statusStr := string(m.ClassSectionSubjectTeacherStatus)
-	if statusStr == "" {
-		statusStr = string(csstModel.ClassStatusActive)
+	status := m.ClassSectionSubjectTeacherStatus
+	if status == "" {
+		status = csstModel.ClassStatusActive
 	}
 
 	resp := ClassSectionSubjectTeacherResponse{
@@ -438,12 +465,14 @@ func fromClassSectionSubjectTeacherModelWithOptions(
 		ClassSectionSubjectTeacherQuotaTotal:          m.ClassSectionSubjectTeacherQuotaTotal,
 		ClassSectionSubjectTeacherQuotaTaken:          m.ClassSectionSubjectTeacherQuotaTaken,
 
-		ClassSectionSubjectTeacherTotalAssessments:               m.ClassSectionSubjectTeacherTotalAssessments,
-		ClassSectionSubjectTeacherTotalAssessmentsTraining:       m.ClassSectionSubjectTeacherTotalAssessmentsTraining,
-		ClassSectionSubjectTeacherTotalAssessmentsDailyExam:      m.ClassSectionSubjectTeacherTotalAssessmentsDailyExam,
-		ClassSectionSubjectTeacherTotalAssessmentsExam:           m.ClassSectionSubjectTeacherTotalAssessmentsExam,
-		ClassSectionSubjectTeacherTotalStudentsPassed:            m.ClassSectionSubjectTeacherTotalStudentsPassed,
-		ClassSectionSubjectTeacherDeliveryMode:                   string(m.ClassSectionSubjectTeacherDeliveryMode),
+		ClassSectionSubjectTeacherTotalAssessments:          m.ClassSectionSubjectTeacherTotalAssessments,
+		ClassSectionSubjectTeacherTotalAssessmentsTraining:  m.ClassSectionSubjectTeacherTotalAssessmentsTraining,
+		ClassSectionSubjectTeacherTotalAssessmentsDailyExam: m.ClassSectionSubjectTeacherTotalAssessmentsDailyExam,
+		ClassSectionSubjectTeacherTotalAssessmentsExam:      m.ClassSectionSubjectTeacherTotalAssessmentsExam,
+
+		ClassSectionSubjectTeacherTotalStudentsPassed: m.ClassSectionSubjectTeacherTotalStudentsPassed,
+		ClassSectionSubjectTeacherDeliveryMode:        string(m.ClassSectionSubjectTeacherDeliveryMode),
+
 		ClassSectionSubjectTeacherTotalBooks:                     m.ClassSectionSubjectTeacherTotalBooks,
 		ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache: attendanceCache,
 
@@ -486,7 +515,7 @@ func fromClassSectionSubjectTeacherModelWithOptions(
 		ClassSectionSubjectTeacherMinPassingScore:                  m.ClassSectionSubjectTeacherMinPassingScore,
 
 		// Status & audit
-		ClassSectionSubjectTeacherStatus:      csstModel.ClassStatus(statusStr),
+		ClassSectionSubjectTeacherStatus:      status,
 		ClassSectionSubjectTeacherCompletedAt: m.ClassSectionSubjectTeacherCompletedAt,
 		ClassSectionSubjectTeacherCreatedAt:   m.ClassSectionSubjectTeacherCreatedAt,
 		ClassSectionSubjectTeacherUpdatedAt:   m.ClassSectionSubjectTeacherUpdatedAt,
@@ -576,9 +605,39 @@ type ClassSectionSubjectTeacherCompactResponse struct {
 	ClassSectionSubjectTeacherUpdatedAt   time.Time             `json:"class_section_subject_teacher_updated_at"`
 }
 
+// TZ helper untuk compact response
+func (r ClassSectionSubjectTeacherCompactResponse) WithSchoolTime(
+	c *fiber.Ctx,
+) ClassSectionSubjectTeacherCompactResponse {
+	out := r
+
+	out.ClassSectionSubjectTeacherCreatedAt = dbtime.ToSchoolTime(c, r.ClassSectionSubjectTeacherCreatedAt)
+	out.ClassSectionSubjectTeacherUpdatedAt = dbtime.ToSchoolTime(c, r.ClassSectionSubjectTeacherUpdatedAt)
+	out.ClassSectionSubjectTeacherCompletedAt = dbtime.ToSchoolTimePtr(c, r.ClassSectionSubjectTeacherCompletedAt)
+
+	return out
+}
+
+func FromClassSectionSubjectTeacherModelCompactWithSchoolTime(
+	c *fiber.Ctx,
+	m csstModel.ClassSectionSubjectTeacherModel,
+) ClassSectionSubjectTeacherCompactResponse {
+	return FromClassSectionSubjectTeacherModelCompact(m).WithSchoolTime(c)
+}
+
+func FromClassSectionSubjectTeacherModelsCompactWithSchoolTime(
+	c *fiber.Ctx,
+	rows []csstModel.ClassSectionSubjectTeacherModel,
+) []ClassSectionSubjectTeacherCompactResponse {
+	out := make([]ClassSectionSubjectTeacherCompactResponse, 0, len(rows))
+	for i := range rows {
+		out = append(out, FromClassSectionSubjectTeacherModelCompact(rows[i]).WithSchoolTime(c))
+	}
+	return out
+}
+
 // mapping single → compact
 func FromClassSectionSubjectTeacherModelCompact(mo csstModel.ClassSectionSubjectTeacherModel) ClassSectionSubjectTeacherCompactResponse {
-
 	// status (derived default)
 	status := mo.ClassSectionSubjectTeacherStatus
 	if status == "" {
