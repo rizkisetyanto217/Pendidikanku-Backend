@@ -46,6 +46,19 @@ const (
 )
 
 // =========================
+// Enum: Assessment Status
+// (draft / published / archived)
+// =========================
+
+type AssessmentStatus string
+
+const (
+	AssessmentStatusDraft     AssessmentStatus = "draft"
+	AssessmentStatusPublished AssessmentStatus = "published"
+	AssessmentStatusArchived  AssessmentStatus = "archived"
+)
+
+// =========================
 // Model: assessments
 // =========================
 
@@ -75,10 +88,11 @@ type AssessmentModel struct {
 	AssessmentClosedAt    *time.Time `gorm:"type:timestamptz;column:assessment_closed_at" json:"assessment_closed_at,omitempty"`
 
 	// Pengaturan dasar assessment
-	AssessmentKind                 AssessmentKind `gorm:"type:assessment_kind_enum;not null;default:'quiz';column:assessment_kind" json:"assessment_kind"`
-	AssessmentDurationMinutes      *int           `gorm:"type:int;column:assessment_duration_minutes" json:"assessment_duration_minutes,omitempty"`
-	AssessmentTotalAttemptsAllowed int            `gorm:"type:int;not null;default:1;column:assessment_total_attempts_allowed" json:"assessment_total_attempts_allowed"`
-	AssessmentMaxScore             float64        `gorm:"type:numeric(5,2);not null;default:100;column:assessment_max_score" json:"assessment_max_score"`
+	AssessmentKind                 AssessmentKind   `gorm:"type:assessment_kind_enum;not null;default:'quiz';column:assessment_kind" json:"assessment_kind"`
+	AssessmentStatus               AssessmentStatus `gorm:"type:assessment_status_enum;not null;default:'draft';column:assessment_status" json:"assessment_status"`
+	AssessmentDurationMinutes      *int             `gorm:"type:int;column:assessment_duration_minutes" json:"assessment_duration_minutes,omitempty"`
+	AssessmentTotalAttemptsAllowed int              `gorm:"type:int;not null;default:1;column:assessment_total_attempts_allowed" json:"assessment_total_attempts_allowed"`
+	AssessmentMaxScore             float64          `gorm:"type:numeric(5,2);not null;default:100;column:assessment_max_score" json:"assessment_max_score"`
 
 	// total quiz/komponen quiz di assessment ini (global, sama untuk semua siswa)
 	AssessmentQuizTotal int `gorm:"type:smallint;not null;default:0;column:assessment_quiz_total" json:"assessment_quiz_total"`
@@ -87,16 +101,11 @@ type AssessmentModel struct {
 	AssessmentSubmissionsTotal       int `gorm:"type:int;not null;default:0;column:assessment_submissions_total" json:"assessment_submissions_total"`
 	AssessmentSubmissionsGradedTotal int `gorm:"type:int;not null;default:0;column:assessment_submissions_graded_total" json:"assessment_submissions_graded_total"`
 
-	AssessmentIsPublished     bool `gorm:"not null;default:true;column:assessment_is_published" json:"assessment_is_published"`
-	AssessmentAllowSubmission bool `gorm:"not null;default:true;column:assessment_allow_submission" json:"assessment_allow_submission"`
 
 	// Flag apakah assessment type ini menghasilkan nilai (graded) — snapshot
 	AssessmentTypeIsGradedSnapshot bool `gorm:"not null;default:false;column:assessment_type_is_graded_snapshot" json:"assessment_type_is_graded_snapshot"`
 
-	// =========================
 	// Snapshot aturan dari AssessmentType (per assessment)
-	// HANYA grading & late policy (sesuai SQL)
-	// =========================
 	AssessmentAllowLateSubmissionSnapshot bool    `gorm:"not null;default:false;column:assessment_allow_late_submission_snapshot" json:"assessment_allow_late_submission_snapshot"`
 	AssessmentLatePenaltyPercentSnapshot  float64 `gorm:"type:numeric(5,2);not null;default:0;column:assessment_late_penalty_percent_snapshot" json:"assessment_late_penalty_percent_snapshot"`
 	AssessmentPassingScorePercentSnapshot float64 `gorm:"type:numeric(5,2);not null;default:0;column:assessment_passing_score_percent_snapshot" json:"assessment_passing_score_percent_snapshot"`

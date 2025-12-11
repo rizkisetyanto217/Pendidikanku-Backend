@@ -159,6 +159,18 @@ CREATE INDEX IF NOT EXISTS brin_assessment_types_created_at
 
 COMMIT;
 
+
+
+-- =========================================================
+-- ENUM: assessment_status_enum
+-- =========================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'assessment_status_enum') THEN
+    CREATE TYPE assessment_status_enum AS ENUM ('draft','published','archived');
+  END IF;
+END$$;
+
 -- =========================================================
 -- ENUM: assessment_kind_enum
 -- =========================================================
@@ -175,7 +187,7 @@ BEGIN
 END$$;
 
 -- =========================================================
--- TABLE: assessments (FINAL)
+-- TABLE: assessments (FINAL, fresh create)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS assessments (
   assessment_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -201,9 +213,12 @@ CREATE TABLE IF NOT EXISTS assessments (
   assessment_closed_at    TIMESTAMPTZ,
 
   -- Pengaturan dasar assessment
-  assessment_kind assessment_kind_enum NOT NULL DEFAULT 'quiz',
+  assessment_kind   assessment_kind_enum   NOT NULL DEFAULT 'quiz',
+  assessment_status assessment_status_enum NOT NULL DEFAULT 'draft',
+
   assessment_duration_minutes       INT,
   assessment_total_attempts_allowed INT NOT NULL DEFAULT 1,
+
   assessment_max_score NUMERIC(5,2) NOT NULL DEFAULT 100
     CHECK (assessment_max_score >= 0 AND assessment_max_score <= 100),
 
@@ -214,12 +229,10 @@ CREATE TABLE IF NOT EXISTS assessments (
   assessment_submissions_total        INT NOT NULL DEFAULT 0,
   assessment_submissions_graded_total INT NOT NULL DEFAULT 0,
 
-  assessment_is_published     BOOLEAN NOT NULL DEFAULT TRUE,
-  assessment_allow_submission BOOLEAN NOT NULL DEFAULT TRUE,
-
   -- Flag apakah assessment type ini menghasilkan nilai (graded) — snapshot
   assessment_type_is_graded_snapshot BOOLEAN NOT NULL DEFAULT FALSE,
 
+  -- snapshot kategori besar type (training / daily_exam / exam)
   assessment_type_category_snapshot assessment_type_enum,
 
   -- ======================================================
@@ -227,7 +240,7 @@ CREATE TABLE IF NOT EXISTS assessments (
   -- HANYA grading & late policy
   -- (quiz behaviour + attempts + aggregation ada di tabel quizzes)
   -- ======================================================
-  assessment_allow_late_submission_snapshot BOOLEAN NOT NULL DEFAULT FALSE,
+  assessment_allow_late_submission_snapshot BOOLEAN    NOT NULL DEFAULT FALSE,
   assessment_late_penalty_percent_snapshot  NUMERIC(5,2) NOT NULL DEFAULT 0,
   assessment_passing_score_percent_snapshot NUMERIC(5,2) NOT NULL DEFAULT 0,
 
@@ -274,11 +287,6 @@ BEGIN
   END IF;
 END$$;
 
--- index bantu untuk join cepat ke assessment_types
-CREATE INDEX IF NOT EXISTS idx_assessments_type
-  ON assessments (assessment_type_id)
-  WHERE assessment_deleted_at IS NULL;
-
 -- =========================================================
 -- FK OPSIONAL KE class_attendance_sessions
 -- =========================================================
@@ -308,6 +316,8 @@ END$$;
 -- =========================================================
 -- INDEXES assessments
 -- =========================================================
+
+-- multi-tenant safety
 CREATE UNIQUE INDEX IF NOT EXISTS uq_assessments_id_tenant
   ON assessments (assessment_id, assessment_school_id);
 
@@ -361,6 +371,10 @@ CREATE INDEX IF NOT EXISTS idx_assessments_submissions_graded_total_alive
   ON assessments (assessment_school_id, assessment_submissions_graded_total)
   WHERE assessment_deleted_at IS NULL;
 
+-- Index status (buat filter cepat draft/published/archived)
+CREATE INDEX IF NOT EXISTS idx_assessments_status_alive
+  ON assessments (assessment_school_id, assessment_status)
+  WHERE assessment_deleted_at IS NULL;
 
 
 -- =========================================================

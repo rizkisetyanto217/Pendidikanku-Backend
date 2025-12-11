@@ -188,10 +188,10 @@ func (ctl *AssessmentController) hydrateAssessmentTypeSnapshot(
 	var at model.AssessmentTypeModel
 	if err := ctl.DB.WithContext(c.Context()).
 		Where(`
-			assessment_type_id = ?
-			AND assessment_type_school_id = ?
-			AND assessment_type_deleted_at IS NULL
-		`, typeID, schoolID).
+            assessment_type_id = ?
+            AND assessment_type_school_id = ?
+            AND assessment_type_deleted_at IS NULL
+        `, typeID, schoolID).
 		Take(&at).Error; err != nil {
 
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -212,9 +212,10 @@ func (ctl *AssessmentController) hydrateAssessmentTypeSnapshot(
 	a.AssessmentPassingScorePercentSnapshot = at.AssessmentTypePassingScorePercent
 
 	// Snapshot: kategori besar (training / daily_exam / exam)
-	// asumsi field di AssessmentModel:
-	//   AssessmentTypeCategorySnapshot string `gorm:"column:assessment_type_category_snapshot"`
 	a.AssessmentTypeCategorySnapshot = model.AssessmentTypeCategory(at.AssessmentTypeCategory)
+
+	// ⬅️ Ini dia: SELALU sinkron attempts dari type
+	a.AssessmentTotalAttemptsAllowed = at.AssessmentTypeAttemptsAllowed
 
 	return nil
 }
@@ -471,9 +472,8 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat assessment")
 	}
 
-	// 🔼 UP: tambah total_assessments (+ graded / ungraded) di CSST kalau ada relasi
+	// 🔼 UP: tambah total_assessments (+ per kategori) di CSST kalau ada relasi
 	if row.AssessmentClassSectionSubjectTeacherID != nil && *row.AssessmentClassSectionSubjectTeacherID != uuid.Nil {
-		isGraded := row.AssessmentTypeIsGradedSnapshot // bool
 
 		updates := map[string]any{
 			"class_section_subject_teacher_total_assessments": gorm.Expr(
@@ -481,23 +481,29 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 			),
 		}
 
-		if isGraded {
-			updates["class_section_subject_teacher_total_assessments_graded"] = gorm.Expr(
-				"class_section_subject_teacher_total_assessments_graded + 1",
+		// Naikkan counter per kategori kalau snapshot ada
+		switch row.AssessmentTypeCategorySnapshot {
+		case model.AssessmentTypeCategoryTraining:
+			updates["class_section_subject_teacher_total_assessments_training"] = gorm.Expr(
+				"class_section_subject_teacher_total_assessments_training + 1",
 			)
-		} else {
-			updates["class_section_subject_teacher_total_assessments_ungraded"] = gorm.Expr(
-				"class_section_subject_teacher_total_assessments_ungraded + 1",
+		case model.AssessmentTypeCategoryDailyExam:
+			updates["class_section_subject_teacher_total_assessments_daily_exam"] = gorm.Expr(
+				"class_section_subject_teacher_total_assessments_daily_exam + 1",
+			)
+		case model.AssessmentTypeCategoryExam:
+			updates["class_section_subject_teacher_total_assessments_exam"] = gorm.Expr(
+				"class_section_subject_teacher_total_assessments_exam + 1",
 			)
 		}
 
 		if err := tx.WithContext(c.Context()).
 			Model(&csstModel.ClassSectionSubjectTeacherModel{}).
 			Where(`
-				class_section_subject_teacher_school_id = ?
-				AND class_section_subject_teacher_id = ?
-				AND class_section_subject_teacher_deleted_at IS NULL
-			`, mid, *row.AssessmentClassSectionSubjectTeacherID).
+            class_section_subject_teacher_school_id = ?
+            AND class_section_subject_teacher_id = ?
+            AND class_section_subject_teacher_deleted_at IS NULL
+        `, mid, *row.AssessmentClassSectionSubjectTeacherID).
 			Updates(updates).Error; err != nil {
 
 			tx.Rollback()
@@ -794,36 +800,86 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 		// 🔁 DOWN/UP kalau CSST berubah
 		newCSSTID := existing.AssessmentClassSectionSubjectTeacherID
 		if !uuidPtrEqual(oldCSSTID, newCSSTID) {
+
+			// Ambil kategori snapshot saat INI (setelah patch type)
+			cat := existing.AssessmentTypeCategorySnapshot
+
+			// helper untuk map updates per kategori (dipakai di old & new)
+			buildDecUpdates := func() map[string]any {
+				u := map[string]any{
+					"class_section_subject_teacher_total_assessments": gorm.Expr(
+						"CASE WHEN class_section_subject_teacher_total_assessments > 0 " +
+							"THEN class_section_subject_teacher_total_assessments - 1 ELSE 0 END",
+					),
+				}
+				switch cat {
+				case model.AssessmentTypeCategoryTraining:
+					u["class_section_subject_teacher_total_assessments_training"] = gorm.Expr(
+						"CASE WHEN class_section_subject_teacher_total_assessments_training > 0 " +
+							"THEN class_section_subject_teacher_total_assessments_training - 1 ELSE 0 END",
+					)
+				case model.AssessmentTypeCategoryDailyExam:
+					u["class_section_subject_teacher_total_assessments_daily_exam"] = gorm.Expr(
+						"CASE WHEN class_section_subject_teacher_total_assessments_daily_exam > 0 " +
+							"THEN class_section_subject_teacher_total_assessments_daily_exam - 1 ELSE 0 END",
+					)
+				case model.AssessmentTypeCategoryExam:
+					u["class_section_subject_teacher_total_assessments_exam"] = gorm.Expr(
+						"CASE WHEN class_section_subject_teacher_total_assessments_exam > 0 " +
+							"THEN class_section_subject_teacher_total_assessments_exam - 1 ELSE 0 END",
+					)
+				}
+				return u
+			}
+
+			buildIncUpdates := func() map[string]any {
+				u := map[string]any{
+					"class_section_subject_teacher_total_assessments": gorm.Expr(
+						"class_section_subject_teacher_total_assessments + 1",
+					),
+				}
+				switch cat {
+				case model.AssessmentTypeCategoryTraining:
+					u["class_section_subject_teacher_total_assessments_training"] = gorm.Expr(
+						"class_section_subject_teacher_total_assessments_training + 1",
+					)
+				case model.AssessmentTypeCategoryDailyExam:
+					u["class_section_subject_teacher_total_assessments_daily_exam"] = gorm.Expr(
+						"class_section_subject_teacher_total_assessments_daily_exam + 1",
+					)
+				case model.AssessmentTypeCategoryExam:
+					u["class_section_subject_teacher_total_assessments_exam"] = gorm.Expr(
+						"class_section_subject_teacher_total_assessments_exam + 1",
+					)
+				}
+				return u
+			}
+
 			// CSST lama: -1
 			if oldCSSTID != nil && *oldCSSTID != uuid.Nil {
 				if err := ctl.DB.WithContext(c.Context()).
 					Model(&csstModel.ClassSectionSubjectTeacherModel{}).
 					Where(`
-						class_section_subject_teacher_school_id = ?
-						AND class_section_subject_teacher_id = ?
-						AND class_section_subject_teacher_deleted_at IS NULL
-					`, mid, *oldCSSTID).
-					Update(
-						"class_section_subject_teacher_total_assessments",
-						gorm.Expr("CASE WHEN class_section_subject_teacher_total_assessments > 0 THEN class_section_subject_teacher_total_assessments - 1 ELSE 0 END"),
-					).Error; err != nil {
+                class_section_subject_teacher_school_id = ?
+                AND class_section_subject_teacher_id = ?
+                AND class_section_subject_teacher_deleted_at IS NULL
+            `, mid, *oldCSSTID).
+					Updates(buildDecUpdates()).Error; err != nil {
 
 					return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengupdate total assessment mapel (csst lama)")
 				}
 			}
+
 			// CSST baru: +1
 			if newCSSTID != nil && *newCSSTID != uuid.Nil {
 				if err := ctl.DB.WithContext(c.Context()).
 					Model(&csstModel.ClassSectionSubjectTeacherModel{}).
 					Where(`
-						class_section_subject_teacher_school_id = ?
-						AND class_section_subject_teacher_id = ?
-						AND class_section_subject_teacher_deleted_at IS NULL
-					`, mid, *newCSSTID).
-					Update(
-						"class_section_subject_teacher_total_assessments",
-						gorm.Expr("class_section_subject_teacher_total_assessments + 1"),
-					).Error; err != nil {
+                class_section_subject_teacher_school_id = ?
+                AND class_section_subject_teacher_id = ?
+                AND class_section_subject_teacher_deleted_at IS NULL
+            `, mid, *newCSSTID).
+					Updates(buildIncUpdates()).Error; err != nil {
 
 					return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengupdate total assessment mapel (csst baru)")
 				}
@@ -1055,9 +1111,8 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus assessment")
 	}
 
-	// 🔽 DOWN: turunkan total_assessments (+ graded / ungraded) di CSST jika ada relasi
+	// 🔽 DOWN: turunkan total_assessments (+ per kategori) di CSST jika ada relasi
 	if row.AssessmentClassSectionSubjectTeacherID != nil && *row.AssessmentClassSectionSubjectTeacherID != uuid.Nil {
-		isGraded := row.AssessmentTypeIsGradedSnapshot
 
 		updates := map[string]any{
 			"class_section_subject_teacher_total_assessments": gorm.Expr(
@@ -1066,25 +1121,31 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 			),
 		}
 
-		if isGraded {
-			updates["class_section_subject_teacher_total_assessments_graded"] = gorm.Expr(
-				"CASE WHEN class_section_subject_teacher_total_assessments_graded > 0 " +
-					"THEN class_section_subject_teacher_total_assessments_graded - 1 ELSE 0 END",
+		switch row.AssessmentTypeCategorySnapshot {
+		case model.AssessmentTypeCategoryTraining:
+			updates["class_section_subject_teacher_total_assessments_training"] = gorm.Expr(
+				"CASE WHEN class_section_subject_teacher_total_assessments_training > 0 " +
+					"THEN class_section_subject_teacher_total_assessments_training - 1 ELSE 0 END",
 			)
-		} else {
-			updates["class_section_subject_teacher_total_assessments_ungraded"] = gorm.Expr(
-				"CASE WHEN class_section_subject_teacher_total_assessments_ungraded > 0 " +
-					"THEN class_section_subject_teacher_total_assessments_ungraded - 1 ELSE 0 END",
+		case model.AssessmentTypeCategoryDailyExam:
+			updates["class_section_subject_teacher_total_assessments_daily_exam"] = gorm.Expr(
+				"CASE WHEN class_section_subject_teacher_total_assessments_daily_exam > 0 " +
+					"THEN class_section_subject_teacher_total_assessments_daily_exam - 1 ELSE 0 END",
+			)
+		case model.AssessmentTypeCategoryExam:
+			updates["class_section_subject_teacher_total_assessments_exam"] = gorm.Expr(
+				"CASE WHEN class_section_subject_teacher_total_assessments_exam > 0 " +
+					"THEN class_section_subject_teacher_total_assessments_exam - 1 ELSE 0 END",
 			)
 		}
 
 		if err := tx.WithContext(c.Context()).
 			Model(&csstModel.ClassSectionSubjectTeacherModel{}).
 			Where(`
-			class_section_subject_teacher_school_id = ?
-			AND class_section_subject_teacher_id = ?
-			AND class_section_subject_teacher_deleted_at IS NULL
-		`, mid, *row.AssessmentClassSectionSubjectTeacherID).
+        class_section_subject_teacher_school_id = ?
+        AND class_section_subject_teacher_id = ?
+        AND class_section_subject_teacher_deleted_at IS NULL
+    `, mid, *row.AssessmentClassSectionSubjectTeacherID).
 			Updates(updates).Error; err != nil {
 
 			tx.Rollback()

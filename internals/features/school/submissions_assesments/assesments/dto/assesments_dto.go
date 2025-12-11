@@ -7,7 +7,9 @@ import (
 
 	"github.com/google/uuid"
 
+	sessionModel "madinahsalam_backend/internals/features/school/class_others/class_attendance_sessions/model"
 	assessModel "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/model"
+	assessService "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/service"
 )
 
 /* ========================================================
@@ -35,16 +37,13 @@ type CreateAssessmentRequest struct {
 
 	// Pengaturan
 	AssessmentKind                 string  `json:"assessment_kind" validate:"omitempty,oneof=quiz assignment_upload offline survey"`
+	AssessmentStatus               *string `json:"assessment_status" validate:"omitempty,oneof=draft published archived"`
 	AssessmentDurationMinutes      *int    `json:"assessment_duration_minutes" validate:"omitempty,gte=1,lte=1440"`
 	AssessmentTotalAttemptsAllowed int     `json:"assessment_total_attempts_allowed" validate:"omitempty,gte=1,lte=50"`
 	AssessmentMaxScore             float64 `json:"assessment_max_score" validate:"omitempty,gte=0,lte=100"`
 
 	// total quiz/komponen quiz di assessment ini (global, sama utk semua siswa)
-	// opsional; kalau kosong, bisa diisi di controller dari jumlah quiz inline
 	AssessmentQuizTotal *int `json:"assessment_quiz_total" validate:"omitempty,gte=0,lte=255"`
-
-	AssessmentIsPublished     *bool `json:"assessment_is_published"`
-	AssessmentAllowSubmission *bool `json:"assessment_allow_submission"`
 
 	// Audit
 	AssessmentCreatedByTeacherID *uuid.UUID `json:"assessment_created_by_teacher_id" validate:"omitempty,uuid4"`
@@ -74,6 +73,22 @@ func (r *CreateAssessmentRequest) Normalize() {
 		r.AssessmentKind = "quiz"
 	}
 
+	// normalize status (lowercase)
+	if r.AssessmentStatus != nil {
+		s := strings.ToLower(strings.TrimSpace(*r.AssessmentStatus))
+		if s == "" {
+			r.AssessmentStatus = nil
+		} else {
+			r.AssessmentStatus = &s
+		}
+	}
+
+	// Default status kalau tetap kosong → draft
+	if r.AssessmentStatus == nil {
+		s := "draft"
+		r.AssessmentStatus = &s
+	}
+
 	// default attempts
 	if r.AssessmentTotalAttemptsAllowed <= 0 {
 		r.AssessmentTotalAttemptsAllowed = 1
@@ -84,20 +99,10 @@ func (r *CreateAssessmentRequest) Normalize() {
 		r.AssessmentMaxScore = 100
 	}
 
-	// quiz_total tidak dipaksa di sini; bisa diisi dari jumlah quiz inline di controller
+	// quiz_total tidak dipaksa di sini
 	if r.AssessmentQuizTotal != nil && *r.AssessmentQuizTotal < 0 {
 		z := 0
 		r.AssessmentQuizTotal = &z
-	}
-
-	// default flags
-	if r.AssessmentIsPublished == nil {
-		b := true
-		r.AssessmentIsPublished = &b
-	}
-	if r.AssessmentAllowSubmission == nil {
-		b := true
-		r.AssessmentAllowSubmission = &b
 	}
 }
 
@@ -106,6 +111,11 @@ func (r *CreateAssessmentRequest) ToModel() assessModel.AssessmentModel {
 	kind := assessModel.AssessmentKind(r.AssessmentKind)
 	if r.AssessmentKind == "" {
 		kind = assessModel.AssessmentKindQuiz
+	}
+
+	status := assessModel.AssessmentStatusDraft
+	if r.AssessmentStatus != nil && *r.AssessmentStatus != "" {
+		status = assessModel.AssessmentStatus(*r.AssessmentStatus)
 	}
 
 	quizTotal := 0
@@ -125,15 +135,13 @@ func (r *CreateAssessmentRequest) ToModel() assessModel.AssessmentModel {
 		AssessmentPublishedAt:                  r.AssessmentPublishedAt,
 		AssessmentClosedAt:                     r.AssessmentClosedAt,
 		AssessmentKind:                         kind,
+		AssessmentStatus:                       status,
 		AssessmentDurationMinutes:              r.AssessmentDurationMinutes,
 		AssessmentTotalAttemptsAllowed:         r.AssessmentTotalAttemptsAllowed,
 		AssessmentMaxScore:                     r.AssessmentMaxScore,
 		AssessmentQuizTotal:                    quizTotal,
 		AssessmentCreatedByTeacherID:           r.AssessmentCreatedByTeacherID,
 		AssessmentSubmissionMode:               assessModel.SubmissionModeDate, // akan dioverride di controller
-		AssessmentIsPublished:                  *r.AssessmentIsPublished,
-		AssessmentAllowSubmission:              *r.AssessmentAllowSubmission,
-		// Snapshot fields & counters pakai default DB / diisi di service
 	}
 
 	return row
@@ -157,15 +165,12 @@ type PatchAssessmentRequest struct {
 	AssessmentClosedAt    *time.Time `json:"assessment_closed_at"`
 
 	AssessmentKind                 *string  `json:"assessment_kind" validate:"omitempty,oneof=quiz assignment_upload offline survey"`
+	AssessmentStatus               *string  `json:"assessment_status" validate:"omitempty,oneof=draft published archived"`
 	AssessmentDurationMinutes      *int     `json:"assessment_duration_minutes" validate:"omitempty,gte=1,lte=1440"`
 	AssessmentTotalAttemptsAllowed *int     `json:"assessment_total_attempts_allowed" validate:"omitempty,gte=1,lte=50"`
 	AssessmentMaxScore             *float64 `json:"assessment_max_score" validate:"omitempty,gte=0,lte=100"`
 
-	// boleh PATCH total quiz juga kalau guru edit struktur penilaian
 	AssessmentQuizTotal *int `json:"assessment_quiz_total" validate:"omitempty,gte=0,lte=255"`
-
-	AssessmentIsPublished     *bool `json:"assessment_is_published"`
-	AssessmentAllowSubmission *bool `json:"assessment_allow_submission"`
 
 	AssessmentCreatedByTeacherID *uuid.UUID `json:"assessment_created_by_teacher_id" validate:"omitempty,uuid4"`
 
@@ -189,6 +194,15 @@ func (r *PatchAssessmentRequest) Normalize() {
 	if r.AssessmentKind != nil {
 		k := strings.ToLower(strings.TrimSpace(*r.AssessmentKind))
 		r.AssessmentKind = &k
+	}
+
+	if r.AssessmentStatus != nil {
+		s := strings.ToLower(strings.TrimSpace(*r.AssessmentStatus))
+		if s == "" {
+			r.AssessmentStatus = nil
+		} else {
+			r.AssessmentStatus = &s
+		}
 	}
 
 	if r.AssessmentQuizTotal != nil && *r.AssessmentQuizTotal < 0 {
@@ -232,6 +246,10 @@ func (r *PatchAssessmentRequest) Apply(m *assessModel.AssessmentModel) {
 	if r.AssessmentKind != nil && *r.AssessmentKind != "" {
 		m.AssessmentKind = assessModel.AssessmentKind(*r.AssessmentKind)
 	}
+	if r.AssessmentStatus != nil && *r.AssessmentStatus != "" {
+		m.AssessmentStatus = assessModel.AssessmentStatus(*r.AssessmentStatus)
+	}
+
 	if r.AssessmentDurationMinutes != nil {
 		m.AssessmentDurationMinutes = r.AssessmentDurationMinutes
 	}
@@ -243,29 +261,18 @@ func (r *PatchAssessmentRequest) Apply(m *assessModel.AssessmentModel) {
 	}
 
 	if r.AssessmentQuizTotal != nil {
-		// udah dinormalize minimal 0
 		m.AssessmentQuizTotal = *r.AssessmentQuizTotal
-	}
-
-	if r.AssessmentIsPublished != nil {
-		m.AssessmentIsPublished = *r.AssessmentIsPublished
-	}
-	if r.AssessmentAllowSubmission != nil {
-		m.AssessmentAllowSubmission = *r.AssessmentAllowSubmission
 	}
 
 	if r.AssessmentCreatedByTeacherID != nil {
 		m.AssessmentCreatedByTeacherID = r.AssessmentCreatedByTeacherID
 	}
-
-	// Session IDs + submission_mode biasanya di-handle di controller,
-	// karena terkait logic snapshot & mode 'date' vs 'session'.
 }
 
 /*
 ========================================================
 
-	RESPONSE DTO
+	RESPONSE DTO (FULL)
 
 ========================================================
 */
@@ -285,27 +292,26 @@ type AssessmentResponse struct {
 	AssessmentPublishedAt *time.Time `json:"assessment_published_at,omitempty"`
 	AssessmentClosedAt    *time.Time `json:"assessment_closed_at,omitempty"`
 
-	AssessmentKind                 string  `json:"assessment_kind"`
+	AssessmentKind   string `json:"assessment_kind"`
+	AssessmentStatus string `json:"assessment_status"`
+
 	AssessmentDurationMinutes      *int    `json:"assessment_duration_minutes,omitempty"`
 	AssessmentTotalAttemptsAllowed int     `json:"assessment_total_attempts_allowed"`
 	AssessmentMaxScore             float64 `json:"assessment_max_score"`
 
-	// total quiz/komponen quiz global untuk assessment ini
-	AssessmentQuizTotal       int  `json:"assessment_quiz_total"`
-	AssessmentIsPublished     bool `json:"assessment_is_published"`
-	AssessmentAllowSubmission bool `json:"assessment_allow_submission"`
+	AssessmentQuizTotal int `json:"assessment_quiz_total"`
 
-	// counter submissions (read-only; diisi dari backend)
+	// counter submissions
 	AssessmentSubmissionsTotal       int `json:"assessment_submissions_total"`
 	AssessmentSubmissionsGradedTotal int `json:"assessment_submissions_graded_total"`
 
 	// flag hasil grading tipe assessment (snapshot dari AssessmentType)
 	AssessmentTypeIsGradedSnapshot bool `json:"assessment_type_is_graded_snapshot"`
 
-	// 🔹 Snapshot kategori type (training / daily_exam / exam)
+	// kategori type snapshot (training / daily_exam / exam)
 	AssessmentTypeCategorySnapshot string `json:"assessment_type_category_snapshot"`
 
-	// Snapshot aturan dari AssessmentType (sesuai SQL terbaru: hanya late policy & passing score)
+	// Snapshot aturan dari AssessmentType (late policy & passing score)
 	AssessmentAllowLateSubmissionSnapshot bool    `json:"assessment_allow_late_submission_snapshot"`
 	AssessmentLatePenaltyPercentSnapshot  float64 `json:"assessment_late_penalty_percent_snapshot"`
 	AssessmentPassingScorePercentSnapshot float64 `json:"assessment_passing_score_percent_snapshot"`
@@ -318,11 +324,13 @@ type AssessmentResponse struct {
 
 	AssessmentCreatedAt time.Time `json:"assessment_created_at"`
 	AssessmentUpdatedAt time.Time `json:"assessment_updated_at"`
+
+	// 🔥 Computed field utama
+	AssessmentIsOpen bool `json:"assessment_is_open"`
 }
 
-// Converter Model → Response DTO
-func FromModelAssesment(m assessModel.AssessmentModel) AssessmentResponse {
-
+// Shared builder
+func buildAssessmentResponse(m assessModel.AssessmentModel, isOpen bool) AssessmentResponse {
 	return AssessmentResponse{
 		AssessmentID:       m.AssessmentID,
 		AssessmentSchoolID: m.AssessmentSchoolID,
@@ -339,25 +347,20 @@ func FromModelAssesment(m assessModel.AssessmentModel) AssessmentResponse {
 		AssessmentPublishedAt: m.AssessmentPublishedAt,
 		AssessmentClosedAt:    m.AssessmentClosedAt,
 
-		AssessmentKind:                 string(m.AssessmentKind),
+		AssessmentKind:   string(m.AssessmentKind),
+		AssessmentStatus: string(m.AssessmentStatus),
+
 		AssessmentDurationMinutes:      m.AssessmentDurationMinutes,
 		AssessmentTotalAttemptsAllowed: m.AssessmentTotalAttemptsAllowed,
 		AssessmentMaxScore:             m.AssessmentMaxScore,
 		AssessmentQuizTotal:            m.AssessmentQuizTotal,
-		AssessmentIsPublished:          m.AssessmentIsPublished,
-		AssessmentAllowSubmission:      m.AssessmentAllowSubmission,
 
-		// counters
 		AssessmentSubmissionsTotal:       m.AssessmentSubmissionsTotal,
 		AssessmentSubmissionsGradedTotal: m.AssessmentSubmissionsGradedTotal,
 
-		// flag hasil grading type
 		AssessmentTypeIsGradedSnapshot: m.AssessmentTypeIsGradedSnapshot,
-
-		// 🔹 snapshot kategori type
 		AssessmentTypeCategorySnapshot: string(m.AssessmentTypeCategorySnapshot),
 
-		// snapshot aturan dari AssessmentType (late policy + passing score)
 		AssessmentAllowLateSubmissionSnapshot: m.AssessmentAllowLateSubmissionSnapshot,
 		AssessmentLatePenaltyPercentSnapshot:  m.AssessmentLatePenaltyPercentSnapshot,
 		AssessmentPassingScorePercentSnapshot: m.AssessmentPassingScorePercentSnapshot,
@@ -370,7 +373,63 @@ func FromModelAssesment(m assessModel.AssessmentModel) AssessmentResponse {
 
 		AssessmentCreatedAt: m.AssessmentCreatedAt,
 		AssessmentUpdatedAt: m.AssessmentUpdatedAt,
+
+		AssessmentIsOpen: isOpen,
 	}
+}
+
+// Converter Model → Response DTO (tanpa session collect)
+func FromModelAssesment(m assessModel.AssessmentModel) AssessmentResponse {
+	now := time.Now().UTC()
+	isOpen := assessService.ComputeIsOpen(&m, now)
+	return buildAssessmentResponse(m, isOpen)
+}
+
+func FromAssesmentModels(rows []assessModel.AssessmentModel) []AssessmentResponse {
+	out := make([]AssessmentResponse, 0, len(rows))
+	now := time.Now().UTC()
+
+	for i := range rows {
+		m := rows[i]
+		isOpen := assessService.ComputeIsOpen(&m, now)
+		out = append(out, buildAssessmentResponse(m, isOpen))
+	}
+
+	return out
+}
+
+// Versi dengan CollectSession
+func FromModelAssesmentWithCollectSession(
+	m assessModel.AssessmentModel,
+	sess *sessionModel.ClassAttendanceSessionModel,
+) AssessmentResponse {
+	now := time.Now().UTC()
+	isOpen := assessService.ComputeIsOpenWithCollectSession(&m, sess, now)
+	return buildAssessmentResponse(m, isOpen)
+}
+
+func FromAssesmentModelsWithCollectSessions(
+	rows []assessModel.AssessmentModel,
+	collectSessions map[uuid.UUID]*sessionModel.ClassAttendanceSessionModel,
+) []AssessmentResponse {
+	out := make([]AssessmentResponse, 0, len(rows))
+	now := time.Now().UTC()
+
+	for i := range rows {
+		m := rows[i]
+
+		var sess *sessionModel.ClassAttendanceSessionModel
+		if m.AssessmentCollectSessionID != nil {
+			if s, ok := collectSessions[*m.AssessmentCollectSessionID]; ok {
+				sess = s
+			}
+		}
+
+		isOpen := assessService.ComputeIsOpenWithCollectSession(&m, sess, now)
+		out = append(out, buildAssessmentResponse(m, isOpen))
+	}
+
+	return out
 }
 
 /* ========================================================
@@ -383,7 +442,6 @@ type CreateAssessmentWithQuizzesRequest struct {
 	Quizzes    []CreateQuizInline      `json:"quizzes,omitempty"`
 }
 
-// Normalize: normalize assessment + semua quiz inline
 func (r *CreateAssessmentWithQuizzesRequest) Normalize() {
 	r.Assessment.Normalize()
 
@@ -395,10 +453,6 @@ func (r *CreateAssessmentWithQuizzesRequest) Normalize() {
 	}
 }
 
-// FlattenQuizzes:
-// - Kalau ada "quizzes" dan len>0 → pakai itu
-// - Else kalau ada "quiz" tunggal → jadikan slice 1 elemen
-// - Else → nil
 func (r *CreateAssessmentWithQuizzesRequest) FlattenQuizzes() []CreateQuizInline {
 	if len(r.Quizzes) > 0 {
 		return r.Quizzes
@@ -412,62 +466,57 @@ func (r *CreateAssessmentWithQuizzesRequest) FlattenQuizzes() []CreateQuizInline
 /*
 	========================================================
 	  COMPACT DTO (untuk list / dropdown / kartu ringan)
-
-========================================================
+	========================================================
 */
+
 type AssessmentCompactResponse struct {
-	AssessmentID       uuid.UUID `json:"assessment_id"`
-	AssessmentSchoolID uuid.UUID `json:"assessment_school_id"`
+	AssessmentID uuid.UUID `json:"assessment_id"`
 
 	AssessmentClassSectionSubjectTeacherID *uuid.UUID `json:"assessment_class_section_subject_teacher_id,omitempty"`
 	AssessmentTypeID                       *uuid.UUID `json:"assessment_type_id,omitempty"`
 
-	AssessmentSlug  *string `json:"assessment_slug,omitempty"`
-	AssessmentTitle string  `json:"assessment_title"`
-	AssessmentKind  string  `json:"assessment_kind"`
+	AssessmentSlug   *string `json:"assessment_slug,omitempty"`
+	AssessmentTitle  string  `json:"assessment_title"`
+	AssessmentKind   string  `json:"assessment_kind"`
+	AssessmentStatus string  `json:"assessment_status"`
 
 	AssessmentStartAt *time.Time `json:"assessment_start_at,omitempty"`
 	AssessmentDueAt   *time.Time `json:"assessment_due_at,omitempty"`
 
-	AssessmentMaxScore        float64 `json:"assessment_max_score"`
-	AssessmentQuizTotal       int     `json:"assessment_quiz_total"`
-	AssessmentIsPublished     bool    `json:"assessment_is_published"`
-	AssessmentAllowSubmission bool    `json:"assessment_allow_submission"`
+	AssessmentMaxScore             float64 `json:"assessment_max_score"`
+	AssessmentQuizTotal            int     `json:"assessment_quiz_total"`
+	AssessmentTotalAttemptsAllowed int     `json:"assessment_total_attempts_allowed" validate:"omitempty,gte=1,lte=50"`
 
-	// Ringkas tapi tetap ada info progress
-	AssessmentSubmissionsTotal       int `json:"assessment_submissions_total"`
-	AssessmentSubmissionsGradedTotal int `json:"assessment_submissions_graded_total"`
+	AssessmentIsOpen bool `json:"assessment_is_open"`
 
-	// 🔹 kategori type snapshot (training / daily_exam / exam)
 	AssessmentTypeCategorySnapshot string `json:"assessment_type_category_snapshot"`
 
 	AssessmentCreatedAt time.Time `json:"assessment_created_at"`
 	AssessmentUpdatedAt time.Time `json:"assessment_updated_at"`
 }
 
-// Single mapper: Model → Compact DTO
 func FromAssessmentModelCompact(m assessModel.AssessmentModel) AssessmentCompactResponse {
+	now := time.Now().UTC()
+	isOpen := assessService.ComputeIsOpen(&m, now)
+
 	return AssessmentCompactResponse{
-		AssessmentID:       m.AssessmentID,
-		AssessmentSchoolID: m.AssessmentSchoolID,
+		AssessmentID: m.AssessmentID,
 
 		AssessmentClassSectionSubjectTeacherID: m.AssessmentClassSectionSubjectTeacherID,
 		AssessmentTypeID:                       m.AssessmentTypeID,
 
-		AssessmentSlug:  m.AssessmentSlug,
-		AssessmentTitle: m.AssessmentTitle,
-		AssessmentKind:  string(m.AssessmentKind),
+		AssessmentSlug:   m.AssessmentSlug,
+		AssessmentTitle:  m.AssessmentTitle,
+		AssessmentKind:   string(m.AssessmentKind),
+		AssessmentStatus: string(m.AssessmentStatus),
 
 		AssessmentStartAt: m.AssessmentStartAt,
 		AssessmentDueAt:   m.AssessmentDueAt,
 
-		AssessmentMaxScore:        m.AssessmentMaxScore,
-		AssessmentQuizTotal:       m.AssessmentQuizTotal,
-		AssessmentIsPublished:     m.AssessmentIsPublished,
-		AssessmentAllowSubmission: m.AssessmentAllowSubmission,
-
-		AssessmentSubmissionsTotal:       m.AssessmentSubmissionsTotal,
-		AssessmentSubmissionsGradedTotal: m.AssessmentSubmissionsGradedTotal,
+		AssessmentMaxScore:             m.AssessmentMaxScore,
+		AssessmentQuizTotal:            m.AssessmentQuizTotal,
+		AssessmentTotalAttemptsAllowed: m.AssessmentTotalAttemptsAllowed,
+		AssessmentIsOpen:               isOpen,
 
 		AssessmentTypeCategorySnapshot: string(m.AssessmentTypeCategorySnapshot),
 
@@ -476,11 +525,40 @@ func FromAssessmentModelCompact(m assessModel.AssessmentModel) AssessmentCompact
 	}
 }
 
-// Slice mapper: []Model → []Compact DTO
 func FromAssessmentModelsCompact(rows []assessModel.AssessmentModel) []AssessmentCompactResponse {
 	out := make([]AssessmentCompactResponse, 0, len(rows))
+	now := time.Now().UTC()
+
 	for i := range rows {
-		out = append(out, FromAssessmentModelCompact(rows[i]))
+		m := rows[i]
+		isOpen := assessService.ComputeIsOpen(&m, now)
+
+		out = append(out, AssessmentCompactResponse{
+			AssessmentID: m.AssessmentID,
+
+			AssessmentClassSectionSubjectTeacherID: m.AssessmentClassSectionSubjectTeacherID,
+			AssessmentTypeID:                       m.AssessmentTypeID,
+
+			AssessmentSlug:   m.AssessmentSlug,
+			AssessmentTitle:  m.AssessmentTitle,
+			AssessmentKind:   string(m.AssessmentKind),
+			AssessmentStatus: string(m.AssessmentStatus),
+
+			AssessmentStartAt: m.AssessmentStartAt,
+			AssessmentDueAt:   m.AssessmentDueAt,
+
+			AssessmentMaxScore:             m.AssessmentMaxScore,
+			AssessmentQuizTotal:            m.AssessmentQuizTotal,
+			AssessmentTotalAttemptsAllowed: m.AssessmentTotalAttemptsAllowed,
+
+			AssessmentIsOpen: isOpen,
+
+			AssessmentTypeCategorySnapshot: string(m.AssessmentTypeCategorySnapshot),
+
+			AssessmentCreatedAt: m.AssessmentCreatedAt,
+			AssessmentUpdatedAt: m.AssessmentUpdatedAt,
+		})
 	}
+
 	return out
 }

@@ -11,6 +11,8 @@ import (
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 
+	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -43,20 +45,88 @@ func clampLimitOffset(limitPtr, offsetPtr *int) (int, int) {
 	return limit, offset
 }
 
-func includeRulesFromQuery(c *fiber.Ctx) bool {
+// include flags yang didukung: rules, csst
+type includeFlags struct {
+	Rules bool
+	CSST  bool
+}
+
+// nested flags yang didukung: rules, csst
+type nestedFlags struct {
+	Rules bool
+	CSST  bool
+}
+
+// Format include:
+//   - include=rules
+//   - include=rule
+//   - include=csst
+//   - include=rules,csst
+//   - legacy: include_rules=1, include_csst=1
+func parseIncludeFlags(c *fiber.Ctx) includeFlags {
+	flags := includeFlags{}
+
+	// legacy flags
 	if c.QueryBool("include_rules") {
-		return true
+		flags.Rules = true
 	}
-	inc := strings.TrimSpace(strings.ToLower(c.Query("include")))
-	if inc == "" {
-		return false
+	if c.QueryBool("include_csst") {
+		flags.CSST = true
 	}
-	for _, part := range strings.Split(inc, ",") {
-		if strings.TrimSpace(part) == "rules" {
-			return true
+
+	raw := strings.TrimSpace(strings.ToLower(c.Query("include")))
+	if raw == "" {
+		return flags
+	}
+
+	parts := strings.Split(raw, ",")
+	for _, part := range parts {
+		token := strings.TrimSpace(part)
+		switch token {
+		case "rule", "rules":
+			flags.Rules = true
+		case "csst", "class_section_subject_teacher", "class_section_subject_teachers":
+			flags.CSST = true
 		}
 	}
-	return false
+
+	return flags
+}
+
+// Format nested:
+//   - nested=rules
+//   - nested=rule
+//   - nested=csst
+//   - nested=rules,csst
+//   - legacy: nested_rules=1, nested_csst=1
+func parseNestedFlags(c *fiber.Ctx) nestedFlags {
+	flags := nestedFlags{}
+
+	// legacy flags
+	if c.QueryBool("nested_rules") {
+		flags.Rules = true
+	}
+	if c.QueryBool("nested_csst") {
+		flags.CSST = true
+	}
+
+	raw := strings.TrimSpace(strings.ToLower(c.Query("nested")))
+	if raw == "" {
+		return flags
+	}
+
+	parts := strings.Split(raw, ",")
+	for _, part := range parts {
+		token := strings.TrimSpace(part)
+		switch token {
+		case "rule", "rules":
+			flags.Rules = true
+		case "csst", "class_section_subject_teacher", "class_section_subject_teachers":
+			flags.CSST = true
+		}
+	}
+
+	return flags
 }
 
 /*
@@ -125,16 +195,29 @@ func buildScheduleOrder(sort *string) string {
 }
 
 /* =========================
-   Response type
+   Response types
 ========================= */
 
-type classScheduleWithRules struct {
-	Schedule ruleDTO.ClassScheduleResponse       `json:"schedule"`
-	Rules    []ruleDTO.ClassScheduleRuleResponse `json:"rules,omitempty"`
+// Data utama per-row
+type classScheduleWithNested struct {
+	Schedule ruleDTO.ClassScheduleResponse              `json:"schedule"`
+	Rules    []ruleDTO.ClassScheduleRuleResponse        `json:"rules,omitempty"` // hanya jika nested=rules
+	CSST     *csstModel.ClassSectionSubjectTeacherModel `json:"csst,omitempty"`  // hanya jika nested=csst
+}
+
+// Payload "includes" di root response
+type classScheduleIncludesPayload struct {
+	// meta: jenis include / nested
+	Include []string `json:"include,omitempty"`
+	Nested  []string `json:"nested,omitempty"`
+
+	// data hasil include=...
+	Rules []ruleDTO.ClassScheduleRuleResponse         `json:"rules,omitempty"`
+	CSST  []csstModel.ClassSectionSubjectTeacherModel `json:"csst,omitempty"`
 }
 
 /* =========================
-   List schedules + optional rules
+   List schedules + optional rules / csst
 ========================= */
 
 func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
@@ -146,15 +229,20 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	// 🔓 PUBLIC school context:
-	//    - Prioritas: dari token (GetSchoolIDFromTokenPreferTeacher)
-	//    - Fallback: dari path/query/slug (ResolveSchoolContext)
+	// 🔓 PUBLIC school context
 	schoolID, err := resolveSchoolID(c)
 	if err != nil {
 		return err
 	}
 
-	withRules := includeRulesFromQuery(c)
+	// include=rules,csst, ...
+	includes := parseIncludeFlags(c)
+	// nested=rules,csst, ...
+	nested := parseNestedFlags(c)
+
+	// Flag untuk kebutuhan fetch (include OR nested)
+	needRules := includes.Rules || nested.Rules
+	needCSST := includes.CSST || nested.CSST
 
 	limit, offset := clampLimitOffset(q.Limit, q.Offset)
 	orderExpr := buildScheduleOrder(q.Sort)
@@ -223,35 +311,130 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 	// pagination
 	pg := helper.BuildPaginationFromOffset(total, offset, limit)
 
-	// without rules → early return
-	if !withRules {
+	// ==========================
+	// Tanpa include & nested apa pun → balikin schedule saja (compat lama)
+	// ==========================
+	if !needRules && !needCSST {
 		resp := make([]ruleDTO.ClassScheduleResponse, 0, len(schedRows))
 		for _, row := range schedRows {
 			resp = append(resp, ruleDTO.FromModel(row))
 		}
-		return helper.JsonList(c, "ok", resp, pg)
+		// includes kosong
+		emptyIncludes := classScheduleIncludesPayload{}
+		return helper.JsonListEx(c, "ok", resp, pg, emptyIncludes)
 	}
 
-	// WITH RULES
+	// ==========================
+	// WITH INCLUDE(S) / NESTED
+	// ==========================
+
+	// Kumpulkan schedule_id untuk prefetch
 	sIDs := make([]uuid.UUID, len(schedRows))
 	for i := range schedRows {
 		sIDs[i] = schedRows[i].ClassScheduleID
 	}
 
-	rulesBySched, err := fetchRulesGrouped(ctl.DB, schoolID, sIDs, q.WithDeleted)
-	if err != nil {
-		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
+	// 1) RULES (group by schedule)
+	var rulesBySched map[uuid.UUID][]ruleDTO.ClassScheduleRuleResponse
+	if needRules {
+		var err error
+		rulesBySched, err = fetchRulesGrouped(ctl.DB, schoolID, sIDs, q.WithDeleted)
+		if err != nil {
+			return helper.JsonError(c, http.StatusInternalServerError, err.Error())
+		}
 	}
 
-	combined := make([]classScheduleWithRules, 0, len(schedRows))
+	// 2) CSST (via RULES → CSST_ID → CSST rows), hasil: map[schedule_id]CSST
+	var csstBySched map[uuid.UUID]csstModel.ClassSectionSubjectTeacherModel
+	if needCSST {
+		var err error
+		csstBySched, err = fetchCSSTBySchedule(ctl.DB, schoolID, sIDs, q.WithDeleted)
+		if err != nil {
+			return helper.JsonError(c, http.StatusInternalServerError, err.Error())
+		}
+	}
+
+	// ==========================
+	// BUILD DATA (nested)
+	// ==========================
+	combined := make([]classScheduleWithNested, 0, len(schedRows))
 	for _, sched := range schedRows {
-		combined = append(combined, classScheduleWithRules{
+		item := classScheduleWithNested{
 			Schedule: ruleDTO.FromModel(sched),
-			Rules:    rulesBySched[sched.ClassScheduleID],
-		})
+		}
+
+		// nested=rules → attach rules per schedule
+		if nested.Rules && rulesBySched != nil {
+			item.Rules = rulesBySched[sched.ClassScheduleID]
+		}
+
+		// nested=csst → attach csst per schedule
+		if nested.CSST && csstBySched != nil {
+			if csstRow, ok := csstBySched[sched.ClassScheduleID]; ok {
+				rowCopy := csstRow
+				item.CSST = &rowCopy
+			}
+		}
+
+		combined = append(combined, item)
 	}
 
-	return helper.JsonListEx(c, "ok", combined, pg, []string{"rules"})
+	// ==========================
+	// BUILD INCLUDES (global)
+	// ==========================
+	includeMeta := []string{}
+	if includes.Rules {
+		includeMeta = append(includeMeta, "rules")
+	}
+	if includes.CSST {
+		includeMeta = append(includeMeta, "csst")
+	}
+
+	nestedMeta := []string{}
+	if nested.Rules {
+		nestedMeta = append(nestedMeta, "rules")
+	}
+	if nested.CSST {
+		nestedMeta = append(nestedMeta, "csst")
+	}
+
+	// data yang benar-benar di-"include"
+	var rulesInclude []ruleDTO.ClassScheduleRuleResponse
+	if includes.Rules && rulesBySched != nil {
+		for _, arr := range rulesBySched {
+			if len(arr) == 0 {
+				continue
+			}
+			rulesInclude = append(rulesInclude, arr...)
+		}
+	}
+
+	var csstInclude []csstModel.ClassSectionSubjectTeacherModel
+	if includes.CSST && csstBySched != nil {
+		seen := make(map[uuid.UUID]struct{})
+		for _, csstRow := range csstBySched {
+			if _, ok := seen[csstRow.ClassSectionSubjectTeacherID]; ok {
+				continue
+			}
+			seen[csstRow.ClassSectionSubjectTeacherID] = struct{}{}
+			csstInclude = append(csstInclude, csstRow)
+		}
+	}
+
+	includesPayload := classScheduleIncludesPayload{
+		Include: includeMeta,
+		Nested:  nestedMeta,
+		Rules:   rulesInclude,
+		CSST:    csstInclude,
+	}
+
+	return helper.JsonListEx(
+		c,
+		"ok",
+		combined,
+		pg,
+		includesPayload,
+	)
 }
 
 /*
@@ -292,6 +475,98 @@ func fetchRulesGrouped(db *gorm.DB, schoolID uuid.UUID, scheduleIDs []uuid.UUID,
 	for _, r := range rules {
 		schedID := r.ClassScheduleRuleScheduleID
 		out[schedID] = append(out[schedID], ruleDTO.FromRuleModel(r))
+	}
+
+	return out, nil
+}
+
+/*
+	=========================
+	  Fetch CSST per schedule (via rules)
+	=========================
+*/
+
+// Map schedule_id -> CSST (ClassSectionSubjectTeacherModel)
+// Diambil via class_schedule_rules (class_schedule_rule_csst_id)
+func fetchCSSTBySchedule(
+	db *gorm.DB,
+	schoolID uuid.UUID,
+	scheduleIDs []uuid.UUID,
+	withDeleted *bool,
+) (map[uuid.UUID]csstModel.ClassSectionSubjectTeacherModel, error) {
+
+	out := make(map[uuid.UUID]csstModel.ClassSectionSubjectTeacherModel)
+
+	if len(scheduleIDs) == 0 {
+		return out, nil
+	}
+
+	// 1) Ambil pasangan schedule_id <-> csst_id dari rules
+	type schedCSSTPair struct {
+		ScheduleID uuid.UUID `gorm:"column:class_schedule_rule_schedule_id"`
+		CSSTID     uuid.UUID `gorm:"column:class_schedule_rule_csst_id"`
+	}
+
+	var pairs []schedCSSTPair
+	q := db.
+		Model(&ruleModel.ClassScheduleRuleModel{}).
+		Select("class_schedule_rule_schedule_id, class_schedule_rule_csst_id").
+		Where("class_schedule_rule_school_id = ?", schoolID).
+		Where("class_schedule_rule_schedule_id IN ?", scheduleIDs)
+
+	if withDeleted == nil || !*withDeleted {
+		q = q.Where("class_schedule_rule_deleted_at IS NULL")
+	}
+
+	if err := q.Find(&pairs).Error; err != nil {
+		return nil, err
+	}
+
+	if len(pairs) == 0 {
+		return out, nil
+	}
+
+	// 2) Map schedule_id -> csst_id (pakai satu saja per schedule)
+	schedToCSSTID := make(map[uuid.UUID]uuid.UUID)
+	csstIDSet := make(map[uuid.UUID]struct{})
+
+	for _, p := range pairs {
+		if _, exists := schedToCSSTID[p.ScheduleID]; !exists {
+			schedToCSSTID[p.ScheduleID] = p.CSSTID
+			csstIDSet[p.CSSTID] = struct{}{}
+		}
+	}
+
+	if len(csstIDSet) == 0 {
+		return out, nil
+	}
+
+	// 3) Fetch CSST rows
+	csstIDs := make([]uuid.UUID, 0, len(csstIDSet))
+	for id := range csstIDSet {
+		csstIDs = append(csstIDs, id)
+	}
+
+	var csstRows []csstModel.ClassSectionSubjectTeacherModel
+	if err := db.
+		Model(&csstModel.ClassSectionSubjectTeacherModel{}).
+		Where("class_section_subject_teacher_school_id = ?", schoolID).
+		Where("class_section_subject_teacher_id IN ?", csstIDs).
+		Find(&csstRows).Error; err != nil {
+
+		return nil, err
+	}
+
+	csstByID := make(map[uuid.UUID]csstModel.ClassSectionSubjectTeacherModel, len(csstRows))
+	for _, row := range csstRows {
+		csstByID[row.ClassSectionSubjectTeacherID] = row
+	}
+
+	// 4) Map final: schedule_id -> CSST row
+	for schedID, csstID := range schedToCSSTID {
+		if csstRow, ok := csstByID[csstID]; ok {
+			out[schedID] = csstRow
+		}
 	}
 
 	return out, nil

@@ -319,6 +319,21 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		typeCategoryRaw = strings.TrimSpace(c.Query("category"))
 	}
 
+	// 🔹 filter assessment type enum: training / daily_exam / exam (alias ke type_category)
+	assessmentTypeRaw := strings.TrimSpace(c.Query("assessment_type"))
+	if assessmentTypeRaw == "" {
+		// beberapa alias biar fleksibel
+		assessmentTypeRaw = strings.TrimSpace(c.Query("type_enum"))
+	}
+	if assessmentTypeRaw == "" {
+		assessmentTypeRaw = strings.TrimSpace(c.Query("assessment_type_enum"))
+	}
+
+	// Kalau frontend kirim assessment_type tapi type_category kosong → treat as alias
+	if assessmentTypeRaw != "" && typeCategoryRaw == "" {
+		typeCategoryRaw = assessmentTypeRaw
+	}
+
 	withURLs := eqTrue(c.Query("with_urls"))
 	urlsPublishedOnly := eqTrue(c.Query("urls_published_only"))
 	urlsLimitPer := atoiOr(0, c.Query("urls_limit_per"))
@@ -388,7 +403,7 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 			return helper.JsonError(
 				c,
 				fiber.StatusBadRequest,
-				"type_category tidak valid (harus salah satu dari: training, daily_exam, exam)",
+				"type_category / assessment_type tidak valid (harus salah satu dari: training, daily_exam, exam)",
 			)
 		}
 	}
@@ -548,8 +563,15 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		qry = qry.Where("assessment_id IN ?", assessmentIDs)
 	}
 	if isPublished != nil {
-		qry = qry.Where("assessment_is_published = ?", *isPublished)
+		if *isPublished {
+			// ?is_published=true  -> status = 'published'
+			qry = qry.Where("assessment_status = ?", model.AssessmentStatusPublished)
+		} else {
+			// ?is_published=false -> semua yang BUKAN published (draft / archived)
+			qry = qry.Where("assessment_status <> ?", model.AssessmentStatusPublished)
+		}
 	}
+
 	if isGraded != nil {
 		// pakai snapshot scalar bool
 		qry = qry.Where("assessment_type_is_graded_snapshot = ?", *isGraded)
@@ -609,6 +631,7 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 				"nested":              nestedRaw,
 				"mode":                "compact",
 				"type_category":       typeCategoryRaw,
+				"assessment_type":     assessmentTypeRaw,
 			},
 		)
 	}
@@ -728,18 +751,23 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 			state := "unknown"
 			overdue := false
 
-			switch {
-			case start != nil && now.Before(*start):
+			// Kalau belum published → treat as not_opened
+			if rows[i].AssessmentStatus != model.AssessmentStatusPublished {
 				state = "not_opened"
-			case start != nil && (due == nil || now.Before(*due)) && !now.Before(*start):
-				state = "ongoing"
-			case start == nil && due != nil && now.Before(*due):
-				state = "ongoing"
-			case due != nil && now.After(*due):
-				state = "overdue"
-				overdue = true
-			default:
-				state = "unknown"
+			} else {
+				switch {
+				case start != nil && now.Before(*start):
+					state = "not_opened"
+				case start != nil && (due == nil || now.Before(*due)) && !now.Before(*start):
+					state = "ongoing"
+				case start == nil && due != nil && now.Before(*due):
+					state = "ongoing"
+				case due != nil && now.After(*due):
+					state = "overdue"
+					overdue = true
+				default:
+					state = "unknown"
+				}
 			}
 
 			p := &timelineProgress{
@@ -959,6 +987,7 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 			"with_quizzes":        withQuizzes,
 			"mode":                "full",
 			"type_category":       typeCategoryRaw,
+			"assessment_type":     assessmentTypeRaw,
 		},
 	)
 }
