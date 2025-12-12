@@ -994,42 +994,6 @@ type TeacherPersonLite struct {
 	TeacherNumber *string `json:"teacher_code,omitempty"` // nomor induk / kode guru di sekolah
 }
 
-func teacherLiteFromJSON(raw datatypes.JSON) *TeacherPersonLite {
-	if len(raw) == 0 {
-		return nil
-	}
-	var t TeacherPersonLite
-	if err := json.Unmarshal(raw, &t); err != nil {
-		// data lama / beda struktur → abaikan
-		return nil
-	}
-	if strings.TrimSpace(t.ID) == "" {
-		return nil
-	}
-
-	t.Name = strings.TrimSpace(t.Name)
-
-	// Normalisasi gender & teacher_code kalau ada
-	if t.TeacherNumber != nil {
-		v := strings.TrimSpace(*t.TeacherNumber)
-		if v == "" {
-			t.TeacherNumber = nil
-		} else {
-			t.TeacherNumber = &v
-		}
-	}
-	if t.Gender != nil {
-		v := strings.TrimSpace(*t.Gender)
-		if v == "" {
-			t.Gender = nil
-		} else {
-			t.Gender = &v
-		}
-	}
-
-	return &t
-}
-
 // ----------------- COMPACT RESPONSE (untuk list, dropdown, dsb) -----------------
 
 type ClassSectionCompactResponse struct {

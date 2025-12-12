@@ -493,10 +493,12 @@ func FromCSSTModels(rows []csstModel.ClassSectionSubjectTeacherModel) []CSSTResp
 	return FromCSSTModelsWithOptions(rows, FromCSSTOptions{})
 }
 
-/* =========================================================
-   4) COMPACT / LITE DTO (csst_*)
-========================================================= */
+/*
+	=========================================================
+	  4) COMPACT / LITE DTO (csst_*)
 
+=========================================================
+*/
 type CSSTCompactResponse struct {
 	CSSTID uuid.UUID `json:"csst_id"`
 
@@ -509,8 +511,8 @@ type CSSTCompactResponse struct {
 	CSSTClassSectionNameCache *string `json:"csst_class_section_name_cache,omitempty"`
 	CSSTClassSectionCodeCache *string `json:"csst_class_section_code_cache,omitempty"`
 
-	CSSTSchoolTeacherSlugCache *string         `json:"csst_school_teacher_slug_cache,omitempty"`
-	CSSTSchoolTeacherCache     *datatypes.JSON `json:"csst_school_teacher_cache,omitempty"`
+	CSSTSchoolTeacherSlugCache *string                   `json:"csst_school_teacher_slug_cache,omitempty"`
+	CSSTSchoolTeacherCache     *teacherSnap.TeacherCache `json:"csst_school_teacher_cache,omitempty"`
 
 	CSSTSubjectID        *uuid.UUID `json:"csst_subject_id,omitempty"`
 	CSSTSubjectNameCache *string    `json:"csst_subject_name_cache,omitempty"`
@@ -550,7 +552,7 @@ func FromCSSTModelCompact(mo csstModel.ClassSectionSubjectTeacherModel) CSSTComp
 		CSSTClassSectionCodeCache: mo.CSSTClassSectionCodeCache,
 
 		CSSTSchoolTeacherSlugCache: mo.CSSTSchoolTeacherSlugCache,
-		CSSTSchoolTeacherCache:     mo.CSSTSchoolTeacherCache,
+		CSSTSchoolTeacherCache:     TeacherCacheFromJSON(mo.CSSTSchoolTeacherCache),
 
 		CSSTSubjectID:        mo.CSSTSubjectID,
 		CSSTSubjectNameCache: mo.CSSTSubjectNameCache,
