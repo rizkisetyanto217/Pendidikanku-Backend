@@ -12,7 +12,6 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/datatypes"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -79,30 +78,11 @@ func getUsersProfileID(tx *gorm.DB, userID uuid.UUID) (uuid.UUID, error) {
 	return r.ID, nil
 }
 
-// Cache school (ringkas)
-func getSchoolCache(tx *gorm.DB, schoolID uuid.UUID) (name, slug, logo, icon, bg *string, err error) {
-	var row struct {
-		Name *string `gorm:"column:school_name"`
-		Slug *string `gorm:"column:school_slug"`
-		Logo *string `gorm:"column:school_logo_url"`
-		Icon *string `gorm:"column:school_icon_url"`
-		Bg   *string `gorm:"column:school_background_url"`
-	}
-	err = tx.Table("schools").
-		Select("school_name, school_slug, school_logo_url, school_icon_url, school_background_url").
-		Where("school_id = ? AND school_deleted_at IS NULL", schoolID).
-		Take(&row).Error
-	if err != nil {
-		return nil, nil, nil, nil, nil, err
-	}
-	return row.Name, row.Slug, row.Logo, row.Icon, row.Bg, nil
-}
-
 /* =========================
    Student upsert + snapshots
 ========================= */
 
-// Get/create school_students + isi snapshots (profil & school)
+// Get/create school_students + isi caches dari user_profiles (versi baru, tanpa *_snapshot & school_* snapshot)
 func getOrCreateSchoolStudentWithCaches(
 	ctx context.Context,
 	tx *gorm.DB,
@@ -110,128 +90,108 @@ func getOrCreateSchoolStudentWithCaches(
 	userProfileID uuid.UUID,
 	profileSnap *UserProfileCache.UserProfileCache, // boleh nil
 ) (uuid.UUID, error) {
-	// snapshot profil kalau belum ada
+	// Build snapshot profil kalau belum ada
 	if profileSnap == nil {
 		if ps, e := UserProfileCache.BuildUserProfileCacheByProfileID(ctx, tx, userProfileID); e == nil {
 			profileSnap = ps
 		}
 	}
-	// snapshot school
-	mName, mSlug, mLogo, mIcon, mBg, _ := getSchoolCache(tx, schoolID)
 
-	// ada existing?
+	// Cek apakah sudah ada school_student
 	var cur struct {
 		ID uuid.UUID `gorm:"column:school_student_id"`
 	}
 	err := tx.Table("school_students").
 		Select("school_student_id").
-		Where("school_student_school_id = ? AND school_student_user_profile_id = ? AND school_student_deleted_at IS NULL",
-			schoolID, userProfileID).
+		Where(`
+			school_student_school_id = ?
+			AND school_student_user_profile_id = ?
+			AND school_student_deleted_at IS NULL
+		`, schoolID, userProfileID).
 		Take(&cur).Error
 
 	now := time.Now()
 
+	// ==========================
+	//  CASE 1: SUDAH ADA ROW
+	// ==========================
 	if err == nil {
-		// top-up snapshots (best-effort)
 		updates := map[string]any{
 			"school_student_updated_at": now,
 		}
+
 		if profileSnap != nil {
 			if name := strings.TrimSpace(profileSnap.Name); name != "" {
 				updates["school_student_user_profile_name_cache"] = name
 			}
 			if v := nzTrim(profileSnap.AvatarURL); v != nil {
-				updates["school_student_user_profile_avatar_url_snapshot"] = *v
+				updates["school_student_user_profile_avatar_url_cache"] = *v
 			}
 			if v := nzTrim(profileSnap.WhatsappURL); v != nil {
-				updates["school_student_user_profile_whatsapp_url_snapshot"] = *v
+				updates["school_student_user_profile_whatsapp_url_cache"] = *v
 			}
 			if v := nzTrim(profileSnap.ParentName); v != nil {
-				updates["school_student_user_profile_parent_name_snapshot"] = *v
+				updates["school_student_user_profile_parent_name_cache"] = *v
 			}
 			if v := nzTrim(profileSnap.ParentWhatsappURL); v != nil {
-				updates["school_student_user_profile_parent_whatsapp_url_snapshot"] = *v
+				updates["school_student_user_profile_parent_whatsapp_url_cache"] = *v
 			}
-			// NEW: gender snapshot di school_students
 			if profileSnap.Gender != nil {
 				if g := strings.TrimSpace(*profileSnap.Gender); g != "" {
-					updates["school_student_user_profile_gender_snapshot"] = g
+					updates["school_student_user_profile_gender_cache"] = g
 				}
 			}
 		}
-		if v := nzTrim(mName); v != nil {
-			updates["school_student_school_name_snapshot"] = *v
-		}
-		if v := nzTrim(mSlug); v != nil {
-			updates["school_student_school_slug_snapshot"] = *v
-		}
-		if v := nzTrim(mLogo); v != nil {
-			updates["school_student_school_logo_url_snapshot"] = *v
-		}
-		if v := nzTrim(mIcon); v != nil {
-			updates["school_student_school_icon_url_snapshot"] = *v
-		}
-		if v := nzTrim(mBg); v != nil {
-			updates["school_student_school_background_url_snapshot"] = *v
-		}
-		if e := tx.Table("school_students").Where("school_student_id = ?", cur.ID).Updates(updates).Error; e != nil {
+
+		if e := tx.Table("school_students").
+			Where("school_student_id = ?", cur.ID).
+			Updates(updates).Error; e != nil {
 			return uuid.Nil, e
 		}
 		return cur.ID, nil
 	}
+
+	// Kalau errornya bukan "not found" → propagate
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return uuid.Nil, err
 	}
 
-	// create baru (lengkap snapshots)
+	// ==========================
+	//  CASE 2: BELUM ADA → CREATE
+	// ==========================
 	newID := uuid.New()
+
 	values := map[string]any{
 		"school_student_id":              newID,
 		"school_student_school_id":       schoolID,
 		"school_student_user_profile_id": userProfileID,
 		"school_student_slug":            newID.String(),
 		"school_student_status":          "active",
-		"school_student_class_sections":  datatypes.JSON([]byte("[]")),
 		"school_student_created_at":      now,
 		"school_student_updated_at":      now,
 	}
+
 	if profileSnap != nil {
 		if name := strings.TrimSpace(profileSnap.Name); name != "" {
 			values["school_student_user_profile_name_cache"] = name
 		}
 		if v := nzTrim(profileSnap.AvatarURL); v != nil {
-			values["school_student_user_profile_avatar_url_snapshot"] = *v
+			values["school_student_user_profile_avatar_url_cache"] = *v
 		}
 		if v := nzTrim(profileSnap.WhatsappURL); v != nil {
-			values["school_student_user_profile_whatsapp_url_snapshot"] = *v
+			values["school_student_user_profile_whatsapp_url_cache"] = *v
 		}
 		if v := nzTrim(profileSnap.ParentName); v != nil {
-			values["school_student_user_profile_parent_name_snapshot"] = *v
+			values["school_student_user_profile_parent_name_cache"] = *v
 		}
 		if v := nzTrim(profileSnap.ParentWhatsappURL); v != nil {
-			values["school_student_user_profile_parent_whatsapp_url_snapshot"] = *v
+			values["school_student_user_profile_parent_whatsapp_url_cache"] = *v
 		}
-		// NEW: gender snapshot di create
 		if profileSnap.Gender != nil {
 			if g := strings.TrimSpace(*profileSnap.Gender); g != "" {
-				values["school_student_user_profile_gender_snapshot"] = g
+				values["school_student_user_profile_gender_cache"] = g
 			}
 		}
-	}
-	if v := nzTrim(mName); v != nil {
-		values["school_student_school_name_snapshot"] = *v
-	}
-	if v := nzTrim(mSlug); v != nil {
-		values["school_student_school_slug_snapshot"] = *v
-	}
-	if v := nzTrim(mLogo); v != nil {
-		values["school_student_school_logo_url_snapshot"] = *v
-	}
-	if v := nzTrim(mIcon); v != nil {
-		values["school_student_school_icon_url_snapshot"] = *v
-	}
-	if v := nzTrim(mBg); v != nil {
-		values["school_student_school_background_url_snapshot"] = *v
 	}
 
 	if err := tx.Table("school_students").Create(values).Error; err != nil {

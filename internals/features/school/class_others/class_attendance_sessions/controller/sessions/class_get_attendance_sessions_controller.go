@@ -102,8 +102,8 @@ func queryBoolFlagInverse(raw string) bool {
        * default: kemarin–hari ini–besok
        * kalau focus_date di luar range itu → sebulan penuh dari focus_date
      - filter:
-       * teacher_id=true  → pakai teacher dari token
-       * student_id=true  → pakai student dari token
+       * teacher=me  → pakai teacher dari token
+       * student=me  → pakai student dari token
      - student_timeline=1 → mode khusus timeline murid
      - teacher_timeline=1 → mode khusus timeline guru
 ================================================================= */
@@ -883,23 +883,30 @@ func (ctrl *ClassAttendanceSessionController) listSessionsDefault(
 	}
 
 	// Flag filter self by token (teacher/student)
-	teacherFlag := strings.ToLower(strings.TrimSpace(c.Query("teacher_id")))
-	studentFlag := strings.ToLower(strings.TrimSpace(c.Query("student_id")))
+	// 🔁 now prefer ?teacher=me / ?student=me, fallback ke *_id untuk kompatibilitas
+	teacherFlagRaw := strings.ToLower(strings.TrimSpace(c.Query("teacher")))
+	if teacherFlagRaw == "" {
+		teacherFlagRaw = strings.ToLower(strings.TrimSpace(c.Query("teacher_id")))
+	}
+	studentFlagRaw := strings.ToLower(strings.TrimSpace(c.Query("student")))
+	if studentFlagRaw == "" {
+		studentFlagRaw = strings.ToLower(strings.TrimSpace(c.Query("student_id")))
+	}
 
 	wantTeacherSelf :=
-		teacherFlag == "1" ||
-			teacherFlag == "true" ||
-			teacherFlag == "yes" ||
-			teacherFlag == "me"
+		teacherFlagRaw == "1" ||
+			teacherFlagRaw == "true" ||
+			teacherFlagRaw == "yes" ||
+			teacherFlagRaw == "me"
 
 	wantStudentSelf :=
-		studentFlag == "1" ||
-			studentFlag == "true" ||
-			studentFlag == "yes" ||
-			studentFlag == "me"
+		studentFlagRaw == "1" ||
+			studentFlagRaw == "true" ||
+			studentFlagRaw == "yes" ||
+			studentFlagRaw == "me"
 
 	if wantTeacherSelf && wantStudentSelf {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Tidak boleh sekaligus filter teacher_id dan student_id")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Tidak boleh sekaligus filter teacher dan student")
 	}
 
 	if strings.TrimSpace(c.Query("section_id")) != "" || strings.TrimSpace(c.Query("class_subject_id")) != "" {
@@ -952,7 +959,7 @@ func (ctrl *ClassAttendanceSessionController) listSessionsDefault(
 			return helper.JsonError(c, http.StatusUnauthorized, "User tidak terautentik")
 		}
 		if !isTeacher {
-			return helper.JsonError(c, http.StatusForbidden, "Filter teacher_id hanya untuk guru di sekolah ini")
+			return helper.JsonError(c, http.StatusForbidden, "Filter teacher hanya untuk guru di sekolah ini")
 		}
 		if teacherIDFromToken == uuid.Nil {
 			return helper.JsonError(c, http.StatusForbidden, "Token tidak memiliki teacher_id")

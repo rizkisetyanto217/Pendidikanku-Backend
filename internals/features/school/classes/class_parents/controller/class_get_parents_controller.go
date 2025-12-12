@@ -242,12 +242,12 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 
 	// ====== Build payload utama (compact vs full) ======
 	if !includeMeta {
-		// tanpa include (behavior lama, tapi sekarang bisa compact)
+		// tanpa include (behavior lama, tapi sekarang timezone-aware)
 		if isCompact {
-			compacts := cpdto.ToClassParentCompactList(rows)
+			compacts := cpdto.ToClassParentCompactListWithContext(c, rows)
 			return helper.JsonList(c, "ok", compacts, pg)
 		}
-		resps := cpdto.ToClassParentResponses(rows)
+		resps := cpdto.ToClassParentResponsesWithContext(c, rows)
 		return helper.JsonList(c, "ok", resps, pg)
 	}
 
@@ -276,4 +276,5 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 
 	resps := cpdto.ToClassParentResponsesWithContext(c, rows)
 	return helper.JsonListWithInclude(c, "ok", resps, include, pg)
+
 }

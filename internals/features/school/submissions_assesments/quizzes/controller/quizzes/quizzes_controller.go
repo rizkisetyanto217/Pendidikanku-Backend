@@ -56,6 +56,7 @@ func applyFiltersQuizzes(db *gorm.DB, q *dto.ListQuizzesQuery) *gorm.DB {
 	}
 	db = db.Where("quiz_deleted_at IS NULL")
 
+	// --------- filter dasar ---------
 	if q.ID != nil && *q.ID != uuid.Nil {
 		db = db.Where("quiz_id = ?", *q.ID)
 	}
@@ -78,6 +79,20 @@ func applyFiltersQuizzes(db *gorm.DB, q *dto.ListQuizzesQuery) *gorm.DB {
 		like := "%" + s + "%"
 		db = db.Where("(quiz_title ILIKE ? OR COALESCE(quiz_description,'') ILIKE ?)", like, like)
 	}
+
+	// --------- remedial filters ---------
+	if q.IsRemedial != nil {
+		db = db.Where("quiz_is_remedial = ?", *q.IsRemedial)
+	}
+
+	if q.ParentQuizID != nil && *q.ParentQuizID != uuid.Nil {
+		db = db.Where("quiz_parent_quiz_id = ?", *q.ParentQuizID)
+	}
+
+	if q.RemedialRound != nil && *q.RemedialRound > 0 {
+		db = db.Where("quiz_remedial_round = ?", *q.RemedialRound)
+	}
+
 	return db
 }
 
@@ -178,7 +193,7 @@ func (ctrl *QuizController) Create(c *fiber.Ctx) error {
 	}
 	body.QuizSchoolID = mid
 
-	// Build model dari DTO (relasi ke assessment & type diisi dari DTO)
+	// Build model dari DTO (relasi ke assessment & type + remedial flags diisi dari DTO)
 	m := body.ToModel()
 
 	// Generate slug (pakai body jika ada; else dari title) → pastikan unik per tenant (alive only)

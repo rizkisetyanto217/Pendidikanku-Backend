@@ -72,6 +72,13 @@ CREATE TABLE IF NOT EXISTS student_quiz_attempts (
   student_quiz_attempt_last_started_at  timestamptz,
   student_quiz_attempt_last_finished_at timestamptz,
 
+  student_quiz_attempt_first_raw numeric(7,3),
+  student_quiz_attempt_first_percent numeric(6,3),
+  student_quiz_attempt_first_started_at timestamptz,
+  student_quiz_attempt_first_finished_at timestamptz,
+  student_quiz_attempt_avg_raw numeric(7,3),
+  student_quiz_attempt_avg_percent numeric(6,3),
+
   -- Timestamps
   student_quiz_attempt_created_at timestamptz NOT NULL DEFAULT now(),
   student_quiz_attempt_updated_at timestamptz NOT NULL DEFAULT now()

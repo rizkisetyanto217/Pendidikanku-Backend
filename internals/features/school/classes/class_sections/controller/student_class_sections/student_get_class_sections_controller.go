@@ -40,12 +40,13 @@ func parseUUIDList(s string) ([]uuid.UUID, error) {
 }
 
 // GET /api/u/student-class-sections/list
-// ?school_student_id=me|<uuid,uuid2,...>
+// ?student=me|<uuid,uuid2,...>
 // ?section_id=<uuid,uuid2,...>        // alias lama
 // ?class_section_id=<uuid,uuid2,...>  // alias baru
-// ?status=active|inactive|completed   // status enrolment siswa
+// ?status=active|inactive|completed
 // ?q=...
 // ?include=class_sections,csst
+// ?nested=class_sections,csst
 // ?view=compact|full|class_sections
 // ?page=1&size=20
 func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
@@ -88,31 +89,42 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// kalau minta CSST, otomatis butuh class_sections juga
-	if includeCSST {
-		includeClassSections = true
+	// ----------------- PARSE NESTED -----------------
+	nestedRaw := strings.TrimSpace(c.Query("nested"))
+	var nestedClassSections bool
+	var nestedCSST bool
+
+	if nestedRaw != "" {
+		parts := strings.Split(nestedRaw, ",")
+		for _, p := range parts {
+			switch strings.TrimSpace(strings.ToLower(p)) {
+			case "class_sections", "sections", "class_section":
+				nestedClassSections = true
+			case "csst", "cssts", "class_section_subject_teachers":
+				nestedCSST = true
+			}
+		}
 	}
-	// kalau view=class_sections, otomatis butuh class_sections
-	if viewClassSections {
+
+	// nested & include nggak saling override,
+	// tapi kalau nestedClassSections / viewClassSections → pasti butuh data class_sections
+	if viewClassSections || nestedClassSections {
 		includeClassSections = true
 	}
 
-	// ----------------- RESOLVE school_student_id -----------------
-	rawSchoolStudent := strings.TrimSpace(c.Query("school_student_id"))
+	// ----------------- RESOLVE student -----------------
+	rawSchoolStudent := strings.TrimSpace(c.Query("student"))
 
 	var schoolStudentIDs []uuid.UUID
 
 	if rawSchoolStudent == "" {
-		// kalau kosong:
-		// - staff  → boleh lihat semua (tanpa filter student)
-		// - non-staff → auto "me"
 		if !isStaff {
 			rawSchoolStudent = "me"
 		}
 	}
 
 	if rawSchoolStudent == "me" {
-		// ==== MODE "ME" → resolve dari user_id ====
+		// MODE "ME"
 		usersProfileID, err := getUsersProfileID(tx, userID)
 		if err != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "Profil user belum ada. Lengkapi profil terlebih dahulu.")
@@ -125,14 +137,13 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		schoolStudentIDs = []uuid.UUID{msID}
 
 	} else if rawSchoolStudent != "" {
-		// ==== MODE FILTER EXPLICIT UUID LIST ====
+		// MODE daftar UUID explicit
 		ids, err := parseUUIDList(rawSchoolStudent)
 		if err != nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "school_student_id tidak valid: "+err.Error())
+			return helper.JsonError(c, fiber.StatusBadRequest, "student tidak valid: "+err.Error())
 		}
 		schoolStudentIDs = ids
 
-		// kalau bukan staff, pastikan id-id ini memang milik dia
 		if !isStaff && len(ids) > 0 {
 			usersProfileID, err := getUsersProfileID(tx, userID)
 			if err != nil {
@@ -151,7 +162,7 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi school_student")
 			}
 			if cnt != int64(len(ids)) {
-				return helper.JsonError(c, fiber.StatusForbidden, "Beberapa school_student_id bukan milik Anda / beda tenant")
+				return helper.JsonError(c, fiber.StatusForbidden, "Beberapa student bukan milik Anda / beda tenant")
 			}
 		}
 	}
@@ -159,11 +170,10 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	// ----------------- FILTER SECTION & STATUS & SEARCH -----------------
 	var (
 		secIDs     []uuid.UUID
-		status     string // status enrolment (student_class_section_status_enum)
+		status     string
 		searchTerm = strings.TrimSpace(c.Query("q"))
 	)
 
-	// 🔹 section_id (lama)
 	if raw := strings.TrimSpace(c.Query("section_id")); raw != "" {
 		ids, e := parseUUIDList(raw)
 		if e != nil {
@@ -172,7 +182,6 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		secIDs = append(secIDs, ids...)
 	}
 
-	// 🔹 class_section_id (alias baru)
 	if raw := strings.TrimSpace(c.Query("class_section_id")); raw != "" {
 		ids, e := parseUUIDList(raw)
 		if e != nil {
@@ -181,7 +190,6 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		secIDs = append(secIDs, ids...)
 	}
 
-	// (opsional) hilangkan duplikat secIDs
 	if len(secIDs) > 1 {
 		tmpSet := make(map[uuid.UUID]struct{}, len(secIDs))
 		uniq := make([]uuid.UUID, 0, len(secIDs))
@@ -195,18 +203,16 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	}
 
 	if s := strings.TrimSpace(c.Query("status")); s != "" {
-		// biarkan apa adanya (active/inactive/completed), validasi hard di DB
 		status = s
 	}
 
-	// pagination (masih pakai getPageSize kamu)
 	page, size := getPageSize(c)
 	offset := (page - 1) * size
 	if offset < 0 {
 		offset = 0
 	}
 
-	// BASE QUERY ke tabel student_class_sections
+	// BASE QUERY ke student_class_sections
 	q := tx.Model(&classSectionModel.StudentClassSection{}).
 		Where(`
 			student_class_section_school_id = ?
@@ -216,15 +222,12 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	if len(schoolStudentIDs) > 0 {
 		q = q.Where("student_class_section_school_student_id IN ?", schoolStudentIDs)
 	}
-
 	if len(secIDs) > 0 {
 		q = q.Where("student_class_section_section_id IN ?", secIDs)
 	}
-
 	if status != "" {
 		q = q.Where("student_class_section_status = ?", status)
 	}
-
 	if searchTerm != "" {
 		s := "%" + strings.ToLower(searchTerm) + "%"
 		q = q.Where(`
@@ -250,41 +253,32 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// pagination style standar
 	pagination := helper.BuildPaginationFromOffset(total, offset, size)
 
-	// =====================================================================
-	//  MODE VIEW=COMPACT
-	// =====================================================================
+	// ================= VIEW=COMPACT =================
 	if viewCompact {
-		// 🔁 PAKAI VERSI SCHOOL TIME
 		out := dto.FromModelsStudentClassSectionCompactWithSchoolTime(c, rows)
-		// include selalu ada, minimal {}
 		return helper.JsonListWithInclude(c, "OK", out, nil, pagination)
 	}
 
-	// =====================================================================
-	//  MODE TANPA INCLUDE PARAM (tidak butuh class_sections/csst)
-	// =====================================================================
-	if !includeClassSections && !includeCSST {
+	// ======= TANPA include & TANPA nested =======
+	if !includeClassSections && !includeCSST && !nestedClassSections && !nestedCSST {
 		out := make([]dto.StudentClassSectionResp, 0, len(rows))
 		for i := range rows {
-			// 🔁 PAKAI VERSI SCHOOL TIME
 			out = append(out, dto.FromModelWithSchoolTime(c, &rows[i]))
 		}
 		return helper.JsonListWithInclude(c, "OK", out, nil, pagination)
 	}
 
 	// =====================================================================
-	//  MODE include=class_sections / csst → FULL + nested
+	//  PERSIAPAN DATA CLASS_SECTION & CSST (untuk include / nested)
 	// =====================================================================
 
-	// 1) Kumpulkan section_id unik dari hasil query
+	// 1) kumpulkan section_id dari rows
 	secIDSet := make(map[uuid.UUID]struct{})
 	for i := range rows {
 		secIDSet[rows[i].StudentClassSectionSectionID] = struct{}{}
 	}
-
 	secIDs = make([]uuid.UUID, 0, len(secIDSet))
 	for id := range secIDSet {
 		secIDs = append(secIDs, id)
@@ -293,33 +287,35 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	// 2) Map section_id → ClassSectionCompactResponse
 	classSectionMap := make(map[uuid.UUID]*dto.ClassSectionCompactResponse)
 
-	// 3) Query class_sections
-	if len(secIDs) > 0 {
-		var secRows []classSectionModel.ClassSectionModel
-		if err := ctl.DB.WithContext(c.Context()).
-			Model(&classSectionModel.ClassSectionModel{}).
-			Where(`
-				class_section_id IN ?
-				AND class_section_school_id = ?
-				AND class_section_deleted_at IS NULL
-			`, secIDs, schoolID).
-			Find(&secRows).Error; err != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data class sections")
-		}
+	if includeClassSections || viewClassSections || nestedClassSections {
+		if len(secIDs) > 0 {
+			var secRows []classSectionModel.ClassSectionModel
+			if err := ctl.DB.WithContext(c.Context()).
+				Model(&classSectionModel.ClassSectionModel{}).
+				Where(`
+					class_section_id IN ?
+					AND class_section_school_id = ?
+					AND class_section_deleted_at IS NULL
+				`, secIDs, schoolID).
+				Find(&secRows).Error; err != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data class sections")
+			}
 
-		for i := range secRows {
-			csModel := &secRows[i]
-			compact := dto.FromModelClassSectionToCompact(csModel)
-			// copy ke variabel baru supaya pointer stabil
-			csCopy := compact
-			classSectionMap[csModel.ClassSectionID] = &csCopy
+			for i := range secRows {
+				csModel := &secRows[i]
+				compact := dto.FromModelClassSectionToCompact(csModel)
+				csCopy := compact
+				classSectionMap[csModel.ClassSectionID] = &csCopy
+			}
 		}
 	}
 
-	// 4) Query CSST & kumpulkan ke slice flat (pakai DTO compact bawaan CSST)
+	// 3) CSST: flat list + map per section
 	var csstList []csstDto.ClassSectionSubjectTeacherCompactResponse
+	csstBySection := make(map[uuid.UUID][]csstDto.ClassSectionSubjectTeacherCompactResponse)
+	needCSST := includeCSST || nestedCSST
 
-	if includeCSST && len(secIDs) > 0 {
+	if needCSST && len(secIDs) > 0 {
 		var csstRows []csstModel.ClassSectionSubjectTeacherModel
 		if err := ctl.DB.WithContext(c.Context()).
 			Model(&csstModel.ClassSectionSubjectTeacherModel{}).
@@ -332,15 +328,23 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data subject teachers")
 		}
 
-		// Reuse mapper compact dari paket CSST DTO
-		csstList = csstDto.FromClassSectionSubjectTeacherModelsCompact(csstRows)
+		compactList := csstDto.FromClassSectionSubjectTeacherModelsCompact(csstRows)
+		csstList = compactList
+
+		for i, row := range csstRows {
+			secID := row.ClassSectionSubjectTeacherClassSectionID
+			if secID == uuid.Nil {
+				continue
+			}
+			csstBySection[secID] = append(csstBySection[secID], compactList[i])
+		}
 	}
 
-	// siapkan includePayload (selalu ada di response)
+	// ================= include payload =================
 	includePayload := fiber.Map{}
+	noNested := !nestedClassSections && !nestedCSST
 
-	// kalau diminta includeClassSections → flatten list ke include.class_sections
-	if includeClassSections {
+	if includeClassSections && noNested {
 		classSectionList := make([]dto.ClassSectionCompactResponse, 0, len(classSectionMap))
 		for _, cs := range classSectionMap {
 			if cs == nil {
@@ -350,13 +354,70 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		}
 		includePayload["class_sections"] = classSectionList
 	}
-
-	// kalau diminta includeCSST → pakai csstList flat (compact)
-	if includeCSST {
+	if includeCSST && noNested {
 		includePayload["csst"] = csstList
 	}
 
-	// 5) MODE view=class_sections → balikin hanya daftar class_section (+ include di atas)
+	// =====================================================================
+	//  MODE nested=class_sections,csst
+	// =====================================================================
+	if nestedClassSections {
+		type ClassSectionNested struct {
+			dto.ClassSectionCompactResponse
+			StudentClassSections        []dto.StudentClassSectionResp                       `json:"student_class_sections"`
+			ClassSectionSubjectTeachers []csstDto.ClassSectionSubjectTeacherCompactResponse `json:"class_section_subject_teachers,omitempty"`
+		}
+
+		nestedMap := make(map[uuid.UUID]*ClassSectionNested)
+
+		// init dari classSectionMap
+		for secID, cs := range classSectionMap {
+			if cs == nil {
+				continue
+			}
+			nestedMap[secID] = &ClassSectionNested{
+				ClassSectionCompactResponse: *cs,
+				StudentClassSections:        []dto.StudentClassSectionResp{},
+			}
+		}
+
+		// isi students per section
+		for i := range rows {
+			secID := rows[i].StudentClassSectionSectionID
+			secNested, ok := nestedMap[secID]
+			if !ok {
+				continue
+			}
+			secNested.StudentClassSections = append(
+				secNested.StudentClassSections,
+				dto.FromModelWithSchoolTime(c, &rows[i]),
+			)
+		}
+
+		// isi CSST per section (pakai csstBySection)
+		if nestedCSST {
+			for secID, secNested := range nestedMap {
+				if list, ok := csstBySection[secID]; ok && len(list) > 0 {
+					secNested.ClassSectionSubjectTeachers = append(secNested.ClassSectionSubjectTeachers, list...)
+				}
+			}
+		}
+
+		out := make([]ClassSectionNested, 0, len(nestedMap))
+		for _, v := range nestedMap {
+			if v == nil {
+				continue
+			}
+			out = append(out, *v)
+		}
+
+		// 🔥 nested → TIDAK kirim include sama sekali
+		return helper.JsonListWithInclude(c, "OK", out, nil, pagination)
+	}
+
+	// =====================================================================
+	//  MODE view=class_sections → cuma list section
+	// =====================================================================
 	if viewClassSections {
 		list := make([]dto.ClassSectionCompactResponse, 0, len(classSectionMap))
 		for _, cs := range classSectionMap {
@@ -368,7 +429,9 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		return helper.JsonListWithInclude(c, "OK", list, includePayload, pagination)
 	}
 
-	// 6) MODE default nested: per-enrollment + nested class_section (+ csst)
+	// =====================================================================
+	//  MODE default: per-enrollment + nested class_section di tiap row
+	// =====================================================================
 	type StudentClassSectionWithClassSectionResp struct {
 		dto.StudentClassSectionResp
 		ClassSection *dto.ClassSectionCompactResponse `json:"class_section,omitempty"`
@@ -376,7 +439,6 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 
 	out := make([]StudentClassSectionWithClassSectionResp, 0, len(rows))
 	for i := range rows {
-		// 🔁 BASE RESPON SUDAH DI-SCHOOL-TIME-KAN
 		base := dto.FromModelWithSchoolTime(c, &rows[i])
 
 		var included *dto.ClassSectionCompactResponse

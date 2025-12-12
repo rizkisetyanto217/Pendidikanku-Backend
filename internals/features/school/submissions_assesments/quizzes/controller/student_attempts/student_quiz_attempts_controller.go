@@ -18,6 +18,8 @@ import (
 	qservice "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/service"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
+
+	studentModel "madinahsalam_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
 )
 
 func isUniqueViolation(err error) bool {
@@ -95,6 +97,37 @@ func validAttemptStatus(s qmodel.StudentQuizAttemptStatus) bool {
 	default:
 		return false
 	}
+}
+
+// Isi snapshot/caches dari school_students
+func (ctl *StudentQuizAttemptsController) fillStudentSnapshots(
+	c *fiber.Ctx,
+	schoolID uuid.UUID,
+	studentID uuid.UUID,
+	m *qmodel.StudentQuizAttemptModel,
+) {
+	var stu studentModel.SchoolStudentModel
+
+	if err := ctl.DB.WithContext(c.Context()).
+		Select(
+			"school_student_code",
+			"school_student_user_profile_name_cache",
+			"school_student_user_profile_avatar_url_cache",
+			"school_student_user_profile_whatsapp_url_cache",
+			"school_student_user_profile_gender_cache",
+		).
+		Where("school_student_id = ? AND school_student_school_id = ?", studentID, schoolID).
+		First(&stu).Error; err != nil {
+
+		log.Printf("[StudentQuizAttemptsController] fillStudentSnapshots: gagal load school_student: %v", err)
+		return
+	}
+
+	m.StudentQuizAttemptSchoolStudentCodeCache = stu.SchoolStudentCode
+	m.StudentQuizAttemptUserProfileNameSnapshot = stu.SchoolStudentUserProfileNameCache
+	m.StudentQuizAttemptUserProfileAvatarURLSnapshot = stu.SchoolStudentUserProfileAvatarURLCache
+	m.StudentQuizAttemptUserProfileWhatsappURLSnapshot = stu.SchoolStudentUserProfileWhatsappURLCache
+	m.StudentQuizAttemptUserProfileGenderSnapshot = stu.SchoolStudentUserProfileGenderCache
 }
 
 // balikin (schoolID, studentID, isStudent)
@@ -235,6 +268,9 @@ func (ctl *StudentQuizAttemptsController) Create(c *fiber.Ctx) error {
 				m.StudentQuizAttemptStatus = qmodel.StudentQuizAttemptInProgress
 			}
 
+			// Isi snapshot dari school_students
+			ctl.fillStudentSnapshots(c, mid, sid, m)
+
 			if err := ctl.DB.Create(m).Error; err != nil {
 				log.Printf("[StudentQuizAttemptsController] DB Create error: %v", err)
 				if isUniqueViolation(err) {
@@ -277,7 +313,7 @@ func (ctl *StudentQuizAttemptsController) Create(c *fiber.Ctx) error {
 		}
 		log.Printf("[StudentQuizAttemptsController] No items submitted. Returning summary only. isNew=%v attempt_id=%s",
 			isNew, m.StudentQuizAttemptID)
-		return helper.JsonCreated(c, msg, qdto.FromModelStudentQuizAttempt(m))
+		return helper.JsonCreated(c, msg, qdto.FromModelStudentQuizAttemptWithCtx(c, m))
 	}
 
 	// =========================================
@@ -341,7 +377,7 @@ func (ctl *StudentQuizAttemptsController) Create(c *fiber.Ctx) error {
 	if !isNew {
 		msg = "Berhasil mensubmit attempt baru ke history"
 	}
-	return helper.JsonCreated(c, msg, qdto.FromModelStudentQuizAttempt(finalAttempt))
+	return helper.JsonCreated(c, msg, qdto.FromModelStudentQuizAttemptWithCtx(c, finalAttempt))
 }
 
 // PATCH /student-quiz-attempts/:id
@@ -404,7 +440,7 @@ func (ctl *StudentQuizAttemptsController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan perubahan")
 	}
 
-	return helper.JsonUpdated(c, "Berhasil memperbarui attempt", qdto.FromModelStudentQuizAttempt(&m))
+	return helper.JsonUpdated(c, "Berhasil memperbarui attempt", qdto.FromModelStudentQuizAttemptWithCtx(c, &m))
 }
 
 // DELETE /student-quiz-attempts/:id
@@ -566,7 +602,6 @@ func (ctl *StudentQuizAttemptsController) List(c *fiber.Ctx) error {
 
 	// ===== JSON =====
 	return helper.JsonList(c, "OK", qdto.FromModelsStudentQuizAttemptsWithCtx(c, rows), pagination)
-
 }
 
 // util kecil

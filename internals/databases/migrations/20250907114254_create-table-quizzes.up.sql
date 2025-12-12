@@ -33,6 +33,10 @@ CREATE TABLE IF NOT EXISTS quizzes (
   quiz_time_limit_sec  INT,
   quiz_total_questions INT NOT NULL DEFAULT 0,
 
+  quiz_is_remedial boolean NOT NULL DEFAULT false,
+  quiz_parent_quiz_id UUID NULL,
+  quiz_remedial_round int NULL,
+
   -- Timestamps & soft delete
   quiz_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   quiz_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -96,6 +100,12 @@ CREATE INDEX IF NOT EXISTS idx_quizzes_school_assessment
 CREATE INDEX IF NOT EXISTS idx_quizzes_school_created_desc
   ON quizzes (quiz_school_id, quiz_created_at DESC)
   WHERE quiz_deleted_at IS NULL;
+
+-- Index kecil buat lookup cepat remedial by parent
+CREATE INDEX IF NOT EXISTS idx_quizzes_parent_quiz
+  ON quizzes(quiz_parent_quiz_id)
+  WHERE quiz_is_remedial = true;
+
 
 
 -- =========================================

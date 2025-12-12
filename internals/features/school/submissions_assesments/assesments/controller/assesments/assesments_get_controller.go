@@ -17,6 +17,8 @@ import (
 	quizModel "madinahsalam_backend/internals/features/school/submissions_assesments/quizzes/model"
 	submissionModel "madinahsalam_backend/internals/features/school/submissions_assesments/submissions/model"
 
+	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
@@ -369,9 +371,10 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 	}
 
 	includeQuizzes := hasToken(includeRaw, "quizzes")
+	includeCSST := hasToken(includeRaw, "csst")
 	nestedQuizzes := hasToken(nestedRaw, "quizzes")
 
-	// alias lama: with_quizzes=1/true → ikut nyalain
+	// alias lama: with_quizzes=1/true → ikut nyalain (nested)
 	legacyWithQuizzes := eqTrue(c.Query("with_quizzes"))
 
 	// flag utama untuk load quizzes dari DB
@@ -847,8 +850,39 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 	}
 
 	// ================================
+	// KUMPULKAN CSST UNTUK INCLUDE=csst
+	// ================================
+	csstIDsSet := map[uuid.UUID]struct{}{}
+	for _, r := range rows {
+		if r.AssessmentClassSectionSubjectTeacherID != nil && *r.AssessmentClassSectionSubjectTeacherID != uuid.Nil {
+			csstIDsSet[*r.AssessmentClassSectionSubjectTeacherID] = struct{}{}
+		}
+	}
+
+	csstIDs := make([]uuid.UUID, 0, len(csstIDsSet))
+	for id := range csstIDsSet {
+		csstIDs = append(csstIDs, id)
+	}
+
+	var includeCSSTData []csstModel.ClassSectionSubjectTeacherModel
+	if includeCSST && len(csstIDs) > 0 {
+		if err := ctl.DB.WithContext(c.Context()).
+			Model(&csstModel.ClassSectionSubjectTeacherModel{}).
+			Where("class_section_subject_teacher_school_id = ?", mid).
+			Where("class_section_subject_teacher_id IN ?", csstIDs).
+			Where("class_section_subject_teacher_deleted_at IS NULL").
+			Find(&includeCSSTData).Error; err != nil {
+
+			log.Printf("[AssessmentList] ERROR FETCH CSST INCLUDE: %v", err)
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data CSST")
+		}
+	}
+
+	// ================================
 	// OPTIONAL: QUIZZES + STUDENT ATTEMPTS (per-quiz)
 	// ================================
+	includeQuizzesData := make([]quizWithAttempt, 0)
+
 	if withQuizzes && len(rows) > 0 {
 		aIDs := make([]uuid.UUID, 0, len(rows))
 		for i := range rows {
@@ -877,11 +911,12 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 				continue
 			}
 			aid := *qrows[i].QuizAssessmentID
-			qResp := quizDTO.FromModel(&qrows[i])
+
+			qResp := quizDTO.FromModelWithCtx(c, &qrows[i])
 
 			quizMap[aid] = append(quizMap[aid], quizWithAttempt{
 				QuizResponse:   qResp,
-				StudentAttempt: nil, // diisi nanti kalau student_timeline
+				StudentAttempt: nil,
 			})
 		}
 
@@ -946,10 +981,15 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 				continue
 			}
 
-			// Kalau bukan student_timeline → nested tergantung nestedQuizzes / legacyWithQuizzes
+			// ==== NON student_timeline ====
 			if !isStudentTimeline {
+				// nested-style: kalau nestedQuizzes / legacyWithQuizzes
 				if nestedQuizzes || legacyWithQuizzes {
 					out[i].Quizzes = qs
+				}
+				// include-style: kalau include=quizzes → taruh di includes.quizzes
+				if includeQuizzes {
+					includeQuizzesData = append(includeQuizzesData, qs...)
 				}
 				continue
 			}
@@ -976,30 +1016,46 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 			log.Printf("[AssessmentList] ATTACH ATTEMPTS: assessment=%s attached_attempts=%d",
 				aid.String(), attachedCount)
 
-			// Student timeline: juga nested tergantung nestedQuizzes / legacy alias
+			// Student timeline: nested tergantung nested/legacy
 			if nestedQuizzes || legacyWithQuizzes {
 				out[i].Quizzes = qs
+			}
+			// include-style untuk timeline juga
+			if includeQuizzes {
+				includeQuizzesData = append(includeQuizzesData, qs...)
 			}
 		}
 	}
 
-	// 6) Return response (FULL)
+	// 6) Return response (FULL) + includes
+	includesMap := fiber.Map{
+		"with_urls":           withURLs,
+		"urls_published_only": urlsPublishedOnly,
+		"urls_limit_per":      urlsLimitPer,
+		"urls_order":          urlsOrder,
+		"include":             includeRaw,
+		"nested":              nestedRaw,
+		"with_quizzes":        withQuizzes,
+		"mode":                "full",
+		"type_category":       typeCategoryRaw,
+		"assessment_type":     assessmentTypeRaw,
+	}
+
+	// ✅ include-style: quizzes
+	if includeQuizzes && len(includeQuizzesData) > 0 {
+		includesMap["quizzes"] = includeQuizzesData
+	}
+
+	// ✅ include-style: csst
+	if includeCSST && len(includeCSSTData) > 0 {
+		includesMap["csst"] = includeCSSTData
+	}
+
 	return helper.JsonListEx(
 		c,
 		"OK",
 		out,
 		meta,
-		fiber.Map{
-			"with_urls":           withURLs,
-			"urls_published_only": urlsPublishedOnly,
-			"urls_limit_per":      urlsLimitPer,
-			"urls_order":          urlsOrder,
-			"include":             includeRaw,
-			"nested":              nestedRaw,
-			"with_quizzes":        withQuizzes,
-			"mode":                "full",
-			"type_category":       typeCategoryRaw,
-			"assessment_type":     assessmentTypeRaw,
-		},
+		includesMap,
 	)
 }

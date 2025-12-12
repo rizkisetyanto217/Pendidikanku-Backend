@@ -92,16 +92,6 @@ func (r *CreateAssessmentRequest) Normalize() {
 		r.AssessmentStatus = &s
 	}
 
-	// default attempts
-	if r.AssessmentTotalAttemptsAllowed <= 0 {
-		r.AssessmentTotalAttemptsAllowed = 1
-	}
-
-	// default max score
-	if r.AssessmentMaxScore <= 0 {
-		r.AssessmentMaxScore = 100
-	}
-
 	// quiz_total tidak dipaksa di sini
 	if r.AssessmentQuizTotal != nil && *r.AssessmentQuizTotal < 0 {
 		z := 0
@@ -308,17 +298,6 @@ type AssessmentResponse struct {
 	AssessmentSubmissionsTotal       int `json:"assessment_submissions_total"`
 	AssessmentSubmissionsGradedTotal int `json:"assessment_submissions_graded_total"`
 
-	// flag hasil grading tipe assessment (snapshot dari AssessmentType)
-	AssessmentTypeIsGradedSnapshot bool `json:"assessment_type_is_graded_snapshot"`
-
-	// kategori type snapshot (training / daily_exam / exam)
-	AssessmentTypeCategorySnapshot string `json:"assessment_type_category_snapshot"`
-
-	// Snapshot aturan dari AssessmentType (late policy & passing score)
-	AssessmentAllowLateSubmissionSnapshot bool    `json:"assessment_allow_late_submission_snapshot"`
-	AssessmentLatePenaltyPercentSnapshot  float64 `json:"assessment_late_penalty_percent_snapshot"`
-	AssessmentPassingScorePercentSnapshot float64 `json:"assessment_passing_score_percent_snapshot"`
-
 	AssessmentCreatedByTeacherID *uuid.UUID `json:"assessment_created_by_teacher_id,omitempty"`
 
 	AssessmentSubmissionMode    string     `json:"assessment_submission_mode"`
@@ -360,13 +339,6 @@ func buildAssessmentResponse(m assessModel.AssessmentModel, isOpen bool) Assessm
 
 		AssessmentSubmissionsTotal:       m.AssessmentSubmissionsTotal,
 		AssessmentSubmissionsGradedTotal: m.AssessmentSubmissionsGradedTotal,
-
-		AssessmentTypeIsGradedSnapshot: m.AssessmentTypeIsGradedSnapshot,
-		AssessmentTypeCategorySnapshot: string(m.AssessmentTypeCategorySnapshot),
-
-		AssessmentAllowLateSubmissionSnapshot: m.AssessmentAllowLateSubmissionSnapshot,
-		AssessmentLatePenaltyPercentSnapshot:  m.AssessmentLatePenaltyPercentSnapshot,
-		AssessmentPassingScorePercentSnapshot: m.AssessmentPassingScorePercentSnapshot,
 
 		AssessmentCreatedByTeacherID: m.AssessmentCreatedByTeacherID,
 
@@ -535,8 +507,6 @@ type AssessmentCompactResponse struct {
 
 	AssessmentIsOpen bool `json:"assessment_is_open"`
 
-	AssessmentTypeCategorySnapshot string `json:"assessment_type_category_snapshot"`
-
 	AssessmentCreatedAt time.Time `json:"assessment_created_at"`
 	AssessmentUpdatedAt time.Time `json:"assessment_updated_at"`
 }
@@ -564,8 +534,6 @@ func FromAssessmentModelCompact(m assessModel.AssessmentModel) AssessmentCompact
 		AssessmentQuizTotal:            m.AssessmentQuizTotal,
 		AssessmentTotalAttemptsAllowed: m.AssessmentTotalAttemptsAllowed,
 		AssessmentIsOpen:               isOpen,
-
-		AssessmentTypeCategorySnapshot: string(m.AssessmentTypeCategorySnapshot),
 
 		AssessmentCreatedAt: m.AssessmentCreatedAt,
 		AssessmentUpdatedAt: m.AssessmentUpdatedAt,
@@ -599,8 +567,6 @@ func FromAssessmentModelsCompact(rows []assessModel.AssessmentModel) []Assessmen
 			AssessmentTotalAttemptsAllowed: m.AssessmentTotalAttemptsAllowed,
 
 			AssessmentIsOpen: isOpen,
-
-			AssessmentTypeCategorySnapshot: string(m.AssessmentTypeCategorySnapshot),
 
 			AssessmentCreatedAt: m.AssessmentCreatedAt,
 			AssessmentUpdatedAt: m.AssessmentUpdatedAt,
@@ -638,8 +604,6 @@ func FromAssessmentModelsCompactWithSchoolTime(c *fiber.Ctx, rows []assessModel.
 			AssessmentTotalAttemptsAllowed: m.AssessmentTotalAttemptsAllowed,
 
 			AssessmentIsOpen: isOpen,
-
-			AssessmentTypeCategorySnapshot: string(m.AssessmentTypeCategorySnapshot),
 
 			AssessmentCreatedAt: dbtime.ToSchoolTime(c, m.AssessmentCreatedAt),
 			AssessmentUpdatedAt: dbtime.ToSchoolTime(c, m.AssessmentUpdatedAt),

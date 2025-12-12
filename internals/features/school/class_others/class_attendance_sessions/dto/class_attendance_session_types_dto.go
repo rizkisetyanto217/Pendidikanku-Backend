@@ -221,3 +221,6 @@ func NewClassAttendanceSessionTypeCompactDTOs(list []*attendanceModel.ClassAtten
 	}
 	return out
 }
+
+
+

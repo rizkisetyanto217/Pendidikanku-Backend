@@ -586,3 +586,130 @@ func NormalizeParticipantsSliceToSchoolTime(
 	}
 	return list
 }
+
+// ===================== COMPACT RESPONSE =====================
+
+type ClassAttendanceSessionParticipantCompactResponse struct {
+	ClassAttendanceSessionParticipantID        uuid.UUID `json:"class_attendance_session_participant_id"`
+	ClassAttendanceSessionParticipantSessionID uuid.UUID `json:"class_attendance_session_participant_session_id"`
+
+	// relasi
+	ClassAttendanceSessionParticipantSchoolStudentID *uuid.UUID `json:"class_attendance_session_participant_school_student_id,omitempty"`
+	ClassAttendanceSessionParticipantSchoolTeacherID *uuid.UUID `json:"class_attendance_session_participant_school_teacher_id,omitempty"`
+	ClassAttendanceSessionParticipantKind            string     `json:"class_attendance_session_participant_kind"`
+	ClassAttendanceSessionParticipantTeacherRole     *string    `json:"class_attendance_session_participant_teacher_role,omitempty"`
+
+	// state & type
+	ClassAttendanceSessionParticipantState  string     `json:"class_attendance_session_participant_state"`
+	ClassAttendanceSessionParticipantTypeID *uuid.UUID `json:"class_attendance_session_participant_type_id,omitempty"`
+
+	// nilai & deskripsi
+	ClassAttendanceSessionParticipantDesc     *string  `json:"class_attendance_session_participant_desc,omitempty"`
+	ClassAttendanceSessionParticipantScore    *float64 `json:"class_attendance_session_participant_score,omitempty"`
+	ClassAttendanceSessionParticipantIsPassed *bool    `json:"class_attendance_session_participant_is_passed,omitempty"`
+
+	// waktu (sudah di-normalize ke school time via WithSchoolTime)
+	ClassAttendanceSessionParticipantCheckinAt  *time.Time `json:"class_attendance_session_participant_checkin_at,omitempty"`
+	ClassAttendanceSessionParticipantCheckoutAt *time.Time `json:"class_attendance_session_participant_checkout_at,omitempty"`
+	ClassAttendanceSessionParticipantMarkedAt   *time.Time `json:"class_attendance_session_participant_marked_at,omitempty"`
+	ClassAttendanceSessionParticipantLockedAt   *time.Time `json:"class_attendance_session_participant_locked_at,omitempty"`
+
+	// metode & geo
+	ClassAttendanceSessionParticipantMethod      *string  `json:"class_attendance_session_participant_method,omitempty"`
+
+	// snapshot user profile (tetap ikut, karena ringan & kepake di UI)
+	ClassAttendanceSessionParticipantUserProfileNameSnapshot              *string `json:"class_attendance_session_participant_user_profile_name_snapshot,omitempty"`
+	ClassAttendanceSessionParticipantUserProfileAvatarURLSnapshot         *string `json:"class_attendance_session_participant_user_profile_avatar_url_snapshot,omitempty"`
+	ClassAttendanceSessionParticipantUserProfileWhatsappURLSnapshot       *string `json:"class_attendance_session_participant_user_profile_whatsapp_url_snapshot,omitempty"`
+	ClassAttendanceSessionParticipantUserProfileParentNameSnapshot        *string `json:"class_attendance_session_participant_user_profile_parent_name_snapshot,omitempty"`
+	ClassAttendanceSessionParticipantUserProfileParentWhatsappURLSnapshot *string `json:"class_attendance_session_participant_user_profile_parent_whatsapp_url_snapshot,omitempty"`
+	ClassAttendanceSessionParticipantUserProfileGenderSnapshot            *string `json:"class_attendance_session_participant_user_profile_gender_snapshot,omitempty"`
+
+	// audit
+	ClassAttendanceSessionParticipantCreatedAt time.Time `json:"class_attendance_session_participant_created_at"`
+	ClassAttendanceSessionParticipantUpdatedAt time.Time `json:"class_attendance_session_participant_updated_at"`
+}
+
+// Converter dari Model → Compact DTO
+func NewClassAttendanceSessionParticipantCompactResponse(
+	m attendanceModel.ClassAttendanceSessionParticipantModel,
+) ClassAttendanceSessionParticipantCompactResponse {
+	return ClassAttendanceSessionParticipantCompactResponse{
+		ClassAttendanceSessionParticipantID:              m.ClassAttendanceSessionParticipantID,
+		ClassAttendanceSessionParticipantSessionID:       m.ClassAttendanceSessionParticipantSessionID,
+		ClassAttendanceSessionParticipantSchoolStudentID: m.ClassAttendanceSessionParticipantSchoolStudentID,
+		ClassAttendanceSessionParticipantSchoolTeacherID: m.ClassAttendanceSessionParticipantSchoolTeacherID,
+		ClassAttendanceSessionParticipantKind:            string(m.ClassAttendanceSessionParticipantKind),
+		ClassAttendanceSessionParticipantTeacherRole:     toStrPtrFromTeacherRole(m.ClassAttendanceSessionParticipantTeacherRole),
+
+		ClassAttendanceSessionParticipantState:  string(m.ClassAttendanceSessionParticipantState),
+		ClassAttendanceSessionParticipantTypeID: m.ClassAttendanceSessionParticipantTypeID,
+
+		ClassAttendanceSessionParticipantDesc:     m.ClassAttendanceSessionParticipantDesc,
+		ClassAttendanceSessionParticipantScore:    m.ClassAttendanceSessionParticipantScore,
+		ClassAttendanceSessionParticipantIsPassed: m.ClassAttendanceSessionParticipantIsPassed,
+
+		ClassAttendanceSessionParticipantCheckinAt:  m.ClassAttendanceSessionParticipantCheckinAt,
+		ClassAttendanceSessionParticipantCheckoutAt: m.ClassAttendanceSessionParticipantCheckoutAt,
+		ClassAttendanceSessionParticipantMarkedAt:   m.ClassAttendanceSessionParticipantMarkedAt,
+		ClassAttendanceSessionParticipantLockedAt:   m.ClassAttendanceSessionParticipantLockedAt,
+
+		ClassAttendanceSessionParticipantMethod:      m.ClassAttendanceSessionParticipantMethod,
+
+
+		ClassAttendanceSessionParticipantUserProfileNameSnapshot:              m.ClassAttendanceSessionParticipantUserProfileNameSnapshot,
+		ClassAttendanceSessionParticipantUserProfileAvatarURLSnapshot:         m.ClassAttendanceSessionParticipantUserProfileAvatarURLSnapshot,
+		ClassAttendanceSessionParticipantUserProfileWhatsappURLSnapshot:       m.ClassAttendanceSessionParticipantUserProfileWhatsappURLSnapshot,
+		ClassAttendanceSessionParticipantUserProfileParentNameSnapshot:        m.ClassAttendanceSessionParticipantUserProfileParentNameSnapshot,
+		ClassAttendanceSessionParticipantUserProfileParentWhatsappURLSnapshot: m.ClassAttendanceSessionParticipantUserProfileParentWhatsappURLSnapshot,
+		ClassAttendanceSessionParticipantUserProfileGenderSnapshot:            m.ClassAttendanceSessionParticipantUserProfileGenderSnapshot,
+
+		ClassAttendanceSessionParticipantCreatedAt: m.ClassAttendanceSessionParticipantCreatedAt,
+		ClassAttendanceSessionParticipantUpdatedAt: m.ClassAttendanceSessionParticipantUpdatedAt,
+	}
+}
+
+// helper kecil buat convert *TeacherRole → *string
+func toStrPtrFromTeacherRole(r *attendanceModel.TeacherRole) *string {
+	if r == nil {
+		return nil
+	}
+	s := string(*r)
+	return &s
+}
+
+// WithSchoolTime: mirip pattern di session compact
+func (r ClassAttendanceSessionParticipantCompactResponse) WithSchoolTime(
+	c *fiber.Ctx,
+) ClassAttendanceSessionParticipantCompactResponse {
+	if r.ClassAttendanceSessionParticipantCheckinAt != nil {
+		r.ClassAttendanceSessionParticipantCheckinAt =
+			dbtime.ToSchoolTimePtr(c, r.ClassAttendanceSessionParticipantCheckinAt)
+	}
+	if r.ClassAttendanceSessionParticipantCheckoutAt != nil {
+		r.ClassAttendanceSessionParticipantCheckoutAt =
+			dbtime.ToSchoolTimePtr(c, r.ClassAttendanceSessionParticipantCheckoutAt)
+	}
+	if r.ClassAttendanceSessionParticipantMarkedAt != nil {
+		r.ClassAttendanceSessionParticipantMarkedAt =
+			dbtime.ToSchoolTimePtr(c, r.ClassAttendanceSessionParticipantMarkedAt)
+	}
+	if r.ClassAttendanceSessionParticipantLockedAt != nil {
+		r.ClassAttendanceSessionParticipantLockedAt =
+			dbtime.ToSchoolTimePtr(c, r.ClassAttendanceSessionParticipantLockedAt)
+	}
+	return r
+}
+
+// Versi slice, enak buat List di controller
+func MapParticipantsToCompact(
+	c *fiber.Ctx,
+	list []attendanceModel.ClassAttendanceSessionParticipantModel,
+) []ClassAttendanceSessionParticipantCompactResponse {
+	out := make([]ClassAttendanceSessionParticipantCompactResponse, 0, len(list))
+	for _, m := range list {
+		item := NewClassAttendanceSessionParticipantCompactResponse(m).WithSchoolTime(c)
+		out = append(out, item)
+	}
+	return out
+}

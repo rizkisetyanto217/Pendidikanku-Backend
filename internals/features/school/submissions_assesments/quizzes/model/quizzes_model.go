@@ -33,6 +33,19 @@ type QuizModel struct {
 	QuizTimeLimitSec   *int `gorm:"type:int;column:quiz_time_limit_sec" json:"quiz_time_limit_sec,omitempty"`
 	QuizTotalQuestions int  `gorm:"type:int;not null;default:0;column:quiz_total_questions" json:"quiz_total_questions"`
 
+	// =========================
+	// Remedial flags
+	// =========================
+
+	// True kalau quiz ini adalah quiz remedial (bukan ujian utama)
+	QuizIsRemedial bool `gorm:"not null;default:false;column:quiz_is_remedial" json:"quiz_is_remedial"`
+
+	// Kalau remedial, nunjuk ke quiz utama (atau quiz sebelumnya)
+	QuizParentQuizID *uuid.UUID `gorm:"type:uuid;column:quiz_parent_quiz_id" json:"quiz_parent_quiz_id,omitempty"`
+
+	// Remedial ke berapa (1 = remedial pertama, 2 = remedial kedua, dst)
+	QuizRemedialRound *int `gorm:"type:int;column:quiz_remedial_round" json:"quiz_remedial_round,omitempty"`
+
 	// Timestamps & soft delete
 	QuizCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:quiz_created_at" json:"quiz_created_at"`
 	QuizUpdatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:quiz_updated_at" json:"quiz_updated_at"`

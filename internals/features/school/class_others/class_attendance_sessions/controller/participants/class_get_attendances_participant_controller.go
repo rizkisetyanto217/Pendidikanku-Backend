@@ -20,8 +20,6 @@ import (
 
 const dateLayout = "2006-01-02"
 
-// di: internals/features/attendance/controller/class_attendance_session_participant_controller.go
-
 /*
 =========================================================
 GET /class-attendance-session-participants
@@ -33,6 +31,7 @@ Query:
   - session_id, school_student_id, school_teacher_id, type_id, marked_by_teacher_id
   - created_ge, created_le, marked_ge, marked_le  (ISO date / RFC3339)
   - page, size (opsional, default: page=1,size=20)
+  - mode=compact|full (default: full)
 
 =========================================================
 */
@@ -57,6 +56,10 @@ func (ctl *ClassAttendanceSessionParticipantController) List(c *fiber.Ctx) error
 			return helper.JsonError(c, fiber.StatusForbidden, "Scope school tidak ditemukan")
 		}
 	}
+
+	// Mode: compact / full
+	modeRaw := strings.ToLower(strings.TrimSpace(c.Query("mode")))
+	wantCompact := modeRaw == "compact"
 
 	// Parse query → DTO (pakai CSV dari DTO baru)
 	var q attendanceDTO.ListClassAttendanceSessionParticipantQuery
@@ -197,18 +200,33 @@ func (ctl *ClassAttendanceSessionParticipantController) List(c *fiber.Ctx) error
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// Konversi waktu ke timezone sekolah (client-facing)
+	// Pagination payload
+	pg := fiber.Map{
+		"page":  page,
+		"size":  size,
+		"total": total,
+	}
+
+	// =========================
+	// MODE: COMPACT / FULL
+	// =========================
+	if wantCompact {
+		// Compact → pakai DTO compact + WithSchoolTime di dalamnya
+		compact := attendanceDTO.MapParticipantsToCompact(c, rows)
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{
+			"message":    "Daftar peserta session absensi (compact)",
+			"data":       compact,
+			"pagination": pg,
+		})
+	}
+
+	// FULL → pakai model utuh + konversi waktu ke school time
 	rows = attendanceDTO.NormalizeParticipantsSliceToSchoolTime(c, rows)
 
-	// Response
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"message": "Daftar peserta session absensi",
-		"data":    rows,
-		"pagination": fiber.Map{
-			"page":  page,
-			"size":  size,
-			"total": total,
-		},
+		"message":    "Daftar peserta session absensi",
+		"data":       rows,
+		"pagination": pg,
 	})
 }
 

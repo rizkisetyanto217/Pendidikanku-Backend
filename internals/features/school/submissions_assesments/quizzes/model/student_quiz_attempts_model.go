@@ -15,10 +15,12 @@ import (
 
 	STUDENT QUIZ ATTEMPTS (JSON VERSION)
 	1 row = 1 student × 1 quiz
-	- history: semua attempt dalam JSONB
-	- best_* : nilai terbaik
-	- last_* : nilai attempt terakhir
-	- count  : total attempt
+	- history      : semua attempt dalam JSONB
+	- count        : total attempt
+	- best_*       : nilai terbaik
+	- last_*       : nilai attempt terakhir
+	- first_*      : nilai attempt pertama
+	- avg_*        : rata-rata nilai semua attempt
 
 =========================================================
 */
@@ -67,8 +69,9 @@ type StudentQuizAttemptHistoryItem struct {
 }
 
 /*
-	=========================================================
-	  MODEL
+=========================================================
+
+	MODEL
 
 =========================================================
 */
@@ -113,6 +116,16 @@ type StudentQuizAttemptModel struct {
 	StudentQuizAttemptLastStartedAt  *time.Time `gorm:"type:timestamptz;column:student_quiz_attempt_last_started_at" json:"student_quiz_attempt_last_started_at,omitempty"`
 	StudentQuizAttemptLastFinishedAt *time.Time `gorm:"type:timestamptz;column:student_quiz_attempt_last_finished_at" json:"student_quiz_attempt_last_finished_at,omitempty"`
 
+	// ====== NILAI PERTAMA (FIRST) ======
+	StudentQuizAttemptFirstRaw        *float64   `gorm:"type:numeric(7,3);column:student_quiz_attempt_first_raw" json:"student_quiz_attempt_first_raw,omitempty"`
+	StudentQuizAttemptFirstPercent    *float64   `gorm:"type:numeric(6,3);column:student_quiz_attempt_first_percent" json:"student_quiz_attempt_first_percent,omitempty"`
+	StudentQuizAttemptFirstStartedAt  *time.Time `gorm:"type:timestamptz;column:student_quiz_attempt_first_started_at" json:"student_quiz_attempt_first_started_at,omitempty"`
+	StudentQuizAttemptFirstFinishedAt *time.Time `gorm:"type:timestamptz;column:student_quiz_attempt_first_finished_at" json:"student_quiz_attempt_first_finished_at,omitempty"`
+
+	// ====== NILAI RATA-RATA (AVERAGE) ======
+	StudentQuizAttemptAvgRaw     *float64 `gorm:"type:numeric(7,3);column:student_quiz_attempt_avg_raw" json:"student_quiz_attempt_avg_raw,omitempty"`
+	StudentQuizAttemptAvgPercent *float64 `gorm:"type:numeric(6,3);column:student_quiz_attempt_avg_percent" json:"student_quiz_attempt_avg_percent,omitempty"`
+
 	// Timestamps
 	StudentQuizAttemptCreatedAt time.Time `gorm:"type:timestamptz;not null;default:now();autoCreateTime;column:student_quiz_attempt_created_at" json:"student_quiz_attempt_created_at"`
 	StudentQuizAttemptUpdatedAt time.Time `gorm:"type:timestamptz;not null;default:now();autoUpdateTime;column:student_quiz_attempt_updated_at" json:"student_quiz_attempt_updated_at"`
@@ -136,7 +149,7 @@ func (m *StudentQuizAttemptModel) AppendAttemptHistory(
 		}
 	}
 
-	// 2) Hitung skor total
+	// 2) Hitung skor total attempt baru
 	var totalPoints, totalEarned float64
 	for _, it := range items {
 		totalPoints += it.Points
@@ -183,5 +196,37 @@ func (m *StudentQuizAttemptModel) AppendAttemptHistory(
 		m.StudentQuizAttemptBestFinishedAt = &attempt.AttemptFinishedAt
 	}
 
+	// 7) FIRST: kalau belum pernah di-set, atau nil (row lama sebelum kolom ada)
+	if m.StudentQuizAttemptFirstRaw == nil || m.StudentQuizAttemptFirstPercent == nil ||
+		m.StudentQuizAttemptFirstStartedAt == nil || m.StudentQuizAttemptFirstFinishedAt == nil {
+
+		if len(history) > 0 {
+			first := history[0]
+			m.StudentQuizAttemptFirstRaw = &first.AttemptRawScore
+			m.StudentQuizAttemptFirstPercent = &first.AttemptPercent
+			m.StudentQuizAttemptFirstStartedAt = &first.AttemptStartedAt
+			m.StudentQuizAttemptFirstFinishedAt = &first.AttemptFinishedAt
+		}
+	}
+
+	// 8) AVERAGE: hitung rata-rata dari seluruh history
+	var sumRaw, sumPercent float64
+	for _, h := range history {
+		sumRaw += h.AttemptRawScore
+		sumPercent += h.AttemptPercent
+	}
+	n := float64(len(history))
+	if n > 0 {
+		avgRaw := sumRaw / n
+		avgPercent := sumPercent / n
+		m.StudentQuizAttemptAvgRaw = &avgRaw
+		m.StudentQuizAttemptAvgPercent = &avgPercent
+	}
+
 	return nil
+}
+
+// TableName override default GORM → pakai nama tabel nyata di DB
+func (StudentQuizAttemptModel) TableName() string {
+	return "student_quiz_attempts"
 }

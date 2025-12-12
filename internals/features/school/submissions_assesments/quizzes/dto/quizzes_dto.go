@@ -66,7 +66,7 @@ func (f UpdateField[T]) Val() T             { return f.value }
 
 type CreateQuizRequest struct {
 	// Tenant & relasi
-	QuizSchoolID         uuid.UUID  `json:"quiz_school_id" validate:"required,uuid4"`
+	QuizSchoolID         uuid.UUID  `json:"quiz_school_id"`
 	QuizAssessmentID     *uuid.UUID `json:"quiz_assessment_id" validate:"omitempty,uuid4"`
 	QuizAssessmentTypeID *uuid.UUID `json:"quiz_assessment_type_id" validate:"omitempty,uuid4"`
 
@@ -78,14 +78,25 @@ type CreateQuizRequest struct {
 	// Pengaturan dasar
 	QuizIsPublished  *bool `json:"quiz_is_published" validate:"omitempty"`
 	QuizTimeLimitSec *int  `json:"quiz_time_limit_sec" validate:"omitempty,gte=0"`
+
+	// Remedial flags (opsional, biasanya diisi dari backend saat clone)
+	QuizIsRemedial    *bool      `json:"quiz_is_remedial,omitempty" validate:"omitempty"`
+	QuizParentQuizID  *uuid.UUID `json:"quiz_parent_quiz_id,omitempty" validate:"omitempty,uuid4"`
+	QuizRemedialRound *int       `json:"quiz_remedial_round,omitempty" validate:"omitempty,gte=1"`
 }
 
 // ToModel: builder model dari payload Create (timestamps oleh GORM)
 func (r *CreateQuizRequest) ToModel() *model.QuizModel {
-	// pub flag
+	// publish flag
 	isPub := false
 	if r.QuizIsPublished != nil {
 		isPub = *r.QuizIsPublished
+	}
+
+	// remedial flag
+	isRemedial := false
+	if r.QuizIsRemedial != nil {
+		isRemedial = *r.QuizIsRemedial
 	}
 
 	return &model.QuizModel{
@@ -99,6 +110,11 @@ func (r *CreateQuizRequest) ToModel() *model.QuizModel {
 
 		QuizIsPublished:  isPub,
 		QuizTimeLimitSec: r.QuizTimeLimitSec,
+
+		// Remedial flags
+		QuizIsRemedial:    isRemedial,
+		QuizParentQuizID:  r.QuizParentQuizID,
+		QuizRemedialRound: r.QuizRemedialRound,
 		// QuizTotalQuestions pakai default 0 dari DB / diupdate dari service questions
 	}
 }
@@ -118,11 +134,16 @@ type PatchQuizRequest struct {
 
 	QuizIsPublished  UpdateField[bool] `json:"quiz_is_published"`
 	QuizTimeLimitSec UpdateField[int]  `json:"quiz_time_limit_sec"` // nullable
+
+	// Remedial flags
+	QuizIsRemedial    UpdateField[bool]      `json:"quiz_is_remedial"`
+	QuizParentQuizID  UpdateField[uuid.UUID] `json:"quiz_parent_quiz_id"`
+	QuizRemedialRound UpdateField[int]       `json:"quiz_remedial_round"`
 }
 
 // ToUpdates: map untuk gorm.Model(&m).Updates(...)
 func (p *PatchQuizRequest) ToUpdates() map[string]any {
-	u := make(map[string]any, 10)
+	u := make(map[string]any, 16)
 
 	// quiz_assessment_id (nullable)
 	if p.QuizAssessmentID.ShouldUpdate() {
@@ -178,7 +199,7 @@ func (p *PatchQuizRequest) ToUpdates() map[string]any {
 		}
 	}
 
-	// quiz_is_published (bool)
+	// quiz_is_published (bool, non-nullable)
 	if p.QuizIsPublished.ShouldUpdate() && !p.QuizIsPublished.IsNull() {
 		u["quiz_is_published"] = p.QuizIsPublished.Val()
 	}
@@ -189,6 +210,31 @@ func (p *PatchQuizRequest) ToUpdates() map[string]any {
 			u["quiz_time_limit_sec"] = gorm.Expr("NULL")
 		} else {
 			u["quiz_time_limit_sec"] = p.QuizTimeLimitSec.Val()
+		}
+	}
+
+	// ========== Remedial flags ==========
+
+	// quiz_is_remedial (bool, non-nullable)
+	if p.QuizIsRemedial.ShouldUpdate() && !p.QuizIsRemedial.IsNull() {
+		u["quiz_is_remedial"] = p.QuizIsRemedial.Val()
+	}
+
+	// quiz_parent_quiz_id (nullable uuid)
+	if p.QuizParentQuizID.ShouldUpdate() {
+		if p.QuizParentQuizID.IsNull() {
+			u["quiz_parent_quiz_id"] = gorm.Expr("NULL")
+		} else {
+			u["quiz_parent_quiz_id"] = p.QuizParentQuizID.Val()
+		}
+	}
+
+	// quiz_remedial_round (nullable int)
+	if p.QuizRemedialRound.ShouldUpdate() {
+		if p.QuizRemedialRound.IsNull() {
+			u["quiz_remedial_round"] = gorm.Expr("NULL")
+		} else {
+			u["quiz_remedial_round"] = p.QuizRemedialRound.Val()
 		}
 	}
 
@@ -211,6 +257,11 @@ type ListQuizzesQuery struct {
 
 	IsPublished *bool  `query:"is_published" validate:"omitempty"`
 	Q           string `query:"q" validate:"omitempty,max=120"`
+
+	// remedial filters (opsional)
+	IsRemedial    *bool      `query:"is_remedial" validate:"omitempty"`
+	ParentQuizID  *uuid.UUID `query:"parent_quiz_id" validate:"omitempty,uuid4"`
+	RemedialRound *int       `query:"remedial_round" validate:"omitempty,gte=1"`
 
 	// pagination & sorting
 	Page    int    `query:"page" validate:"omitempty,gte=0"`
@@ -235,7 +286,7 @@ type QuizResponse struct {
 	QuizSchoolID     uuid.UUID  `json:"quiz_school_id"`
 	QuizAssessmentID *uuid.UUID `json:"quiz_assessment_id,omitempty"`
 
-	// NEW: relasi langsung ke assessment type
+	// relasi langsung ke assessment type
 	QuizAssessmentTypeID *uuid.UUID `json:"quiz_assessment_type_id,omitempty"`
 
 	QuizSlug *string `json:"quiz_slug,omitempty"`
@@ -245,8 +296,17 @@ type QuizResponse struct {
 	QuizIsPublished  bool    `json:"quiz_is_published"`
 	QuizTimeLimitSec *int    `json:"quiz_time_limit_sec,omitempty"`
 
+	// total waktu untuk mengerjakan semua soal (detik)
+	// quiz_time_limit_sec_all = quiz_time_limit_sec * jumlah_soal
+	QuizTimeLimitSecAll *int `json:"quiz_time_limit_sec_all,omitempty"`
+
 	// denorm jumlah soal
 	QuizTotalQuestions int `json:"quiz_total_questions"`
+
+	// remedial flags
+	QuizIsRemedial    bool       `json:"quiz_is_remedial"`
+	QuizParentQuizID  *uuid.UUID `json:"quiz_parent_quiz_id,omitempty"`
+	QuizRemedialRound *int       `json:"quiz_remedial_round,omitempty"`
 
 	QuizCreatedAt time.Time  `json:"quiz_created_at"`
 	QuizUpdatedAt time.Time  `json:"quiz_updated_at"`
@@ -274,6 +334,13 @@ func FromModel(m *model.QuizModel) QuizResponse {
 		deletedAt = &t
 	}
 
+	// base total time dari denorm (bisa dioverride di controller kalau punya len(questions))
+	var totalAll *int
+	if m.QuizTimeLimitSec != nil && m.QuizTotalQuestions > 0 {
+		v := (*m.QuizTimeLimitSec) * m.QuizTotalQuestions
+		totalAll = &v
+	}
+
 	return QuizResponse{
 		QuizID:           m.QuizID,
 		QuizSchoolID:     m.QuizSchoolID,
@@ -292,7 +359,14 @@ func FromModel(m *model.QuizModel) QuizResponse {
 			return m.QuizTimeLimitSec
 		}(),
 
+		QuizTimeLimitSecAll: totalAll,
+
 		QuizTotalQuestions: m.QuizTotalQuestions,
+
+		// remedial flags
+		QuizIsRemedial:    m.QuizIsRemedial,
+		QuizParentQuizID:  m.QuizParentQuizID,
+		QuizRemedialRound: m.QuizRemedialRound,
 
 		QuizCreatedAt: m.QuizCreatedAt,
 		QuizUpdatedAt: m.QuizUpdatedAt,

@@ -460,17 +460,20 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 
 	var resp any
 	if isCompact {
-		// versi compact (dipakai nested di section & list ringan)
-		resp = csstDTO.FromClassSectionSubjectTeacherModelsCompact(rows)
+		// ✅ compact + timezone sekolah
+		resp = csstDTO.FromClassSectionSubjectTeacherModelsCompactWithSchoolTime(c, rows)
 	} else {
-		// default: full response (pakai options untuk nested academic_term)
-		resp = csstDTO.FromClassSectionSubjectTeacherModelsWithOptions(
+		// ✅ full + timezone sekolah
+		items := csstDTO.FromClassSectionSubjectTeacherModelsWithOptions(
 			rows,
 			csstDTO.FromCSSTOptions{
-				// nested academic_term HANYA kalau query ?nested=academic_term
 				IncludeAcademicTerm: nestedAcademicTerm,
 			},
 		)
+		for i := range items {
+			items[i] = items[i].WithSchoolTime(c)
+		}
+		resp = items
 	}
 
 	pg := helper.BuildPaginationFromOffset(total, offset, limit)

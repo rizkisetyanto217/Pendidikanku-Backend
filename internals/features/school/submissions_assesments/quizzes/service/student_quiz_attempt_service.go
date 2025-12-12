@@ -57,7 +57,7 @@ type SubmitQuizAttemptInput struct {
 // - load summary attempt (1 row student×quiz)
 // - load questions
 // - hitung skor + build history item (dengan quiz_id, question_id, version)
-// - AppendAttemptHistory (nambah elemen ke JSON history + update count/best/last)
+// - AppendAttemptHistory (nambah elemen ke JSON history + update count/best/last/first/avg)
 // - update status + finished_at (status = finished utk attempt terakhir)
 // - sinkron ke tabel submissions (1 assessment × 1 student)
 func (s *StudentQuizAttemptService) SubmitAttempt(
@@ -187,27 +187,41 @@ func (s *StudentQuizAttemptService) SubmitAttempt(
 		startedAt, finishedAt,
 	)
 
-	// 5) Append ke history (auto hitung skor total + percent + best/last)
+	// 5) Append ke history (auto hitung skor total + percent + best/last/first/avg)
 	if err := attempt.AppendAttemptHistory(startedAt, finishedAt, items); err != nil {
 		log.Printf("[StudentQuizAttemptService] ERROR AppendAttemptHistory: %v", err)
 		return nil, err
 	}
 
 	// Ambil nilai readable buat log
-	var lastPercentStr, bestPercentStr string
+	var lastPercentStr, bestPercentStr, firstPercentStr, avgPercentStr string
+
 	if attempt.StudentQuizAttemptLastPercent != nil {
 		lastPercentStr = fmt.Sprintf("%.3f", *attempt.StudentQuizAttemptLastPercent)
 	} else {
 		lastPercentStr = "nil"
 	}
+
 	if attempt.StudentQuizAttemptBestPercent != nil {
 		bestPercentStr = fmt.Sprintf("%.3f", *attempt.StudentQuizAttemptBestPercent)
 	} else {
 		bestPercentStr = "nil"
 	}
 
+	if attempt.StudentQuizAttemptFirstPercent != nil {
+		firstPercentStr = fmt.Sprintf("%.3f", *attempt.StudentQuizAttemptFirstPercent)
+	} else {
+		firstPercentStr = "nil"
+	}
+
+	if attempt.StudentQuizAttemptAvgPercent != nil {
+		avgPercentStr = fmt.Sprintf("%.3f", *attempt.StudentQuizAttemptAvgPercent)
+	} else {
+		avgPercentStr = "nil"
+	}
+
 	log.Printf(
-		"[StudentQuizAttemptService] History appended. total_history=%d last_raw=%v last_percent=%s best_percent=%s",
+		"[StudentQuizAttemptService] History appended. total_history=%d last_raw=%v last_percent=%s best_percent=%s first_percent=%s avg_percent=%s",
 		attempt.StudentQuizAttemptCount,
 		func() interface{} {
 			if attempt.StudentQuizAttemptLastRaw == nil {
@@ -217,6 +231,8 @@ func (s *StudentQuizAttemptService) SubmitAttempt(
 		}(),
 		lastPercentStr,
 		bestPercentStr,
+		firstPercentStr,
+		avgPercentStr,
 	)
 
 	// 6) Update status & timestamps global (status = selesai)

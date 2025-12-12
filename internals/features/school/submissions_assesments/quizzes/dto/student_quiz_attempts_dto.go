@@ -95,6 +95,8 @@ func (r *CreateStudentQuizAttemptRequest) ToModel() *qmodel.StudentQuizAttemptMo
    - count
    - best_*
    - last_*
+   - first_*
+   - avg_*
 ========================================================================================== */
 
 type UpdateStudentQuizAttemptRequest struct {
@@ -108,29 +110,6 @@ type UpdateStudentQuizAttemptRequest struct {
 	StudentQuizAttemptFinishedAt *time.Time                       `json:"student_quiz_attempt_finished_at" validate:"omitempty"`
 
 	// Full history (opsional, biasanya diisi backend)
-	// Struktur JSON-nya sekarang:
-	// [
-	//   {
-	//     "attempt_no": ...,
-	//     "attempt_started_at": "...",
-	//     "attempt_finished_at": "...",
-	//     "attempt_raw_score": ...,
-	//     "attempt_percent": ...,
-	//     "items": [
-	//       {
-	//         "quiz_id": "...",
-	//         "quiz_question_id": "...",
-	//         "quiz_question_version": 1,
-	//         "quiz_question_type": "single",
-	//         "answer_single": "C",
-	//         "answer_essay": null,
-	//         "is_correct": true,
-	//         "points": 1,
-	//         "points_earned": 1
-	//       }
-	//     ]
-	//   }
-	// ]
 	StudentQuizAttemptHistory *json.RawMessage `json:"student_quiz_attempt_history" validate:"omitempty"`
 
 	// Summary: total attempt
@@ -147,10 +126,20 @@ type UpdateStudentQuizAttemptRequest struct {
 	StudentQuizAttemptLastPercent    *float64   `json:"student_quiz_attempt_last_percent" validate:"omitempty"`
 	StudentQuizAttemptLastStartedAt  *time.Time `json:"student_quiz_attempt_last_started_at" validate:"omitempty"`
 	StudentQuizAttemptLastFinishedAt *time.Time `json:"student_quiz_attempt_last_finished_at" validate:"omitempty"`
+
+	// Summary: nilai pertama
+	StudentQuizAttemptFirstRaw        *float64   `json:"student_quiz_attempt_first_raw" validate:"omitempty"`
+	StudentQuizAttemptFirstPercent    *float64   `json:"student_quiz_attempt_first_percent" validate:"omitempty"`
+	StudentQuizAttemptFirstStartedAt  *time.Time `json:"student_quiz_attempt_first_started_at" validate:"omitempty"`
+	StudentQuizAttemptFirstFinishedAt *time.Time `json:"student_quiz_attempt_first_finished_at" validate:"omitempty"`
+
+	// Summary: rata-rata
+	StudentQuizAttemptAvgRaw     *float64 `json:"student_quiz_attempt_avg_raw" validate:"omitempty"`
+	StudentQuizAttemptAvgPercent *float64 `json:"student_quiz_attempt_avg_percent" validate:"omitempty"`
 }
 
 // ApplyToModel — patch ke model yang sudah di-load.
-// Business logic (recompute best/last dari history) sebaiknya di service.
+// Business logic (recompute best/last/first/avg dari history) sebaiknya di service.
 func (r *UpdateStudentQuizAttemptRequest) ApplyToModel(m *qmodel.StudentQuizAttemptModel) error {
 	if r.StudentQuizAttemptSchoolID != nil {
 		m.StudentQuizAttemptSchoolID = *r.StudentQuizAttemptSchoolID
@@ -211,6 +200,28 @@ func (r *UpdateStudentQuizAttemptRequest) ApplyToModel(m *qmodel.StudentQuizAtte
 		m.StudentQuizAttemptLastFinishedAt = r.StudentQuizAttemptLastFinishedAt
 	}
 
+	// First summary
+	if r.StudentQuizAttemptFirstRaw != nil {
+		m.StudentQuizAttemptFirstRaw = r.StudentQuizAttemptFirstRaw
+	}
+	if r.StudentQuizAttemptFirstPercent != nil {
+		m.StudentQuizAttemptFirstPercent = r.StudentQuizAttemptFirstPercent
+	}
+	if r.StudentQuizAttemptFirstStartedAt != nil {
+		m.StudentQuizAttemptFirstStartedAt = r.StudentQuizAttemptFirstStartedAt
+	}
+	if r.StudentQuizAttemptFirstFinishedAt != nil {
+		m.StudentQuizAttemptFirstFinishedAt = r.StudentQuizAttemptFirstFinishedAt
+	}
+
+	// Average summary
+	if r.StudentQuizAttemptAvgRaw != nil {
+		m.StudentQuizAttemptAvgRaw = r.StudentQuizAttemptAvgRaw
+	}
+	if r.StudentQuizAttemptAvgPercent != nil {
+		m.StudentQuizAttemptAvgPercent = r.StudentQuizAttemptAvgPercent
+	}
+
 	return nil
 }
 
@@ -254,6 +265,14 @@ type StudentQuizAttemptResponse struct {
 	StudentQuizAttemptLastStartedAt  *time.Time `json:"student_quiz_attempt_last_started_at,omitempty"`
 	StudentQuizAttemptLastFinishedAt *time.Time `json:"student_quiz_attempt_last_finished_at,omitempty"`
 
+	StudentQuizAttemptFirstRaw        *float64   `json:"student_quiz_attempt_first_raw,omitempty"`
+	StudentQuizAttemptFirstPercent    *float64   `json:"student_quiz_attempt_first_percent,omitempty"`
+	StudentQuizAttemptFirstStartedAt  *time.Time `json:"student_quiz_attempt_first_started_at,omitempty"`
+	StudentQuizAttemptFirstFinishedAt *time.Time `json:"student_quiz_attempt_first_finished_at,omitempty"`
+
+	StudentQuizAttemptAvgRaw     *float64 `json:"student_quiz_attempt_avg_raw,omitempty"`
+	StudentQuizAttemptAvgPercent *float64 `json:"student_quiz_attempt_avg_percent,omitempty"`
+
 	StudentQuizAttemptCreatedAt time.Time `json:"student_quiz_attempt_created_at"`
 	StudentQuizAttemptUpdatedAt time.Time `json:"student_quiz_attempt_updated_at"`
 }
@@ -288,6 +307,14 @@ func FromModelStudentQuizAttempt(m *qmodel.StudentQuizAttemptModel) *StudentQuiz
 		StudentQuizAttemptLastPercent:    m.StudentQuizAttemptLastPercent,
 		StudentQuizAttemptLastStartedAt:  m.StudentQuizAttemptLastStartedAt,
 		StudentQuizAttemptLastFinishedAt: m.StudentQuizAttemptLastFinishedAt,
+
+		StudentQuizAttemptFirstRaw:        m.StudentQuizAttemptFirstRaw,
+		StudentQuizAttemptFirstPercent:    m.StudentQuizAttemptFirstPercent,
+		StudentQuizAttemptFirstStartedAt:  m.StudentQuizAttemptFirstStartedAt,
+		StudentQuizAttemptFirstFinishedAt: m.StudentQuizAttemptFirstFinishedAt,
+
+		StudentQuizAttemptAvgRaw:     m.StudentQuizAttemptAvgRaw,
+		StudentQuizAttemptAvgPercent: m.StudentQuizAttemptAvgPercent,
 
 		StudentQuizAttemptCreatedAt: m.StudentQuizAttemptCreatedAt,
 		StudentQuizAttemptUpdatedAt: m.StudentQuizAttemptUpdatedAt,
@@ -326,6 +353,10 @@ func FromModelStudentQuizAttemptWithCtx(c *fiber.Ctx, m *qmodel.StudentQuizAttem
 	// Last
 	resp.StudentQuizAttemptLastStartedAt = dbtime.ToSchoolTimePtr(c, m.StudentQuizAttemptLastStartedAt)
 	resp.StudentQuizAttemptLastFinishedAt = dbtime.ToSchoolTimePtr(c, m.StudentQuizAttemptLastFinishedAt)
+
+	// First
+	resp.StudentQuizAttemptFirstStartedAt = dbtime.ToSchoolTimePtr(c, m.StudentQuizAttemptFirstStartedAt)
+	resp.StudentQuizAttemptFirstFinishedAt = dbtime.ToSchoolTimePtr(c, m.StudentQuizAttemptFirstFinishedAt)
 
 	// Created / Updated
 	resp.StudentQuizAttemptCreatedAt = dbtime.ToSchoolTime(c, m.StudentQuizAttemptCreatedAt)

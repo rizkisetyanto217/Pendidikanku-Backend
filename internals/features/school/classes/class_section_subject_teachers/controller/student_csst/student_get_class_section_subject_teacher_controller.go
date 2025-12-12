@@ -21,7 +21,7 @@ import (
 // CSST compact + murid-murid di bawahnya
 type CSSTWithStudents struct {
 	dto.ClassSectionSubjectTeacherCompactResponse
-	Students []dto.StudentCSSTItem `json:"students"`
+	Students []dto.StudentCSSTItem `json:"student_class_section_subject_teachers"`
 }
 
 /* =========================================================
@@ -93,7 +93,7 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// --- parse view ---
+	// --- parse view --- 🔧 FIX DI SINI
 	viewRaw := strings.ToLower(strings.TrimSpace(c.Query("view")))
 	viewCSST := viewRaw == "csst" || viewRaw == "csst_only" || viewRaw == "csst_list"
 

@@ -118,7 +118,7 @@ func (ctl *AssessmentController) fetchSess(c *fiber.Ctx, id uuid.UUID) (*sessRow
 			class_attendance_session_deleted_at          AS deleted_at,
 			COALESCE(
 				NULLIF(TRIM(class_attendance_session_display_title), ''),
-				NULLIF(TRIM(class_attendance_session_title), '')
+				NULLIF(TRIM(class_attendance_session_title), ''
 			) AS title
 		`).
 		Where("class_attendance_session_id = ?", id).
@@ -162,61 +162,6 @@ func (ctl *AssessmentController) assertTeacherBelongsToSchool(c *fiber.Ctx, scho
 	if row.M != schoolID {
 		return fiber.NewError(fiber.StatusForbidden, "Guru bukan milik school Anda")
 	}
-	return nil
-}
-
-/* ========================================================
-   Helpers untuk AssessmentType snapshot (baru, scalar only)
-======================================================== */
-
-func resetAssessmentTypeSnapshotFields(a *model.AssessmentModel) {
-	// Flag graded dari tipe
-	a.AssessmentTypeIsGradedSnapshot = false
-
-	// Late policy & passing score snapshot
-	a.AssessmentAllowLateSubmissionSnapshot = false
-	a.AssessmentLatePenaltyPercentSnapshot = 0
-	a.AssessmentPassingScorePercentSnapshot = 0
-}
-
-func (ctl *AssessmentController) hydrateAssessmentTypeSnapshot(
-	c *fiber.Ctx,
-	schoolID uuid.UUID,
-	a *model.AssessmentModel,
-	typeID uuid.UUID,
-) error {
-	var at model.AssessmentTypeModel
-	if err := ctl.DB.WithContext(c.Context()).
-		Where(`
-            assessment_type_id = ?
-            AND assessment_type_school_id = ?
-            AND assessment_type_deleted_at IS NULL
-        `, typeID, schoolID).
-		Take(&at).Error; err != nil {
-
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fiber.NewError(fiber.StatusBadRequest, "Tipe assessment tidak ditemukan")
-		}
-		return err
-	}
-
-	// Set FK type id
-	a.AssessmentTypeID = &typeID
-
-	// Snapshot: flag graded
-	a.AssessmentTypeIsGradedSnapshot = at.AssessmentTypeIsGraded
-
-	// Snapshot: late policy & passing score
-	a.AssessmentAllowLateSubmissionSnapshot = at.AssessmentTypeAllowLateSubmission
-	a.AssessmentLatePenaltyPercentSnapshot = at.AssessmentTypeLatePenaltyPercent
-	a.AssessmentPassingScorePercentSnapshot = at.AssessmentTypePassingScorePercent
-
-	// Snapshot: kategori besar (training / daily_exam / exam)
-	a.AssessmentTypeCategorySnapshot = model.AssessmentTypeCategory(at.AssessmentTypeCategory)
-
-	// ⬅️ Ini dia: SELALU sinkron attempts dari type
-	a.AssessmentTotalAttemptsAllowed = at.AssessmentTypeAttemptsAllowed
-
 	return nil
 }
 
@@ -420,18 +365,128 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		row.AssessmentTitle = autofillTitle(row.AssessmentTitle, csstName, nil)
 	}
 
-	// ==== Sync assessment type snapshot (scalar) ====
-	if row.AssessmentTypeID != nil && *row.AssessmentTypeID != uuid.Nil {
-		if err := ctl.hydrateAssessmentTypeSnapshot(c, mid, &row, *row.AssessmentTypeID); err != nil {
-			tx.Rollback()
-			if fe, ok := err.(*fiber.Error); ok {
-				return helper.JsonError(c, fe.Code, fe.Message)
-			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-		}
-	} else {
+	// ==== Normalisasi AssessmentTypeID (hanya FK, tanpa snapshot) ====
+	if row.AssessmentTypeID != nil && *row.AssessmentTypeID == uuid.Nil {
 		row.AssessmentTypeID = nil
-		resetAssessmentTypeSnapshotFields(&row)
+	}
+
+	// ==== SNAPSHOT dari assessment_types (jika ada AssessmentTypeID) ====
+
+	// di luar struct `at`, tapi masih di dalam func Create
+	// buat simpan setting waktu per soal dari assessment_type (kalau ada)
+	var (
+		assessmentTypeTimePerQuestionSec int
+		hasAssessmentTypeTimePerQuestion bool
+	)
+
+	// ==== SNAPSHOT dari assessment_types (jika ada AssessmentTypeID) ====
+	if row.AssessmentTypeID != nil && *row.AssessmentTypeID != uuid.Nil {
+		var at struct {
+			Category           string  `gorm:"column:assessment_type"`
+			IsGraded           bool    `gorm:"column:assessment_type_is_graded"`
+			AllowLate          bool    `gorm:"column:assessment_type_allow_late_submission"`
+			LatePercent        float64 `gorm:"column:assessment_type_late_penalty_percent"`
+			PassPercent        float64 `gorm:"column:assessment_type_passing_score_percent"`
+			AttemptsAllowed    int     `gorm:"column:assessment_type_attempts_allowed"`
+			TimePerQuestionSec *int    `gorm:"column:assessment_type_time_per_question_sec"`
+		}
+
+		if err := tx.WithContext(c.Context()).
+			Table("assessment_types").
+			Select(`
+			assessment_type,
+			assessment_type_is_graded,
+			assessment_type_allow_late_submission,
+			assessment_type_late_penalty_percent,
+			assessment_type_passing_score_percent,
+			assessment_type_attempts_allowed,
+			assessment_type_time_per_question_sec
+		`).
+			Where("assessment_type_id = ? AND assessment_type_deleted_at IS NULL", *row.AssessmentTypeID).
+			Take(&at).Error; err != nil {
+
+			tx.Rollback()
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusBadRequest, "assessment_type tidak ditemukan")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil assessment_type")
+		}
+
+		// mapping ke kolom snapshot di AssessmentModel
+		row.AssessmentTypeCategorySnapshot = model.AssessmentTypeCategory(at.Category)
+		row.AssessmentTypeIsGradedSnapshot = at.IsGraded
+		row.AssessmentAllowLateSubmissionSnapshot = at.AllowLate
+		row.AssessmentLatePenaltyPercentSnapshot = at.LatePercent
+		row.AssessmentPassingScorePercentSnapshot = at.PassPercent
+
+		// ✅ attempts: kalau masih 0 / belum diset, pakai default dari assessment_type
+		if row.AssessmentTotalAttemptsAllowed <= 0 {
+			row.AssessmentTotalAttemptsAllowed = at.AttemptsAllowed
+		}
+
+		// ✅ simpan time per question ke var lokal
+		if at.TimePerQuestionSec != nil {
+			assessmentTypeTimePerQuestionSec = *at.TimePerQuestionSec
+			hasAssessmentTypeTimePerQuestion = true
+		}
+
+	} else {
+		// fallback: pastikan enum snapshot selalu punya nilai valid
+		if row.AssessmentTypeCategorySnapshot == "" {
+			row.AssessmentTypeCategorySnapshot = model.AssessmentTypeCategoryTraining
+		}
+		// fallback attempts kalau tidak ada assessment_type dan belum diisi
+		if row.AssessmentTotalAttemptsAllowed <= 0 {
+			row.AssessmentTotalAttemptsAllowed = 1
+		}
+	}
+
+	// ==== Normalisasi AssessmentTypeID (hanya FK, tanpa snapshot) ====
+	if row.AssessmentTypeID != nil && *row.AssessmentTypeID == uuid.Nil {
+		row.AssessmentTypeID = nil
+	}
+
+	// ==== Snapshot dari assessment_types ====
+	if row.AssessmentTypeID != nil && *row.AssessmentTypeID != uuid.Nil {
+		// ambil dari tabel assessment_types
+		var at struct {
+			Category    string  `gorm:"column:assessment_type"`
+			IsGraded    bool    `gorm:"column:assessment_type_is_graded"`
+			AllowLate   bool    `gorm:"column:assessment_type_allow_late_submission"`
+			LatePercent float64 `gorm:"column:assessment_type_late_penalty_percent"`
+			PassPercent float64 `gorm:"column:assessment_type_passing_score_percent"`
+		}
+
+		if err := tx.WithContext(c.Context()).
+			Table("assessment_types").
+			Select(`
+				assessment_type,
+				assessment_type_is_graded,
+				assessment_type_allow_late_submission,
+				assessment_type_late_penalty_percent,
+				assessment_type_passing_score_percent
+			`).
+			Where("assessment_type_id = ? AND assessment_type_deleted_at IS NULL", *row.AssessmentTypeID).
+			Take(&at).Error; err != nil {
+
+			tx.Rollback()
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusBadRequest, "assessment_type tidak ditemukan")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil assessment_type")
+		}
+
+		// mapping ke snapshot di AssessmentModel
+		row.AssessmentTypeCategorySnapshot = model.AssessmentTypeCategory(at.Category)
+		row.AssessmentTypeIsGradedSnapshot = at.IsGraded
+		row.AssessmentAllowLateSubmissionSnapshot = at.AllowLate
+		row.AssessmentLatePenaltyPercentSnapshot = at.LatePercent
+		row.AssessmentPassingScorePercentSnapshot = at.PassPercent
+	} else {
+		// fallback biar enum selalu valid (kalau assessment_type_id kosong)
+		if row.AssessmentTypeCategorySnapshot == "" {
+			row.AssessmentTypeCategorySnapshot = model.AssessmentTypeCategoryTraining
+		}
 	}
 
 	// ===== Auto-slug assessment (unik per school) =====
@@ -472,29 +527,13 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat assessment")
 	}
 
-	// 🔼 UP: tambah total_assessments (+ per kategori) di CSST kalau ada relasi
+	// 🔼 UP: tambah total_assessments di CSST kalau ada relasi
 	if row.AssessmentClassSectionSubjectTeacherID != nil && *row.AssessmentClassSectionSubjectTeacherID != uuid.Nil {
 
 		updates := map[string]any{
 			"class_section_subject_teacher_total_assessments": gorm.Expr(
 				"class_section_subject_teacher_total_assessments + 1",
 			),
-		}
-
-		// Naikkan counter per kategori kalau snapshot ada
-		switch row.AssessmentTypeCategorySnapshot {
-		case model.AssessmentTypeCategoryTraining:
-			updates["class_section_subject_teacher_total_assessments_training"] = gorm.Expr(
-				"class_section_subject_teacher_total_assessments_training + 1",
-			)
-		case model.AssessmentTypeCategoryDailyExam:
-			updates["class_section_subject_teacher_total_assessments_daily_exam"] = gorm.Expr(
-				"class_section_subject_teacher_total_assessments_daily_exam + 1",
-			)
-		case model.AssessmentTypeCategoryExam:
-			updates["class_section_subject_teacher_total_assessments_exam"] = gorm.Expr(
-				"class_section_subject_teacher_total_assessments_exam + 1",
-			)
 		}
 
 		if err := tx.WithContext(c.Context()).
@@ -518,6 +557,20 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 
 	for i := range quizParts {
 		qm := quizParts[i].ToModel(mid, row.AssessmentID)
+
+		// Wariskan assessment_type ke quiz (kalau assessment punya type)
+		if row.AssessmentTypeID != nil && *row.AssessmentTypeID != uuid.Nil {
+			qm.QuizAssessmentTypeID = row.AssessmentTypeID
+		}
+
+		// ✅ AUTO: quiz_time_limit_sec diisi dari assessment_type_time_per_question_sec
+		// HANYA kalau:
+		// - assessment type punya nilai time_per_question
+		// - quiz_time_limit_sec BELUM di-set manual dari payload
+		if qm.QuizTimeLimitSec == nil && hasAssessmentTypeTimePerQuestion {
+			v := assessmentTypeTimePerQuestionSec
+			qm.QuizTimeLimitSec = &v
+		}
 
 		// Slug quiz (unik per school; fallback "quiz")
 		var baseSlug string
@@ -720,6 +773,11 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 		// Terapkan PATCH ke existing (tanpa simpan dulu)
 		req.Apply(&existing)
 
+		// Normalisasi AssessmentTypeID setelah Apply
+		if existing.AssessmentTypeID != nil && *existing.AssessmentTypeID == uuid.Nil {
+			existing.AssessmentTypeID = nil
+		}
+
 		// Set mode & session ids final
 		existing.AssessmentSubmissionMode = model.SubmissionModeSession
 		existing.AssessmentAnnounceSessionID = finalAnnID
@@ -739,14 +797,6 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 			} else if col.Date != nil {
 				existing.AssessmentDueAt = col.Date
 			}
-		}
-
-		// ==== Update snapshot tipe assessment bila perlu ====
-		if err := ctl.applyAssessmentTypePatch(c, mid, &existing, &req); err != nil {
-			if fe, ok := err.(*fiber.Error); ok {
-				return helper.JsonError(c, fe.Code, fe.Message)
-			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 		}
 
 		// ===== Auto-slug (jaga unik, exclude diri sendiri) =====
@@ -801,58 +851,22 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 		newCSSTID := existing.AssessmentClassSectionSubjectTeacherID
 		if !uuidPtrEqual(oldCSSTID, newCSSTID) {
 
-			// Ambil kategori snapshot saat INI (setelah patch type)
-			cat := existing.AssessmentTypeCategorySnapshot
-
-			// helper untuk map updates per kategori (dipakai di old & new)
+			// hanya total_assessments saja (tanpa per kategori)
 			buildDecUpdates := func() map[string]any {
-				u := map[string]any{
+				return map[string]any{
 					"class_section_subject_teacher_total_assessments": gorm.Expr(
 						"CASE WHEN class_section_subject_teacher_total_assessments > 0 " +
 							"THEN class_section_subject_teacher_total_assessments - 1 ELSE 0 END",
 					),
 				}
-				switch cat {
-				case model.AssessmentTypeCategoryTraining:
-					u["class_section_subject_teacher_total_assessments_training"] = gorm.Expr(
-						"CASE WHEN class_section_subject_teacher_total_assessments_training > 0 " +
-							"THEN class_section_subject_teacher_total_assessments_training - 1 ELSE 0 END",
-					)
-				case model.AssessmentTypeCategoryDailyExam:
-					u["class_section_subject_teacher_total_assessments_daily_exam"] = gorm.Expr(
-						"CASE WHEN class_section_subject_teacher_total_assessments_daily_exam > 0 " +
-							"THEN class_section_subject_teacher_total_assessments_daily_exam - 1 ELSE 0 END",
-					)
-				case model.AssessmentTypeCategoryExam:
-					u["class_section_subject_teacher_total_assessments_exam"] = gorm.Expr(
-						"CASE WHEN class_section_subject_teacher_total_assessments_exam > 0 " +
-							"THEN class_section_subject_teacher_total_assessments_exam - 1 ELSE 0 END",
-					)
-				}
-				return u
 			}
 
 			buildIncUpdates := func() map[string]any {
-				u := map[string]any{
+				return map[string]any{
 					"class_section_subject_teacher_total_assessments": gorm.Expr(
 						"class_section_subject_teacher_total_assessments + 1",
 					),
 				}
-				switch cat {
-				case model.AssessmentTypeCategoryTraining:
-					u["class_section_subject_teacher_total_assessments_training"] = gorm.Expr(
-						"class_section_subject_teacher_total_assessments_training + 1",
-					)
-				case model.AssessmentTypeCategoryDailyExam:
-					u["class_section_subject_teacher_total_assessments_daily_exam"] = gorm.Expr(
-						"class_section_subject_teacher_total_assessments_daily_exam + 1",
-					)
-				case model.AssessmentTypeCategoryExam:
-					u["class_section_subject_teacher_total_assessments_exam"] = gorm.Expr(
-						"class_section_subject_teacher_total_assessments_exam + 1",
-					)
-				}
-				return u
 			}
 
 			// CSST lama: -1
@@ -914,17 +928,14 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 	req.Apply(&existing)
 	existing.AssessmentSubmissionMode = model.SubmissionModeDate
 
+	// Normalisasi AssessmentTypeID setelah Apply
+	if existing.AssessmentTypeID != nil && *existing.AssessmentTypeID == uuid.Nil {
+		existing.AssessmentTypeID = nil
+	}
+
 	// Jika pindah ke date → bersihkan session IDs bila user clear
 	existing.AssessmentAnnounceSessionID = finalAnnID // akan nil jika user kirim UUID nil
 	existing.AssessmentCollectSessionID = finalColID
-
-	// ==== Update snapshot tipe assessment bila perlu ====
-	if err := ctl.applyAssessmentTypePatch(c, mid, &existing, &req); err != nil {
-		if fe, ok := err.(*fiber.Error); ok {
-			return helper.JsonError(c, fe.Code, fe.Message)
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
 
 	// ===== Auto-slug (jaga unik, exclude diri sendiri) =====
 	{
@@ -1022,32 +1033,6 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 	)
 }
 
-/* ========================================================
-   Helpers tambahan untuk Assessment Type Snapshot (PATCH)
-======================================================== */
-
-func (ctl *AssessmentController) applyAssessmentTypePatch(
-	c *fiber.Ctx,
-	schoolID uuid.UUID,
-	existing *model.AssessmentModel,
-	req *dto.PatchAssessmentRequest,
-) error {
-	// Kalau field tidak dikirim → jangan apa-apa
-	if req.AssessmentTypeID == nil {
-		return nil
-	}
-
-	// Kalau dikirim UUID nil → clear type + semua snapshot
-	if *req.AssessmentTypeID == uuid.Nil {
-		existing.AssessmentTypeID = nil
-		resetAssessmentTypeSnapshotFields(existing)
-		return nil
-	}
-
-	// Else: load type & set snapshot scalar (graded + late policy)
-	return ctl.hydrateAssessmentTypeSnapshot(c, schoolID, existing, *req.AssessmentTypeID)
-}
-
 // DELETE /assessments/:id (soft delete)
 func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
@@ -1119,7 +1104,7 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus assessment")
 	}
 
-	// 🔽 DOWN: turunkan total_assessments (+ per kategori) di CSST jika ada relasi
+	// 🔽 DOWN: turunkan total_assessments di CSST jika ada relasi
 	if row.AssessmentClassSectionSubjectTeacherID != nil && *row.AssessmentClassSectionSubjectTeacherID != uuid.Nil {
 
 		updates := map[string]any{
@@ -1127,24 +1112,6 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 				"CASE WHEN class_section_subject_teacher_total_assessments > 0 " +
 					"THEN class_section_subject_teacher_total_assessments - 1 ELSE 0 END",
 			),
-		}
-
-		switch row.AssessmentTypeCategorySnapshot {
-		case model.AssessmentTypeCategoryTraining:
-			updates["class_section_subject_teacher_total_assessments_training"] = gorm.Expr(
-				"CASE WHEN class_section_subject_teacher_total_assessments_training > 0 " +
-					"THEN class_section_subject_teacher_total_assessments_training - 1 ELSE 0 END",
-			)
-		case model.AssessmentTypeCategoryDailyExam:
-			updates["class_section_subject_teacher_total_assessments_daily_exam"] = gorm.Expr(
-				"CASE WHEN class_section_subject_teacher_total_assessments_daily_exam > 0 " +
-					"THEN class_section_subject_teacher_total_assessments_daily_exam - 1 ELSE 0 END",
-			)
-		case model.AssessmentTypeCategoryExam:
-			updates["class_section_subject_teacher_total_assessments_exam"] = gorm.Expr(
-				"CASE WHEN class_section_subject_teacher_total_assessments_exam > 0 " +
-					"THEN class_section_subject_teacher_total_assessments_exam - 1 ELSE 0 END",
-			)
 		}
 
 		if err := tx.WithContext(c.Context()).
