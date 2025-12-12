@@ -130,8 +130,8 @@ CREATE TABLE IF NOT EXISTS class_materials (
 CONSTRAINT fk_class_material_csst_same_school
   FOREIGN KEY (class_material_csst_id, class_material_school_id)
   REFERENCES class_section_subject_teachers (
-    class_section_subject_teacher_id,
-    class_section_subject_teacher_school_id
+    csst_id,
+    csst_school_id
   )
   ON UPDATE CASCADE ON DELETE CASCADE,
 

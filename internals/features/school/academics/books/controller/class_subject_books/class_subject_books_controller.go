@@ -486,14 +486,15 @@ func (h *ClassSubjectBookController) Delete(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusForbidden, "Tidak boleh menghapus data milik school lain")
 		}
 
-		// 🔒 GUARD: tidak boleh dihapus kalau masih dipakai CSST
+		// 🔒 GUARD: tidak boleh dihapus kalau masih dipakai CSST (schema baru: csst_*)
 		var csstCount int64
 		if err := tx.
 			Model(&csstModel.ClassSectionSubjectTeacherModel{}).
-			Where(
-				"class_section_subject_teacher_school_id = ? AND class_section_subject_teacher_class_subject_book_id = ? AND class_section_subject_teacher_deleted_at IS NULL",
-				schoolID, m.ClassSubjectBookID,
-			).
+			Where(`
+		csst_school_id = ?
+		AND csst_class_subject_book_id = ?
+		AND csst_deleted_at IS NULL
+	`, schoolID, m.ClassSubjectBookID).
 			Count(&csstCount).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengecek relasi ke pengampu mapel (CSST)")
 		}

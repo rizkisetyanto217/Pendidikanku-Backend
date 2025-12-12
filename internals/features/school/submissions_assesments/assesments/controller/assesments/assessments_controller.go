@@ -118,7 +118,7 @@ func (ctl *AssessmentController) fetchSess(c *fiber.Ctx, id uuid.UUID) (*sessRow
 			class_attendance_session_deleted_at          AS deleted_at,
 			COALESCE(
 				NULLIF(TRIM(class_attendance_session_display_title), ''),
-				NULLIF(TRIM(class_attendance_session_title), ''
+				NULLIF(TRIM(class_attendance_session_title), '')
 			) AS title
 		`).
 		Where("class_attendance_session_id = ?", id).
@@ -165,15 +165,43 @@ func (ctl *AssessmentController) assertTeacherBelongsToSchool(c *fiber.Ctx, scho
 	return nil
 }
 
+/* ========================================================
+   CSST Counter Helpers (TX-aware) ✅ pakai kolom csst_*
+======================================================== */
+
+func (ctl *AssessmentController) csstIncTotalAssessmentsTx(tx *gorm.DB, c *fiber.Ctx, schoolID, csstID uuid.UUID) error {
+	return tx.WithContext(c.Context()).
+		Model(&csstModel.ClassSectionSubjectTeacherModel{}).
+		Where(`
+			csst_school_id = ?
+			AND csst_id = ?
+			AND csst_deleted_at IS NULL
+		`, schoolID, csstID).
+		Update(
+			"csst_total_assessments",
+			gorm.Expr("csst_total_assessments + 1"),
+		).Error
+}
+
+func (ctl *AssessmentController) csstDecTotalAssessmentsTx(tx *gorm.DB, c *fiber.Ctx, schoolID, csstID uuid.UUID) error {
+	return tx.WithContext(c.Context()).
+		Model(&csstModel.ClassSectionSubjectTeacherModel{}).
+		Where(`
+			csst_school_id = ?
+			AND csst_id = ?
+			AND csst_deleted_at IS NULL
+		`, schoolID, csstID).
+		Update(
+			"csst_total_assessments",
+			gorm.Expr("CASE WHEN csst_total_assessments > 0 THEN csst_total_assessments - 1 ELSE 0 END"),
+		).Error
+}
+
 /* ===============================
    Handlers
 =============================== */
 
 // POST /assessments
-// Body: CreateAssessmentWithQuizzesRequest
-// - "assessment": data assessment
-// - "quiz": 1 quiz, atau
-// - "quizzes": array quiz (kalau >1)
 func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 
@@ -183,13 +211,11 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 	}
 	req.Normalize()
 
-	// Flatten quiz: pakai "quizzes" kalau ada; else "quiz" tunggal
 	quizParts := req.FlattenQuizzes()
 	if len(quizParts) == 0 {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Minimal harus ada 1 quiz")
 	}
 
-	// 🔒 resolve & authorize (DKM/Admin atau Teacher) DARI TOKEN
 	mid, err := helperAuth.ResolveSchoolForDKMOrTeacher(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
@@ -197,16 +223,14 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		}
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
-	// Enforce tenant di assessment
+
 	req.Assessment.AssessmentSchoolID = mid
 
-	// ====== Auto isi assessment_quiz_total kalau belum diisi di payload ======
 	if req.Assessment.AssessmentQuizTotal == nil || *req.Assessment.AssessmentQuizTotal <= 0 {
 		qt := len(quizParts)
 		req.Assessment.AssessmentQuizTotal = &qt
 	}
 
-	// DTO validation
 	if err := ctl.Validator.Struct(&req.Assessment); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
@@ -216,8 +240,9 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	// =============== CSST (opsional, +auto teacher & auto-title) ===============
+	// =============== CSST (opsional) ===============
 	var csstName *string
+	var csstMinPassingScore *int
 
 	if req.Assessment.AssessmentClassSectionSubjectTeacherID != nil &&
 		*req.Assessment.AssessmentClassSectionSubjectTeacherID != uuid.Nil {
@@ -234,10 +259,9 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusBadRequest, er.Error())
 		}
 
-		// simpan csst name utk autofill judul
 		csstName = cs.Name
+		csstMinPassingScore = cs.MinPassingScore
 
-		// Auto-isi created_by_teacher_id kalau belum ada
 		if req.Assessment.AssessmentCreatedByTeacherID == nil &&
 			cs.TeacherID != nil && *cs.TeacherID != uuid.Nil {
 			tid := *cs.TeacherID
@@ -245,7 +269,6 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	// Validasi creator teacher (opsional)
 	if err := ctl.assertTeacherBelongsToSchool(
 		c,
 		mid,
@@ -254,11 +277,11 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// ====== Tentukan mode dari presence sesi ======
 	hasAnn := req.Assessment.AssessmentAnnounceSessionID != nil &&
 		*req.Assessment.AssessmentAnnounceSessionID != uuid.Nil
 	hasCol := req.Assessment.AssessmentCollectSessionID != nil &&
 		*req.Assessment.AssessmentCollectSessionID != uuid.Nil
+
 	mode := "date"
 	if hasAnn || hasCol {
 		mode = "session"
@@ -266,7 +289,6 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 
 	tableName := (&model.AssessmentModel{}).TableName()
 
-	// Mulai transaksi
 	tx := ctl.DB.WithContext(c.Context()).Begin()
 	if tx.Error != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuka transaksi")
@@ -279,7 +301,6 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 
 	var row model.AssessmentModel
 
-	// ====== MODE: session ======
 	if mode == "session" {
 		var ann, col *sessRow
 
@@ -325,7 +346,6 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		row = req.Assessment.ToModel()
 		row.AssessmentSubmissionMode = model.SubmissionModeSession
 
-		// Turunkan start/due dari sesi bila belum diisi
 		if row.AssessmentStartAt == nil && ann != nil {
 			if ann.StartsAt != nil {
 				row.AssessmentStartAt = ann.StartsAt
@@ -341,7 +361,6 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 			}
 		}
 
-		// ===== auto-title & auto-desc jika kosong =====
 		row.AssessmentTitle = autofillTitle(row.AssessmentTitle, csstName, func() *string {
 			if ann != nil {
 				return ann.Title
@@ -351,7 +370,6 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		row.AssessmentDescription = autofillDesc(row.AssessmentDescription, ann, col)
 
 	} else {
-		// ===== MODE: date =====
 		if req.Assessment.AssessmentStartAt != nil && req.Assessment.AssessmentDueAt != nil &&
 			req.Assessment.AssessmentDueAt.Before(*req.Assessment.AssessmentStartAt) {
 			tx.Rollback()
@@ -360,101 +378,26 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 
 		row = req.Assessment.ToModel()
 		row.AssessmentSubmissionMode = model.SubmissionModeDate
-
-		// Auto-title (pakai csstName bila title kosong)
 		row.AssessmentTitle = autofillTitle(row.AssessmentTitle, csstName, nil)
 	}
 
-	// ==== Normalisasi AssessmentTypeID (hanya FK, tanpa snapshot) ====
 	if row.AssessmentTypeID != nil && *row.AssessmentTypeID == uuid.Nil {
 		row.AssessmentTypeID = nil
 	}
 
-	// ==== SNAPSHOT dari assessment_types (jika ada AssessmentTypeID) ====
-
-	// di luar struct `at`, tapi masih di dalam func Create
-	// buat simpan setting waktu per soal dari assessment_type (kalau ada)
 	var (
 		assessmentTypeTimePerQuestionSec int
 		hasAssessmentTypeTimePerQuestion bool
 	)
 
-	// ==== SNAPSHOT dari assessment_types (jika ada AssessmentTypeID) ====
 	if row.AssessmentTypeID != nil && *row.AssessmentTypeID != uuid.Nil {
 		var at struct {
 			Category           string  `gorm:"column:assessment_type"`
 			IsGraded           bool    `gorm:"column:assessment_type_is_graded"`
 			AllowLate          bool    `gorm:"column:assessment_type_allow_late_submission"`
 			LatePercent        float64 `gorm:"column:assessment_type_late_penalty_percent"`
-			PassPercent        float64 `gorm:"column:assessment_type_passing_score_percent"`
 			AttemptsAllowed    int     `gorm:"column:assessment_type_attempts_allowed"`
 			TimePerQuestionSec *int    `gorm:"column:assessment_type_time_per_question_sec"`
-		}
-
-		if err := tx.WithContext(c.Context()).
-			Table("assessment_types").
-			Select(`
-			assessment_type,
-			assessment_type_is_graded,
-			assessment_type_allow_late_submission,
-			assessment_type_late_penalty_percent,
-			assessment_type_passing_score_percent,
-			assessment_type_attempts_allowed,
-			assessment_type_time_per_question_sec
-		`).
-			Where("assessment_type_id = ? AND assessment_type_deleted_at IS NULL", *row.AssessmentTypeID).
-			Take(&at).Error; err != nil {
-
-			tx.Rollback()
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusBadRequest, "assessment_type tidak ditemukan")
-			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil assessment_type")
-		}
-
-		// mapping ke kolom snapshot di AssessmentModel
-		row.AssessmentTypeCategorySnapshot = model.AssessmentTypeCategory(at.Category)
-		row.AssessmentTypeIsGradedSnapshot = at.IsGraded
-		row.AssessmentAllowLateSubmissionSnapshot = at.AllowLate
-		row.AssessmentLatePenaltyPercentSnapshot = at.LatePercent
-		row.AssessmentPassingScorePercentSnapshot = at.PassPercent
-
-		// ✅ attempts: kalau masih 0 / belum diset, pakai default dari assessment_type
-		if row.AssessmentTotalAttemptsAllowed <= 0 {
-			row.AssessmentTotalAttemptsAllowed = at.AttemptsAllowed
-		}
-
-		// ✅ simpan time per question ke var lokal
-		if at.TimePerQuestionSec != nil {
-			assessmentTypeTimePerQuestionSec = *at.TimePerQuestionSec
-			hasAssessmentTypeTimePerQuestion = true
-		}
-
-	} else {
-		// fallback: pastikan enum snapshot selalu punya nilai valid
-		if row.AssessmentTypeCategorySnapshot == "" {
-			row.AssessmentTypeCategorySnapshot = model.AssessmentTypeCategoryTraining
-		}
-		// fallback attempts kalau tidak ada assessment_type dan belum diisi
-		if row.AssessmentTotalAttemptsAllowed <= 0 {
-			row.AssessmentTotalAttemptsAllowed = 1
-		}
-	}
-
-	// ==== Normalisasi AssessmentTypeID (hanya FK, tanpa snapshot) ====
-	if row.AssessmentTypeID != nil && *row.AssessmentTypeID == uuid.Nil {
-		row.AssessmentTypeID = nil
-	}
-
-	// ==== Snapshot dari assessment_types ====
-	if row.AssessmentTypeID != nil && *row.AssessmentTypeID != uuid.Nil {
-		// ambil dari tabel assessment_types
-		var at struct {
-			Category    string  `gorm:"column:assessment_type"`
-			IsGraded    bool    `gorm:"column:assessment_type_is_graded"`
-			AllowLate   bool    `gorm:"column:assessment_type_allow_late_submission"`
-			LatePercent float64 `gorm:"column:assessment_type_late_penalty_percent"`
-			PassPercent float64 `gorm:"column:assessment_type_passing_score_percent"`
 		}
 
 		if err := tx.WithContext(c.Context()).
@@ -464,7 +407,8 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 				assessment_type_is_graded,
 				assessment_type_allow_late_submission,
 				assessment_type_late_penalty_percent,
-				assessment_type_passing_score_percent
+				assessment_type_attempts_allowed,
+				assessment_type_time_per_question_sec
 			`).
 			Where("assessment_type_id = ? AND assessment_type_deleted_at IS NULL", *row.AssessmentTypeID).
 			Take(&at).Error; err != nil {
@@ -476,20 +420,36 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil assessment_type")
 		}
 
-		// mapping ke snapshot di AssessmentModel
 		row.AssessmentTypeCategorySnapshot = model.AssessmentTypeCategory(at.Category)
 		row.AssessmentTypeIsGradedSnapshot = at.IsGraded
 		row.AssessmentAllowLateSubmissionSnapshot = at.AllowLate
 		row.AssessmentLatePenaltyPercentSnapshot = at.LatePercent
-		row.AssessmentPassingScorePercentSnapshot = at.PassPercent
+
+		if row.AssessmentTotalAttemptsAllowed <= 0 {
+			row.AssessmentTotalAttemptsAllowed = at.AttemptsAllowed
+		}
+
+		if at.TimePerQuestionSec != nil {
+			assessmentTypeTimePerQuestionSec = *at.TimePerQuestionSec
+			hasAssessmentTypeTimePerQuestion = true
+		}
 	} else {
-		// fallback biar enum selalu valid (kalau assessment_type_id kosong)
 		if row.AssessmentTypeCategorySnapshot == "" {
 			row.AssessmentTypeCategorySnapshot = model.AssessmentTypeCategoryTraining
 		}
+		if row.AssessmentTotalAttemptsAllowed <= 0 {
+			row.AssessmentTotalAttemptsAllowed = 1
+		}
 	}
 
-	// ===== Auto-slug assessment (unik per school) =====
+	// FINAL RULE: passing score selalu dari CSST
+	if csstMinPassingScore != nil && *csstMinPassingScore > 0 {
+		row.AssessmentMinPassingScoreClassSubjectSnapshot = float64(*csstMinPassingScore)
+	} else {
+		row.AssessmentMinPassingScoreClassSubjectSnapshot = 0
+	}
+
+	// Auto-slug assessment
 	{
 		var baseSlug string
 		if row.AssessmentSlug != nil && strings.TrimSpace(*row.AssessmentSlug) != "" {
@@ -521,58 +481,33 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		row.AssessmentSlug = &uniqueSlug
 	}
 
-	// Simpan assessment dulu
 	if err := tx.Create(&row).Error; err != nil {
 		tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat assessment")
 	}
 
-	// 🔼 UP: tambah total_assessments di CSST kalau ada relasi
+	// 🔼 UP: csst_total_assessments (pakai kolom baru + tx)
 	if row.AssessmentClassSectionSubjectTeacherID != nil && *row.AssessmentClassSectionSubjectTeacherID != uuid.Nil {
-
-		updates := map[string]any{
-			"class_section_subject_teacher_total_assessments": gorm.Expr(
-				"class_section_subject_teacher_total_assessments + 1",
-			),
-		}
-
-		if err := tx.WithContext(c.Context()).
-			Model(&csstModel.ClassSectionSubjectTeacherModel{}).
-			Where(`
-            class_section_subject_teacher_school_id = ?
-            AND class_section_subject_teacher_id = ?
-            AND class_section_subject_teacher_deleted_at IS NULL
-        `, mid, *row.AssessmentClassSectionSubjectTeacherID).
-			Updates(updates).Error; err != nil {
-
+		if err := ctl.csstIncTotalAssessmentsTx(tx, c, mid, *row.AssessmentClassSectionSubjectTeacherID); err != nil {
 			tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengupdate total assessment mapel")
 		}
 	}
 
-	// ==============================
-	// 2) Buat semua quiz (1..N)
-	// ==============================
 	createdQuizzes := make([]quizModel.QuizModel, 0, len(quizParts))
 
 	for i := range quizParts {
 		qm := quizParts[i].ToModel(mid, row.AssessmentID)
 
-		// Wariskan assessment_type ke quiz (kalau assessment punya type)
 		if row.AssessmentTypeID != nil && *row.AssessmentTypeID != uuid.Nil {
 			qm.QuizAssessmentTypeID = row.AssessmentTypeID
 		}
 
-		// ✅ AUTO: quiz_time_limit_sec diisi dari assessment_type_time_per_question_sec
-		// HANYA kalau:
-		// - assessment type punya nilai time_per_question
-		// - quiz_time_limit_sec BELUM di-set manual dari payload
 		if qm.QuizTimeLimitSec == nil && hasAssessmentTypeTimePerQuestion {
 			v := assessmentTypeTimePerQuestionSec
 			qm.QuizTimeLimitSec = &v
 		}
 
-		// Slug quiz (unik per school; fallback "quiz")
 		var baseSlug string
 		if qm.QuizSlug != nil && strings.TrimSpace(*qm.QuizSlug) != "" {
 			baseSlug = helper.Slugify(*qm.QuizSlug, 160)
@@ -609,12 +544,10 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		createdQuizzes = append(createdQuizzes, *qm)
 	}
 
-	// Commit transaksi
 	if err := tx.Commit().Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal commit transaksi")
 	}
 
-	// Response: assessment + quizzes
 	msg := "Assessment (mode date) berhasil dibuat"
 	if mode == "session" {
 		msg = "Assessment (mode session) berhasil dibuat"
@@ -630,8 +563,7 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 
-	// DEBUG
-	fmt.Println("==== PATCH /assessment-types/:id called ====")
+	fmt.Println("==== PATCH /assessments/:id called ====")
 	fmt.Printf("RAW BODY: %s\n", string(c.Body()))
 
 	id, err := helper.ParseUUIDParam(c, "id")
@@ -651,7 +583,6 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// 🔒 resolve & authorize (DKM/Admin atau Teacher) DARI TOKEN
 	mid, err := helperAuth.ResolveSchoolForDKMOrTeacher(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
@@ -674,20 +605,42 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Simpan CSST lama untuk hitung UP/DOWN
 	oldCSSTID := existing.AssessmentClassSectionSubjectTeacherID
 
-	// validasi guru bila diubah
 	if err := ctl.assertTeacherBelongsToSchool(c, mid, req.AssessmentCreatedByTeacherID); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	tableName := (&model.AssessmentModel{}).TableName()
 
-	// ==== (Opsional) update CSST bila CSST diubah ====
+	refreshPassingScoreSnapshotFromCSST := func(csstID *uuid.UUID) error {
+		if csstID == nil || *csstID == uuid.Nil {
+			existing.AssessmentMinPassingScoreClassSubjectSnapshot = 0
+			return nil
+		}
+
+		cs, er := service.ValidateAndCacheCSST(
+			ctl.DB.WithContext(c.Context()),
+			mid,
+			*csstID,
+		)
+		if er != nil {
+			if fe, ok := er.(*fiber.Error); ok {
+				return fiber.NewError(fe.Code, fe.Message)
+			}
+			return fiber.NewError(fiber.StatusBadRequest, er.Error())
+		}
+
+		if cs.MinPassingScore != nil && *cs.MinPassingScore > 0 {
+			existing.AssessmentMinPassingScoreClassSubjectSnapshot = float64(*cs.MinPassingScore)
+		} else {
+			existing.AssessmentMinPassingScoreClassSubjectSnapshot = 0
+		}
+		return nil
+	}
+
 	if req.AssessmentClassSectionSubjectTeacherID != nil {
 		if *req.AssessmentClassSectionSubjectTeacherID == uuid.Nil {
-			// clear relasi CSST
 			existing.AssessmentClassSectionSubjectTeacherID = nil
 		} else {
 			cs, er := service.ValidateAndCacheCSST(
@@ -704,9 +657,6 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 
 			existing.AssessmentClassSectionSubjectTeacherID = req.AssessmentClassSectionSubjectTeacherID
 
-			// Auto-isi created_by_teacher_id kalau:
-			// - user TIDAK mengirim AssessmentCreatedByTeacherID di PATCH
-			// - existing belum punya creator
 			if req.AssessmentCreatedByTeacherID == nil &&
 				existing.AssessmentCreatedByTeacherID == nil &&
 				cs.TeacherID != nil && *cs.TeacherID != uuid.Nil {
@@ -717,7 +667,6 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 		}
 	}
 
-	// ==== Hitung FINAL session IDs (memperhatikan niat PATCH untuk clear) ====
 	finalAnnID := existing.AssessmentAnnounceSessionID
 	if req.AssessmentAnnounceSessionID != nil {
 		if *req.AssessmentAnnounceSessionID == uuid.Nil {
@@ -737,15 +686,17 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 		}
 	}
 
-	// Tentukan mode hasil
 	nextMode := "date"
 	if finalAnnID != nil || finalColID != nil {
 		nextMode = "session"
 	}
 
-	// ===== MODE: session =====
+	// =========================
+	// MODE: session
+	// =========================
 	if nextMode == "session" {
 		var ann, col *sessRow
+
 		if finalAnnID != nil {
 			r, er := ctl.fetchSess(c, *finalAnnID)
 			if er != nil {
@@ -756,6 +707,7 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 			}
 			ann = r
 		}
+
 		if finalColID != nil {
 			r, er := ctl.fetchSess(c, *finalColID)
 			if er != nil {
@@ -766,24 +718,21 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 			}
 			col = r
 		}
+
 		if ann != nil && col != nil && pickTime(col).Before(pickTime(ann)) {
 			return helper.JsonError(c, fiber.StatusBadRequest, "collect_session harus sama atau setelah announce_session")
 		}
 
-		// Terapkan PATCH ke existing (tanpa simpan dulu)
 		req.Apply(&existing)
 
-		// Normalisasi AssessmentTypeID setelah Apply
 		if existing.AssessmentTypeID != nil && *existing.AssessmentTypeID == uuid.Nil {
 			existing.AssessmentTypeID = nil
 		}
 
-		// Set mode & session ids final
 		existing.AssessmentSubmissionMode = model.SubmissionModeSession
 		existing.AssessmentAnnounceSessionID = finalAnnID
 		existing.AssessmentCollectSessionID = finalColID
 
-		// Jika user TIDAK kirim start/due di PATCH, turunkan dari sesi (agar konsisten)
 		if req.AssessmentStartAt == nil && existing.AssessmentStartAt == nil && ann != nil {
 			if ann.StartsAt != nil {
 				existing.AssessmentStartAt = ann.StartsAt
@@ -799,7 +748,13 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 			}
 		}
 
-		// ===== Auto-slug (jaga unik, exclude diri sendiri) =====
+		if er := refreshPassingScoreSnapshotFromCSST(existing.AssessmentClassSectionSubjectTeacherID); er != nil {
+			if fe, ok := er.(*fiber.Error); ok {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusBadRequest, er.Error())
+		}
+
 		var baseSlug string
 		if req.AssessmentSlug != nil {
 			slugIn := strings.TrimSpace(*req.AssessmentSlug)
@@ -842,62 +797,41 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 		}
 		existing.AssessmentSlug = &uniqueSlug
 
+		// ✅ TX khusus untuk: save assessment + down/up csst
+		tx := ctl.DB.WithContext(c.Context()).Begin()
+		if tx.Error != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuka transaksi")
+		}
+		defer func() {
+			if r := recover(); r != nil {
+				tx.Rollback()
+			}
+		}()
+
 		existing.AssessmentUpdatedAt = time.Now()
-		if err := ctl.DB.WithContext(c.Context()).Save(&existing).Error; err != nil {
+		if err := tx.WithContext(c.Context()).Save(&existing).Error; err != nil {
+			tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui assessment")
 		}
 
-		// 🔁 DOWN/UP kalau CSST berubah
 		newCSSTID := existing.AssessmentClassSectionSubjectTeacherID
 		if !uuidPtrEqual(oldCSSTID, newCSSTID) {
-
-			// hanya total_assessments saja (tanpa per kategori)
-			buildDecUpdates := func() map[string]any {
-				return map[string]any{
-					"class_section_subject_teacher_total_assessments": gorm.Expr(
-						"CASE WHEN class_section_subject_teacher_total_assessments > 0 " +
-							"THEN class_section_subject_teacher_total_assessments - 1 ELSE 0 END",
-					),
-				}
-			}
-
-			buildIncUpdates := func() map[string]any {
-				return map[string]any{
-					"class_section_subject_teacher_total_assessments": gorm.Expr(
-						"class_section_subject_teacher_total_assessments + 1",
-					),
-				}
-			}
-
-			// CSST lama: -1
 			if oldCSSTID != nil && *oldCSSTID != uuid.Nil {
-				if err := ctl.DB.WithContext(c.Context()).
-					Model(&csstModel.ClassSectionSubjectTeacherModel{}).
-					Where(`
-                class_section_subject_teacher_school_id = ?
-                AND class_section_subject_teacher_id = ?
-                AND class_section_subject_teacher_deleted_at IS NULL
-            `, mid, *oldCSSTID).
-					Updates(buildDecUpdates()).Error; err != nil {
-
+				if err := ctl.csstDecTotalAssessmentsTx(tx, c, mid, *oldCSSTID); err != nil {
+					tx.Rollback()
 					return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengupdate total assessment mapel (csst lama)")
 				}
 			}
-
-			// CSST baru: +1
 			if newCSSTID != nil && *newCSSTID != uuid.Nil {
-				if err := ctl.DB.WithContext(c.Context()).
-					Model(&csstModel.ClassSectionSubjectTeacherModel{}).
-					Where(`
-                class_section_subject_teacher_school_id = ?
-                AND class_section_subject_teacher_id = ?
-                AND class_section_subject_teacher_deleted_at IS NULL
-            `, mid, *newCSSTID).
-					Updates(buildIncUpdates()).Error; err != nil {
-
+				if err := ctl.csstIncTotalAssessmentsTx(tx, c, mid, *newCSSTID); err != nil {
+					tx.Rollback()
 					return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengupdate total assessment mapel (csst baru)")
 				}
 			}
+		}
+
+		if err := tx.Commit().Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal commit transaksi")
 		}
 
 		return helper.JsonUpdated(
@@ -907,8 +841,9 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 		)
 	}
 
-	// ===== MODE: date =====
-	// Validasi kombinasi waktu
+	// =========================
+	// MODE: date
+	// =========================
 	switch {
 	case req.AssessmentStartAt != nil && req.AssessmentDueAt != nil:
 		if req.AssessmentDueAt.Before(*req.AssessmentStartAt) {
@@ -924,20 +859,23 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 		}
 	}
 
-	// Terapkan PATCH & set mode/date
 	req.Apply(&existing)
 	existing.AssessmentSubmissionMode = model.SubmissionModeDate
 
-	// Normalisasi AssessmentTypeID setelah Apply
 	if existing.AssessmentTypeID != nil && *existing.AssessmentTypeID == uuid.Nil {
 		existing.AssessmentTypeID = nil
 	}
 
-	// Jika pindah ke date → bersihkan session IDs bila user clear
-	existing.AssessmentAnnounceSessionID = finalAnnID // akan nil jika user kirim UUID nil
+	existing.AssessmentAnnounceSessionID = finalAnnID
 	existing.AssessmentCollectSessionID = finalColID
 
-	// ===== Auto-slug (jaga unik, exclude diri sendiri) =====
+	if er := refreshPassingScoreSnapshotFromCSST(existing.AssessmentClassSectionSubjectTeacherID); er != nil {
+		if fe, ok := er.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, er.Error())
+	}
+
 	{
 		var baseSlug string
 		if req.AssessmentSlug != nil {
@@ -982,48 +920,41 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 		existing.AssessmentSlug = &uniqueSlug
 	}
 
+	// ✅ TX: save assessment + down/up csst
+	tx := ctl.DB.WithContext(c.Context()).Begin()
+	if tx.Error != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuka transaksi")
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
 	existing.AssessmentUpdatedAt = time.Now()
-	if err := ctl.DB.WithContext(c.Context()).Save(&existing).Error; err != nil {
+	if err := tx.WithContext(c.Context()).Save(&existing).Error; err != nil {
+		tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui assessment")
 	}
 
-	// 🔁 DOWN/UP kalau CSST berubah
 	newCSSTID := existing.AssessmentClassSectionSubjectTeacherID
 	if !uuidPtrEqual(oldCSSTID, newCSSTID) {
-		// CSST lama: -1
 		if oldCSSTID != nil && *oldCSSTID != uuid.Nil {
-			if err := ctl.DB.WithContext(c.Context()).
-				Model(&csstModel.ClassSectionSubjectTeacherModel{}).
-				Where(`
-					class_section_subject_teacher_school_id = ?
-					AND class_section_subject_teacher_id = ?
-					AND class_section_subject_teacher_deleted_at IS NULL
-				`, mid, *oldCSSTID).
-				Update(
-					"class_section_subject_teacher_total_assessments",
-					gorm.Expr("CASE WHEN class_section_subject_teacher_total_assessments > 0 THEN class_section_subject_teacher_total_assessments - 1 ELSE 0 END"),
-				).Error; err != nil {
-
+			if err := ctl.csstDecTotalAssessmentsTx(tx, c, mid, *oldCSSTID); err != nil {
+				tx.Rollback()
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengupdate total assessment mapel (csst lama)")
 			}
 		}
-		// CSST baru: +1
 		if newCSSTID != nil && *newCSSTID != uuid.Nil {
-			if err := ctl.DB.WithContext(c.Context()).
-				Model(&csstModel.ClassSectionSubjectTeacherModel{}).
-				Where(`
-					class_section_subject_teacher_school_id = ?
-					AND class_section_subject_teacher_id = ?
-					AND class_section_subject_teacher_deleted_at IS NULL
-				`, mid, *newCSSTID).
-				Update(
-					"class_section_subject_teacher_total_assessments",
-					gorm.Expr("class_section_subject_teacher_total_assessments + 1"),
-				).Error; err != nil {
-
+			if err := ctl.csstIncTotalAssessmentsTx(tx, c, mid, *newCSSTID); err != nil {
+				tx.Rollback()
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengupdate total assessment mapel (csst baru)")
 			}
 		}
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal commit transaksi")
 	}
 
 	return helper.JsonUpdated(
@@ -1042,7 +973,6 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "assessment_id tidak valid")
 	}
 
-	// 🔒 resolve & authorize (DKM/Admin atau Teacher) DARI TOKEN
 	mid, err := helperAuth.ResolveSchoolForDKMOrTeacher(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
@@ -1051,7 +981,6 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// 🔒 GUARD: cek apakah assessment masih dipakai oleh submissions
 	var usedCount int64
 	if err := ctl.DB.WithContext(c.Context()).
 		Model(&submissionsModel.SubmissionModel{}).
@@ -1072,7 +1001,6 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 		)
 	}
 
-	// 🔎 Ambil row assessment yang masih hidup
 	var row model.AssessmentModel
 	if err := ctl.DB.WithContext(c.Context()).
 		Where(`
@@ -1087,7 +1015,6 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// 🗑 Soft delete + DOWN agregat dalam transaksi
 	tx := ctl.DB.WithContext(c.Context()).Begin()
 	if tx.Error != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuka transaksi penghapusan")
@@ -1098,31 +1025,14 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 		}
 	}()
 
-	// Soft delete assessment
 	if err := tx.WithContext(c.Context()).Delete(&row).Error; err != nil {
 		tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus assessment")
 	}
 
-	// 🔽 DOWN: turunkan total_assessments di CSST jika ada relasi
+	// 🔽 DOWN: csst_total_assessments (pakai kolom baru + tx)
 	if row.AssessmentClassSectionSubjectTeacherID != nil && *row.AssessmentClassSectionSubjectTeacherID != uuid.Nil {
-
-		updates := map[string]any{
-			"class_section_subject_teacher_total_assessments": gorm.Expr(
-				"CASE WHEN class_section_subject_teacher_total_assessments > 0 " +
-					"THEN class_section_subject_teacher_total_assessments - 1 ELSE 0 END",
-			),
-		}
-
-		if err := tx.WithContext(c.Context()).
-			Model(&csstModel.ClassSectionSubjectTeacherModel{}).
-			Where(`
-        class_section_subject_teacher_school_id = ?
-        AND class_section_subject_teacher_id = ?
-        AND class_section_subject_teacher_deleted_at IS NULL
-    `, mid, *row.AssessmentClassSectionSubjectTeacherID).
-			Updates(updates).Error; err != nil {
-
+		if err := ctl.csstDecTotalAssessmentsTx(tx, c, mid, *row.AssessmentClassSectionSubjectTeacherID); err != nil {
 			tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengupdate total assessment mapel")
 		}

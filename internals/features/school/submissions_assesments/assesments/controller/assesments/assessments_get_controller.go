@@ -19,6 +19,8 @@ import (
 
 	csstModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 
+	csstDTO "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/dto"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
@@ -491,13 +493,16 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 
 	if isTeacherTimeline {
 		qry = qry.Joins(`
-			JOIN class_section_subject_teachers csst
-			  ON csst.class_section_subject_teacher_school_id = assessment_school_id
-			 AND csst.class_section_subject_teacher_id = assessment_class_section_subject_teacher_id
-			 AND csst.class_section_subject_teacher_teacher_id = ?
-			 AND csst.class_section_subject_teacher_status = 'active'
-			 AND csst.class_section_subject_teacher_deleted_at IS NULL
-		`, teacherID)
+		JOIN class_section_subject_teachers csst
+		  ON csst.csst_school_id = assessment_school_id
+		 AND csst.csst_id = assessment_class_section_subject_teacher_id
+		 AND (
+			  csst.csst_school_teacher_id = ?
+			  OR csst.csst_assistant_school_teacher_id = ?
+		 )
+		 AND csst.csst_status = 'active'
+		 AND csst.csst_deleted_at IS NULL
+	`, teacherID, teacherID)
 	}
 
 	// Filter tanggal timeline
@@ -864,18 +869,23 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		csstIDs = append(csstIDs, id)
 	}
 
-	var includeCSSTData []csstModel.ClassSectionSubjectTeacherModel
+	var includeCSSTRows []csstModel.ClassSectionSubjectTeacherModel
+	var includeCSSTData []csstDTO.CSSTCompactResponse
+
 	if includeCSST && len(csstIDs) > 0 {
 		if err := ctl.DB.WithContext(c.Context()).
 			Model(&csstModel.ClassSectionSubjectTeacherModel{}).
-			Where("class_section_subject_teacher_school_id = ?", mid).
-			Where("class_section_subject_teacher_id IN ?", csstIDs).
-			Where("class_section_subject_teacher_deleted_at IS NULL").
-			Find(&includeCSSTData).Error; err != nil {
+			Where("csst_school_id = ?", mid).
+			Where("csst_id IN ?", csstIDs).
+			Where("csst_deleted_at IS NULL").
+			Find(&includeCSSTRows).Error; err != nil {
 
 			log.Printf("[AssessmentList] ERROR FETCH CSST INCLUDE: %v", err)
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data CSST")
 		}
+
+		// ✅ include-style: kirim compact + timezone sekolah
+		includeCSSTData = csstDTO.FromCSSTModelsCompactWithSchoolTime(c, includeCSSTRows)
 	}
 
 	// ================================

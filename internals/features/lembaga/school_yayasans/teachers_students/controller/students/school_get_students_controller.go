@@ -318,9 +318,9 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 	}
 
 	// ======================================
-	// INCLUDE: CSST (compact)
+	// INCLUDE: CSST (compact) — DTO/MODEL BARU (csst_*)
 	// ======================================
-	csstMapCompactGlobal := make(map[uuid.UUID]csstDTO.ClassSectionSubjectTeacherCompactResponse)
+	csstMapCompactGlobal := make(map[uuid.UUID]csstDTO.CSSTCompactResponse)
 
 	if wantCSST && len(studentIDs) > 0 {
 		type studentCSSTRow struct {
@@ -339,9 +339,12 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil relasi CSST siswa: "+err.Error())
 		}
 
+		// unique csst IDs
 		csstIDSet := make(map[uuid.UUID]struct{})
 		for _, r := range scRows {
-			csstIDSet[r.CSSTID] = struct{}{}
+			if r.CSSTID != uuid.Nil {
+				csstIDSet[r.CSSTID] = struct{}{}
+			}
 		}
 		csstIDs := make([]uuid.UUID, 0, len(csstIDSet))
 		for id := range csstIDSet {
@@ -351,15 +354,18 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 		if len(csstIDs) > 0 {
 			var csstRows []csstModel.ClassSectionSubjectTeacherModel
 			if err := h.DB.
-				Where("class_section_subject_teacher_school_id = ? AND class_section_subject_teacher_deleted_at IS NULL", schoolID).
-				Where("class_section_subject_teacher_id IN ?", csstIDs).
+				Where("csst_school_id = ? AND csst_deleted_at IS NULL", schoolID).
+				Where("csst_id IN ?", csstIDs).
 				Find(&csstRows).Error; err != nil {
 				return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil data CSST: "+err.Error())
 			}
 
 			for i := range csstRows {
-				cmp := csstDTO.FromClassSectionSubjectTeacherModelCompact(csstRows[i])
-				csstMapCompactGlobal[csstRows[i].ClassSectionSubjectTeacherID] = cmp
+				// kalau mau versi timezone sekolah:
+				// cmp := csstDTO.FromCSSTModelCompactWithSchoolTime(c, csstRows[i])
+				cmp := csstDTO.FromCSSTModelCompact(csstRows[i])
+
+				csstMapCompactGlobal[csstRows[i].CSSTID] = cmp
 			}
 		}
 	}
@@ -386,7 +392,7 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 	}
 
 	if wantCSST && len(csstMapCompactGlobal) > 0 {
-		cssts := make([]csstDTO.ClassSectionSubjectTeacherCompactResponse, 0, len(csstMapCompactGlobal))
+		cssts := make([]csstDTO.CSSTCompactResponse, 0, len(csstMapCompactGlobal))
 		for _, v := range csstMapCompactGlobal {
 			cssts = append(cssts, v)
 		}

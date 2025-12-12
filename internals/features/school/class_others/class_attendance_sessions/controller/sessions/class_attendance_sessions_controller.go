@@ -24,6 +24,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"gorm.io/gorm"
 )
 
@@ -61,13 +62,21 @@ func getCSSTName(tx *gorm.DB, csstID uuid.UUID) (string, error) {
 	var row struct {
 		Name *string `gorm:"column:name"`
 	}
+
+	// ✅ pakai cache yang memang ada di model terbaru
 	const q = `
 SELECT
-  COALESCE(class_section_subject_teacher_name, name) AS name
-FROM class_section_subject_teachers
-WHERE class_section_subject_teacher_id = ?
-  AND class_section_subject_teacher_deleted_at IS NULL
+  COALESCE(
+    csst.csst_class_section_name_cache,
+    csst.csst_subject_name_cache,
+    csst.csst_slug,
+    csst.csst_id::text
+  ) AS name
+FROM class_section_subject_teachers csst
+WHERE csst.csst_id = ?
+  AND csst.csst_deleted_at IS NULL
 LIMIT 1`
+
 	if err := tx.Raw(q, csstID).Scan(&row).Error; err != nil {
 		return "", err
 	}
@@ -378,6 +387,15 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 				Icon        *string    `gorm:"column:icon"`
 				IsActive    bool       `gorm:"column:is_active"`
 				DeletedAt   *time.Time `gorm:"column:deleted_at"`
+
+				AllowStudentSelfAttendance bool           `gorm:"column:allow_student_self_attendance"`
+				AllowTeacherMarkAttendance bool           `gorm:"column:allow_teacher_mark_attendance"`
+				RequireTeacherAttendance   bool           `gorm:"column:require_teacher_attendance"`
+				RequireAttendanceReason    pq.StringArray `gorm:"column:require_attendance_reason"`
+
+				AttendanceWindowMode         string `gorm:"column:attendance_window_mode"`
+				AttendanceOpenOffsetMinutes  *int   `gorm:"column:attendance_open_offset_minutes"`
+				AttendanceCloseOffsetMinutes *int   `gorm:"column:attendance_close_offset_minutes"`
 			}
 
 			const qType = `
@@ -389,7 +407,16 @@ SELECT
   class_attendance_session_type_color       AS color,
   class_attendance_session_type_icon        AS icon,
   class_attendance_session_type_is_active   AS is_active,
-  class_attendance_session_type_deleted_at  AS deleted_at
+  class_attendance_session_type_deleted_at  AS deleted_at,
+
+  class_attendance_session_type_allow_student_self_attendance AS allow_student_self_attendance,
+  class_attendance_session_type_allow_teacher_mark_attendance AS allow_teacher_mark_attendance,
+  class_attendance_session_type_require_teacher_attendance    AS require_teacher_attendance,
+  class_attendance_session_type_require_attendance_reason     AS require_attendance_reason,
+
+  class_attendance_session_type_attendance_window_mode         AS attendance_window_mode,
+  class_attendance_session_type_attendance_open_offset_minutes AS attendance_open_offset_minutes,
+  class_attendance_session_type_attendance_close_offset_minutes AS attendance_close_offset_minutes
 FROM class_attendance_session_types
 WHERE class_attendance_session_type_id = ?
 LIMIT 1`
@@ -407,23 +434,31 @@ LIMIT 1`
 				return fiber.NewError(fiber.StatusBadRequest, "Tipe sesi tidak aktif / sudah dihapus")
 			}
 
-			// Jika snapshot belum diisi dari payload, bangun snapshot default dari master
+			// ✅ snapshot default kalau belum dikirim dari FE
 			if req.ClassAttendanceSessionTypeSnapshot == nil {
+				requireStates := []string{}
+				if len(t.RequireAttendanceReason) > 0 {
+					requireStates = append(requireStates, t.RequireAttendanceReason...)
+				}
+
 				snap := map[string]any{
-					"type_id":   req.ClassAttendanceSessionTypeId.String(),
-					"slug":      t.Slug,
-					"name":      t.Name,
-					"is_active": t.IsActive,
+					"id":          *req.ClassAttendanceSessionTypeId,
+					"slug":        t.Slug,
+					"name":        t.Name,
+					"description": t.Description,
+					"color":       t.Color,
+					"icon":        t.Icon,
+
+					"allow_student_self_attendance": t.AllowStudentSelfAttendance,
+					"allow_teacher_mark_attendance": t.AllowTeacherMarkAttendance,
+					"require_teacher_attendance":    t.RequireTeacherAttendance,
+					"require_attendance_reason":     requireStates,
+
+					"attendance_window_mode":          t.AttendanceWindowMode,
+					"attendance_open_offset_minutes":  t.AttendanceOpenOffsetMinutes,
+					"attendance_close_offset_minutes": t.AttendanceCloseOffsetMinutes,
 				}
-				if t.Description != nil && strings.TrimSpace(*t.Description) != "" {
-					snap["description"] = strings.TrimSpace(*t.Description)
-				}
-				if t.Color != nil && strings.TrimSpace(*t.Color) != "" {
-					snap["color"] = strings.TrimSpace(*t.Color)
-				}
-				if t.Icon != nil && strings.TrimSpace(*t.Icon) != "" {
-					snap["icon"] = strings.TrimSpace(*t.Icon)
-				}
+
 				req.ClassAttendanceSessionTypeSnapshot = snap
 			}
 		}

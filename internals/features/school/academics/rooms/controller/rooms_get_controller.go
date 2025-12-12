@@ -228,22 +228,24 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	}
 
 	// =========================================================
-	// INCLUDE: CSST (class_section_subject_teachers) → DTO compact
+	// INCLUDE: CSST (class_section_subject_teachers) → DTO compact (DTO terbaru)
 	// =========================================================
 	if includeCSST && len(roomIDs) > 0 {
 		var cssts []csstmodel.ClassSectionSubjectTeacherModel
 		if err := ctl.DB.WithContext(reqCtx(c)).
-			Where("class_section_subject_teacher_school_id = ? AND class_section_subject_teacher_deleted_at IS NULL", schoolID).
-			Where("class_section_subject_teacher_class_room_id IN ?", roomIDs).
-			Order("class_section_subject_teacher_created_at DESC").
+			// ✅ schema baru: csst_*
+			Where("csst_school_id = ? AND csst_deleted_at IS NULL", schoolID).
+			Where("csst_class_room_id IN ?", roomIDs).
+			Order("csst_created_at DESC").
 			Find(&cssts).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data CSST")
 		}
 
 		if len(cssts) > 0 {
-			includeMap["class_section_subject_teachers"] = csstdto.FromClassSectionSubjectTeacherModelsCompact(cssts)
+			// DTO terbaru kamu sudah benar
+			includeMap["class_section_subject_teachers"] = csstdto.FromCSSTModelsCompact(cssts)
 		} else {
-			includeMap["class_section_subject_teachers"] = []csstdto.ClassSectionSubjectTeacherCompactResponse{}
+			includeMap["class_section_subject_teachers"] = []csstdto.CSSTCompactResponse{}
 		}
 	}
 

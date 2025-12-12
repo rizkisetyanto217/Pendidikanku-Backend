@@ -1,4 +1,3 @@
-// file: internals/features/lembaga/class_section_subject_teachers/controller/csst_list_controller.go
 package controller
 
 import (
@@ -119,23 +118,17 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	teacherIDStr := strings.TrimSpace(c.Query("teacher_id"))
 	subjectIDStr := strings.TrimSpace(c.Query("subject_id"))
 
-	// 🆕 teacher=me
 	teacherFlag := strings.TrimSpace(strings.ToLower(c.Query("teacher")))
-
-	// 🆕 filter by subject_name (LIKE, case-insensitive)
 	subjectName := strings.TrimSpace(strings.ToLower(c.Query("subject_name")))
 
-	// 🆕 multi academic_term_id (comma separated)
 	rawAcademicTermID := strings.TrimSpace(c.Query("academic_term_id"))
 
-	// 🆕 multi class_room_id / room_id (comma separated)
 	rawClassRoomID := strings.TrimSpace(c.Query("class_room_id"))
 	rawRoomID := strings.TrimSpace(c.Query("room_id"))
 	if rawClassRoomID == "" {
 		rawClassRoomID = rawRoomID
 	}
 
-	// 🆕 multi class_parent_id / parent_id (comma separated)
 	rawClassParentID := strings.TrimSpace(c.Query("class_parent_id"))
 	if rawClassParentID == "" {
 		rawClassParentID = strings.TrimSpace(c.Query("parent_id"))
@@ -164,7 +157,6 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// nested=academic_term → nested di tiap item
 	nestedRaw := strings.TrimSpace(c.Query("nested"))
 	nestedTokens := map[string]bool{}
 	if nestedRaw != "" {
@@ -176,7 +168,6 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// include=academic_term → list unik di include.academic_terms
 	includeAcademicTermList := includeTokens["academic_term"] || includeTokens["academic_terms"]
 	nestedAcademicTerm := nestedTokens["academic_term"] || nestedTokens["academic_terms"]
 
@@ -208,15 +199,12 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 
 	// parse teacher & subject ID
 	var teacherID *uuid.UUID
-
-	// 🆕 Prioritas: teacher=me → ambil primary school_teacher_id dari token
 	if teacherFlag == "me" {
 		tid, err := helperAuth.GetPrimarySchoolTeacherID(c)
 		if err != nil || tid == uuid.Nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "teacher=me: context guru tidak ditemukan di token")
 		}
 		teacherID = &tid
-
 	} else if teacherIDStr != "" {
 		if id, err := uuid.Parse(teacherIDStr); err == nil {
 			teacherID = &id
@@ -234,7 +222,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 🆕 parse academic_term_id as list
+	// parse academic_term_id as list
 	var academicTermIDs []uuid.UUID
 	if rawAcademicTermID != "" {
 		ids, err := parseUUIDList(rawAcademicTermID)
@@ -244,7 +232,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		academicTermIDs = ids
 	}
 
-	// 🆕 parse class_room_id / room_id as list
+	// parse class_room_id / room_id as list
 	var classRoomIDs []uuid.UUID
 	if rawClassRoomID != "" {
 		ids, err := parseUUIDList(rawClassRoomID)
@@ -255,31 +243,31 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	}
 
 	// ===== Sorting =====
-	orderCol := "class_section_subject_teacher_created_at"
+	orderCol := "csst_created_at"
 	if q.OrderBy != nil {
-		switch strings.ToLower(*q.OrderBy) {
+		switch strings.ToLower(strings.TrimSpace(*q.OrderBy)) {
 		case "created_at":
-			orderCol = "class_section_subject_teacher_created_at"
+			orderCol = "csst_created_at"
 		case "updated_at":
-			orderCol = "class_section_subject_teacher_updated_at"
+			orderCol = "csst_updated_at"
 		case "subject_name":
-			orderCol = "class_section_subject_teacher_subject_name_cache"
+			orderCol = "csst_subject_name_cache"
 		case "section_name":
-			orderCol = "class_section_subject_teacher_class_section_name_cache"
+			orderCol = "csst_class_section_name_cache"
 		case "teacher_name":
-			orderCol = "class_section_subject_teacher_school_teacher_name_cache"
+			orderCol = "csst_school_teacher_name_cache"
 		case "slug":
-			orderCol = "class_section_subject_teacher_slug"
+			orderCol = "csst_slug"
 		case "academic_term_name":
-			orderCol = "class_section_subject_teacher_academic_term_name_cache"
+			orderCol = "csst_academic_term_name_cache"
 		case "academic_year":
-			orderCol = "class_section_subject_teacher_academic_year_cache"
+			orderCol = "csst_academic_year_cache"
 		default:
 			return helper.JsonError(c, fiber.StatusBadRequest, "order_by tidak dikenal (gunakan: created_at, updated_at, subject_name, section_name, teacher_name, slug, academic_term_name, academic_year)")
 		}
 	}
 	sortDir := "ASC"
-	if q.Sort != nil && strings.ToLower(*q.Sort) == "desc" {
+	if q.Sort != nil && strings.ToLower(strings.TrimSpace(*q.Sort)) == "desc" {
 		sortDir = "DESC"
 	}
 	orderExpr := fmt.Sprintf("%s %s", orderCol, sortDir)
@@ -287,43 +275,40 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	// ================= BASE QUERY =================
 	tx := ctl.DB.
 		Model(&modelCSST.ClassSectionSubjectTeacherModel{}).
-		Where("class_section_subject_teacher_school_id = ?", schoolID)
+		Where("csst_school_id = ?", schoolID)
 
 	if q.WithDeleted == nil || !*q.WithDeleted {
-		tx = tx.Where("class_section_subject_teacher_deleted_at IS NULL")
+		tx = tx.Where("csst_deleted_at IS NULL")
 	}
 	if q.IsActive != nil {
 		if *q.IsActive {
-			// hanya yang status=active
-			tx = tx.Where("class_section_subject_teacher_status = ?", modelCSST.ClassStatusActive)
+			tx = tx.Where("csst_status = ?", modelCSST.ClassStatusActive)
 		} else {
-			// semua yang BUKAN active (inactive / completed / dst)
-			tx = tx.Where("class_section_subject_teacher_status <> ?", modelCSST.ClassStatusActive)
+			tx = tx.Where("csst_status <> ?", modelCSST.ClassStatusActive)
 		}
 	}
 
 	if len(filterIDs) > 0 {
-		tx = tx.Where("class_section_subject_teacher_id IN ?", filterIDs)
+		tx = tx.Where("csst_id IN ?", filterIDs)
 	}
 	if len(sectionIDs) > 0 {
-		tx = tx.Where("class_section_subject_teacher_class_section_id IN ?", sectionIDs)
+		tx = tx.Where("csst_class_section_id IN ?", sectionIDs)
 	}
 	if teacherID != nil {
-		tx = tx.Where("class_section_subject_teacher_school_teacher_id = ?", *teacherID)
+		tx = tx.Where("csst_school_teacher_id = ?", *teacherID)
 	}
-	// filter by subject_name (LIKE)
 	if subjectName != "" {
 		like := "%" + subjectName + "%"
-		tx = tx.Where("LOWER(class_section_subject_teacher_subject_name_cache) LIKE ?", like)
+		tx = tx.Where("LOWER(csst_subject_name_cache) LIKE ?", like)
 	}
 	if subjectID != nil {
-		tx = tx.Where("class_section_subject_teacher_subject_id = ?", *subjectID)
+		tx = tx.Where("csst_subject_id = ?", *subjectID)
 	}
 	if len(academicTermIDs) > 0 {
-		tx = tx.Where("class_section_subject_teacher_academic_term_id IN ?", academicTermIDs)
+		tx = tx.Where("csst_academic_term_id IN ?", academicTermIDs)
 	}
 
-	// filter by class_parent_id / parent_id via class_sections
+	// filter by class_parent_id via class_sections
 	if len(classParentIDs) > 0 {
 		subq := ctl.DB.
 			Table("class_sections").
@@ -332,10 +317,10 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 			Where("class_section_deleted_at IS NULL").
 			Where("class_section_class_parent_id IN ?", classParentIDs)
 
-		tx = tx.Where("class_section_subject_teacher_class_section_id IN (?)", subq)
+		tx = tx.Where("csst_class_section_id IN (?)", subq)
 	}
 
-	// filter by class_room_id / room_id via class_sections
+	// filter by class_room_id via class_sections (room bawaan section)
 	if len(classRoomIDs) > 0 {
 		subq := ctl.DB.
 			Table("class_sections").
@@ -344,18 +329,19 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 			Where("class_section_deleted_at IS NULL").
 			Where("class_section_class_room_id IN ?", classRoomIDs)
 
-		tx = tx.Where("class_section_subject_teacher_class_section_id IN (?)", subq)
+		tx = tx.Where("csst_class_section_id IN (?)", subq)
 	}
 
+	// q= free text
 	if qtext != "" {
 		like := "%" + qtext + "%"
 		tx = tx.Where(`
-			LOWER(class_section_subject_teacher_slug) LIKE ? OR
-			LOWER(class_section_subject_teacher_class_section_name_cache) LIKE ? OR
-			LOWER(class_section_subject_teacher_subject_name_cache) LIKE ? OR
-			LOWER(class_section_subject_teacher_school_teacher_name_cache) LIKE ? OR
-			LOWER(class_section_subject_teacher_academic_term_name_cache) LIKE ? OR
-			LOWER(class_section_subject_teacher_academic_year_cache) LIKE ?`,
+			LOWER(csst_slug) LIKE ? OR
+			LOWER(csst_class_section_name_cache) LIKE ? OR
+			LOWER(csst_subject_name_cache) LIKE ? OR
+			LOWER(csst_school_teacher_name_cache) LIKE ? OR
+			LOWER(csst_academic_term_name_cache) LIKE ? OR
+			LOWER(csst_academic_year_cache) LIKE ?`,
 			like, like, like, like, like, like,
 		)
 	}
@@ -363,40 +349,39 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	// ================= COUNT QUERY =================
 	countTx := ctl.DB.
 		Model(&modelCSST.ClassSectionSubjectTeacherModel{}).
-		Where("class_section_subject_teacher_school_id = ?", schoolID)
+		Where("csst_school_id = ?", schoolID)
 
 	if q.WithDeleted == nil || !*q.WithDeleted {
-		countTx = countTx.Where("class_section_subject_teacher_deleted_at IS NULL")
+		countTx = countTx.Where("csst_deleted_at IS NULL")
 	}
 	if q.IsActive != nil {
 		if *q.IsActive {
-			countTx = countTx.Where("class_section_subject_teacher_status = ?", modelCSST.ClassStatusActive)
+			countTx = countTx.Where("csst_status = ?", modelCSST.ClassStatusActive)
 		} else {
-			countTx = countTx.Where("class_section_subject_teacher_status <> ?", modelCSST.ClassStatusActive)
+			countTx = countTx.Where("csst_status <> ?", modelCSST.ClassStatusActive)
 		}
 	}
 
 	if len(filterIDs) > 0 {
-		countTx = countTx.Where("class_section_subject_teacher_id IN ?", filterIDs)
+		countTx = countTx.Where("csst_id IN ?", filterIDs)
 	}
 	if len(sectionIDs) > 0 {
-		countTx = countTx.Where("class_section_subject_teacher_class_section_id IN ?", sectionIDs)
+		countTx = countTx.Where("csst_class_section_id IN ?", sectionIDs)
 	}
 	if teacherID != nil {
-		countTx = countTx.Where("class_section_subject_teacher_school_teacher_id = ?", *teacherID)
+		countTx = countTx.Where("csst_school_teacher_id = ?", *teacherID)
 	}
 	if subjectID != nil {
-		countTx = countTx.Where("class_section_subject_teacher_subject_id = ?", *subjectID)
+		countTx = countTx.Where("csst_subject_id = ?", *subjectID)
 	}
 	if subjectName != "" {
 		like := "%" + subjectName + "%"
-		countTx = countTx.Where("LOWER(class_section_subject_teacher_subject_name_cache) LIKE ?", like)
+		countTx = countTx.Where("LOWER(csst_subject_name_cache) LIKE ?", like)
 	}
 	if len(academicTermIDs) > 0 {
-		countTx = countTx.Where("class_section_subject_teacher_academic_term_id IN ?", academicTermIDs)
+		countTx = countTx.Where("csst_academic_term_id IN ?", academicTermIDs)
 	}
 
-	// filter by class_room_id di COUNT juga
 	if len(classRoomIDs) > 0 {
 		subq := ctl.DB.
 			Table("class_sections").
@@ -405,10 +390,9 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 			Where("class_section_deleted_at IS NULL").
 			Where("class_section_class_room_id IN ?", classRoomIDs)
 
-		countTx = countTx.Where("class_section_subject_teacher_class_section_id IN (?)", subq)
+		countTx = countTx.Where("csst_class_section_id IN (?)", subq)
 	}
 
-	// filter by class_parent_id di COUNT juga
 	if len(classParentIDs) > 0 {
 		subq := ctl.DB.
 			Table("class_sections").
@@ -417,18 +401,18 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 			Where("class_section_deleted_at IS NULL").
 			Where("class_section_class_parent_id IN ?", classParentIDs)
 
-		countTx = countTx.Where("class_section_subject_teacher_class_section_id IN (?)", subq)
+		countTx = countTx.Where("csst_class_section_id IN (?)", subq)
 	}
 
 	if qtext != "" {
 		like := "%" + qtext + "%"
 		countTx = countTx.Where(`
-			LOWER(class_section_subject_teacher_slug) LIKE ? OR
-			LOWER(class_section_subject_teacher_class_section_name_cache) LIKE ? OR
-			LOWER(class_section_subject_teacher_subject_name_cache) LIKE ? OR
-			LOWER(class_section_subject_teacher_school_teacher_name_cache) LIKE ? OR
-			LOWER(class_section_subject_teacher_academic_term_name_cache) LIKE ? OR
-			LOWER(class_section_subject_teacher_academic_year_cache) LIKE ?`,
+			LOWER(csst_slug) LIKE ? OR
+			LOWER(csst_class_section_name_cache) LIKE ? OR
+			LOWER(csst_subject_name_cache) LIKE ? OR
+			LOWER(csst_school_teacher_name_cache) LIKE ? OR
+			LOWER(csst_academic_term_name_cache) LIKE ? OR
+			LOWER(csst_academic_year_cache) LIKE ?`,
 			like, like, like, like, like, like,
 		)
 	}
@@ -438,7 +422,6 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total data")
 	}
 
-	// all=1 → override paging
 	if c.QueryBool("all") {
 		offset = 0
 		limit = int(total)
@@ -460,11 +443,9 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 
 	var resp any
 	if isCompact {
-		// ✅ compact + timezone sekolah
-		resp = csstDTO.FromClassSectionSubjectTeacherModelsCompactWithSchoolTime(c, rows)
+		resp = csstDTO.FromCSSTModelsCompactWithSchoolTime(c, rows)
 	} else {
-		// ✅ full + timezone sekolah
-		items := csstDTO.FromClassSectionSubjectTeacherModelsWithOptions(
+		items := csstDTO.FromCSSTModelsWithOptions(
 			rows,
 			csstDTO.FromCSSTOptions{
 				IncludeAcademicTerm: nestedAcademicTerm,
@@ -486,10 +467,10 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 
 		for i := range rows {
 			r := rows[i]
-			if r.ClassSectionSubjectTeacherAcademicTermID == nil {
+			if r.CSSTAcademicTermID == nil {
 				continue
 			}
-			termUUID := *r.ClassSectionSubjectTeacherAcademicTermID
+			termUUID := *r.CSSTAcademicTermID
 			if termUUID == uuid.Nil {
 				continue
 			}
@@ -499,16 +480,16 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 				item.ID = &termUUID
 			}
 			if item.Name == nil {
-				item.Name = r.ClassSectionSubjectTeacherAcademicTermNameCache
+				item.Name = r.CSSTAcademicTermNameCache
 			}
 			if item.Slug == nil {
-				item.Slug = r.ClassSectionSubjectTeacherAcademicTermSlugCache
+				item.Slug = r.CSSTAcademicTermSlugCache
 			}
 			if item.Year == nil {
-				item.Year = r.ClassSectionSubjectTeacherAcademicYearCache
+				item.Year = r.CSSTAcademicYearCache
 			}
 			if item.Angkatan == nil {
-				item.Angkatan = r.ClassSectionSubjectTeacherAcademicTermAngkatanCache
+				item.Angkatan = r.CSSTAcademicTermAngkatanCache
 			}
 
 			byTerm[termUUID] = item
@@ -522,6 +503,5 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		includePayload["academic_terms"] = terms
 	}
 
-	// pakai JsonListWithInclude supaya selalu ada "include": {...}
 	return helper.JsonListWithInclude(c, "ok", resp, includePayload, pg)
 }

@@ -268,7 +268,7 @@ BEGIN
     ALTER TABLE assessments
       ADD CONSTRAINT fk_assessment_csst
       FOREIGN KEY (assessment_class_section_subject_teacher_id)
-      REFERENCES class_section_subject_teachers(class_section_subject_teacher_id)
+      REFERENCES class_section_subject_teachers(csst_id)
       ON UPDATE CASCADE ON DELETE SET NULL;
   END IF;
 END$$;

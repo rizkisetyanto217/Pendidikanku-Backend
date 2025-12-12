@@ -299,11 +299,11 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 	}
 
 	type IncludePayload struct {
-		UserTeachers                []userTeacherModel.UserTeacherModel                 `json:"user_teachers,omitempty"`
-		Users                       []UserLite                                          `json:"users,omitempty"`
-		UserProfiles                []UserProfileLite                                   `json:"user_profiles,omitempty"`
-		ClassSections               []classSectionDTO.ClassSectionCompactResponse       `json:"class_sections,omitempty"`
-		ClassSectionSubjectTeachers []csstDTO.ClassSectionSubjectTeacherCompactResponse `json:"class_section_subject_teachers,omitempty"`
+		UserTeachers                []userTeacherModel.UserTeacherModel           `json:"user_teachers,omitempty"`
+		Users                       []UserLite                                    `json:"users,omitempty"`
+		UserProfiles                []UserProfileLite                             `json:"user_profiles,omitempty"`
+		ClassSections               []classSectionDTO.ClassSectionCompactResponse `json:"class_sections,omitempty"`
+		ClassSectionSubjectTeachers []csstDTO.CSSTCompactResponse                 `json:"class_section_subject_teachers,omitempty"`
 	}
 
 	includePayload := IncludePayload{}
@@ -438,17 +438,16 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 	if wantWithCSST && len(teacherIDs) > 0 {
 		var csstRows []csstModel.ClassSectionSubjectTeacherModel
 		if err := ctrl.DB.WithContext(c.Context()).
-			Where("class_section_subject_teacher_school_id = ? AND class_section_subject_teacher_deleted_at IS NULL", schoolID).
+			Where("csst_school_id = ? AND csst_deleted_at IS NULL", schoolID).
 			Where(`
-            class_section_subject_teacher_school_teacher_id IN ?
-            OR class_section_subject_teacher_assistant_school_teacher_id IN ?
-        `, teacherIDs, teacherIDs).
+			csst_school_teacher_id IN ?
+			OR csst_assistant_school_teacher_id IN ?
+		`, teacherIDs, teacherIDs).
 			Find(&csstRows).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil CSST: "+err.Error())
 		}
 
-		includePayload.ClassSectionSubjectTeachers =
-			csstDTO.FromClassSectionSubjectTeacherModelsCompact(csstRows)
+		includePayload.ClassSectionSubjectTeachers = csstDTO.FromCSSTModelsCompact(csstRows)
 	}
 
 	// 8) Pagination + response

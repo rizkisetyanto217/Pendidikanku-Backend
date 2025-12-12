@@ -502,17 +502,18 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 
 		// 3) Refresh snapshot CSST (update updated_at saja)
 		execErr2 := tx.Exec(`
-			UPDATE class_section_subject_teachers AS csst
-			SET
-				class_section_subject_teacher_updated_at = $3
-			FROM class_sections AS sec
-			JOIN classes AS c
-			  ON sec.class_section_class_id = c.class_id
-			WHERE
-				csst.class_section_subject_teacher_class_section_id = sec.class_section_id
-				AND c.class_class_parent_id = $1
-				AND csst.class_section_subject_teacher_school_id = $2
-		`,
+	UPDATE class_section_subject_teachers AS csst
+	SET
+		csst_updated_at = $3
+	FROM class_sections AS sec
+	JOIN classes AS c
+	  ON sec.class_section_class_id = c.class_id
+	WHERE
+		csst.csst_class_section_id = sec.class_section_id
+		AND c.class_class_parent_id = $1
+		AND csst.csst_school_id = $2
+		AND csst.csst_deleted_at IS NULL
+`,
 			ent.ClassParentID,
 			ent.ClassParentSchoolID,
 			nowDB,

@@ -534,57 +534,37 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		if propagateRoomToCSST {
 			if err := tx.Model(&csstModel.ClassSectionSubjectTeacherModel{}).
 				Where(`
-					class_section_subject_teacher_school_id = ?
-					AND class_section_subject_teacher_class_section_id = ?
-					AND class_section_subject_teacher_deleted_at IS NULL
-				`, schoolID, m.ClassSectionID).
+            csst_school_id = ?
+            AND csst_class_section_id = ?
+            AND csst_deleted_at IS NULL
+        `, schoolID, m.ClassSectionID).
 				Updates(map[string]any{
-					"class_section_subject_teacher_class_room_id": func() any {
+					"csst_class_room_id": func() any {
 						if m.ClassSectionClassRoomID == nil {
 							return gorm.Expr("NULL")
 						}
 						return *m.ClassSectionClassRoomID
 					}(),
-					"class_section_subject_teacher_class_room_slug_cache": func() any {
+					"csst_class_room_slug_cache": func() any {
 						if m.ClassSectionClassRoomSlugCache == nil {
 							return gorm.Expr("NULL")
 						}
 						return *m.ClassSectionClassRoomSlugCache
 					}(),
-					// 🆕 propagate JSON cache
-					"class_section_subject_teacher_class_room_cache": func() any {
+					"csst_class_room_cache": func() any {
 						if len(m.ClassSectionClassRoomCache) == 0 {
 							return gorm.Expr("NULL")
 						}
 						return m.ClassSectionClassRoomCache
 					}(),
-
-					// 🆕 propagate name cache
-					"class_section_subject_teacher_class_room_name_cache": func() any {
-						if m.ClassSectionClassRoomNameCache == nil {
-							return gorm.Expr("NULL")
-						}
-						return *m.ClassSectionClassRoomNameCache
-					}(),
-					// 🆕 propagate location cache
-					"class_section_subject_teacher_class_room_location_cache": func() any {
-						if m.ClassSectionClassRoomLocationCache == nil {
-							return gorm.Expr("NULL")
-						}
-						return *m.ClassSectionClassRoomLocationCache
-					}(),
-					// 🆕 isi juga slug_cache_gen biar konsisten dengan Create CSST
-					"class_section_subject_teacher_class_room_slug_cache_gen": func() any {
-						if m.ClassSectionClassRoomSlugCache == nil {
-							return gorm.Expr("NULL")
-						}
-						return *m.ClassSectionClassRoomSlugCache
-					}(),
+					"csst_updated_at": now, // optional biar kebaca "berubah"
 				}).Error; err != nil {
+
 				_ = tx.Rollback()
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal propagate class room ke subject teachers")
 			}
 		}
+
 	}
 
 	// ==========================
@@ -1011,56 +991,41 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		if propagateRoomToCSST {
 			if err := tx.Model(&csstModel.ClassSectionSubjectTeacherModel{}).
 				Where(`
-    class_section_subject_teacher_school_id = ?
-    AND class_section_subject_teacher_class_section_id = ?
-    AND class_section_subject_teacher_deleted_at IS NULL
-`, schoolID, existing.ClassSectionID).
+            csst_school_id = ?
+            AND csst_class_section_id = ?
+            AND csst_deleted_at IS NULL
+        `, schoolID, existing.ClassSectionID).
 				Updates(map[string]any{
-					"class_section_subject_teacher_class_room_id": func() any {
+					"csst_class_room_id": func() any {
 						if existing.ClassSectionClassRoomID == nil {
 							return gorm.Expr("NULL")
 						}
 						return *existing.ClassSectionClassRoomID
 					}(),
-					"class_section_subject_teacher_class_room_slug_cache": func() any {
+					"csst_class_room_slug_cache": func() any {
 						if existing.ClassSectionClassRoomSlugCache == nil {
 							return gorm.Expr("NULL")
 						}
 						return *existing.ClassSectionClassRoomSlugCache
 					}(),
-					// propagate JSON cache
-					"class_section_subject_teacher_class_room_cache": func() any {
+					"csst_class_room_cache": func() any {
 						if len(existing.ClassSectionClassRoomCache) == 0 {
 							return gorm.Expr("NULL")
 						}
 						return existing.ClassSectionClassRoomCache
 					}(),
-					// propagate name cache
-					"class_section_subject_teacher_class_room_name_cache": func() any {
-						if existing.ClassSectionClassRoomNameCache == nil {
-							return gorm.Expr("NULL")
-						}
-						return *existing.ClassSectionClassRoomNameCache
-					}(),
-					// propagate location cache
-					"class_section_subject_teacher_class_room_location_cache": func() any {
-						if existing.ClassSectionClassRoomLocationCache == nil {
-							return gorm.Expr("NULL")
-						}
-						return *existing.ClassSectionClassRoomLocationCache
-					}(),
-					// slug_cache_gen
-					"class_section_subject_teacher_class_room_slug_cache_gen": func() any {
-						if existing.ClassSectionClassRoomSlugCache == nil {
-							return gorm.Expr("NULL")
-						}
-						return *existing.ClassSectionClassRoomSlugCache
+					"csst_updated_at": func() any {
+						// kamu sudah punya baseNow / now juga, pakai itu
+						t, _ := dbtime.GetDBTime(c)
+						return t
 					}(),
 				}).Error; err != nil {
+
 				_ = tx.Rollback()
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal propagate class room ke subject teachers")
 			}
 		}
+
 	}
 
 	// Apply teacher snapshot bila field-nya dipatch
@@ -1240,10 +1205,10 @@ func (ctrl *ClassSectionController) SoftDeleteClassSection(c *fiber.Ctx) error {
 	var csstCount int64
 	if err := tx.Model(&csstModel.ClassSectionSubjectTeacherModel{}).
 		Where(`
-			class_section_subject_teacher_school_id = ?
-			AND class_section_subject_teacher_class_section_id = ?
-			AND class_section_subject_teacher_deleted_at IS NULL
-		`, m.ClassSectionSchoolID, m.ClassSectionID).
+        csst_school_id = ?
+        AND csst_class_section_id = ?
+        AND csst_deleted_at IS NULL
+    `, m.ClassSectionSchoolID, m.ClassSectionID).
 		Count(&csstCount).Error; err != nil {
 
 		_ = tx.Rollback()

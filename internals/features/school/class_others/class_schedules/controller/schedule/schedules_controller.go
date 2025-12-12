@@ -124,45 +124,51 @@ func ParseBoolLoose(s string) (bool, bool) {
 /* ==================================================================== */
 /* Helper: ambil core CSST (tenant-safe) untuk cache & fallback      */
 /* ==================================================================== */
-
 type csstCore struct {
-	ID        uuid.UUID
-	SchoolID  uuid.UUID
-	Slug      *string
-	SectionID *uuid.UUID
-
-	// pakai subject_id snapshot dari CSST
-	SubjectID *uuid.UUID
-
-	TeacherID *uuid.UUID
-	RoomID    *uuid.UUID
+	ID        uuid.UUID  `gorm:"column:csst_id"`
+	SchoolID  uuid.UUID  `gorm:"column:csst_school_id"`
+	Slug      *string    `gorm:"column:csst_slug"`
+	SectionID uuid.UUID  `gorm:"column:csst_class_section_id"`
+	SubjectID *uuid.UUID `gorm:"column:csst_subject_id"`
+	TeacherID *uuid.UUID `gorm:"column:csst_school_teacher_id"`
+	RoomID    *uuid.UUID `gorm:"column:csst_class_room_id"`
 }
 
 func getCSSTCore(tx *gorm.DB, schoolID, csstID uuid.UUID) (csstCore, error) {
 	var r csstCore
+
 	err := tx.
 		Table("class_section_subject_teachers AS csst").
 		Select(`
-			csst.class_section_subject_teacher_id                AS id,
-			csst.class_section_subject_teacher_school_id         AS school_id,
-			csst.class_section_subject_teacher_slug              AS slug,
-			csst.class_section_subject_teacher_class_section_id  AS section_id,
-			csst.class_section_subject_teacher_subject_id        AS subject_id,
-			csst.class_section_subject_teacher_school_teacher_id AS teacher_id,
-			csst.class_section_subject_teacher_class_room_id     AS room_id
+			csst.csst_id                AS csst_id,
+			csst.csst_school_id         AS csst_school_id,
+			csst.csst_slug              AS csst_slug,
+			csst.csst_class_section_id  AS csst_class_section_id,
+			csst.csst_subject_id        AS csst_subject_id,
+			csst.csst_school_teacher_id AS csst_school_teacher_id,
+			csst.csst_class_room_id     AS csst_class_room_id
 		`).
 		Where(`
-			csst.class_section_subject_teacher_id = ?
-			AND csst.class_section_subject_teacher_school_id = ?
-			AND csst.class_section_subject_teacher_deleted_at IS NULL
+			csst.csst_id = ?
+			AND csst.csst_school_id = ?
+			AND csst.csst_deleted_at IS NULL
 		`, csstID, schoolID).
-		Take(&r).Error
+		Limit(1).
+		Scan(&r).Error
 	if err != nil {
 		return r, err
 	}
+
+	// kalau tidak ketemu, Scan biasanya bikin r.ID kosong
+	if r.ID == uuid.Nil {
+		return r, gorm.ErrRecordNotFound
+	}
+
+	// guard tenant (double safety)
 	if r.SchoolID != schoolID {
 		return r, fiber.NewError(fiber.StatusForbidden, "CSST milik school lain")
 	}
+
 	return r, nil
 }
 

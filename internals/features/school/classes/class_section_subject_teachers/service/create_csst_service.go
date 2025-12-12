@@ -44,14 +44,14 @@ func normalizeAttendanceModeStr(s string) string {
 // 3) kalau school kosong/invalid → fallback "both"
 func effectiveAttendanceMode(
 	school *schoolModel.SchoolModel,
-	payload *dto.CreateClassSectionSubjectTeacherRequest,
+	payload *dto.CreateCSSTRequest,
 ) csstModel.AttendanceEntryMode {
 	// 1) dari payload (CSST override)
 	if payload != nil &&
-		payload.ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache != nil &&
-		*payload.ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache != "" {
+		payload.CSSTSchoolAttendanceEntryModeCache != nil &&
+		*payload.CSSTSchoolAttendanceEntryModeCache != "" {
 
-		raw := string(*payload.ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache)
+		raw := string(*payload.CSSTSchoolAttendanceEntryModeCache)
 		norm := normalizeAttendanceModeStr(raw)
 		return csstModel.AttendanceEntryMode(norm)
 	}
@@ -73,7 +73,7 @@ func (s *Service) CreateCSST(
 	ctx context.Context,
 	db *gorm.DB,
 	schoolID uuid.UUID,
-	payload *dto.CreateClassSectionSubjectTeacherRequest,
+	payload *dto.CreateCSSTRequest,
 ) (*csstModel.ClassSectionSubjectTeacherModel, error) {
 
 	if db == nil {
@@ -88,11 +88,11 @@ func (s *Service) CreateCSST(
 	}
 
 	csstModelValue := payload.ToModel()
-	csstModelValue.ClassSectionSubjectTeacherSchoolID = schoolID
+	csstModelValue.CSSTSchoolID = schoolID
 
 	// 🔹 effective attendance entry mode (cache)
 	eff := effectiveAttendanceMode(&school, payload)
-	csstModelValue.ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache = ptrAttendance(eff)
+	csstModelValue.CSSTSchoolAttendanceEntryModeCache = ptrAttendance(eff)
 
 	if err := db.WithContext(ctx).Create(&csstModelValue).Error; err != nil {
 		return nil, err

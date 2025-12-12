@@ -310,9 +310,9 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 3) CSST: flat list + map per section
-	var csstList []csstDto.ClassSectionSubjectTeacherCompactResponse
-	csstBySection := make(map[uuid.UUID][]csstDto.ClassSectionSubjectTeacherCompactResponse)
+	// 3) CSST: flat list + map per section (✅ pakai DTO & kolom model terbaru)
+	var csstList []csstDto.CSSTCompactResponse
+	csstBySection := make(map[uuid.UUID][]csstDto.CSSTCompactResponse)
 	needCSST := includeCSST || nestedCSST
 
 	if needCSST && len(secIDs) > 0 {
@@ -320,19 +320,19 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 		if err := ctl.DB.WithContext(c.Context()).
 			Model(&csstModel.ClassSectionSubjectTeacherModel{}).
 			Where(`
-				class_section_subject_teacher_school_id = ?
-				AND class_section_subject_teacher_deleted_at IS NULL
-				AND class_section_subject_teacher_class_section_id IN ?
+				csst_school_id = ?
+				AND csst_deleted_at IS NULL
+				AND csst_class_section_id IN ?
 			`, schoolID, secIDs).
 			Find(&csstRows).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data subject teachers")
 		}
 
-		compactList := csstDto.FromClassSectionSubjectTeacherModelsCompact(csstRows)
+		compactList := csstDto.FromCSSTModelsCompactWithSchoolTime(c, csstRows)
 		csstList = compactList
 
 		for i, row := range csstRows {
-			secID := row.ClassSectionSubjectTeacherClassSectionID
+			secID := row.CSSTClassSectionID
 			if secID == uuid.Nil {
 				continue
 			}
@@ -364,8 +364,8 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 	if nestedClassSections {
 		type ClassSectionNested struct {
 			dto.ClassSectionCompactResponse
-			StudentClassSections        []dto.StudentClassSectionResp                       `json:"student_class_sections"`
-			ClassSectionSubjectTeachers []csstDto.ClassSectionSubjectTeacherCompactResponse `json:"class_section_subject_teachers,omitempty"`
+			StudentClassSections        []dto.StudentClassSectionResp `json:"student_class_sections"`
+			ClassSectionSubjectTeachers []csstDto.CSSTCompactResponse `json:"class_section_subject_teachers,omitempty"`
 		}
 
 		nestedMap := make(map[uuid.UUID]*ClassSectionNested)
@@ -411,7 +411,7 @@ func (ctl *StudentClassSectionController) List(c *fiber.Ctx) error {
 			out = append(out, *v)
 		}
 
-		// 🔥 nested → TIDAK kirim include sama sekali
+		// nested → TIDAK kirim include sama sekali
 		return helper.JsonListWithInclude(c, "OK", out, nil, pagination)
 	}
 

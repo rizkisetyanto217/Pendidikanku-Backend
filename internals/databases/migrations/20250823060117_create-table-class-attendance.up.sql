@@ -172,7 +172,7 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   -- override resources (referensi langsung; opsional)
   class_attendance_session_teacher_id    UUID REFERENCES school_teachers(school_teacher_id) ON DELETE SET NULL,
   class_attendance_session_class_room_id UUID REFERENCES class_rooms(class_room_id)         ON DELETE SET NULL,
-  class_attendance_session_csst_id       UUID REFERENCES class_section_subject_teachers(class_section_subject_teacher_id) ON DELETE SET NULL,
+  class_attendance_session_csst_id       UUID REFERENCES class_section_subject_teachers(csst_id) ON DELETE SET NULL,
 
   -- tipe sesi (master per tenant)
   class_attendance_session_type_id UUID,

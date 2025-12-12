@@ -51,22 +51,23 @@ type GenerateOptions struct {
 }
 
 /*
-	=========================
-	  CSST loader (SLIM)
-	  - hanya untuk dapat TeacherID + baseName + slug
-	  - tanpa JSON snapshot
-	=========================
-*/
+=========================
 
+	CSST loader (SLIM)
+	- hanya untuk dapat TeacherID + baseName + slug
+	- tanpa JSON snapshot
+
+=========================
+*/
 type csstRich struct {
-	ID          uuid.UUID  `gorm:"column:id"`
-	SchoolID    uuid.UUID  `gorm:"column:school_id"`
-	Slug        string     `gorm:"column:slug"`
-	Name        *string    `gorm:"column:name"`
-	SubjectID   *uuid.UUID `gorm:"column:subject_id"`
+	ID          uuid.UUID  `gorm:"column:csst_id"`
+	SchoolID    uuid.UUID  `gorm:"column:csst_school_id"`
+	Slug        string     `gorm:"column:csst_slug"`
+	Name        *string    `gorm:"column:csst_name"`
+	SubjectID   *uuid.UUID `gorm:"column:csst_subject_id"`
 	SubjectName *string    `gorm:"column:subject_name"`
-	TeacherID   *uuid.UUID `gorm:"column:teacher_id"`
-	RoomID      *uuid.UUID `gorm:"column:room_id"`
+	TeacherID   *uuid.UUID `gorm:"column:csst_school_teacher_id"`
+	RoomID      *uuid.UUID `gorm:"column:csst_class_room_id"`
 }
 
 func (g *Generator) getCSSTRich(
@@ -74,44 +75,47 @@ func (g *Generator) getCSSTRich(
 	expectSchool uuid.UUID,
 	csstID uuid.UUID,
 ) (*csstRich, error) {
-	// SQL statis berdasarkan schema fix; tanpa JSON cache
 	q := `
 SELECT
-  csst.class_section_subject_teacher_id                    AS id,
-  csst.class_section_subject_teacher_school_id             AS school_id,
+  csst.csst_id                   AS csst_id,
+  csst.csst_school_id            AS csst_school_id,
+
   COALESCE(
-    csst.class_section_subject_teacher_slug,
-    csst.class_section_subject_teacher_id::text
-  )                                                        AS slug,
+    NULLIF(csst.csst_slug, ''),
+    csst.csst_id::text
+  )                              AS csst_slug,
+
   COALESCE(
-    csst.class_section_subject_teacher_class_section_name_cache,
-    csst.class_section_subject_teacher_subject_name_cache,
-    sec.class_section_name
-  )                                                        AS name,
+    NULLIF(csst.csst_class_section_name_cache, ''),
+    NULLIF(csst.csst_subject_name_cache, ''),
+    NULLIF(sec.class_section_name, ''),
+    csst.csst_id::text
+  )                              AS csst_name,
 
   -- Subject
-  csst.class_section_subject_teacher_subject_id   AS subject_id,
-  COALESCE(subj.subject_name,
-           csst.class_section_subject_teacher_subject_name_cache)
-    AS subject_name,
+  csst.csst_subject_id           AS csst_subject_id,
+  COALESCE(
+    NULLIF(subj.subject_name, ''),
+    NULLIF(csst.csst_subject_name_cache, '')
+  )                              AS subject_name,
 
   -- Teacher
-  csst.class_section_subject_teacher_school_teacher_id     AS teacher_id,
+  csst.csst_school_teacher_id    AS csst_school_teacher_id,
 
-  -- Room (kalau ada di CSST)
-  csst.class_section_subject_teacher_class_room_id         AS room_id
+  -- Room
+  csst.csst_class_room_id        AS csst_class_room_id
 
 FROM class_section_subject_teachers csst
 LEFT JOIN subjects subj
-  ON subj.subject_id = csst.class_section_subject_teacher_subject_id
+  ON subj.subject_id = csst.csst_subject_id
 LEFT JOIN class_sections sec
-  ON sec.class_section_id = csst.class_section_subject_teacher_class_section_id
-WHERE csst.class_section_subject_teacher_id = ?
-  AND csst.class_section_subject_teacher_deleted_at IS NULL
+  ON sec.class_section_id = csst.csst_class_section_id
+WHERE csst.csst_id = ?
+  AND csst.csst_deleted_at IS NULL
 `
 	args := []any{csstID}
 	if expectSchool != uuid.Nil {
-		q += "  AND csst.class_section_subject_teacher_school_id = ?\n"
+		q += "  AND csst.csst_school_id = ?\n"
 		args = append(args, expectSchool)
 	}
 	q += "LIMIT 1"
@@ -127,7 +131,6 @@ WHERE csst.class_section_subject_teacher_id = ?
 	if strings.TrimSpace(row.Slug) == "" {
 		row.Slug = row.ID.String()
 	}
-
 	return &row, nil
 }
 
@@ -825,23 +828,23 @@ func (g *Generator) getRoomOrSectionFromCSST(
 	csstID uuid.UUID,
 ) (roomID *uuid.UUID, sectionID *uuid.UUID, schoolID uuid.UUID, sectionName *string, err error) {
 	var row struct {
-		SchoolID    uuid.UUID  `gorm:"column:school_id"`
-		RoomID      *uuid.UUID `gorm:"column:room_id"`
-		SectionID   *uuid.UUID `gorm:"column:section_id"`
+		SchoolID    uuid.UUID  `gorm:"column:csst_school_id"`
+		RoomID      *uuid.UUID `gorm:"column:csst_class_room_id"`
+		SectionID   *uuid.UUID `gorm:"column:csst_class_section_id"`
 		SectionName *string    `gorm:"column:section_name"`
 	}
 
 	q := `
 SELECT
-  csst.class_section_subject_teacher_school_id   AS school_id,
-  csst.class_section_subject_teacher_class_room_id    AS room_id,
-  csst.class_section_subject_teacher_class_section_id AS section_id,
-  sec.class_section_name                         AS section_name
+  csst.csst_school_id        AS csst_school_id,
+  csst.csst_class_room_id    AS csst_class_room_id,
+  csst.csst_class_section_id AS csst_class_section_id,
+  sec.class_section_name     AS section_name
 FROM class_section_subject_teachers csst
 LEFT JOIN class_sections sec
-  ON sec.class_section_id = csst.class_section_subject_teacher_class_section_id
-WHERE csst.class_section_subject_teacher_id = ?
-  AND csst.class_section_subject_teacher_deleted_at IS NULL
+  ON sec.class_section_id = csst.csst_class_section_id
+WHERE csst.csst_id = ?
+  AND csst.csst_deleted_at IS NULL
 LIMIT 1`
 	if er := g.DB.WithContext(ctx).Raw(q, csstID).Scan(&row).Error; er != nil {
 		return nil, nil, uuid.Nil, nil, er

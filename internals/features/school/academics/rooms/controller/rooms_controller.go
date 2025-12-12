@@ -453,14 +453,14 @@ func (ctl *ClassRoomController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengecek pemakaian room di kelas/rombel")
 	}
 
-	// GUARD pemakaian di CSST
+	// GUARD pemakaian di CSST (schema baru: csst_*)
 	var csstCount int64
 	if err := ctl.DB.Model(&csstModel.ClassSectionSubjectTeacherModel{}).
 		Where(`
-			class_section_subject_teacher_school_id = ?
-			AND class_section_subject_teacher_class_room_id = ?
-			AND class_section_subject_teacher_deleted_at IS NULL
-		`, schoolID, id).
+		csst_school_id = ?
+		AND csst_class_room_id = ?
+		AND csst_deleted_at IS NULL
+	`, schoolID, id).
 		Count(&csstCount).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengecek pemakaian room di pengampu mapel")
 	}

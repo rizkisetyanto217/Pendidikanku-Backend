@@ -174,150 +174,147 @@ END$$;
 -- ======================================================================
 
 CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
-  class_section_subject_teacher_id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  class_section_subject_teacher_school_id        UUID NOT NULL
-    REFERENCES schools(school_id) ON DELETE CASCADE,
+  csst_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  csst_school_id UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- Identitas & fasilitas
-  class_section_subject_teacher_slug             VARCHAR(160),
-  class_section_subject_teacher_description      TEXT,
-  class_section_subject_teacher_group_url        TEXT,
+  csst_slug        VARCHAR(160),
+  csst_description TEXT,
+  csst_group_url   TEXT,
 
   -- Agregat & quota
-  class_section_subject_teacher_total_attendance          INT NOT NULL DEFAULT 0,
-  class_section_subject_teacher_total_meetings_target     INT,
+  csst_total_attendance      INT NOT NULL DEFAULT 0,
+  csst_total_meetings_target INT,
 
   -- quota_total / quota_taken
-  class_section_subject_teacher_quota_total               INT,
-  class_section_subject_teacher_quota_taken               INT NOT NULL DEFAULT 0,
+  csst_quota_total INT,
+  csst_quota_taken INT NOT NULL DEFAULT 0,
 
   -- Total assessments (by type)
-  class_section_subject_teacher_total_assessments                 INT NOT NULL DEFAULT 0,
-  class_section_subject_teacher_total_assessments_training        INT NOT NULL DEFAULT 0,
-  class_section_subject_teacher_total_assessments_daily_exam      INT NOT NULL DEFAULT 0,
-  class_section_subject_teacher_total_assessments_exam            INT NOT NULL DEFAULT 0,
-  class_section_subject_teacher_total_students_passed             INT NOT NULL DEFAULT 0,
+  csst_total_assessments               INT NOT NULL DEFAULT 0,
+  csst_total_assessments_training      INT NOT NULL DEFAULT 0,
+  csst_total_assessments_daily_exam    INT NOT NULL DEFAULT 0,
+  csst_total_assessments_exam          INT NOT NULL DEFAULT 0,
+  csst_total_students_passed           INT NOT NULL DEFAULT 0,
 
-  class_section_subject_teacher_delivery_mode    class_delivery_mode_enum NOT NULL DEFAULT 'offline',
+  csst_delivery_mode class_delivery_mode_enum NOT NULL DEFAULT 'offline',
 
-  class_section_subject_teacher_school_attendance_entry_mode_cache
-    attendance_entry_mode_enum,
+  csst_school_attendance_entry_mode_cache attendance_entry_mode_enum,
 
   /* =======================
      SECTION cache
      ======================= */
-  class_section_subject_teacher_class_section_id            UUID NOT NULL,
-  class_section_subject_teacher_class_section_slug_cache    VARCHAR(160),
-  class_section_subject_teacher_class_section_name_cache    VARCHAR(160),
-  class_section_subject_teacher_class_section_code_cache    VARCHAR(50),
-  class_section_subject_teacher_class_section_url_cache     TEXT,
+  csst_class_section_id         UUID NOT NULL,
+  csst_class_section_slug_cache VARCHAR(160),
+  csst_class_section_name_cache VARCHAR(160),
+  csst_class_section_code_cache VARCHAR(50),
+  csst_class_section_url_cache  TEXT,
 
   /* =======================
      ROOM cache
      ======================= */
-  class_section_subject_teacher_class_room_id                UUID,
-  class_section_subject_teacher_class_room_slug_cache        VARCHAR(160),
-  class_section_subject_teacher_class_room_cache             JSONB,
-  class_section_subject_teacher_class_room_name_cache        TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_class_room_cache->>'name')) STORED,
-  class_section_subject_teacher_class_room_slug_cache_gen    TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_class_room_cache->>'slug')) STORED,
-  class_section_subject_teacher_class_room_location_cache    TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_class_room_cache->>'location')) STORED,
+  csst_class_room_id             UUID,
+  csst_class_room_slug_cache     VARCHAR(160),
+  csst_class_room_cache          JSONB,
+  csst_class_room_name_cache     TEXT GENERATED ALWAYS AS ((csst_class_room_cache->>'name')) STORED,
+  csst_class_room_slug_cache_gen TEXT GENERATED ALWAYS AS ((csst_class_room_cache->>'slug')) STORED,
+  csst_class_room_location_cache TEXT GENERATED ALWAYS AS ((csst_class_room_cache->>'location')) STORED,
 
   /* =======================
      PEOPLE cache (teacher & assistant)
      ======================= */
-  class_section_subject_teacher_school_teacher_id                 UUID,
-  class_section_subject_teacher_school_teacher_slug_cache         VARCHAR(160),
-  class_section_subject_teacher_school_teacher_cache              JSONB,
+  csst_school_teacher_id         UUID,
+  csst_school_teacher_slug_cache VARCHAR(160),
+  csst_school_teacher_cache      JSONB,
 
-  class_section_subject_teacher_assistant_school_teacher_id       UUID,
-  class_section_subject_teacher_assistant_school_teacher_slug_cache VARCHAR(160),
-  class_section_subject_teacher_assistant_school_teacher_cache    JSONB,
+  csst_assistant_school_teacher_id          UUID,
+  csst_assistant_school_teacher_slug_cache  VARCHAR(160),
+  csst_assistant_school_teacher_cache       JSONB,
 
-  class_section_subject_teacher_school_teacher_name_cache           TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_school_teacher_cache->>'name')) STORED,
-  class_section_subject_teacher_assistant_school_teacher_name_cache TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_assistant_school_teacher_cache->>'name')) STORED,
+  csst_school_teacher_name_cache            TEXT GENERATED ALWAYS AS ((csst_school_teacher_cache->>'name')) STORED,
+  csst_assistant_school_teacher_name_cache  TEXT GENERATED ALWAYS AS ((csst_assistant_school_teacher_cache->>'name')) STORED,
 
   /* =======================
      SUBJECT cache (via CLASS_SUBJECT)
      ======================= */
-  class_section_subject_teacher_total_books          INT NOT NULL DEFAULT 0,
-  class_section_subject_teacher_class_subject_id     UUID NOT NULL,
-  class_section_subject_teacher_subject_id           UUID,
-  class_section_subject_teacher_subject_name_cache   VARCHAR(160),
-  class_section_subject_teacher_subject_code_cache   VARCHAR(80),
-  class_section_subject_teacher_subject_slug_cache   VARCHAR(160),
+  csst_total_books      INT NOT NULL DEFAULT 0,
+  csst_class_subject_id UUID NOT NULL,
+  csst_subject_id       UUID,
+  csst_subject_name_cache VARCHAR(160),
+  csst_subject_code_cache VARCHAR(80),
+  csst_subject_slug_cache VARCHAR(160),
 
   /* =======================
      ACADEMIC_TERM cache
      ======================= */
-  class_section_subject_teacher_academic_term_id UUID,
-  class_section_subject_teacher_academic_term_name_cache      VARCHAR(160),
-  class_section_subject_teacher_academic_term_slug_cache      VARCHAR(160),
-  class_section_subject_teacher_academic_year_cache           VARCHAR(160),
-  class_section_subject_teacher_academic_term_angkatan_cache  INT,
+  csst_academic_term_id UUID,
+  csst_academic_term_name_cache     VARCHAR(160),
+  csst_academic_term_slug_cache     VARCHAR(160),
+  csst_academic_year_cache          VARCHAR(160),
+  csst_academic_term_angkatan_cache INT,
 
   /* =======================
      KKM cache per CSST
      ======================= */
-  class_section_subject_teacher_min_passing_score_class_subject_cache INT,
-  class_section_subject_teacher_min_passing_score                     INT,
+  csst_min_passing_score_class_subject_cache INT,
 
   -- Status & audit
-  class_section_subject_teacher_status        class_status_enum NOT NULL DEFAULT 'active',
-  class_section_subject_teacher_completed_at  TIMESTAMPTZ,
-  class_section_subject_teacher_created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  class_section_subject_teacher_updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  class_section_subject_teacher_deleted_at    TIMESTAMPTZ,
+  csst_status       class_status_enum NOT NULL DEFAULT 'active',
+  csst_completed_at TIMESTAMPTZ,
+  csst_created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  csst_updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  csst_deleted_at   TIMESTAMPTZ,
 
   -- CHECKS
   CONSTRAINT ck_csst_capacity_nonneg
-    CHECK (class_section_subject_teacher_quota_total IS NULL OR class_section_subject_teacher_quota_total >= 0),
+    CHECK (csst_quota_total IS NULL OR csst_quota_total >= 0),
   CONSTRAINT ck_csst_enrolled_nonneg
-    CHECK (class_section_subject_teacher_quota_taken >= 0),
+    CHECK (csst_quota_taken >= 0),
   CONSTRAINT ck_csst_counts_nonneg
     CHECK (
-      class_section_subject_teacher_total_attendance                >= 0 AND
-      class_section_subject_teacher_total_assessments               >= 0 AND
-      class_section_subject_teacher_total_assessments_training      >= 0 AND
-      class_section_subject_teacher_total_assessments_daily_exam    >= 0 AND
-      class_section_subject_teacher_total_assessments_exam          >= 0 AND
-      class_section_subject_teacher_total_students_passed           >= 0 AND
-      class_section_subject_teacher_total_books                     >= 0
+      csst_total_attendance             >= 0 AND
+      csst_total_assessments            >= 0 AND
+      csst_total_assessments_training   >= 0 AND
+      csst_total_assessments_daily_exam >= 0 AND
+      csst_total_assessments_exam       >= 0 AND
+      csst_total_students_passed        >= 0 AND
+      csst_total_books                  >= 0
     ),
   CONSTRAINT ck_csst_room_cache_is_object
-    CHECK (class_section_subject_teacher_class_room_cache IS NULL OR jsonb_typeof(class_section_subject_teacher_class_room_cache) = 'object'),
+    CHECK (csst_class_room_cache IS NULL OR jsonb_typeof(csst_class_room_cache) = 'object'),
   CONSTRAINT ck_csst_teacher_cache_is_object
-    CHECK (class_section_subject_teacher_school_teacher_cache IS NULL OR jsonb_typeof(class_section_subject_teacher_school_teacher_cache) = 'object'),
+    CHECK (csst_school_teacher_cache IS NULL OR jsonb_typeof(csst_school_teacher_cache) = 'object'),
   CONSTRAINT ck_csst_asst_teacher_cache_is_object
-    CHECK (class_section_subject_teacher_assistant_school_teacher_cache IS NULL OR jsonb_typeof(class_section_subject_teacher_assistant_school_teacher_cache) = 'object'),
+    CHECK (csst_assistant_school_teacher_cache IS NULL OR jsonb_typeof(csst_assistant_school_teacher_cache) = 'object'),
 
   -- TENANT-SAFE FKs
   CONSTRAINT fk_csst_section_tenant FOREIGN KEY (
-    class_section_subject_teacher_class_section_id,
-    class_section_subject_teacher_school_id
+    csst_class_section_id,
+    csst_school_id
   ) REFERENCES class_sections (class_section_id, class_section_school_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
   CONSTRAINT fk_csst_class_subject_tenant FOREIGN KEY (
-    class_section_subject_teacher_class_subject_id,
-    class_section_subject_teacher_school_id
+    csst_class_subject_id,
+    csst_school_id
   ) REFERENCES class_subjects (class_subject_id, class_subject_school_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
   CONSTRAINT fk_csst_teacher_tenant FOREIGN KEY (
-    class_section_subject_teacher_school_teacher_id,
-    class_section_subject_teacher_school_id
+    csst_school_teacher_id,
+    csst_school_id
   ) REFERENCES school_teachers (school_teacher_id, school_teacher_school_id)
     ON UPDATE CASCADE ON DELETE RESTRICT,
 
   CONSTRAINT fk_csst_assistant_teacher_tenant FOREIGN KEY (
-    class_section_subject_teacher_assistant_school_teacher_id,
-    class_section_subject_teacher_school_id
+    csst_assistant_school_teacher_id,
+    csst_school_id
   ) REFERENCES school_teachers (school_teacher_id, school_teacher_school_id)
     ON UPDATE CASCADE ON DELETE SET NULL,
 
   CONSTRAINT fk_csst_room_tenant FOREIGN KEY (
-    class_section_subject_teacher_class_room_id,
-    class_section_subject_teacher_school_id
+    csst_class_room_id,
+    csst_school_id
   ) REFERENCES class_rooms (class_room_id, class_room_school_id)
     ON UPDATE CASCADE ON DELETE SET NULL
 );
@@ -327,151 +324,98 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
 -- ======================================================================
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_id_tenant
-  ON class_section_subject_teachers (class_section_subject_teacher_id, class_section_subject_teacher_school_id);
+  ON class_section_subject_teachers (csst_id, csst_school_id);
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_unique_alive
   ON class_section_subject_teachers (
-    class_section_subject_teacher_school_id,
-    class_section_subject_teacher_class_section_id,
-    class_section_subject_teacher_class_subject_id,
-    class_section_subject_teacher_school_teacher_id
+    csst_school_id,
+    csst_class_section_id,
+    csst_class_subject_id,
+    csst_school_teacher_id
   )
-  WHERE class_section_subject_teacher_deleted_at IS NULL;
+  WHERE csst_deleted_at IS NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_one_active_per_section_subject_alive
   ON class_section_subject_teachers (
-    class_section_subject_teacher_school_id,
-    class_section_subject_teacher_class_section_id,
-    class_section_subject_teacher_class_subject_id
+    csst_school_id,
+    csst_class_section_id,
+    csst_class_subject_id
   )
-  WHERE class_section_subject_teacher_deleted_at IS NULL
-    AND class_section_subject_teacher_status = 'active';
+  WHERE csst_deleted_at IS NULL
+    AND csst_status = 'active';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_slug_per_tenant_alive
   ON class_section_subject_teachers (
-    class_section_subject_teacher_school_id,
-    LOWER(class_section_subject_teacher_slug)
+    csst_school_id,
+    LOWER(csst_slug)
   )
-  WHERE class_section_subject_teacher_deleted_at IS NULL
-    AND class_section_subject_teacher_slug IS NOT NULL;
+  WHERE csst_deleted_at IS NULL
+    AND csst_slug IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_csst_school_alive
-  ON class_section_subject_teachers (class_section_subject_teacher_school_id)
-  WHERE class_section_subject_teacher_deleted_at IS NULL;
+  ON class_section_subject_teachers (csst_school_id)
+  WHERE csst_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_csst_class_section_alive
-  ON class_section_subject_teachers (class_section_subject_teacher_class_section_id)
-  WHERE class_section_subject_teacher_deleted_at IS NULL;
+  ON class_section_subject_teachers (csst_class_section_id)
+  WHERE csst_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_csst_class_subject_alive
-  ON class_section_subject_teachers (class_section_subject_teacher_class_subject_id)
-  WHERE class_section_subject_teacher_deleted_at IS NULL;
+  ON class_section_subject_teachers (csst_class_subject_id)
+  WHERE csst_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_csst_school_teacher_alive
-  ON class_section_subject_teachers (class_section_subject_teacher_school_teacher_id)
-  WHERE class_section_subject_teacher_deleted_at IS NULL;
+  ON class_section_subject_teachers (csst_school_teacher_id)
+  WHERE csst_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_csst_class_room_alive
-  ON class_section_subject_teachers (class_section_subject_teacher_class_room_id)
-  WHERE class_section_subject_teacher_deleted_at IS NULL;
+  ON class_section_subject_teachers (csst_class_room_id)
+  WHERE csst_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS gin_csst_slug_trgm_alive
   ON class_section_subject_teachers
-  USING GIN (LOWER(class_section_subject_teacher_slug) gin_trgm_ops)
-  WHERE class_section_subject_teacher_deleted_at IS NULL
-    AND class_section_subject_teacher_slug IS NOT NULL;
+  USING GIN (LOWER(csst_slug) gin_trgm_ops)
+  WHERE csst_deleted_at IS NULL
+    AND csst_slug IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS brin_csst_created_at
-  ON class_section_subject_teachers USING BRIN (class_section_subject_teacher_created_at);
+  ON class_section_subject_teachers USING BRIN (csst_created_at);
 
 CREATE INDEX IF NOT EXISTS idx_csst_capacity_alive
-  ON class_section_subject_teachers (class_section_subject_teacher_quota_total)
-  WHERE class_section_subject_teacher_deleted_at IS NULL;
+  ON class_section_subject_teachers (csst_quota_total)
+  WHERE csst_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_csst_enrolled_count_alive
-  ON class_section_subject_teachers (class_section_subject_teacher_quota_taken)
-  WHERE class_section_subject_teacher_deleted_at IS NULL;
+  ON class_section_subject_teachers (csst_quota_taken)
+  WHERE csst_deleted_at IS NULL;
 
 -- SUBJECT cache search
 CREATE INDEX IF NOT EXISTS gin_csst_subject_name_cache_trgm_alive
   ON class_section_subject_teachers
-  USING GIN (LOWER(class_section_subject_teacher_subject_name_cache) gin_trgm_ops)
-  WHERE class_section_subject_teacher_deleted_at IS NULL
-    AND class_section_subject_teacher_subject_name_cache IS NOT NULL;
+  USING GIN (LOWER(csst_subject_name_cache) gin_trgm_ops)
+  WHERE csst_deleted_at IS NULL
+    AND csst_subject_name_cache IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_csst_subject_code_cache_alive
-  ON class_section_subject_teachers (LOWER(class_section_subject_teacher_subject_code_cache))
-  WHERE class_section_subject_teacher_deleted_at IS NULL
-    AND class_section_subject_teacher_subject_code_cache IS NOT NULL;
+  ON class_section_subject_teachers (LOWER(csst_subject_code_cache))
+  WHERE csst_deleted_at IS NULL
+    AND csst_subject_code_cache IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS gin_csst_subject_slug_cache_trgm_alive
   ON class_section_subject_teachers
-  USING GIN (LOWER(class_section_subject_teacher_subject_slug_cache) gin_trgm_ops)
-  WHERE class_section_subject_teacher_deleted_at IS NULL
-    AND class_section_subject_teacher_subject_slug_cache IS NOT NULL;
-
--- ======================================================================
--- ALTER UNTUK SKEMA LAMA (idempotent)
--- ======================================================================
-
-DO $$
-BEGIN
-  -- rename capacity → quota_total (kalau masih ada)
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'class_section_subject_teachers'
-      AND column_name = 'class_section_subject_teacher_capacity'
-  ) THEN
-    EXECUTE 'ALTER TABLE class_section_subject_teachers
-             RENAME COLUMN class_section_subject_teacher_capacity
-             TO class_section_subject_teacher_quota_total';
-  END IF;
-
-  -- rename enrolled_count → quota_taken (kalau masih ada)
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'class_section_subject_teachers'
-      AND column_name = 'class_section_subject_teacher_enrolled_count'
-  ) THEN
-    EXECUTE 'ALTER TABLE class_section_subject_teachers
-             RENAME COLUMN class_section_subject_teacher_enrolled_count
-             TO class_section_subject_teacher_quota_taken';
-  END IF;
-END$$;
-
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'class_section_subject_teachers'
-      AND column_name = 'class_section_subject_teacher_total_assessments_graded'
-  ) THEN
-    EXECUTE 'ALTER TABLE class_section_subject_teachers
-             DROP COLUMN class_section_subject_teacher_total_assessments_graded';
-  END IF;
-
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'class_section_subject_teachers'
-      AND column_name = 'class_section_subject_teacher_total_assessments_ungraded'
-  ) THEN
-    EXECUTE 'ALTER TABLE class_section_subject_teachers
-             DROP COLUMN class_section_subject_teacher_total_assessments_ungraded';
-  END IF;
-END$$;
+  USING GIN (LOWER(csst_subject_slug_cache) gin_trgm_ops)
+  WHERE csst_deleted_at IS NULL
+    AND csst_subject_slug_cache IS NOT NULL;
 
 -- ======================================================================
 -- COMMENT
 -- ======================================================================
 
-COMMENT ON COLUMN class_section_subject_teachers.class_section_subject_teacher_min_passing_score_class_subject_cache IS
+COMMENT ON COLUMN class_section_subject_teachers.csst_min_passing_score_class_subject_cache IS
   'KKM bawaan dari class_subjects.class_subject_min_passing_score (pure cache, jangan di-edit manual)';
 
-COMMENT ON COLUMN class_section_subject_teachers.class_section_subject_teacher_min_passing_score IS
-  'KKM efektif per CSST; default-nya copy dari *_class_subject_cache, boleh di-override per kelas/section';
-
 COMMENT ON COLUMN class_subjects.class_subject_min_passing_score IS
-  'KKM dasar per kombinasi (class_parent + subject); dicache ke CSST sebagai *_min_passing_score_class_subject_cache';
+  'KKM dasar per kombinasi (class_parent + subject); dicache ke CSST sebagai csst_min_passing_score_class_subject_cache';
 
 COMMIT;
 
@@ -565,8 +509,8 @@ CREATE TABLE IF NOT EXISTS student_class_section_subject_teachers (
     student_csst_csst_id,
     student_csst_school_id
   ) REFERENCES class_section_subject_teachers (
-        class_section_subject_teacher_id,
-        class_section_subject_teacher_school_id
+        csst_id,
+        csst_school_id
       )
     ON UPDATE CASCADE ON DELETE RESTRICT
 );

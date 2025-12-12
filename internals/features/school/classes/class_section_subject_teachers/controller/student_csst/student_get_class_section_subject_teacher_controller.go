@@ -1,4 +1,3 @@
-// file: internals/features/school/classes/class_section_subject_teachers/controller/student_csst_list_controller.go
 package controller
 
 import (
@@ -6,6 +5,7 @@ import (
 
 	dto "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/dto"
 
+	modelCSST "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 	studentCSSTModel "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
@@ -15,12 +15,12 @@ import (
 )
 
 /* =========================================================
-   Types untuk include=csst (pakai compact DTO)
+   Types untuk include=csst (pakai compact DTO baru csst_*)
 ========================================================= */
 
 // CSST compact + murid-murid di bawahnya
 type CSSTWithStudents struct {
-	dto.ClassSectionSubjectTeacherCompactResponse
+	dto.CSSTCompactResponse
 	Students []dto.StudentCSSTItem `json:"student_class_section_subject_teachers"`
 }
 
@@ -53,7 +53,6 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 	studentIDIsMe := false
 	if strings.EqualFold(studentIDRaw, "me") {
 		studentIDIsMe = true
-		// hapus dari query args supaya QueryParser nggak error
 		c.Context().QueryArgs().Del("student_id")
 	}
 
@@ -93,7 +92,7 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// --- parse view --- 🔧 FIX DI SINI
+	// --- parse view ---
 	viewRaw := strings.ToLower(strings.TrimSpace(c.Query("view")))
 	viewCSST := viewRaw == "csst" || viewRaw == "csst_only" || viewRaw == "csst_list"
 
@@ -105,7 +104,7 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		q.PageSize = 20
 	}
 
-	// 4) Base query (mapping student_csst_*)
+	// 4) Base query (student_csst_*)
 	tx := ctl.DB.WithContext(c.Context()).
 		Model(&studentCSSTModel.StudentClassSectionSubjectTeacherModel{}).
 		Where("student_csst_school_id = ?", schoolID)
@@ -162,8 +161,6 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 			empty := []dto.StudentCSSTItem{}
 			return helper.JsonList(c, "ok", empty, pagination)
 		}
-
-		// include=csst / view=csst → kembalikan struktur konsisten
 		return helper.JsonList(c, "ok", []any{}, pagination)
 	}
 
@@ -189,7 +186,7 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		}
 
 		if len(csstSet) == 0 {
-			items := []dto.ClassSectionSubjectTeacherCompactResponse{}
+			items := []dto.CSSTCompactResponse{}
 			return helper.JsonList(c, "ok", items, pagination)
 		}
 
@@ -198,20 +195,19 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 			csstIDs = append(csstIDs, id)
 		}
 
-		// 2) query tabel class_section_subject_teachers
-		var csstRows []studentCSSTModel.ClassSectionSubjectTeacherModel
+		// 2) query tabel csst (csst_*)
+		var csstRows []modelCSST.ClassSectionSubjectTeacherModel
 		if err := ctl.DB.WithContext(c.Context()).
-			Model(&studentCSSTModel.ClassSectionSubjectTeacherModel{}).
-			Where("class_section_subject_teacher_school_id = ?", schoolID).
-			Where("class_section_subject_teacher_deleted_at IS NULL").
-			Where("class_section_subject_teacher_id IN ?", csstIDs).
+			Model(&modelCSST.ClassSectionSubjectTeacherModel{}).
+			Where("csst_school_id = ?", schoolID).
+			Where("csst_deleted_at IS NULL").
+			Where("csst_id IN ?", csstIDs).
 			Find(&csstRows).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal mengambil data csst")
 		}
 
-		// pakai compact DTO bawaan
-		items := dto.FromClassSectionSubjectTeacherModelsCompact(csstRows)
-
+		// compact + timezone sekolah
+		items := dto.FromCSSTModelsCompactWithSchoolTime(c, csstRows)
 		return helper.JsonList(c, "ok", items, pagination)
 	}
 
@@ -219,7 +215,6 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 	   MODE default: TANPA include=csst
 	   ============================================ */
 	if !wantCSST {
-		// gunakan mapper yang sudah konversi waktu ke timezone sekolah
 		items := dto.FromStudentCSSTModelsWithSchoolTime(c, rows)
 		return helper.JsonList(c, "ok", items, pagination)
 	}
@@ -241,29 +236,29 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 		csstIDs = append(csstIDs, id)
 	}
 
-	// 2) query tabel class_section_subject_teachers → bentuk csstMap (pakai compact)
-	csstMap := make(map[uuid.UUID]dto.ClassSectionSubjectTeacherCompactResponse)
+	// 2) query tabel csst → bentuk csstMap (pakai compact)
+	csstMap := make(map[uuid.UUID]dto.CSSTCompactResponse)
 
 	if len(csstIDs) > 0 {
-		var csstRows []studentCSSTModel.ClassSectionSubjectTeacherModel
+		var csstRows []modelCSST.ClassSectionSubjectTeacherModel
 		if err := ctl.DB.WithContext(c.Context()).
-			Model(&studentCSSTModel.ClassSectionSubjectTeacherModel{}).
-			Where("class_section_subject_teacher_school_id = ?", schoolID).
-			Where("class_section_subject_teacher_deleted_at IS NULL").
-			Where("class_section_subject_teacher_id IN ?", csstIDs).
+			Model(&modelCSST.ClassSectionSubjectTeacherModel{}).
+			Where("csst_school_id = ?", schoolID).
+			Where("csst_deleted_at IS NULL").
+			Where("csst_id IN ?", csstIDs).
 			Find(&csstRows).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal mengambil data csst")
 		}
 
-		compactList := dto.FromClassSectionSubjectTeacherModelsCompact(csstRows)
+		compactList := dto.FromCSSTModelsCompactWithSchoolTime(c, csstRows)
 		for i := range compactList {
-			c := compactList[i]
-			csstMap[c.ClassSectionSubjectTeacherID] = c
+			item := compactList[i]
+			csstMap[item.CSSTID] = item
 		}
 	}
 
 	// 3) pilih satu CSST utama (kontrak sekarang: 1 CSST per respons nested)
-	var mainCSST dto.ClassSectionSubjectTeacherCompactResponse
+	var mainCSST dto.CSSTCompactResponse
 	var mainCSSTID uuid.UUID
 	hasMain := false
 
@@ -290,10 +285,11 @@ func (ctl *StudentCSSTController) List(c *fiber.Ctx) error {
 	}
 
 	wrapped := &CSSTWithStudents{
-		ClassSectionSubjectTeacherCompactResponse: mainCSST,
-		Students: students,
+		CSSTCompactResponse: mainCSST,
+		Students:            students,
 	}
 
+	// key biarin sama biar backward compatible
 	return helper.JsonList(c, "ok", fiber.Map{
 		"class_section_subject_teacher": wrapped,
 	}, pagination)

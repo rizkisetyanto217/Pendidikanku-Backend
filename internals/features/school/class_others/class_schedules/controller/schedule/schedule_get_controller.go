@@ -412,10 +412,10 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 	if includes.CSST && csstBySched != nil {
 		seen := make(map[uuid.UUID]struct{})
 		for _, csstRow := range csstBySched {
-			if _, ok := seen[csstRow.ClassSectionSubjectTeacherID]; ok {
+			if _, ok := seen[csstRow.CSSTID]; ok {
 				continue
 			}
-			seen[csstRow.ClassSectionSubjectTeacherID] = struct{}{}
+			seen[csstRow.CSSTID] = struct{}{}
 			csstInclude = append(csstInclude, csstRow)
 		}
 	}
@@ -520,16 +520,18 @@ func fetchCSSTBySchedule(
 	if err := q.Find(&pairs).Error; err != nil {
 		return nil, err
 	}
-
 	if len(pairs) == 0 {
 		return out, nil
 	}
 
-	// 2) Map schedule_id -> csst_id (pakai satu saja per schedule)
+	// 2) schedule_id -> csst_id (ambil 1 saja per schedule)
 	schedToCSSTID := make(map[uuid.UUID]uuid.UUID)
 	csstIDSet := make(map[uuid.UUID]struct{})
 
 	for _, p := range pairs {
+		if p.CSSTID == uuid.Nil {
+			continue
+		}
 		if _, exists := schedToCSSTID[p.ScheduleID]; !exists {
 			schedToCSSTID[p.ScheduleID] = p.CSSTID
 			csstIDSet[p.CSSTID] = struct{}{}
@@ -540,28 +542,32 @@ func fetchCSSTBySchedule(
 		return out, nil
 	}
 
-	// 3) Fetch CSST rows
+	// 3) Fetch CSST rows (schema baru: csst_*)
 	csstIDs := make([]uuid.UUID, 0, len(csstIDSet))
 	for id := range csstIDSet {
 		csstIDs = append(csstIDs, id)
 	}
 
 	var csstRows []csstModel.ClassSectionSubjectTeacherModel
-	if err := db.
-		Model(&csstModel.ClassSectionSubjectTeacherModel{}).
-		Where("class_section_subject_teacher_school_id = ?", schoolID).
-		Where("class_section_subject_teacher_id IN ?", csstIDs).
-		Find(&csstRows).Error; err != nil {
+	dbq := db.Model(&csstModel.ClassSectionSubjectTeacherModel{}).
+		Where("csst_school_id = ?", schoolID).
+		Where("csst_id IN ?", csstIDs)
 
+	// biasanya CSST list harus yang alive
+	if withDeleted == nil || !*withDeleted {
+		dbq = dbq.Where("csst_deleted_at IS NULL")
+	}
+
+	if err := dbq.Find(&csstRows).Error; err != nil {
 		return nil, err
 	}
 
 	csstByID := make(map[uuid.UUID]csstModel.ClassSectionSubjectTeacherModel, len(csstRows))
 	for _, row := range csstRows {
-		csstByID[row.ClassSectionSubjectTeacherID] = row
+		csstByID[row.CSSTID] = row
 	}
 
-	// 4) Map final: schedule_id -> CSST row
+	// 4) schedule_id -> CSST row
 	for schedID, csstID := range schedToCSSTID {
 		if csstRow, ok := csstByID[csstID]; ok {
 			out[schedID] = csstRow

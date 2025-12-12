@@ -21,35 +21,34 @@ import (
 //   - tambah: CSSTID, SchoolID, SubjectID, SectionName, SubjectName,
 //     SubjectCode, SubjectSlug, TeacherName, Slug, TitlePrefix/Suffix,
 //     ClassSectionSlug, SchoolTeacherSlug
+
 type CSSTCache struct {
-	// legacy / dipakai controller
+	CSSTID   *uuid.UUID `json:"csst_id,omitempty"`
+	SchoolID *uuid.UUID `json:"school_id,omitempty"`
+
 	Name      *string    `json:"name,omitempty"`
+	Slug      *string    `json:"slug,omitempty"`
 	TeacherID *uuid.UUID `json:"teacher_id,omitempty"`
 	SectionID *uuid.UUID `json:"section_id,omitempty"`
-
-	// tambahan
-	CSSTID    *uuid.UUID `json:"csst_id,omitempty"`
-	SchoolID  *uuid.UUID `json:"school_id,omitempty"`
 	SubjectID *uuid.UUID `json:"subject_id,omitempty"`
 
 	SectionName *string `json:"section_name,omitempty"`
+
+	ClassSectionSlug *string `json:"class_section_slug,omitempty"`
+
 	SubjectName *string `json:"subject_name,omitempty"`
 	SubjectCode *string `json:"subject_code,omitempty"`
 	SubjectSlug *string `json:"subject_slug,omitempty"`
-	TeacherName *string `json:"teacher_name,omitempty"`
-	Slug        *string `json:"slug,omitempty"`
 
+	TeacherName        *string `json:"teacher_name,omitempty"`
 	TeacherTitlePrefix *string `json:"teacher_title_prefix,omitempty"`
 	TeacherTitleSuffix *string `json:"teacher_title_suffix,omitempty"`
+	SchoolTeacherSlug  *string `json:"school_teacher_slug,omitempty"`
 
-	// baru: slug nested
-	ClassSectionSlug  *string `json:"class_section_slug,omitempty"`
-	SchoolTeacherSlug *string `json:"school_teacher_slug,omitempty"`
+	AttendanceEntryMode *string `json:"attendance_entry_mode,omitempty"`
 
-	// 🔹 baru: cache attendance entry mode efektif (string enum)
-	// disamakan key JSON-nya dengan yang di model biar gampang trace:
-	// "class_section_subject_teacher_school_attendance_entry_mode_cache"
-	AttendanceEntryMode *string `json:"class_section_subject_teacher_school_attendance_entry_mode_cache,omitempty"`
+	// ✅ INI YANG KAMU BUTUH
+	MinPassingScore *int `json:"min_passing_score,omitempty"`
 }
 
 /* ======================================================
@@ -92,10 +91,9 @@ func firstExisting(cols map[string]struct{}, cands ...string) string {
 /* ======================================================
    Main: Validate & cache
 ====================================================== */
-
 // ValidateAndCacheCSST
 // - tetap dinamis via information_schema
-// - tapi SELECT lebih banyak kolom, supaya cache bisa lebih kaya
+// - SELECT lebih banyak kolom, supaya cache bisa lebih kaya
 func ValidateAndCacheCSST(
 	tx *gorm.DB,
 	expectSchoolID uuid.UUID,
@@ -111,34 +109,39 @@ func ValidateAndCacheCSST(
 	}
 
 	// =========================
-	// Mapping kolom dinamis
+	// Mapping kolom dinamis (PRIORITAS: csst_*)
 	// =========================
 
 	idCol := firstExisting(cols,
+		"csst_id",
 		"class_section_subject_teacher_id",
 		"id",
 	)
 
 	schoolCol := firstExisting(cols,
+		"csst_school_id",
 		"class_section_subject_teacher_school_id",
 		"school_id",
 	)
 
-	// Nama label CSST (bisa beda dari nama section)
+	// Nama label CSST (kalau memang ada kolom khusus)
 	csstNameCol := firstExisting(cols,
+		"csst_name",
 		"class_section_subject_teacher_name",
 		"name",
 	)
 
-	// Nama section (kelas) cache
+	// Nama section cache
 	sectionNameCol := firstExisting(cols,
+		"csst_class_section_name_cache",
 		"class_section_subject_teacher_class_section_name_cache",
 		"class_section_name",
 		"section_name",
 	)
 
-	// Slug section cache (kalau ada)
+	// Slug section cache
 	classSectionSlugCol := firstExisting(cols,
+		"csst_class_section_slug_cache",
 		"class_section_subject_teacher_class_section_slug_cache",
 		"class_section_slug",
 		"section_slug",
@@ -146,52 +149,59 @@ func ValidateAndCacheCSST(
 
 	// Teacher id
 	teacherCol := firstExisting(cols,
-		"class_section_subject_teacher_school_teacher_id", // skema baru
-		"class_section_subject_teacher_teacher_id",        // kemungkinan lama
+		"csst_school_teacher_id",
+		"class_section_subject_teacher_school_teacher_id",
+		"class_section_subject_teacher_teacher_id",
 		"school_teacher_id",
 		"teacher_id",
 	)
 
 	// Section id
 	sectionCol := firstExisting(cols,
-		"class_section_subject_teacher_class_section_id", // skema baru
-		"class_section_subject_teacher_section_id",       // kemungkinan lama
+		"csst_class_section_id",
+		"class_section_subject_teacher_class_section_id",
+		"class_section_subject_teacher_section_id",
 		"class_section_id",
 		"section_id",
 	)
 
-	// Subject id
+	// Subject id (di skema baru: csst_subject_id)
 	subjectCol := firstExisting(cols,
+		"csst_subject_id",
 		"class_section_subject_teacher_subject_id",
 		"subject_id",
 	)
 
 	// Subject name cache
 	subjectNameCol := firstExisting(cols,
+		"csst_subject_name_cache",
 		"class_section_subject_teacher_subject_name_cache",
 		"subject_name",
 	)
 
 	// Subject code cache
 	subjectCodeCol := firstExisting(cols,
+		"csst_subject_code_cache",
 		"class_section_subject_teacher_subject_code_cache",
 		"subject_code",
 	)
 
 	// Subject slug cache
 	subjectSlugCol := firstExisting(cols,
+		"csst_subject_slug_cache",
 		"class_section_subject_teacher_subject_slug_cache",
 		"subject_slug",
 	)
 
-	// Teacher name cache (di CSST, kalau ada)
+	// Teacher name cache (generated / cache)
 	teacherNameCol := firstExisting(cols,
+		"csst_school_teacher_name_cache",
 		"class_section_subject_teacher_teacher_name_cache",
 		"school_teacher_name",
 		"teacher_name",
 	)
 
-	// Teacher title prefix/suffix cache (di CSST, kalau ada)
+	// Prefix/Suffix (kalau ada kolom cache lama)
 	teacherTitlePrefixCol := firstExisting(cols,
 		"class_section_subject_teacher_teacher_title_prefix_cache",
 		"teacher_title_prefix",
@@ -203,8 +213,9 @@ func ValidateAndCacheCSST(
 		"school_teacher_title_suffix",
 	)
 
-	// Teacher slug cache (kalau ada di CSST)
+	// Teacher slug cache
 	schoolTeacherSlugCol := firstExisting(cols,
+		"csst_school_teacher_slug_cache",
 		"class_section_subject_teacher_school_teacher_slug_cache",
 		"school_teacher_slug",
 		"teacher_slug",
@@ -212,18 +223,28 @@ func ValidateAndCacheCSST(
 
 	// Slug CSST
 	slugCol := firstExisting(cols,
+		"csst_slug",
 		"class_section_subject_teacher_slug",
 		"slug",
 	)
 
-	// 🔹 attendance entry mode cache di CSST
+	// Attendance entry mode cache
 	attendanceModeCol := firstExisting(cols,
+		"csst_school_attendance_entry_mode_cache",
 		"class_section_subject_teacher_school_attendance_entry_mode_cache",
 		"school_attendance_entry_mode_cache",
 		"attendance_entry_mode_cache",
 	)
 
+	// ✅ MIN PASSING SCORE (skema baru: csst_min_passing_score_class_subject_cache)
+	minPassingScoreCol := firstExisting(cols,
+		"csst_min_passing_score_class_subject_cache",
+		"class_section_subject_teacher_min_passing_score",
+		"min_passing_score",
+	)
+
 	deletedCol := firstExisting(cols,
+		"csst_deleted_at",
 		"class_section_subject_teacher_deleted_at",
 		"deleted_at",
 	)
@@ -248,23 +269,38 @@ func ValidateAndCacheCSST(
 		return fmt.Sprintf("csst.%s", col)
 	}
 
+	toIntExpr := func(col string) string {
+		if col == "" {
+			return "NULL::int"
+		}
+		return fmt.Sprintf("csst.%s::int", col)
+	}
+
 	csstIDExpr := toUUIDExpr(idCol)
-	schoolIDExpr := fmt.Sprintf("csst.%s::text", schoolCol) // supaya aman di-parse
+	schoolIDExpr := fmt.Sprintf("csst.%s", schoolCol) // langsung UUID
+
 	csstNameExpr := toTextExpr(csstNameCol)
 	sectionNameExpr := toTextExpr(sectionNameCol)
 	classSectionSlugExpr := toTextExpr(classSectionSlugCol)
+
 	teacherIDExpr := toUUIDExpr(teacherCol)
 	sectionIDExpr := toUUIDExpr(sectionCol)
 	subjectIDExpr := toUUIDExpr(subjectCol)
+
 	subjectNameExpr := toTextExpr(subjectNameCol)
 	subjectCodeExpr := toTextExpr(subjectCodeCol)
 	subjectSlugExpr := toTextExpr(subjectSlugCol)
+
 	teacherNameExpr := toTextExpr(teacherNameCol)
 	slugExpr := toTextExpr(slugCol)
 	teacherTitlePrefixExpr := toTextExpr(teacherTitlePrefixCol)
 	teacherTitleSuffixExpr := toTextExpr(teacherTitleSuffixCol)
 	schoolTeacherSlugExpr := toTextExpr(schoolTeacherSlugCol)
+
 	attendanceModeExpr := toTextExpr(attendanceModeCol)
+
+	// ✅ min passing score expr
+	minPassingScoreExpr := toIntExpr(minPassingScoreCol)
 
 	whereDeleted := ""
 	if deletedCol != "" {
@@ -289,7 +325,8 @@ func ValidateAndCacheCSST(
 			%s       AS teacher_title_prefix,
 			%s       AS teacher_title_suffix,
 			%s       AS school_teacher_slug,
-			%s       AS school_attendance_entry_mode
+			%s       AS school_attendance_entry_mode,
+			%s       AS min_passing_score
 		FROM class_section_subject_teachers csst
 		WHERE csst.%s = ? %s
 		LIMIT 1
@@ -311,6 +348,7 @@ func ValidateAndCacheCSST(
 		teacherTitleSuffixExpr,
 		schoolTeacherSlugExpr,
 		attendanceModeExpr,
+		minPassingScoreExpr,
 		idCol,
 		whereDeleted,
 	)
@@ -333,6 +371,8 @@ func ValidateAndCacheCSST(
 		TeacherTitleSuf   *string    `gorm:"column:teacher_title_suffix"`
 		SchoolTeacherSlug *string    `gorm:"column:school_teacher_slug"`
 		AttendanceMode    *string    `gorm:"column:school_attendance_entry_mode"`
+
+		MinPassingScore *int `gorm:"column:min_passing_score"` // ✅
 	}
 
 	if err := tx.Raw(q, csstID).Scan(&row).Error; err != nil {
@@ -385,10 +425,11 @@ func ValidateAndCacheCSST(
 		SchoolTeacherSlug: trimPtr(row.SchoolTeacherSlug),
 
 		AttendanceEntryMode: trimPtr(row.AttendanceMode),
+
+		MinPassingScore: row.MinPassingScore, // ✅ INI KUNCI
 	}
 
-	// 🔍 Enrich dari school_teachers kalau name/prefix/suffix/slug belum ada,
-	// tapi TeacherID ada (kayak kasus "Hendra / Ustadz / Lc").
+	// 🔍 Enrich dari school_teachers kalau name/prefix/suffix/slug belum ada
 	if err := enrichTeacherCacheFromSchoolTeacher(tx, expectSchoolID, snap); err != nil {
 		return nil, err
 	}
@@ -651,10 +692,17 @@ func ToJSON(cs *CSSTCache) datatypes.JSON {
 		}
 		m["school_teacher"] = st
 	}
-	// 🔹 attendance entry mode efektif (root)
+	// 🔹 attendance entry mode efektif (root) — konsisten dengan json tag model CSST
 	if attendanceModeVal != "" {
-		// disamakan dengan json tag di model + cache
+		m["csst_school_attendance_entry_mode_cache"] = attendanceModeVal
+
+		// opsional: keep legacy key biar backward compatible (kalau masih ada consumer lama)
 		m["class_section_subject_teacher_school_attendance_entry_mode_cache"] = attendanceModeVal
+	}
+
+	// ✅ KKM / min passing score dari CSST cache
+	if cs.MinPassingScore != nil {
+		m["min_passing_score"] = *cs.MinPassingScore
 	}
 
 	b, _ := json.Marshal(m)

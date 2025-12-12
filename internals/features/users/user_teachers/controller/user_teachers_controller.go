@@ -619,75 +619,93 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 		}
 	}
 
-	// === SNAPSHOT SYNC ke class_section_subject_teachers (teacher & assistant) ===
-	{
-		hasTeacherSnap := uc.DB.Migrator().HasColumn(&csstModel.ClassSectionSubjectTeacherModel{}, "class_section_subject_teacher_teacher_snapshot")
-		hasAssistantSnap := uc.DB.Migrator().HasColumn(&csstModel.ClassSectionSubjectTeacherModel{}, "class_section_subject_teacher_assistant_teacher_snapshot")
-		hasTeacherID := uc.DB.Migrator().HasColumn(&csstModel.ClassSectionSubjectTeacherModel{}, "class_section_subject_teacher_teacher_id")
-		hasAssistantID := uc.DB.Migrator().HasColumn(&csstModel.ClassSectionSubjectTeacherModel{}, "class_section_subject_teacher_assistant_teacher_id")
-		hasUpdatedAt := uc.DB.Migrator().HasColumn(&csstModel.ClassSectionSubjectTeacherModel{}, "class_section_subject_teacher_updated_at")
+	// === SNAPSHOT SYNC ke class_section_subject_teachers (CSST) — MODEL BARU (csst_*) ===
+	if changedSnapshot {
+		hasTeacherCache := uc.DB.Migrator().HasColumn(&csstModel.ClassSectionSubjectTeacherModel{}, "csst_school_teacher_cache")
+		hasAssistantCache := uc.DB.Migrator().HasColumn(&csstModel.ClassSectionSubjectTeacherModel{}, "csst_assistant_school_teacher_cache")
+		hasTeacherID := uc.DB.Migrator().HasColumn(&csstModel.ClassSectionSubjectTeacherModel{}, "csst_school_teacher_id")
+		hasAssistantID := uc.DB.Migrator().HasColumn(&csstModel.ClassSectionSubjectTeacherModel{}, "csst_assistant_school_teacher_id")
+		hasUpdatedAt := uc.DB.Migrator().HasColumn(&csstModel.ClassSectionSubjectTeacherModel{}, "csst_updated_at")
 
-		if !(hasTeacherSnap || hasAssistantSnap) {
-			log.Printf("[user-teacher#patch] CSST snapshot columns not found — skip sync to class_section_subject_teachers")
+		if !(hasTeacherCache || hasAssistantCache) {
+			log.Printf("[user-teacher#patch] CSST cache columns not found — skip sync to class_section_subject_teachers")
 		} else {
-			var mtIDs []uuid.UUID
+			// ambil semua school_teacher_id yg terkait user_teacher ini
+			var schoolTeacherIDs []uuid.UUID
 			if err := uc.DB.
 				Model(&schoolTeacherModel.SchoolTeacherModel{}).
 				Where("school_teacher_user_teacher_id = ? AND school_teacher_deleted_at IS NULL", m.UserTeacherID).
-				Pluck("school_teacher_id", &mtIDs).Error; err != nil {
+				Pluck("school_teacher_id", &schoolTeacherIDs).Error; err != nil {
 				log.Printf("[user-teacher#patch] failed pluck school_teacher ids for CSST: %v", err)
 			}
 
-			if len(mtIDs) > 0 {
-				type teacherMiniSnap struct {
-					UserTeacherID uuid.UUID `json:"user_teacher_id"`
-					Name          string    `json:"name"`
-					AvatarURL     *string   `json:"avatar_url,omitempty"`
-					WhatsappURL   *string   `json:"whatsapp_url,omitempty"`
-					TitlePrefix   *string   `json:"title_prefix,omitempty"`
-					TitleSuffix   *string   `json:"title_suffix,omitempty"`
-					UpdatedAt     time.Time `json:"updated_at"`
+			if len(schoolTeacherIDs) > 0 {
+				// Bentuk JSON harus nyambung dengan TeacherCacheFromJSON (di csst dto):
+				// minimal: id + name + avatar_url + whatsapp_url + title_prefix/suffix
+				type teacherCacheMini struct {
+					ID          string  `json:"id"`
+					Name        *string `json:"name,omitempty"`
+					AvatarURL   *string `json:"avatar_url,omitempty"`
+					WhatsappURL *string `json:"whatsapp_url,omitempty"`
+					TitlePrefix *string `json:"title_prefix,omitempty"`
+					TitleSuffix *string `json:"title_suffix,omitempty"`
 				}
-				minSnap := teacherMiniSnap{
-					UserTeacherID: m.UserTeacherID,
-					Name:          m.UserTeacherUserFullNameCache,
-					AvatarURL:     m.UserTeacherAvatarURL,
-					WhatsappURL:   m.UserTeacherWhatsappURL,
-					TitlePrefix:   m.UserTeacherTitlePrefix,
-					TitleSuffix:   m.UserTeacherTitleSuffix,
-					UpdatedAt:     now,
+
+				// name di user_teacher itu string wajib (bukan ptr), jadi bikin ptr biar rapi
+				name := strings.TrimSpace(m.UserTeacherUserFullNameCache)
+				var namePtr *string
+				if name != "" {
+					namePtr = &name
 				}
-				b, _ := json.Marshal(minSnap)
+
+				// payload cache (per row CSST, id-nya bisa tetap school_teacher_id milik row tsb)
+				// kita update via UPDATE ... WHERE csst_school_teacher_id IN (...)
+				// jadi id di JSON lebih aman diisi placeholder dulu, nanti kita set saat update? (nggak bisa)
+				// solusi simpel: isi id kosong tidak masalah? -> jangan.
+				// paling aman: isi id = "school_teacher" (nanti consumer tetap dapat name/avatar/wa).
+				// tapi biar bagus: isi id = user_teacher_id string (stabil global).
+				cacheObj := teacherCacheMini{
+					ID:          m.UserTeacherID.String(),
+					Name:        namePtr,
+					AvatarURL:   m.UserTeacherAvatarURL,
+					WhatsappURL: m.UserTeacherWhatsappURL,
+					TitlePrefix: m.UserTeacherTitlePrefix,
+					TitleSuffix: m.UserTeacherTitleSuffix,
+				}
+				b, _ := json.Marshal(cacheObj)
 				jsonb := datatypes.JSON(b)
 
 				setTeacher := map[string]any{}
 				setAssistant := map[string]any{}
-				if hasTeacherSnap {
-					setTeacher["class_section_subject_teacher_teacher_snapshot"] = jsonb
+
+				if hasTeacherCache {
+					setTeacher["csst_school_teacher_cache"] = jsonb
 				}
-				if hasAssistantSnap {
-					setAssistant["class_section_subject_teacher_assistant_teacher_snapshot"] = jsonb
+				if hasAssistantCache {
+					setAssistant["csst_assistant_school_teacher_cache"] = jsonb
 				}
 				if hasUpdatedAt {
-					setTeacher["class_section_subject_teacher_updated_at"] = now
-					setAssistant["class_section_subject_teacher_updated_at"] = now
+					setTeacher["csst_updated_at"] = now
+					setAssistant["csst_updated_at"] = now
 				}
 
-				if hasTeacherSnap && hasTeacherID {
+				// update CSST teacher
+				if hasTeacherCache && hasTeacherID {
 					if err := uc.DB.
 						Model(&csstModel.ClassSectionSubjectTeacherModel{}).
-						Where("class_section_subject_teacher_teacher_id IN ? AND class_section_subject_teacher_deleted_at IS NULL", mtIDs).
+						Where("csst_school_teacher_id IN ? AND csst_deleted_at IS NULL", schoolTeacherIDs).
 						Updates(setTeacher).Error; err != nil {
-						log.Printf("[user-teacher#patch] failed sync CSST teacher_snapshot: %v", err)
+						log.Printf("[user-teacher#patch] failed sync CSST csst_school_teacher_cache: %v", err)
 					}
 				}
 
-				if hasAssistantSnap && hasAssistantID {
+				// update CSST assistant
+				if hasAssistantCache && hasAssistantID {
 					if err := uc.DB.
 						Model(&csstModel.ClassSectionSubjectTeacherModel{}).
-						Where("class_section_subject_teacher_assistant_teacher_id IN ? AND class_section_subject_teacher_deleted_at IS NULL", mtIDs).
+						Where("csst_assistant_school_teacher_id IN ? AND csst_deleted_at IS NULL", schoolTeacherIDs).
 						Updates(setAssistant).Error; err != nil {
-						log.Printf("[user-teacher#patch] failed sync CSST assistant_teacher_snapshot: %v", err)
+						log.Printf("[user-teacher#patch] failed sync CSST csst_assistant_school_teacher_cache: %v", err)
 					}
 				}
 			}

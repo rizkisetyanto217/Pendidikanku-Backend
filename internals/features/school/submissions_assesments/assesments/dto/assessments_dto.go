@@ -1,4 +1,3 @@
-// file: internals/features/school/submissions_assesments/assesments/dto/assessment_dto.go
 package dto
 
 import (
@@ -294,6 +293,9 @@ type AssessmentResponse struct {
 
 	AssessmentQuizTotal int `json:"assessment_quiz_total"`
 
+	// ✅ NEW: passing score snapshot (nilai utama dari CSST)
+	AssessmentMinPassingScoreClassSubjectSnapshot float64 `json:"assessment_min_passing_score_class_subject_snapshot"`
+
 	// counter submissions
 	AssessmentSubmissionsTotal       int `json:"assessment_submissions_total"`
 	AssessmentSubmissionsGradedTotal int `json:"assessment_submissions_graded_total"`
@@ -336,6 +338,9 @@ func buildAssessmentResponse(m assessModel.AssessmentModel, isOpen bool) Assessm
 		AssessmentTotalAttemptsAllowed: m.AssessmentTotalAttemptsAllowed,
 		AssessmentMaxScore:             m.AssessmentMaxScore,
 		AssessmentQuizTotal:            m.AssessmentQuizTotal,
+
+		// ✅ NEW
+		AssessmentMinPassingScoreClassSubjectSnapshot: m.AssessmentMinPassingScoreClassSubjectSnapshot,
 
 		AssessmentSubmissionsTotal:       m.AssessmentSubmissionsTotal,
 		AssessmentSubmissionsGradedTotal: m.AssessmentSubmissionsGradedTotal,
@@ -482,9 +487,9 @@ func (r *CreateAssessmentWithQuizzesRequest) FlattenQuizzes() []CreateQuizInline
 }
 
 /*
-	========================================================
-	  COMPACT DTO (untuk list / dropdown / kartu ringan)
-	========================================================
+========================================================
+  COMPACT DTO (untuk list / dropdown / kartu ringan)
+========================================================
 */
 
 type AssessmentCompactResponse struct {
@@ -504,6 +509,9 @@ type AssessmentCompactResponse struct {
 	AssessmentMaxScore             float64 `json:"assessment_max_score"`
 	AssessmentQuizTotal            int     `json:"assessment_quiz_total"`
 	AssessmentTotalAttemptsAllowed int     `json:"assessment_total_attempts_allowed" validate:"omitempty,gte=1,lte=50"`
+
+	// ✅ NEW: passing score snapshot
+	AssessmentMinPassingScoreClassSubjectSnapshot float64 `json:"assessment_min_passing_score_class_subject_snapshot"`
 
 	AssessmentIsOpen bool `json:"assessment_is_open"`
 
@@ -533,7 +541,11 @@ func FromAssessmentModelCompact(m assessModel.AssessmentModel) AssessmentCompact
 		AssessmentMaxScore:             m.AssessmentMaxScore,
 		AssessmentQuizTotal:            m.AssessmentQuizTotal,
 		AssessmentTotalAttemptsAllowed: m.AssessmentTotalAttemptsAllowed,
-		AssessmentIsOpen:               isOpen,
+
+		// ✅ NEW
+		AssessmentMinPassingScoreClassSubjectSnapshot: m.AssessmentMinPassingScoreClassSubjectSnapshot,
+
+		AssessmentIsOpen: isOpen,
 
 		AssessmentCreatedAt: m.AssessmentCreatedAt,
 		AssessmentUpdatedAt: m.AssessmentUpdatedAt,
@@ -565,6 +577,9 @@ func FromAssessmentModelsCompact(rows []assessModel.AssessmentModel) []Assessmen
 			AssessmentMaxScore:             m.AssessmentMaxScore,
 			AssessmentQuizTotal:            m.AssessmentQuizTotal,
 			AssessmentTotalAttemptsAllowed: m.AssessmentTotalAttemptsAllowed,
+
+			// ✅ NEW
+			AssessmentMinPassingScoreClassSubjectSnapshot: m.AssessmentMinPassingScoreClassSubjectSnapshot,
 
 			AssessmentIsOpen: isOpen,
 
@@ -602,6 +617,9 @@ func FromAssessmentModelsCompactWithSchoolTime(c *fiber.Ctx, rows []assessModel.
 			AssessmentMaxScore:             m.AssessmentMaxScore,
 			AssessmentQuizTotal:            m.AssessmentQuizTotal,
 			AssessmentTotalAttemptsAllowed: m.AssessmentTotalAttemptsAllowed,
+
+			// ✅ NEW
+			AssessmentMinPassingScoreClassSubjectSnapshot: m.AssessmentMinPassingScoreClassSubjectSnapshot,
 
 			AssessmentIsOpen: isOpen,
 

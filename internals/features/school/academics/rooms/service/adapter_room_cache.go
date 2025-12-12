@@ -238,46 +238,50 @@ func ApplyRoomIDAndCacheToSection(mcs *secModel.ClassSectionModel, roomID *uuid.
 }
 
 /* =========================================================
-   Apply ke ClassSectionSubjectTeacherModel (CSST)
+   Apply ke ClassSectionSubjectTeacherModel (CSST) — MODEL BARU (csst_*)
    ========================================================= */
 
 func ApplyRoomCacheToCSST(mcsst *csstModel.ClassSectionSubjectTeacherModel, rs *RoomCache) {
 	if rs == nil {
-		mcsst.ClassSectionSubjectTeacherClassRoomCache = nil
-		mcsst.ClassSectionSubjectTeacherClassRoomSlugCache = nil
-		mcsst.ClassSectionSubjectTeacherClassRoomNameCache = nil
-		mcsst.ClassSectionSubjectTeacherClassRoomSlugCacheGen = nil
-		mcsst.ClassSectionSubjectTeacherClassRoomLocationCache = nil
+		mcsst.CSSTClassRoomCache = nil
+		mcsst.CSSTClassRoomSlugCache = nil
+
+		// generated fields (read-only di DB), tapi boleh diset biar enak buat response in-memory
+		mcsst.CSSTClassRoomNameCache = nil
+		mcsst.CSSTClassRoomSlugCacheGen = nil
+		mcsst.CSSTClassRoomLocationCache = nil
 		return
 	}
 
-	// JSON snapshot full gaya model
-	mcsst.ClassSectionSubjectTeacherClassRoomCache = ToJSONPtr(rs)
+	// JSON snapshot full (jsonb)
+	mcsst.CSSTClassRoomCache = ToJSONPtr(rs)
 
-	// slug cache
+	// slug cache + gen
 	if rs.ClassRoomSlug != nil && trimStr(*rs.ClassRoomSlug) != "" {
 		slug := trimStr(*rs.ClassRoomSlug)
-		mcsst.ClassSectionSubjectTeacherClassRoomSlugCache = &slug
-		mcsst.ClassSectionSubjectTeacherClassRoomSlugCacheGen = &slug
+		mcsst.CSSTClassRoomSlugCache = &slug
+
+		// generated (read-only)
+		mcsst.CSSTClassRoomSlugCacheGen = &slug
 	} else {
-		mcsst.ClassSectionSubjectTeacherClassRoomSlugCache = nil
-		mcsst.ClassSectionSubjectTeacherClassRoomSlugCacheGen = nil
+		mcsst.CSSTClassRoomSlugCache = nil
+		mcsst.CSSTClassRoomSlugCacheGen = nil
 	}
 
-	// name cache
+	// name cache (generated read-only)
 	name := trimStr(rs.ClassRoomName)
 	if name != "" {
-		mcsst.ClassSectionSubjectTeacherClassRoomNameCache = &name
+		mcsst.CSSTClassRoomNameCache = &name
 	} else {
-		mcsst.ClassSectionSubjectTeacherClassRoomNameCache = nil
+		mcsst.CSSTClassRoomNameCache = nil
 	}
 
-	// location cache
+	// location cache (generated read-only)
 	if rs.ClassRoomLocation != nil && trimStr(*rs.ClassRoomLocation) != "" {
 		loc := trimStr(*rs.ClassRoomLocation)
-		mcsst.ClassSectionSubjectTeacherClassRoomLocationCache = &loc
+		mcsst.CSSTClassRoomLocationCache = &loc
 	} else {
-		mcsst.ClassSectionSubjectTeacherClassRoomLocationCache = nil
+		mcsst.CSSTClassRoomLocationCache = nil
 	}
 }
 
@@ -286,6 +290,6 @@ func ApplyRoomIDAndCacheToCSST(
 	roomID *uuid.UUID,
 	rs *RoomCache,
 ) {
-	mcsst.ClassSectionSubjectTeacherClassRoomID = roomID
+	mcsst.CSSTClassRoomID = roomID
 	ApplyRoomCacheToCSST(mcsst, rs)
 }

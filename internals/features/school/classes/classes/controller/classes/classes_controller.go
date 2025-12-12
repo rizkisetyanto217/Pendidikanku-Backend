@@ -500,8 +500,12 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 		// 1) Ambil semua class_subjects untuk parent ini
 		var classSubjects []csModel.ClassSubjectModel
 		if err := tx.
-			Where("class_subject_school_id = ? AND class_subject_class_parent_id = ? AND class_subject_deleted_at IS NULL AND class_subject_is_active = TRUE",
-				schoolID, m.ClassClassParentID).
+			Where(`
+			class_subject_school_id = ?
+			AND class_subject_class_parent_id = ?
+			AND class_subject_deleted_at IS NULL
+			AND class_subject_is_active = TRUE
+		`, schoolID, m.ClassClassParentID).
 			Find(&classSubjects).Error; err != nil {
 
 			_ = tx.Rollback().Error
@@ -557,10 +561,10 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 
 					uniqueCSSTSlug, err := helper.EnsureUniqueSlugCI(
 						c.Context(), tx,
-						"class_section_subject_teachers", "class_section_subject_teacher_slug",
+						"class_section_subject_teachers", "csst_slug",
 						rawSlug,
 						func(q *gorm.DB) *gorm.DB {
-							return q.Where("class_section_subject_teacher_school_id = ? AND class_section_subject_teacher_deleted_at IS NULL", schoolID)
+							return q.Where("csst_school_id = ? AND csst_deleted_at IS NULL", schoolID)
 						},
 						160,
 					)
@@ -584,7 +588,6 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 					roomID := sec.ClassSectionClassRoomID
 
 					// ================= DELIVERY MODE (from class) =================
-					// enum di model: type ClassDeliveryMode string
 					deliveryMode := csstModel.DeliveryModeOffline // default
 					if m.ClassDeliveryMode != nil {
 						dm := strings.TrimSpace(*m.ClassDeliveryMode)
@@ -600,81 +603,79 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 					acYear := m.ClassAcademicTermAcademicYearCache
 
 					// min passing score dari class_subject:
-					// - *_class_subject_cache  → nilai default dari mapel
-					// - *_min_passing_score    → override khusus per CSST (awal nil)
 					minPassing := cs.ClassSubjectMinPassingScore
+
+					now := time.Now()
+
 					csst := &csstModel.ClassSectionSubjectTeacherModel{
-						ClassSectionSubjectTeacherSchoolID: schoolID,
-						ClassSectionSubjectTeacherSlug:     &uniqueCSSTSlug,
+						// ===== PK & Tenant =====
+						CSSTID:       uuid.New(),
+						CSSTSchoolID: schoolID,
 
-						// default kosong
-						ClassSectionSubjectTeacherDescription: nil,
-						ClassSectionSubjectTeacherGroupURL:    nil,
+						// ===== Identitas & Fasilitas =====
+						CSSTSlug:        &uniqueCSSTSlug,
+						CSSTDescription: nil,
+						CSSTGroupURL:    nil,
 
-						// agregat & kapasitas
-						ClassSectionSubjectTeacherTotalAttendance:     0,
-						ClassSectionSubjectTeacherTotalMeetingsTarget: nil,
-						ClassSectionSubjectTeacherQuotaTotal:          nil, // quota khusus CSST (boleh nil)
-						ClassSectionSubjectTeacherQuotaTaken:          0,
+						// ===== Agregat & Quota =====
+						CSSTTotalAttendance:       0,
+						CSSTTotalMeetingsTarget:   nil,
+						CSSTQuotaTotal:            nil,
+						CSSTQuotaTaken:            0,
+						CSSTTotalAssessments:      0,
+						CSSTTotalAssessmentsTrain: 0,
+						CSSTTotalAssessmentsDaily: 0,
+						CSSTTotalAssessmentsExam:  0,
+						CSSTTotalStudentsPassed:   0,
 
-						// total assessment (semua jenis)
-						ClassSectionSubjectTeacherTotalAssessments: 0,
-
-						// total per jenis assessment (training / daily_exam / exam)
-						ClassSectionSubjectTeacherTotalAssessmentsTraining:  0,
-						ClassSectionSubjectTeacherTotalAssessmentsDailyExam: 0,
-						ClassSectionSubjectTeacherTotalAssessmentsExam:      0,
-
-						// agregat hasil akhir
-						ClassSectionSubjectTeacherTotalStudentsPassed: 0,
-
-						// delivery dari class (pakai enum ClassDeliveryMode)
-						ClassSectionSubjectTeacherDeliveryMode: deliveryMode,
-
-						// snapshot attendance entry mode (biarin nil, nanti diisi sesuai aturan school)
-						ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache: nil,
+						// Delivery mode
+						CSSTDeliveryMode:                   deliveryMode,
+						CSSTSchoolAttendanceEntryModeCache: nil,
 
 						// SECTION cache
-						ClassSectionSubjectTeacherClassSectionID:        sec.ClassSectionID,
-						ClassSectionSubjectTeacherClassSectionSlugCache: secSlugPtr,
-						ClassSectionSubjectTeacherClassSectionNameCache: secNamePtr,
-						ClassSectionSubjectTeacherClassSectionCodeCache: secCodePtr,
-						ClassSectionSubjectTeacherClassSectionURLCache:  nil,
+						CSSTClassSectionID:        sec.ClassSectionID,
+						CSSTClassSectionSlugCache: secSlugPtr,
+						CSSTClassSectionNameCache: secNamePtr,
+						CSSTClassSectionCodeCache: secCodePtr,
+						CSSTClassSectionURLCache:  nil,
 
-						// ROOM cache (slug/cache detail diisi nanti kalau perlu via update)
-						ClassSectionSubjectTeacherClassRoomID:        roomID,
-						ClassSectionSubjectTeacherClassRoomSlugCache: nil,
-						ClassSectionSubjectTeacherClassRoomCache:     nil,
+						// ROOM cache
+						CSSTClassRoomID:        roomID,
+						CSSTClassRoomSlugCache: nil,
+						CSSTClassRoomCache:     nil,
 
 						// PEOPLE cache — teacher boleh kosong (nil)
-						ClassSectionSubjectTeacherSchoolTeacherID:                 teacherID,
-						ClassSectionSubjectTeacherSchoolTeacherSlugCache:          nil,
-						ClassSectionSubjectTeacherSchoolTeacherCache:              nil,
-						ClassSectionSubjectTeacherAssistantSchoolTeacherID:        assistantID,
-						ClassSectionSubjectTeacherAssistantSchoolTeacherSlugCache: nil,
-						ClassSectionSubjectTeacherAssistantSchoolTeacherCache:     nil,
+						CSSTSchoolTeacherID:        teacherID,
+						CSSTSchoolTeacherSlugCache: nil,
+						CSSTSchoolTeacherCache:     nil,
+
+						CSSTAssistantSchoolTeacherID:        assistantID,
+						CSSTAssistantSchoolTeacherSlugCache: nil,
+						CSSTAssistantSchoolTeacherCache:     nil,
 
 						// SUBJECT cache
-						ClassSectionSubjectTeacherTotalBooks:       0,
-						ClassSectionSubjectTeacherClassSubjectID:   cs.ClassSubjectID,
-						ClassSectionSubjectTeacherSubjectID:        &cs.ClassSubjectSubjectID,
-						ClassSectionSubjectTeacherSubjectNameCache: cs.ClassSubjectSubjectNameCache,
-						ClassSectionSubjectTeacherSubjectCodeCache: cs.ClassSubjectSubjectCodeCache,
-						ClassSectionSubjectTeacherSubjectSlugCache: cs.ClassSubjectSubjectSlugCache,
+						CSSTTotalBooks:       0,
+						CSSTClassSubjectID:   cs.ClassSubjectID,
+						CSSTSubjectID:        &cs.ClassSubjectSubjectID,
+						CSSTSubjectNameCache: cs.ClassSubjectSubjectNameCache,
+						CSSTSubjectCodeCache: cs.ClassSubjectSubjectCodeCache,
+						CSSTSubjectSlugCache: cs.ClassSubjectSubjectSlugCache,
 
 						// ACADEMIC TERM cache
-						ClassSectionSubjectTeacherAcademicTermID:            acTermID,
-						ClassSectionSubjectTeacherAcademicTermNameCache:     acTermName,
-						ClassSectionSubjectTeacherAcademicTermSlugCache:     acTermSlug,
-						ClassSectionSubjectTeacherAcademicYearCache:         acYear,
-						ClassSectionSubjectTeacherAcademicTermAngkatanCache: termAngkatanPtr,
+						CSSTAcademicTermID:            acTermID,
+						CSSTAcademicTermNameCache:     acTermName,
+						CSSTAcademicTermSlugCache:     acTermSlug,
+						CSSTAcademicYearCache:         acYear,
+						CSSTAcademicTermAngkatanCache: termAngkatanPtr,
 
-						// ✅ KKM: cache diisi dari class_subject, override dibiarkan nil
-						ClassSectionSubjectTeacherMinPassingScoreClassSubjectCache: minPassing,
-						ClassSectionSubjectTeacherMinPassingScore:                  nil,
+						// KKM cache per CSST
+						CSSTMinPassingScoreClassSubjectCache: minPassing,
 
-						// status awal pakai enum ClassStatus
-						ClassSectionSubjectTeacherStatus: csstModel.ClassStatusActive,
+						// Status & audit
+						CSSTStatus:      csstModel.ClassStatusActive,
+						CSSTCreatedAt:   now,
+						CSSTUpdatedAt:   now,
+						CSSTCompletedAt: nil,
 					}
 
 					if err := tx.Create(csst).Error; err != nil {
@@ -685,12 +686,11 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 					}
 
 					log.Printf("[CLASSES][CREATE] 💾 created CSST id=%s for section=%s subject=%s",
-						csst.ClassSectionSubjectTeacherID, sec.ClassSectionID, cs.ClassSubjectSubjectID)
+						csst.CSSTID, sec.ClassSectionID, cs.ClassSubjectSubjectID)
 
 					createdCSSTs = append(createdCSSTs, *csst)
 				}
 			}
-
 		}
 	}
 

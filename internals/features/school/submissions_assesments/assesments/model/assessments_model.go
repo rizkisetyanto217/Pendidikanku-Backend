@@ -101,7 +101,7 @@ type AssessmentModel struct {
 	AssessmentTypeIsGradedSnapshot        bool    `gorm:"not null;default:false;column:assessment_type_is_graded_snapshot"`
 	AssessmentAllowLateSubmissionSnapshot bool    `gorm:"not null;default:false;column:assessment_allow_late_submission_snapshot"`
 	AssessmentLatePenaltyPercentSnapshot  float64 `gorm:"type:numeric(5,2);not null;default:0;column:assessment_late_penalty_percent_snapshot"`
-	AssessmentPassingScorePercentSnapshot float64 `gorm:"type:numeric(5,2);not null;default:0;column:assessment_passing_score_percent_snapshot"`
+	AssessmentMinPassingScoreClassSubjectSnapshot     float64 `gorm:"type:numeric(5,2);not null;default:0;column:assesment_min_passing_score_class_subject_snapshot"`
 
 	// Creator
 	AssessmentCreatedByTeacherID *uuid.UUID `gorm:"type:uuid;column:assessment_created_by_teacher_id"`

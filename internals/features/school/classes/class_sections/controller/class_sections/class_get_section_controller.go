@@ -585,9 +585,9 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		var csstRows []csstModel.ClassSectionSubjectTeacherModel
 		csstQ := ctrl.DB.
 			Model(&csstModel.ClassSectionSubjectTeacherModel{}).
-			Where("class_section_subject_teacher_deleted_at IS NULL").
-			Where("class_section_subject_teacher_school_id = ?", schoolID).
-			Where("class_section_subject_teacher_class_section_id IN ?", targetIDs)
+			Where("csst_deleted_at IS NULL").
+			Where("csst_school_id = ?", schoolID).
+			Where("csst_class_section_id IN ?", targetIDs)
 
 		// mode=compact → hormati filter is_active
 		// - is_active=true  → status = active
@@ -595,15 +595,21 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		// mode=full    → kirim semua CSST terkait
 		if activeOnly != nil && isCompact {
 			if *activeOnly {
-				csstQ = csstQ.Where(
-					"class_section_subject_teacher_status = ?",
-					csstModel.ClassStatusActive,
-				)
+				csstQ = csstQ.Where("csst_status = ?", csstModel.ClassStatusActive)
 			} else {
-				csstQ = csstQ.Where(
-					"class_section_subject_teacher_status <> ?",
-					csstModel.ClassStatusActive,
-				)
+				csstQ = csstQ.Where("csst_status <> ?", csstModel.ClassStatusActive)
+			}
+		}
+
+		// mode=compact → hormati filter is_active
+		// - is_active=true  → status = active
+		// - is_active=false → status <> active (inactive/completed/dll)
+		// mode=full    → kirim semua CSST terkait
+		if activeOnly != nil && isCompact {
+			if *activeOnly {
+				csstQ = csstQ.Where("csst_status = ?", csstModel.ClassStatusActive)
+			} else {
+				csstQ = csstQ.Where("csst_status <> ?", csstModel.ClassStatusActive)
 			}
 		}
 
@@ -617,8 +623,8 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 			bySection := make(map[uuid.UUID][]csstModel.ClassSectionSubjectTeacherModel, len(targetIDs))
 			for i := range csstRows {
 				r := csstRows[i]
-				bySection[r.ClassSectionSubjectTeacherClassSectionID] =
-					append(bySection[r.ClassSectionSubjectTeacherClassSectionID], r)
+				bySection[r.CSSTClassSectionID] =
+					append(bySection[r.CSSTClassSectionID], r)
 			}
 
 			for secID, list := range bySection {
@@ -630,7 +636,7 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 
 				activeCnt := 0
 				for _, it := range list {
-					if it.ClassSectionSubjectTeacherStatus == csstModel.ClassStatusActive {
+					if it.CSSTStatus == csstModel.ClassStatusActive {
 						activeCnt++
 					}
 				}

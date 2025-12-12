@@ -6,8 +6,8 @@ import (
 	"log"
 	"strings"
 
-	enrollDTO "madinahsalam_backend/internals/features/school/classes/classes/dto"
 	sectionModel "madinahsalam_backend/internals/features/school/classes/class_sections/model"
+	enrollDTO "madinahsalam_backend/internals/features/school/classes/classes/dto"
 	enrollModel "madinahsalam_backend/internals/features/school/classes/classes/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
@@ -290,10 +290,10 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 	var cssts []studentCSSTModel.ClassSectionSubjectTeacherModel
 	if err := tx.
 		Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("class_section_subject_teacher_school_id = ?", schoolID).
-		Where("class_section_subject_teacher_class_section_id = ?", sec.ClassSectionID).
-		Where("class_section_subject_teacher_status = ?", studentCSSTModel.ClassStatusActive).
-		Where("class_section_subject_teacher_deleted_at IS NULL").
+		Where("csst_school_id = ?", schoolID).
+		Where("csst_class_section_id = ?", sec.ClassSectionID).
+		Where("csst_status = ?", studentCSSTModel.ClassStatusActive).
+		Where("csst_deleted_at IS NULL").
 		Find(&cssts).Error; err != nil {
 
 		tx.Rollback()
@@ -305,17 +305,17 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 
 	for _, csst := range cssts {
 		log.Printf("[JoinSectionCSST] processing CSST id=%s quota_taken=%d quota_total=%v",
-			csst.ClassSectionSubjectTeacherID,
-			csst.ClassSectionSubjectTeacherQuotaTaken,
-			csst.ClassSectionSubjectTeacherQuotaTotal)
+			csst.CSSTID,
+			csst.CSSTQuotaTaken,
+			csst.CSSTQuotaTotal)
 
 		// Cek kapasitas CSST (kalau di-set & penuh → skip CSST ini saja)
-		if csst.ClassSectionSubjectTeacherQuotaTotal != nil && *csst.ClassSectionSubjectTeacherQuotaTotal > 0 {
-			if csst.ClassSectionSubjectTeacherQuotaTaken >= *csst.ClassSectionSubjectTeacherQuotaTotal {
+		if csst.CSSTQuotaTotal != nil && *csst.CSSTQuotaTotal > 0 {
+			if csst.CSSTQuotaTaken >= *csst.CSSTQuotaTotal {
 				log.Printf("[JoinSectionCSST] skip CSST id=%s: full (quota_taken=%d quota_total=%d)",
-					csst.ClassSectionSubjectTeacherID,
-					csst.ClassSectionSubjectTeacherQuotaTaken,
-					*csst.ClassSectionSubjectTeacherQuotaTotal)
+					csst.CSSTID,
+					csst.CSSTQuotaTaken,
+					*csst.CSSTQuotaTotal)
 				continue
 			}
 		}
@@ -325,32 +325,32 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 		err := tx.
 			Where("student_csst_school_id = ?", schoolID).
 			Where("student_csst_student_id = ?", studentID).
-			Where("student_csst_csst_id = ?", csst.ClassSectionSubjectTeacherID).
+			Where("student_csst_csst_id = ?", csst.CSSTID).
 			Where("student_csst_deleted_at IS NULL").
 			First(&link).Error
 
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			tx.Rollback()
 			log.Printf("[JoinSectionCSST] failed to check CSST mapping for csst_id=%s: err=%v",
-				csst.ClassSectionSubjectTeacherID, err)
+				csst.CSSTID, err)
 			return helper.JsonError(c, fiber.StatusInternalServerError, "failed to check CSST mapping")
 		}
 
 		// Kalau sudah ada mapping → skip
 		if err == nil {
 			log.Printf("[JoinSectionCSST] mapping already exists for student_id=%s csst_id=%s (mapping_id=%s)",
-				studentID, csst.ClassSectionSubjectTeacherID, link.StudentCSSTID)
+				studentID, csst.CSSTID, link.StudentCSSTID)
 			continue
 		}
 
 		// Kalau belum ada → buat baru
 		log.Printf("[JoinSectionCSST] creating CSST mapping: student_id=%s csst_id=%s",
-			studentID, csst.ClassSectionSubjectTeacherID)
+			studentID, csst.CSSTID)
 
 		newLink := studentCSSTModel.StudentClassSectionSubjectTeacherModel{
 			StudentCSSTSchoolID:  schoolID,
 			StudentCSSTStudentID: studentID,
-			StudentCSSTCSSTID:    csst.ClassSectionSubjectTeacherID,
+			StudentCSSTCSSTID:    csst.CSSTID,
 			// is_active, created_at, dll pakai default DB
 		}
 
@@ -376,23 +376,23 @@ func (ctl *StudentClassEnrollmentController) JoinSectionCSST(c *fiber.Ctx) error
 		if err := tx.Create(&newLink).Error; err != nil {
 			tx.Rollback()
 			log.Printf("[JoinSectionCSST] failed to create CSST mapping for csst_id=%s: err=%v",
-				csst.ClassSectionSubjectTeacherID, err)
+				csst.CSSTID, err)
 			return helper.JsonError(c, fiber.StatusInternalServerError, "failed to create CSST enrollment")
 		}
 
 		// Increment quota_taken di CSST
 		if err := tx.Model(&studentCSSTModel.ClassSectionSubjectTeacherModel{}).
-			Where("class_section_subject_teacher_id = ?", csst.ClassSectionSubjectTeacherID).
-			Update("class_section_subject_teacher_quota_taken",
-				gorm.Expr("class_section_subject_teacher_quota_taken + 1")).Error; err != nil {
+			Where("csst_id = ?", csst.CSSTID).
+			Update("csst_quota_taken",
+				gorm.Expr("csst_quota_taken + 1")).Error; err != nil {
 
 			tx.Rollback()
 			log.Printf("[JoinSectionCSST] failed to increment csst_quota_taken for csst_id=%s: err=%v",
-				csst.ClassSectionSubjectTeacherID, err)
+				csst.CSSTID, err)
 			return helper.JsonError(c, fiber.StatusInternalServerError, "failed to update CSST counter")
 		}
 
-		log.Printf("[JoinSectionCSST] CSST mapping + counter updated for csst_id=%s", csst.ClassSectionSubjectTeacherID)
+		log.Printf("[JoinSectionCSST] CSST mapping + counter updated for csst_id=%s", csst.CSSTID)
 	}
 
 	// 5) Increment counter quota_taken untuk class_section

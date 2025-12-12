@@ -1,4 +1,3 @@
-// file: internals/features/lembaga/class_section_subject_teachers/controller/csst_controller.go
 package controller
 
 import (
@@ -20,7 +19,7 @@ import (
 	attendanceModel "madinahsalam_backend/internals/features/school/class_others/class_attendance_sessions/model"
 	assessmentModel "madinahsalam_backend/internals/features/school/submissions_assesments/assesments/model"
 
-	// DTO & Model (✅ pakai DTO lembaga)
+	// DTO & Model (✅ pakai DTO terbaru)
 	dto "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/dto"
 	modelCSST "madinahsalam_backend/internals/features/school/classes/class_section_subject_teachers/model"
 
@@ -58,7 +57,6 @@ func trimPtr(ps *string) *string {
 	return &v
 }
 
-// Biar simpel dipakai di mana saja (boleh string atau *string)
 func trimAny(v interface{}) *string {
 	switch x := v.(type) {
 	case string:
@@ -87,19 +85,15 @@ func getBaseForSlug(
 ) string {
 	var sectionName, subjectName string
 
-	// section name
 	_ = tx.WithContext(ctx).
 		Table("class_sections").
 		Select("class_section_name").
 		Where("class_section_id = ? AND class_section_school_id = ?", sectionID, schoolID).
 		Scan(&sectionName).Error
 
-	// subject name via class_subjects + subjects
 	_ = tx.WithContext(ctx).
 		Table("class_subjects cs").
-		Select(`
-			COALESCE(cs.class_subject_subject_name_cache, s.subject_name) AS subject_name
-		`).
+		Select(`COALESCE(cs.class_subject_subject_name_cache, s.subject_name) AS subject_name`).
 		Joins(`LEFT JOIN subjects s 
 			     ON s.subject_id = cs.class_subject_subject_id 
 			    AND s.subject_deleted_at IS NULL`).
@@ -127,19 +121,18 @@ func getBaseForSlug(
 	if schoolTeacherID != nil {
 		teacherPart = strings.Split(schoolTeacherID.String(), "-")[0]
 	}
-
 	return fmt.Sprintf("csst-%s-%s-%s", secPart, subjPart, teacherPart)
 }
 
 func ensureUniqueSlug(ctx context.Context, tx *gorm.DB, schoolID uuid.UUID, base string) (string, error) {
 	return helper.EnsureUniqueSlugCI(
 		ctx, tx,
-		"class_section_subject_teachers", "class_section_subject_teacher_slug",
+		"class_section_subject_teachers", "csst_slug",
 		base,
 		func(q *gorm.DB) *gorm.DB {
 			return q.Where(`
-				class_section_subject_teacher_school_id = ?
-				AND class_section_subject_teacher_deleted_at IS NULL
+				csst_school_id = ?
+				AND csst_deleted_at IS NULL
 			`, schoolID)
 		},
 		160,
@@ -154,7 +147,6 @@ func ensureUniqueSlug(ctx context.Context, tx *gorm.DB, schoolID uuid.UUID, base
 =========================================================
 */
 func validateClassSubjectForSection(ctx context.Context, tx *gorm.DB, schoolID, sectionID, classSubjectID uuid.UUID) error {
-	// Ambil Class Parent dari kelas (class_class_parent_id)
 	var cls struct{ ClassParentID uuid.UUID }
 	if err := tx.WithContext(ctx).
 		Table("classes").
@@ -172,21 +164,14 @@ func validateClassSubjectForSection(ctx context.Context, tx *gorm.DB, schoolID, 
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal cek kelas dari section")
 	}
 
-	// Tenant & Parent dari CLASS_SUBJECT
 	var cs struct {
 		SchoolID uuid.UUID
 		ParentID uuid.UUID
 	}
 	if err := tx.WithContext(ctx).
 		Table("class_subjects cs").
-		Select(`
-			cs.class_subject_school_id AS school_id,
-			cs.class_subject_class_parent_id AS parent_id
-		`).
-		Where(`
-			cs.class_subject_id = ?
-			AND cs.class_subject_deleted_at IS NULL
-		`, classSubjectID).
+		Select(`cs.class_subject_school_id AS school_id, cs.class_subject_class_parent_id AS parent_id`).
+		Where(`cs.class_subject_id = ? AND cs.class_subject_deleted_at IS NULL`, classSubjectID).
 		Take(&cs).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fiber.NewError(fiber.StatusBadRequest, "class_subject tidak ditemukan / sudah dihapus")
@@ -194,7 +179,6 @@ func validateClassSubjectForSection(ctx context.Context, tx *gorm.DB, schoolID, 
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal cek class_subject")
 	}
 
-	// Validasi tenant & parent
 	if cs.SchoolID != schoolID {
 		return fiber.NewError(fiber.StatusBadRequest, "School mismatch: class_subject milik school lain")
 	}
@@ -248,26 +232,22 @@ func fillSubjectCacheForCSST(
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal ambil cache subject")
 	}
 
-	// isi cache ke row
-	row.ClassSectionSubjectTeacherSubjectID = &sr.SubjectID
+	// isi cache ke row (MODEL BARU)
+	row.CSSTSubjectID = &sr.SubjectID
 	if p := trimAny(sr.Name); p != nil {
-		row.ClassSectionSubjectTeacherSubjectNameCache = p
+		row.CSSTSubjectNameCache = p
 	}
 	if p := trimAny(sr.Code); p != nil {
-		row.ClassSectionSubjectTeacherSubjectCodeCache = p
+		row.CSSTSubjectCodeCache = p
 	}
 	if p := trimAny(sr.Slug); p != nil {
-		row.ClassSectionSubjectTeacherSubjectSlugCache = p
+		row.CSSTSubjectSlugCache = p
 	}
 
-	// 🆕 simpan KKM default class_subject ke cache khusus
-	row.ClassSectionSubjectTeacherMinPassingScoreClassSubjectCache = sr.MinPassingScore
+	// simpan KKM default class_subject ke cache khusus
+	row.CSSTMinPassingScoreClassSubjectCache = sr.MinPassingScore
 
-	// KKM default dari class_subject jika CSST belum override
-	if row.ClassSectionSubjectTeacherMinPassingScore == nil && sr.MinPassingScore != nil {
-		row.ClassSectionSubjectTeacherMinPassingScore = sr.MinPassingScore
-	}
-
+	// NOTE: tidak ada csst_min_passing_score override di SQL terbaru
 	return nil
 }
 
@@ -278,21 +258,11 @@ func fillAcademicTermCacheFromSection(
 	sec *modelClassSection.ClassSectionModel,
 	row *modelCSST.ClassSectionSubjectTeacherModel,
 ) {
-	if sec.ClassSectionAcademicTermID != nil {
-		row.ClassSectionSubjectTeacherAcademicTermID = sec.ClassSectionAcademicTermID
-	}
-	if sec.ClassSectionAcademicTermNameCache != nil {
-		row.ClassSectionSubjectTeacherAcademicTermNameCache = trimPtr(sec.ClassSectionAcademicTermNameCache)
-	}
-	if sec.ClassSectionAcademicTermSlugCache != nil {
-		row.ClassSectionSubjectTeacherAcademicTermSlugCache = trimPtr(sec.ClassSectionAcademicTermSlugCache)
-	}
-	if sec.ClassSectionAcademicTermAcademicYearCache != nil {
-		row.ClassSectionSubjectTeacherAcademicYearCache = trimPtr(sec.ClassSectionAcademicTermAcademicYearCache)
-	}
-	if sec.ClassSectionAcademicTermAngkatanCache != nil {
-		row.ClassSectionSubjectTeacherAcademicTermAngkatanCache = sec.ClassSectionAcademicTermAngkatanCache
-	}
+	row.CSSTAcademicTermID = sec.ClassSectionAcademicTermID
+	row.CSSTAcademicTermNameCache = trimPtr(sec.ClassSectionAcademicTermNameCache)
+	row.CSSTAcademicTermSlugCache = trimPtr(sec.ClassSectionAcademicTermSlugCache)
+	row.CSSTAcademicYearCache = trimPtr(sec.ClassSectionAcademicTermAcademicYearCache)
+	row.CSSTAcademicTermAngkatanCache = sec.ClassSectionAcademicTermAngkatanCache
 }
 
 /* ======================== CONTROLLER ======================== */
@@ -308,13 +278,11 @@ func NewClassSectionSubjectTeacherController(db *gorm.DB) *ClassSectionSubjectTe
 /* ======================== CREATE ======================== */
 // POST /admin/:school_id/class-section-subject-teachers
 func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
-	// 🔑 Ambil school_id dari token saja
 	schoolID, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
 	if err != nil || schoolID == uuid.Nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "School pada token tidak valid / tidak ditemukan")
 	}
 
-	// 🔒 Hanya DKM/Admin yang boleh mengelola CSST
 	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
@@ -322,7 +290,7 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusForbidden, "Hanya DKM/Admin yang diizinkan")
 	}
 
-	var req dto.CreateClassSectionSubjectTeacherRequest
+	var req dto.CreateCSSTRequest
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid: "+err.Error())
 	}
@@ -337,7 +305,7 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		var sec modelClassSection.ClassSectionModel
 		if err := tx.
 			Where("class_section_id = ? AND class_section_school_id = ? AND class_section_deleted_at IS NULL",
-				req.ClassSectionSubjectTeacherClassSectionID, schoolID).
+				req.CSSTClassSectionID, schoolID).
 			First(&sec).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return helper.JsonError(c, fiber.StatusBadRequest, "Section tidak ditemukan / beda tenant")
@@ -345,11 +313,11 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek section")
 		}
 
-		// 2) VALIDASI CLASS_SUBJECT konsisten dengan section (tenant + parent)
+		// 2) VALIDASI CLASS_SUBJECT konsisten
 		if err := validateClassSubjectForSection(
 			c.Context(), tx, schoolID,
-			req.ClassSectionSubjectTeacherClassSectionID,
-			req.ClassSectionSubjectTeacherClassSubjectID,
+			req.CSSTClassSectionID,
+			req.CSSTClassSubjectID,
 		); err != nil {
 			var fe *fiber.Error
 			if errors.As(err, &fe) {
@@ -358,10 +326,10 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 		}
 
-		// 3) TEACHER exists & same tenant (manual CSST tetap wajib guru)
+		// 3) TEACHER exists
 		if err := tx.
 			Where("school_teacher_id = ? AND school_teacher_school_id = ? AND school_teacher_deleted_at IS NULL",
-				req.ClassSectionSubjectTeacherSchoolTeacherID, schoolID).
+				req.CSSTSchoolTeacherID, schoolID).
 			First(&modelSchoolTeacher.SchoolTeacherModel{}).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return helper.JsonError(c, fiber.StatusBadRequest, "Guru tidak ditemukan / bukan guru school ini")
@@ -371,15 +339,12 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 
 		/* =====================================================
 		   3a) ROOM resolve (request > default section room)
-		   pakai RoomCache (JSON sama dengan model class_rooms)
 		   ===================================================== */
-
 		var appliedRoomID *uuid.UUID
 		var appliedRoomCache *roomCache.RoomCache
 
-		if req.ClassSectionSubjectTeacherClassRoomID != nil {
-			// explicit room dari request
-			rid := *req.ClassSectionSubjectTeacherClassRoomID
+		if req.CSSTClassRoomID != nil {
+			rid := *req.CSSTClassRoomID
 			rs, err := roomCache.ValidateAndCacheRoom(tx, schoolID, rid)
 			if err != nil {
 				var fe *fiber.Error
@@ -391,7 +356,6 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			appliedRoomID = &rid
 			appliedRoomCache = rs
 		} else if sec.ClassSectionClassRoomID != nil {
-			// fallback: pakai room bawaan dari section (kalau ada)
 			rid := *sec.ClassSectionClassRoomID
 			rs, err := roomCache.ValidateAndCacheRoom(tx, schoolID, rid)
 			if err != nil {
@@ -405,9 +369,9 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			appliedRoomCache = rs
 		}
 
-		// 4) Build row dari DTO
+		// 4) Build row dari DTO (MODEL BARU)
 		row := req.ToModel()
-		row.ClassSectionSubjectTeacherSchoolID = schoolID
+		row.CSSTSchoolID = schoolID
 
 		// 🔁 SNAPSHOT ATTENDANCE MODE (default school kalau kosong)
 		{
@@ -419,40 +383,33 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			}
 
 			var eff modelCSST.AttendanceEntryMode
-			if req.ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache != nil &&
-				*req.ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache != "" {
-				// custom dari request
-				eff = *req.ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache
+			if req.CSSTSchoolAttendanceEntryModeCache != nil && *req.CSSTSchoolAttendanceEntryModeCache != "" {
+				eff = *req.CSSTSchoolAttendanceEntryModeCache
 			} else {
-				// fallback default sekolah
 				eff = modelCSST.AttendanceEntryMode(string(school.SchoolDefaultAttendanceEntryMode))
 			}
-			row.ClassSectionSubjectTeacherSchoolAttendanceEntryModeCache = &eff
+			row.CSSTSchoolAttendanceEntryModeCache = &eff
 		}
 
-		/* =====================================================
-		   4a) ROOM apply ke CSST (ID + JSON + slug/name/location)
-		   ===================================================== */
-
+		// ROOM apply ke CSST (ID + JSON + slug/name/location)
 		if appliedRoomID != nil && appliedRoomCache != nil {
-			// isi ID + snapshot JSONB dengan key class_room_*
 			roomCache.ApplyRoomIDAndCacheToCSST(&row, appliedRoomID, appliedRoomCache)
 		}
 
 		// Default delivery mode jika kosong
-		if strings.TrimSpace(string(row.ClassSectionSubjectTeacherDeliveryMode)) == "" {
+		if strings.TrimSpace(string(row.CSSTDeliveryMode)) == "" {
 			if appliedRoomCache != nil &&
 				(appliedRoomCache.ClassRoomIsVirtual ||
 					(appliedRoomCache.ClassRoomJoinURL != nil && strings.TrimSpace(*appliedRoomCache.ClassRoomJoinURL) != "")) {
-				row.ClassSectionSubjectTeacherDeliveryMode = modelCSST.DeliveryModeOnline
+				row.CSSTDeliveryMode = modelCSST.DeliveryModeOnline
 			} else {
-				row.ClassSectionSubjectTeacherDeliveryMode = modelCSST.DeliveryModeOffline
+				row.CSSTDeliveryMode = modelCSST.DeliveryModeOffline
 			}
 		}
 
-		// 4b) SNAPSHOT GURU (JSON kaya) + flattened
+		// SNAPSHOT GURU (JSON kaya) + flattened
 		var mainTeacherSnap *teacherCache.TeacherCache
-		if ts, err := teacherCache.ValidateAndCacheTeacher(tx, schoolID, req.ClassSectionSubjectTeacherSchoolTeacherID); err != nil {
+		if ts, err := teacherCache.ValidateAndCacheTeacher(tx, schoolID, req.CSSTSchoolTeacherID); err != nil {
 			var fe *fiber.Error
 			if errors.As(err, &fe) {
 				return helper.JsonError(c, fe.Code, fe.Message)
@@ -461,17 +418,16 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		} else if ts != nil {
 			mainTeacherSnap = ts
 			jb := teacherCache.ToJSON(ts)
-			row.ClassSectionSubjectTeacherSchoolTeacherCache = &jb
+			row.CSSTSchoolTeacherCache = &jb
 		}
 
-		// Name dari cache guru
 		if mainTeacherSnap != nil {
 			if p := trimAny(mainTeacherSnap.Name); p != nil {
-				row.ClassSectionSubjectTeacherSchoolTeacherNameCache = p
+				row.CSSTSchoolTeacherNameCache = p
 			}
 		}
 
-		// Slug dari tabel guru + fallback name dari kolom cache tabel (bila belum ada)
+		// Slug guru dari tabel
 		{
 			var t struct {
 				Slug     *string `gorm:"column:school_teacher_slug"`
@@ -481,22 +437,22 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 				Table("school_teachers").
 				Select("school_teacher_slug, school_teacher_user_teacher_full_name_cache").
 				Where("school_teacher_id = ? AND school_teacher_school_id = ? AND school_teacher_deleted_at IS NULL",
-					req.ClassSectionSubjectTeacherSchoolTeacherID, schoolID).
+					req.CSSTSchoolTeacherID, schoolID).
 				Take(&t).Error
 
 			if t.Slug != nil && strings.TrimSpace(*t.Slug) != "" {
-				row.ClassSectionSubjectTeacherSchoolTeacherSlugCache = t.Slug
+				row.CSSTSchoolTeacherSlugCache = t.Slug
 			}
-			if row.ClassSectionSubjectTeacherSchoolTeacherNameCache == nil {
+			if row.CSSTSchoolTeacherNameCache == nil {
 				if p := trimPtr(t.NameSnap); p != nil {
-					row.ClassSectionSubjectTeacherSchoolTeacherNameCache = p
+					row.CSSTSchoolTeacherNameCache = p
 				}
 			}
 		}
 
-		// 4c) SNAPSHOT ASISTEN (opsional) + flattened
-		if req.ClassSectionSubjectTeacherAssistantSchoolTeacherID != nil {
-			if ats, err := teacherCache.ValidateAndCacheTeacher(tx, schoolID, *req.ClassSectionSubjectTeacherAssistantSchoolTeacherID); err != nil {
+		// SNAPSHOT ASISTEN (opsional)
+		if req.CSSTAssistantSchoolTeacherID != nil {
+			if ats, err := teacherCache.ValidateAndCacheTeacher(tx, schoolID, *req.CSSTAssistantSchoolTeacherID); err != nil {
 				var fe *fiber.Error
 				if errors.As(err, &fe) {
 					return helper.JsonError(c, fe.Code, fe.Message)
@@ -504,15 +460,15 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat cache asisten guru")
 			} else if ats != nil {
 				jb := teacherCache.ToJSON(ats)
-				row.ClassSectionSubjectTeacherAssistantSchoolTeacherCache = &jb
+				row.CSSTAssistantSchoolTeacherCache = &jb
 				if p := trimAny(ats.Name); p != nil {
-					row.ClassSectionSubjectTeacherAssistantSchoolTeacherNameCache = p
+					row.CSSTAssistantSchoolTeacherNameCache = p
 				}
 			}
 		}
 
-		// 4d) SNAPSHOT SUBJECT (via CLASS_SUBJECT)
-		if err := fillSubjectCacheForCSST(c.Context(), tx, schoolID, row.ClassSectionSubjectTeacherClassSubjectID, &row); err != nil {
+		// SNAPSHOT SUBJECT (via CLASS_SUBJECT)
+		if err := fillSubjectCacheForCSST(c.Context(), tx, schoolID, row.CSSTClassSubjectID, &row); err != nil {
 			var fe *fiber.Error
 			if errors.As(err, &fe) {
 				return helper.JsonError(c, fe.Code, fe.Message)
@@ -520,52 +476,47 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 		}
 
-		// 4e) 🆕 SNAPSHOT ACADEMIC_TERM (ambil dari section)
+		// SNAPSHOT ACADEMIC_TERM dari section
 		fillAcademicTermCacheFromSection(&sec, &row)
 
-		// 5) SLUG unik
-		if row.ClassSectionSubjectTeacherSlug != nil {
-			s := helper.Slugify(*row.ClassSectionSubjectTeacherSlug, 160)
-			row.ClassSectionSubjectTeacherSlug = &s
+		// SLUG unik
+		if row.CSSTSlug != nil {
+			s := helper.Slugify(*row.CSSTSlug, 160)
+			row.CSSTSlug = &s
 		}
 		base := strings.TrimSpace(getBaseForSlug(
 			c.Context(), tx, schoolID,
-			row.ClassSectionSubjectTeacherClassSectionID,
-			row.ClassSectionSubjectTeacherClassSubjectID,
-			row.ClassSectionSubjectTeacherSchoolTeacherID,
+			row.CSSTClassSectionID,
+			row.CSSTClassSubjectID,
+			row.CSSTSchoolTeacherID,
 		))
 		candidate := base
-		if row.ClassSectionSubjectTeacherSlug != nil && strings.TrimSpace(*row.ClassSectionSubjectTeacherSlug) != "" {
-			candidate = *row.ClassSectionSubjectTeacherSlug
+		if row.CSSTSlug != nil && strings.TrimSpace(*row.CSSTSlug) != "" {
+			candidate = *row.CSSTSlug
 		}
 		candidate = helper.Slugify(candidate, 160)
+
 		uniqueSlug, err := ensureUniqueSlug(c.Context(), tx, schoolID, candidate)
 		if err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
 		}
-		row.ClassSectionSubjectTeacherSlug = &uniqueSlug
+		row.CSSTSlug = &uniqueSlug
 
-		/* =====================================================
-		   >>> Flattened caches SECTION (agar kolom *_cache terisi)
-		   ===================================================== */
-
-		// SECTION (slug/name/code/url)
+		// Flatten SECTION cache
 		if p := trimAny(sec.ClassSectionSlug); p != nil {
-			row.ClassSectionSubjectTeacherClassSectionSlugCache = p
+			row.CSSTClassSectionSlugCache = p
 		}
 		if p := trimAny(sec.ClassSectionName); p != nil {
-			row.ClassSectionSubjectTeacherClassSectionNameCache = p
+			row.CSSTClassSectionNameCache = p
 		}
 		if p := trimAny(sec.ClassSectionCode); p != nil {
-			row.ClassSectionSubjectTeacherClassSectionCodeCache = p
+			row.CSSTClassSectionCodeCache = p
 		}
 		if p := trimAny(sec.ClassSectionGroupURL); p != nil {
-			row.ClassSectionSubjectTeacherClassSectionURLCache = p
+			row.CSSTClassSectionURLCache = p
 		}
 
-		// ROOM flattened (slug/name/location) sudah di-handle di ApplyRoomCacheToCSST
-
-		// 6) INSERT
+		// INSERT
 		if err := tx.Create(&row).Error; err != nil {
 			msg := strings.ToLower(err.Error())
 			switch {
@@ -593,26 +544,22 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Insert gagal: "+err.Error())
 		}
 
-		// ✅ Tidak ada lagi sync ke school_teachers (JSONB CSST + stats)
 		return helper.JsonCreated(
 			c,
 			"Penugasan guru berhasil dibuat",
-			dto.FromClassSectionSubjectTeacherModel(row).WithSchoolTime(c),
+			dto.FromCSSTModel(row).WithSchoolTime(c),
 		)
-
 	})
 }
 
 /* ======================== UPDATE (partial) ======================== */
 // PUT /admin/:school_id/class-section-subject-teachers/:id
 func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
-	// 🔑 Ambil school_id dari token saja
 	schoolID, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
 	if err != nil || schoolID == uuid.Nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "School pada token tidak valid / tidak ditemukan")
 	}
 
-	// 🔒 Hanya DKM/Admin
 	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
@@ -625,7 +572,7 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	var req dto.UpdateClassSectionSubjectTeacherRequest
+	var req dto.UpdateCSSTRequest
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
@@ -634,13 +581,12 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 	}
 
 	return ctl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
-		// Ambil row (dibatasi tenant)
 		var row modelCSST.ClassSectionSubjectTeacherModel
 		if err := tx.
 			Where(`
-				class_section_subject_teacher_id = ?
-				AND class_section_subject_teacher_school_id = ?
-				AND class_section_subject_teacher_deleted_at IS NULL
+				csst_id = ?
+				AND csst_school_id = ?
+				AND csst_deleted_at IS NULL
 			`, id, schoolID).
 			First(&row).Error; err != nil {
 
@@ -650,22 +596,15 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 			return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 		}
 
-		// Simpan guru lama (kalau nanti kamu mau pakai untuk logic lain di masa depan)
-		oldTeacherID := row.ClassSectionSubjectTeacherSchoolTeacherID
-		oldAssistantID := row.ClassSectionSubjectTeacherAssistantSchoolTeacherID
-
-		_ = oldTeacherID
-		_ = oldAssistantID
-
 		// Precheck konsistensi jika section / class_subject berubah
-		if req.ClassSectionSubjectTeacherClassSectionID != nil || req.ClassSectionSubjectTeacherClassSubjectID != nil {
-			sectionID := row.ClassSectionSubjectTeacherClassSectionID
-			if req.ClassSectionSubjectTeacherClassSectionID != nil {
-				sectionID = *req.ClassSectionSubjectTeacherClassSectionID
+		if req.CSSTClassSectionID != nil || req.CSSTClassSubjectID != nil {
+			sectionID := row.CSSTClassSectionID
+			if req.CSSTClassSectionID != nil {
+				sectionID = *req.CSSTClassSectionID
 			}
-			classSubjectID := row.ClassSectionSubjectTeacherClassSubjectID
-			if req.ClassSectionSubjectTeacherClassSubjectID != nil {
-				classSubjectID = *req.ClassSectionSubjectTeacherClassSubjectID
+			classSubjectID := row.CSSTClassSubjectID
+			if req.CSSTClassSubjectID != nil {
+				classSubjectID = *req.CSSTClassSubjectID
 			}
 			if err := validateClassSubjectForSection(c.Context(), tx, schoolID, sectionID, classSubjectID); err != nil {
 				var fe *fiber.Error
@@ -676,35 +615,23 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 			}
 		}
 
-		// Flags perubahan untuk slug/cache
-		sectionChanged := req.ClassSectionSubjectTeacherClassSectionID != nil &&
-			*req.ClassSectionSubjectTeacherClassSectionID != row.ClassSectionSubjectTeacherClassSectionID
-		classSubjectChanged := req.ClassSectionSubjectTeacherClassSubjectID != nil &&
-			*req.ClassSectionSubjectTeacherClassSubjectID != row.ClassSectionSubjectTeacherClassSubjectID
+		sectionChanged := req.CSSTClassSectionID != nil && *req.CSSTClassSectionID != row.CSSTClassSectionID
+		classSubjectChanged := req.CSSTClassSubjectID != nil && *req.CSSTClassSubjectID != row.CSSTClassSubjectID
 
 		teacherChanged := false
-		if req.ClassSectionSubjectTeacherSchoolTeacherID != nil {
-			if row.ClassSectionSubjectTeacherSchoolTeacherID == nil ||
-				*req.ClassSectionSubjectTeacherSchoolTeacherID != *row.ClassSectionSubjectTeacherSchoolTeacherID {
+		if req.CSSTSchoolTeacherID != nil {
+			if row.CSSTSchoolTeacherID == nil || *req.CSSTSchoolTeacherID != *row.CSSTSchoolTeacherID {
 				teacherChanged = true
 			}
 		}
 
-		// ✅ simpan room lama SEBELUM Apply
-		oldRoomID := row.ClassSectionSubjectTeacherClassRoomID
+		oldRoomID := row.CSSTClassRoomID
 
-		// Track status lama (enum) sebelum apply
-		oldStatus := row.ClassSectionSubjectTeacherStatus
-
-		// Apply perubahan dasar ke row
 		req.Apply(&row)
 
-		// Status baru sesudah apply
-		newStatus := row.ClassSectionSubjectTeacherStatus
-
-		// Jika CLASS_SUBJECT berubah → refresh subject cache (+ KKM default + cache class_subject KKM)
+		// refresh subject cache jika class_subject berubah
 		if classSubjectChanged {
-			if err := fillSubjectCacheForCSST(c.Context(), tx, schoolID, row.ClassSectionSubjectTeacherClassSubjectID, &row); err != nil {
+			if err := fillSubjectCacheForCSST(c.Context(), tx, schoolID, row.CSSTClassSubjectID, &row); err != nil {
 				var fe *fiber.Error
 				if errors.As(err, &fe) {
 					return helper.JsonError(c, fe.Code, fe.Message)
@@ -713,12 +640,12 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 			}
 		}
 
-		// Jika SECTION berubah → refresh SECTION cache + ACADEMIC_TERM cache dari section baru
+		// refresh section + academic_term cache jika section berubah
 		if sectionChanged {
 			var sec modelClassSection.ClassSectionModel
 			if err := tx.
 				Where("class_section_id = ? AND class_section_school_id = ? AND class_section_deleted_at IS NULL",
-					row.ClassSectionSubjectTeacherClassSectionID, schoolID).
+					row.CSSTClassSectionID, schoolID).
 				First(&sec).Error; err != nil {
 
 				if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -727,48 +654,42 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek section baru")
 			}
 
-			// SECTION cache
 			if p := trimAny(sec.ClassSectionSlug); p != nil {
-				row.ClassSectionSubjectTeacherClassSectionSlugCache = p
+				row.CSSTClassSectionSlugCache = p
 			}
 			if p := trimAny(sec.ClassSectionName); p != nil {
-				row.ClassSectionSubjectTeacherClassSectionNameCache = p
+				row.CSSTClassSectionNameCache = p
 			}
 			if p := trimAny(sec.ClassSectionCode); p != nil {
-				row.ClassSectionSubjectTeacherClassSectionCodeCache = p
+				row.CSSTClassSectionCodeCache = p
 			}
 			if p := trimAny(sec.ClassSectionGroupURL); p != nil {
-				row.ClassSectionSubjectTeacherClassSectionURLCache = p
+				row.CSSTClassSectionURLCache = p
 			}
 
-			// ACADEMIC_TERM cache dari section baru
 			fillAcademicTermCacheFromSection(&sec, &row)
 		}
 
-		// 🔎 Deteksi perubahan ROOM (setelah Apply)
+		// detect room change
 		roomChanged := false
 		switch {
-		case oldRoomID == nil && row.ClassSectionSubjectTeacherClassRoomID != nil:
+		case oldRoomID == nil && row.CSSTClassRoomID != nil:
 			roomChanged = true
-		case oldRoomID != nil && row.ClassSectionSubjectTeacherClassRoomID == nil:
+		case oldRoomID != nil && row.CSSTClassRoomID == nil:
 			roomChanged = true
-		case oldRoomID != nil && row.ClassSectionSubjectTeacherClassRoomID != nil &&
-			*oldRoomID != *row.ClassSectionSubjectTeacherClassRoomID:
+		case oldRoomID != nil && row.CSSTClassRoomID != nil && *oldRoomID != *row.CSSTClassRoomID:
 			roomChanged = true
 		}
 
-		// 🧱 Jika ROOM berubah → pakai service RoomCache (JSON sama seperti model)
 		if roomChanged {
-			if row.ClassSectionSubjectTeacherClassRoomID == nil {
-				// room di-clear → kosongkan semua cache
-				row.ClassSectionSubjectTeacherClassRoomSlugCache = nil
-				row.ClassSectionSubjectTeacherClassRoomCache = nil
-				row.ClassSectionSubjectTeacherClassRoomNameCache = nil
-				row.ClassSectionSubjectTeacherClassRoomSlugCacheGen = nil
-				row.ClassSectionSubjectTeacherClassRoomLocationCache = nil
+			if row.CSSTClassRoomID == nil {
+				row.CSSTClassRoomSlugCache = nil
+				row.CSSTClassRoomCache = nil
+				row.CSSTClassRoomNameCache = nil
+				row.CSSTClassRoomSlugCacheGen = nil
+				row.CSSTClassRoomLocationCache = nil
 			} else {
-				roomID := *row.ClassSectionSubjectTeacherClassRoomID
-
+				roomID := *row.CSSTClassRoomID
 				rs, err := roomCache.ValidateAndCacheRoom(tx, schoolID, roomID)
 				if err != nil {
 					var fe *fiber.Error
@@ -780,28 +701,20 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 				if rs == nil {
 					return helper.JsonError(c, fiber.StatusInternalServerError, "Cache ruangan kosong")
 				}
-
-				// ✅ Ini yang penting: apply ID + JSONB + slug/name/location cache
 				roomCache.ApplyRoomIDAndCacheToCSST(&row, &roomID, rs)
 			}
 		}
 
-		// 🔁 Tentukan kapan perlu rebuild cache guru utama
+		// rebuild teacher cache jika perlu
 		needMainTeacherCache := false
-		if row.ClassSectionSubjectTeacherSchoolTeacherID != nil {
-			// 1) Kalau request eksplisit bawa teacher_id → selalu rebuild
-			if req.ClassSectionSubjectTeacherSchoolTeacherID != nil {
-				needMainTeacherCache = true
-			} else if row.ClassSectionSubjectTeacherSchoolTeacherCache == nil {
-				// 2) Legacy row: punya guru tapi cache masih kosong → isi sekarang
+		if row.CSSTSchoolTeacherID != nil {
+			if req.CSSTSchoolTeacherID != nil || row.CSSTSchoolTeacherCache == nil {
 				needMainTeacherCache = true
 			}
 		}
-
 		if needMainTeacherCache {
-			teacherID := *row.ClassSectionSubjectTeacherSchoolTeacherID
+			teacherID := *row.CSSTSchoolTeacherID
 
-			// 1) Validasi guru & tenant
 			if err := tx.
 				Where("school_teacher_id = ? AND school_teacher_school_id = ? AND school_teacher_deleted_at IS NULL",
 					teacherID, schoolID).
@@ -813,7 +726,6 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 				return helper.JsonError(c, http.StatusInternalServerError, "Gagal cek guru")
 			}
 
-			// 2) Snapshot guru (JSON kaya) + flattened (mirip Create)
 			var mainTeacherSnap *teacherCache.TeacherCache
 			if ts, err := teacherCache.ValidateAndCacheTeacher(tx, schoolID, teacherID); err != nil {
 				var fe *fiber.Error
@@ -824,16 +736,15 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 			} else if ts != nil {
 				mainTeacherSnap = ts
 				jb := teacherCache.ToJSON(ts)
-				row.ClassSectionSubjectTeacherSchoolTeacherCache = &jb
+				row.CSSTSchoolTeacherCache = &jb
 			}
 
 			if mainTeacherSnap != nil {
 				if p := trimAny(mainTeacherSnap.Name); p != nil {
-					row.ClassSectionSubjectTeacherSchoolTeacherNameCache = p
+					row.CSSTSchoolTeacherNameCache = p
 				}
 			}
 
-			// 3) Slug + snapshot name dari tabel guru (fallback)
 			{
 				var t struct {
 					Slug     *string `gorm:"column:school_teacher_slug"`
@@ -847,28 +758,25 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 					Take(&t).Error
 
 				if t.Slug != nil && strings.TrimSpace(*t.Slug) != "" {
-					row.ClassSectionSubjectTeacherSchoolTeacherSlugCache = t.Slug
+					row.CSSTSchoolTeacherSlugCache = t.Slug
 				}
-				if row.ClassSectionSubjectTeacherSchoolTeacherNameCache == nil {
+				if row.CSSTSchoolTeacherNameCache == nil {
 					if p := trimPtr(t.NameSnap); p != nil {
-						row.ClassSectionSubjectTeacherSchoolTeacherNameCache = p
+						row.CSSTSchoolTeacherNameCache = p
 					}
 				}
 			}
 		}
 
-		// 🆕 Tentukan kapan perlu rebuild cache asisten
+		// rebuild assistant cache jika perlu
 		needAssistantCache := false
-		if row.ClassSectionSubjectTeacherAssistantSchoolTeacherID != nil {
-			if req.ClassSectionSubjectTeacherAssistantSchoolTeacherID != nil {
-				needAssistantCache = true
-			} else if row.ClassSectionSubjectTeacherAssistantSchoolTeacherCache == nil {
+		if row.CSSTAssistantSchoolTeacherID != nil {
+			if req.CSSTAssistantSchoolTeacherID != nil || row.CSSTAssistantSchoolTeacherCache == nil {
 				needAssistantCache = true
 			}
 		}
-
 		if needAssistantCache {
-			assistantID := *row.ClassSectionSubjectTeacherAssistantSchoolTeacherID
+			assistantID := *row.CSSTAssistantSchoolTeacherID
 
 			if err := tx.
 				Where("school_teacher_id = ? AND school_teacher_school_id = ? AND school_teacher_deleted_at IS NULL",
@@ -889,38 +797,38 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 				return helper.JsonError(c, http.StatusInternalServerError, "Gagal membuat cache asisten guru")
 			} else if ats != nil {
 				jb := teacherCache.ToJSON(ats)
-				row.ClassSectionSubjectTeacherAssistantSchoolTeacherCache = &jb
+				row.CSSTAssistantSchoolTeacherCache = &jb
 				if p := trimAny(ats.Name); p != nil {
-					row.ClassSectionSubjectTeacherAssistantSchoolTeacherNameCache = p
+					row.CSSTAssistantSchoolTeacherNameCache = p
 				}
 			}
 		}
 
 		// SLUG handling (mirror create)
-		if req.ClassSectionSubjectTeacherSlug != nil {
-			if s := strings.TrimSpace(*req.ClassSectionSubjectTeacherSlug); s != "" {
+		if req.CSSTSlug != nil {
+			if s := strings.TrimSpace(*req.CSSTSlug); s != "" {
 				norm := helper.Slugify(s, 160)
-				row.ClassSectionSubjectTeacherSlug = &norm
+				row.CSSTSlug = &norm
 			} else {
-				row.ClassSectionSubjectTeacherSlug = nil
+				row.CSSTSlug = nil
 			}
 		}
 
 		needEnsureUnique := false
 		baseSlug := ""
-		if req.ClassSectionSubjectTeacherSlug != nil {
+		if req.CSSTSlug != nil {
 			needEnsureUnique = true
-			if row.ClassSectionSubjectTeacherSlug != nil {
-				baseSlug = *row.ClassSectionSubjectTeacherSlug
+			if row.CSSTSlug != nil {
+				baseSlug = *row.CSSTSlug
 			}
-		} else if row.ClassSectionSubjectTeacherSlug == nil || strings.TrimSpace(ptrStr(row.ClassSectionSubjectTeacherSlug)) == "" {
-			if sectionChanged || classSubjectChanged || teacherChanged || row.ClassSectionSubjectTeacherSlug == nil {
+		} else if row.CSSTSlug == nil || strings.TrimSpace(ptrStr(row.CSSTSlug)) == "" {
+			if sectionChanged || classSubjectChanged || teacherChanged || row.CSSTSlug == nil {
 				needEnsureUnique = true
 				baseSlug = getBaseForSlug(
 					c.Context(), tx, schoolID,
-					row.ClassSectionSubjectTeacherClassSectionID,
-					row.ClassSectionSubjectTeacherClassSubjectID,
-					row.ClassSectionSubjectTeacherSchoolTeacherID,
+					row.CSSTClassSectionID,
+					row.CSSTClassSubjectID,
+					row.CSSTSchoolTeacherID,
 				)
 				baseSlug = helper.Slugify(baseSlug, 160)
 			}
@@ -931,14 +839,14 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 				c.Context(),
 				tx,
 				"class_section_subject_teachers",
-				"class_section_subject_teacher_slug",
+				"csst_slug",
 				baseSlug,
 				func(q *gorm.DB) *gorm.DB {
 					return q.Where(`
-						class_section_subject_teacher_school_id = ?
-						AND class_section_subject_teacher_deleted_at IS NULL
-						AND class_section_subject_teacher_id <> ?
-					`, schoolID, row.ClassSectionSubjectTeacherID)
+						csst_school_id = ?
+						AND csst_deleted_at IS NULL
+						AND csst_id <> ?
+					`, schoolID, row.CSSTID)
 				},
 				160,
 			)
@@ -946,13 +854,12 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 				return helper.JsonError(c, http.StatusInternalServerError, "Gagal menghasilkan slug unik")
 			}
 			if strings.TrimSpace(uniqueSlug) != "" {
-				row.ClassSectionSubjectTeacherSlug = &uniqueSlug
+				row.CSSTSlug = &uniqueSlug
 			} else {
-				row.ClassSectionSubjectTeacherSlug = nil
+				row.CSSTSlug = nil
 			}
 		}
 
-		// Persist
 		if err := tx.Save(&row).Error; err != nil {
 			msg := strings.ToLower(err.Error())
 			if strings.Contains(msg, "uq_csst_unique_alive") ||
@@ -979,28 +886,22 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 			return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 		}
 
-		_ = oldStatus
-		_ = newStatus
-
 		return helper.JsonUpdated(
 			c,
 			"Penugasan guru berhasil diperbarui",
-			dto.FromClassSectionSubjectTeacherModel(row).WithSchoolTime(c),
+			dto.FromCSSTModel(row).WithSchoolTime(c),
 		)
-
 	})
 }
 
 /* ======================== DELETE (soft) ======================== */
 // DELETE /api/a/class-section-subject-teachers/:id
 func (ctl *ClassSectionSubjectTeacherController) Delete(c *fiber.Ctx) error {
-	// 🔑 Ambil school_id dari token saja
 	schoolID, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
 	if err != nil || schoolID == uuid.Nil {
 		return helper.JsonError(c, http.StatusBadRequest, "School pada token tidak valid / tidak ditemukan")
 	}
 
-	// 🔒 Hanya DKM/Admin
 	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
@@ -1015,22 +916,19 @@ func (ctl *ClassSectionSubjectTeacherController) Delete(c *fiber.Ctx) error {
 
 	var row modelCSST.ClassSectionSubjectTeacherModel
 	if err := ctl.DB.WithContext(c.Context()).
-		Where(`
-			class_section_subject_teacher_id = ?
-			AND class_section_subject_teacher_school_id = ?
-		`, id, schoolID).
+		Where(`csst_id = ? AND csst_school_id = ?`, id, schoolID).
 		First(&row).Error; err != nil {
 
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, http.StatusNotFound, "Data tidak ditemukan")
 		}
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
-	if row.ClassSectionSubjectTeacherDeletedAt.Valid {
+	if row.CSSTDeletedAt.Valid {
 		return helper.JsonDeleted(c, "Sudah terhapus", fiber.Map{"id": id})
 	}
 
-	// 🔒 GUARD 1: masih dipakai di class_attendance_sessions?
+	// GUARD 1: masih dipakai di class_attendance_sessions?
 	var cntSess int64
 	if err := ctl.DB.WithContext(c.Context()).
 		Model(&attendanceModel.ClassAttendanceSessionModel{}).
@@ -1041,12 +939,11 @@ func (ctl *ClassSectionSubjectTeacherController) Delete(c *fiber.Ctx) error {
 				class_attendance_session_csst_id = ?
 				OR class_attendance_session_csst_id_cache = ?
 			)
-		`, schoolID, row.ClassSectionSubjectTeacherID, row.ClassSectionSubjectTeacherID).
+		`, schoolID, row.CSSTID, row.CSSTID).
 		Count(&cntSess).Error; err != nil {
 
 		return helper.JsonError(c, http.StatusInternalServerError, "Gagal mengecek relasi sesi absensi")
 	}
-
 	if cntSess > 0 {
 		return helper.JsonError(
 			c,
@@ -1055,7 +952,7 @@ func (ctl *ClassSectionSubjectTeacherController) Delete(c *fiber.Ctx) error {
 		)
 	}
 
-	// 🔒 GUARD 2: masih dipakai di assessments?
+	// GUARD 2: masih dipakai di assessments?
 	var cntAssess int64
 	if err := ctl.DB.WithContext(c.Context()).
 		Model(&assessmentModel.AssessmentModel{}).
@@ -1063,12 +960,11 @@ func (ctl *ClassSectionSubjectTeacherController) Delete(c *fiber.Ctx) error {
 			assessment_school_id = ?
 			AND assessment_deleted_at IS NULL
 			AND assessment_class_section_subject_teacher_id = ?
-		`, schoolID, row.ClassSectionSubjectTeacherID).
+		`, schoolID, row.CSSTID).
 		Count(&cntAssess).Error; err != nil {
 
 		return helper.JsonError(c, http.StatusInternalServerError, "Gagal mengecek relasi assessment")
 	}
-
 	if cntAssess > 0 {
 		return helper.JsonError(
 			c,
@@ -1077,11 +973,11 @@ func (ctl *ClassSectionSubjectTeacherController) Delete(c *fiber.Ctx) error {
 		)
 	}
 
-	// Soft delete
+	// Soft delete (kolom baru)
 	if err := ctl.DB.WithContext(c.Context()).
 		Model(&modelCSST.ClassSectionSubjectTeacherModel{}).
-		Where("class_section_subject_teacher_id = ?", id).
-		Update("class_section_subject_teacher_deleted_at", gorm.Expr("NOW()")).Error; err != nil {
+		Where("csst_id = ?", id).
+		Update("csst_deleted_at", gorm.Expr("NOW()")).Error; err != nil {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
 
