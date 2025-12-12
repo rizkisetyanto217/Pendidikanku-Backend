@@ -1056,11 +1056,10 @@ type ClassSectionCompactResponse struct {
 	ClassSectionAcademicTermNameCache *string `json:"class_section_academic_term_name_cache,omitempty"`
 	ClassSectionAcademicTermSlugCache *string `json:"class_section_academic_term_slug_cache,omitempty"`
 
-	// Homeroom & assistant (versi lite hasil parse JSON cache)
-	ClassSectionSchoolTeacherID          *uuid.UUID         `json:"class_section_school_teacher_id,omitempty"`
-	ClassSectionSchoolTeacher            *TeacherPersonLite `json:"class_section_school_teacher,omitempty"`
-	ClassSectionAssistantSchoolTeacherID *uuid.UUID         `json:"class_section_assistant_school_teacher_id,omitempty"`
-	ClassSectionAssistantSchoolTeacher   *TeacherPersonLite `json:"class_section_assistant_school_teacher,omitempty"`
+	// People: ID + SLUG + RAW JSON (cache)
+	ClassSectionSchoolTeacherID        *uuid.UUID      `json:"class_section_school_teacher_id,omitempty"`
+	ClassSectionSchoolTeacherSlugCache *string         `json:"class_section_school_teacher_slug_cache,omitempty"`
+	ClassSectionSchoolTeacherCache     json.RawMessage `json:"class_section_school_teacher_cache,omitempty"`
 }
 
 // =================== TZ Helpers: COMPACT ===================
@@ -1115,9 +1114,6 @@ func FromSectionModelPtrsWithSchoolTime(c *fiber.Ctx, list []*m.ClassSectionMode
 
 // COMPACT: single
 func FromModelClassSectionToCompact(cs *m.ClassSectionModel) ClassSectionCompactResponse {
-	// teacher lite dari JSON cache (kalau struktur cocok)
-	homeroom := teacherLiteFromJSON(cs.ClassSectionSchoolTeacherCache)
-	asst := teacherLiteFromJSON(cs.ClassSectionAssistantSchoolTeacherCache)
 
 	statusStr := cs.ClassSectionStatus.String()
 	if statusStr == "" {
@@ -1146,10 +1142,9 @@ func FromModelClassSectionToCompact(cs *m.ClassSectionModel) ClassSectionCompact
 		ClassSectionAcademicTermSlugCache: cs.ClassSectionAcademicTermSlugCache,
 
 		// teachers (lite)
-		ClassSectionSchoolTeacherID:          cs.ClassSectionSchoolTeacherID,
-		ClassSectionSchoolTeacher:            homeroom,
-		ClassSectionAssistantSchoolTeacherID: cs.ClassSectionAssistantSchoolTeacherID,
-		ClassSectionAssistantSchoolTeacher:   asst,
+		ClassSectionSchoolTeacherID:        cs.ClassSectionSchoolTeacherID,
+		ClassSectionSchoolTeacherSlugCache: cs.ClassSectionSchoolTeacherSlugCache,
+		ClassSectionSchoolTeacherCache:     json.RawMessage(cs.ClassSectionSchoolTeacherCache),
 	}
 }
 
