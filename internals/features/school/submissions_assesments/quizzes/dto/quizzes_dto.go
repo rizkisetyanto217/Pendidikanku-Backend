@@ -327,18 +327,13 @@ type ListQuizResponse struct {
 ==============================
 */
 
+// file: internals/features/school/submissions_assesments/quizzes/dto/quiz_dto.go
+
 func FromModel(m *model.QuizModel) QuizResponse {
 	var deletedAt *time.Time
 	if m.QuizDeletedAt.Valid {
 		t := m.QuizDeletedAt.Time
 		deletedAt = &t
-	}
-
-	// base total time dari denorm (bisa dioverride di controller kalau punya len(questions))
-	var totalAll *int
-	if m.QuizTimeLimitSec != nil && m.QuizTotalQuestions > 0 {
-		v := (*m.QuizTimeLimitSec) * m.QuizTotalQuestions
-		totalAll = &v
 	}
 
 	return QuizResponse{
@@ -359,11 +354,11 @@ func FromModel(m *model.QuizModel) QuizResponse {
 			return m.QuizTimeLimitSec
 		}(),
 
-		QuizTimeLimitSecAll: totalAll,
+		// ❌ jangan dihitung di mapper
+		QuizTimeLimitSecAll: nil,
 
 		QuizTotalQuestions: m.QuizTotalQuestions,
 
-		// remedial flags
 		QuizIsRemedial:    m.QuizIsRemedial,
 		QuizParentQuizID:  m.QuizParentQuizID,
 		QuizRemedialRound: m.QuizRemedialRound,
@@ -371,8 +366,6 @@ func FromModel(m *model.QuizModel) QuizResponse {
 		QuizCreatedAt: m.QuizCreatedAt,
 		QuizUpdatedAt: m.QuizUpdatedAt,
 		QuizDeletedAt: deletedAt,
-
-		// Questions & QuestionsCount diisi di service/controller kalau perlu
 	}
 }
 

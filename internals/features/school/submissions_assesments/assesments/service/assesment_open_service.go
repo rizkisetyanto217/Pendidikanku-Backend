@@ -44,11 +44,6 @@ func computeIsOpenCore(a *assessmentModel.AssessmentModel, now time.Time, effect
 		return false
 	}
 
-	// 3) Kalau sudah ada closed_at dan now >= closed_at → tutup
-	if a.AssessmentClosedAt != nil && !now.Before(*a.AssessmentClosedAt) {
-		return false
-	}
-
 	// 4) Batas bawah: start_at (kalau ada)
 	if a.AssessmentStartAt != nil && now.Before(*a.AssessmentStartAt) {
 		return false

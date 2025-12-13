@@ -34,13 +34,10 @@ type CreateAssessmentRequest struct {
 	// Jadwal (mode date)
 	AssessmentStartAt     *time.Time `json:"assessment_start_at"`
 	AssessmentDueAt       *time.Time `json:"assessment_due_at"`
-	AssessmentPublishedAt *time.Time `json:"assessment_published_at"`
-	AssessmentClosedAt    *time.Time `json:"assessment_closed_at"`
 
 	// Pengaturan
 	AssessmentKind                 string  `json:"assessment_kind" validate:"omitempty,oneof=quiz assignment_upload offline survey"`
 	AssessmentStatus               *string `json:"assessment_status" validate:"omitempty,oneof=draft published archived"`
-	AssessmentDurationMinutes      *int    `json:"assessment_duration_minutes" validate:"omitempty,gte=1,lte=1440"`
 	AssessmentTotalAttemptsAllowed int     `json:"assessment_total_attempts_allowed" validate:"omitempty,gte=1,lte=50"`
 	AssessmentMaxScore             float64 `json:"assessment_max_score" validate:"omitempty,gte=0,lte=100"`
 
@@ -124,11 +121,8 @@ func (r *CreateAssessmentRequest) ToModel() assessModel.AssessmentModel {
 		AssessmentDescription:                  r.AssessmentDescription,
 		AssessmentStartAt:                      r.AssessmentStartAt,
 		AssessmentDueAt:                        r.AssessmentDueAt,
-		AssessmentPublishedAt:                  r.AssessmentPublishedAt,
-		AssessmentClosedAt:                     r.AssessmentClosedAt,
 		AssessmentKind:                         kind,
 		AssessmentStatus:                       status,
-		AssessmentDurationMinutes:              r.AssessmentDurationMinutes,
 		AssessmentTotalAttemptsAllowed:         r.AssessmentTotalAttemptsAllowed,
 		AssessmentMaxScore:                     r.AssessmentMaxScore,
 		AssessmentQuizTotal:                    quizTotal,
@@ -153,12 +147,10 @@ type PatchAssessmentRequest struct {
 
 	AssessmentStartAt     *time.Time `json:"assessment_start_at"`
 	AssessmentDueAt       *time.Time `json:"assessment_due_at"`
-	AssessmentPublishedAt *time.Time `json:"assessment_published_at"`
-	AssessmentClosedAt    *time.Time `json:"assessment_closed_at"`
 
 	AssessmentKind                 *string  `json:"assessment_kind" validate:"omitempty,oneof=quiz assignment_upload offline survey"`
 	AssessmentStatus               *string  `json:"assessment_status" validate:"omitempty,oneof=draft published archived"`
-	AssessmentDurationMinutes      *int     `json:"assessment_duration_minutes" validate:"omitempty,gte=1,lte=1440"`
+
 	AssessmentTotalAttemptsAllowed *int     `json:"assessment_total_attempts_allowed" validate:"omitempty,gte=1,lte=50"`
 	AssessmentMaxScore             *float64 `json:"assessment_max_score" validate:"omitempty,gte=0,lte=100"`
 
@@ -228,22 +220,12 @@ func (r *PatchAssessmentRequest) Apply(m *assessModel.AssessmentModel) {
 	if r.AssessmentDueAt != nil {
 		m.AssessmentDueAt = r.AssessmentDueAt
 	}
-	if r.AssessmentPublishedAt != nil {
-		m.AssessmentPublishedAt = r.AssessmentPublishedAt
-	}
-	if r.AssessmentClosedAt != nil {
-		m.AssessmentClosedAt = r.AssessmentClosedAt
-	}
 
 	if r.AssessmentKind != nil && *r.AssessmentKind != "" {
 		m.AssessmentKind = assessModel.AssessmentKind(*r.AssessmentKind)
 	}
 	if r.AssessmentStatus != nil && *r.AssessmentStatus != "" {
 		m.AssessmentStatus = assessModel.AssessmentStatus(*r.AssessmentStatus)
-	}
-
-	if r.AssessmentDurationMinutes != nil {
-		m.AssessmentDurationMinutes = r.AssessmentDurationMinutes
 	}
 	if r.AssessmentTotalAttemptsAllowed != nil {
 		m.AssessmentTotalAttemptsAllowed = *r.AssessmentTotalAttemptsAllowed
@@ -281,13 +263,10 @@ type AssessmentResponse struct {
 
 	AssessmentStartAt     *time.Time `json:"assessment_start_at,omitempty"`
 	AssessmentDueAt       *time.Time `json:"assessment_due_at,omitempty"`
-	AssessmentPublishedAt *time.Time `json:"assessment_published_at,omitempty"`
-	AssessmentClosedAt    *time.Time `json:"assessment_closed_at,omitempty"`
 
 	AssessmentKind   string `json:"assessment_kind"`
 	AssessmentStatus string `json:"assessment_status"`
 
-	AssessmentDurationMinutes      *int    `json:"assessment_duration_minutes,omitempty"`
 	AssessmentTotalAttemptsAllowed int     `json:"assessment_total_attempts_allowed"`
 	AssessmentMaxScore             float64 `json:"assessment_max_score"`
 
@@ -328,13 +307,10 @@ func buildAssessmentResponse(m assessModel.AssessmentModel, isOpen bool) Assessm
 
 		AssessmentStartAt:     m.AssessmentStartAt,
 		AssessmentDueAt:       m.AssessmentDueAt,
-		AssessmentPublishedAt: m.AssessmentPublishedAt,
-		AssessmentClosedAt:    m.AssessmentClosedAt,
 
 		AssessmentKind:   string(m.AssessmentKind),
 		AssessmentStatus: string(m.AssessmentStatus),
 
-		AssessmentDurationMinutes:      m.AssessmentDurationMinutes,
 		AssessmentTotalAttemptsAllowed: m.AssessmentTotalAttemptsAllowed,
 		AssessmentMaxScore:             m.AssessmentMaxScore,
 		AssessmentQuizTotal:            m.AssessmentQuizTotal,
@@ -388,8 +364,6 @@ func FromModelAssesmentWithSchoolTime(c *fiber.Ctx, m assessModel.AssessmentMode
 	// override waktu ke timezone sekolah
 	resp.AssessmentStartAt = dbtime.ToSchoolTimePtr(c, m.AssessmentStartAt)
 	resp.AssessmentDueAt = dbtime.ToSchoolTimePtr(c, m.AssessmentDueAt)
-	resp.AssessmentPublishedAt = dbtime.ToSchoolTimePtr(c, m.AssessmentPublishedAt)
-	resp.AssessmentClosedAt = dbtime.ToSchoolTimePtr(c, m.AssessmentClosedAt)
 
 	resp.AssessmentCreatedAt = dbtime.ToSchoolTime(c, m.AssessmentCreatedAt)
 	resp.AssessmentUpdatedAt = dbtime.ToSchoolTime(c, m.AssessmentUpdatedAt)
@@ -409,8 +383,6 @@ func FromAssesmentModelsWithSchoolTime(c *fiber.Ctx, rows []assessModel.Assessme
 
 		resp.AssessmentStartAt = dbtime.ToSchoolTimePtr(c, m.AssessmentStartAt)
 		resp.AssessmentDueAt = dbtime.ToSchoolTimePtr(c, m.AssessmentDueAt)
-		resp.AssessmentPublishedAt = dbtime.ToSchoolTimePtr(c, m.AssessmentPublishedAt)
-		resp.AssessmentClosedAt = dbtime.ToSchoolTimePtr(c, m.AssessmentClosedAt)
 
 		resp.AssessmentCreatedAt = dbtime.ToSchoolTime(c, m.AssessmentCreatedAt)
 		resp.AssessmentUpdatedAt = dbtime.ToSchoolTime(c, m.AssessmentUpdatedAt)

@@ -209,14 +209,11 @@ CREATE TABLE IF NOT EXISTS assessments (
   -- Jadwal by date
   assessment_start_at     TIMESTAMPTZ,
   assessment_due_at       TIMESTAMPTZ,
-  assessment_published_at TIMESTAMPTZ,
-  assessment_closed_at    TIMESTAMPTZ,
 
   -- Pengaturan dasar assessment
   assessment_kind   assessment_kind_enum   NOT NULL DEFAULT 'quiz',
   assessment_status assessment_status_enum NOT NULL DEFAULT 'draft',
 
-  assessment_duration_minutes       INT,
   assessment_total_attempts_allowed INT NOT NULL DEFAULT 1,
 
   assessment_max_score NUMERIC(5,2) NOT NULL DEFAULT 100

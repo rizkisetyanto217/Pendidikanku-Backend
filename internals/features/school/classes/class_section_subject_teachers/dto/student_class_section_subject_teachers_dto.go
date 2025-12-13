@@ -163,6 +163,8 @@ type StudentCSSTListQuery struct {
 	SortBy string `query:"sort_by"`
 	Order  string `query:"order"`
 
+	Mode string `query:"mode"` // "full" | "compact" (default: full)
+
 	IncludeSection      bool `query:"include_section"`
 	IncludeClassSubject bool `query:"include_class_subject"`
 	IncludeTeacher      bool `query:"include_teacher"`
@@ -417,5 +419,107 @@ func fromStudentCSSTModelInternal(
 		Section:      nil,
 		ClassSubject: nil,
 		Teacher:      nil,
+	}
+}
+
+/* =========================================================
+   COMPACT ITEM — ringan untuk list / nested include
+========================================================= */
+
+type StudentCSSTCompactItem struct {
+	StudentCSSTID uuid.UUID `json:"student_csst_id"`
+
+	StudentCSSTStudentID uuid.UUID `json:"student_csst_student_id"`
+	StudentCSSTCSSTID    uuid.UUID `json:"student_csst_csst_id"`
+
+	StudentCSSTIsActive bool       `json:"student_csst_is_active"`
+	StudentCSSTFrom     *time.Time `json:"student_csst_from,omitempty"`
+	StudentCSSTTo       *time.Time `json:"student_csst_to,omitempty"`
+
+	// cache yang sering kepake buat UI list
+	StudentCSSTUserProfileNameCache      *string `json:"student_csst_user_profile_name_cache,omitempty"`
+	StudentCSSTUserProfileAvatarURLCache *string `json:"student_csst_user_profile_avatar_url_cache,omitempty"`
+	StudentCSSTSchoolStudentCodeCache    *string `json:"student_csst_school_student_code_cache,omitempty"`
+	StudentCSSTUserProfileGenderCache    *string `json:"student_csst_user_profile_gender_cache,omitempty"`
+
+	StudentCSSTSlug *string `json:"student_csst_slug,omitempty"`
+
+	StudentCSSTCreatedAt time.Time  `json:"student_csst_created_at"`
+	StudentCSSTUpdatedAt time.Time  `json:"student_csst_updated_at"`
+	StudentCSSTDeletedAt *time.Time `json:"student_csst_deleted_at,omitempty"`
+}
+
+/* =========================================================
+   MAPPERS — COMPACT (DB time vs School time)
+========================================================= */
+
+func FromStudentCSSTModelCompact(m *model.StudentClassSectionSubjectTeacherModel) StudentCSSTCompactItem {
+	return fromStudentCSSTModelCompactInternal(nil, m)
+}
+
+func FromStudentCSSTModelsCompact(rows []model.StudentClassSectionSubjectTeacherModel) []StudentCSSTCompactItem {
+	out := make([]StudentCSSTCompactItem, 0, len(rows))
+	for i := range rows {
+		out = append(out, FromStudentCSSTModelCompact(&rows[i]))
+	}
+	return out
+}
+
+func FromStudentCSSTModelCompactWithSchoolTime(
+	c *fiber.Ctx,
+	m *model.StudentClassSectionSubjectTeacherModel,
+) StudentCSSTCompactItem {
+	return fromStudentCSSTModelCompactInternal(c, m)
+}
+
+func FromStudentCSSTModelsCompactWithSchoolTime(
+	c *fiber.Ctx,
+	rows []model.StudentClassSectionSubjectTeacherModel,
+) []StudentCSSTCompactItem {
+	out := make([]StudentCSSTCompactItem, 0, len(rows))
+	for i := range rows {
+		out = append(out, FromStudentCSSTModelCompactWithSchoolTime(c, &rows[i]))
+	}
+	return out
+}
+
+/* =========================================================
+   INTERNAL CORE
+========================================================= */
+
+func fromStudentCSSTModelCompactInternal(
+	c *fiber.Ctx,
+	m *model.StudentClassSectionSubjectTeacherModel,
+) StudentCSSTCompactItem {
+	if m == nil {
+		return StudentCSSTCompactItem{}
+	}
+
+	var deletedAt *time.Time
+	if m.StudentCSSTDeletedAt.Valid {
+		t := dbtime.ToSchoolTime(c, m.StudentCSSTDeletedAt.Time)
+		deletedAt = &t
+	}
+
+	return StudentCSSTCompactItem{
+		StudentCSSTID: m.StudentCSSTID,
+
+		StudentCSSTStudentID: m.StudentCSSTStudentID,
+		StudentCSSTCSSTID:    m.StudentCSSTCSSTID,
+
+		StudentCSSTIsActive: m.StudentCSSTIsActive,
+		StudentCSSTFrom:     dbtime.ToSchoolTimePtr(c, m.StudentCSSTFrom),
+		StudentCSSTTo:       dbtime.ToSchoolTimePtr(c, m.StudentCSSTTo),
+
+		StudentCSSTUserProfileNameCache:      m.StudentCSSTUserProfileNameCache,
+		StudentCSSTUserProfileAvatarURLCache: m.StudentCSSTUserProfileAvatarURLCache,
+		StudentCSSTSchoolStudentCodeCache:    m.StudentCSSTSchoolStudentCodeCache,
+		StudentCSSTUserProfileGenderCache:    m.StudentCSSTUserProfileGenderCache,
+
+		StudentCSSTSlug: m.StudentCSSTSlug,
+
+		StudentCSSTCreatedAt: dbtime.ToSchoolTime(c, m.StudentCSSTCreatedAt),
+		StudentCSSTUpdatedAt: dbtime.ToSchoolTime(c, m.StudentCSSTUpdatedAt),
+		StudentCSSTDeletedAt: deletedAt,
 	}
 }

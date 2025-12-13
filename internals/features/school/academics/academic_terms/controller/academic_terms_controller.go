@@ -18,6 +18,8 @@ import (
 	classModel "madinahsalam_backend/internals/features/school/classes/classes/model"
 	helper "madinahsalam_backend/internals/helpers"
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
+
+	academicTermsService "madinahsalam_backend/internals/features/school/academics/academic_terms/service"
 )
 
 /* ============================================
@@ -56,13 +58,32 @@ func bindAndValidate[T any](c *fiber.Ctx, v *validator.Validate, dst *T) error {
 	return nil
 }
 
+// helper: name + academic_year (MODEL string) — anti dobel suffix year
+func buildTermDisplayNameStr(name string, ay string) string {
+	n := strings.TrimSpace(name)
+	y := strings.TrimSpace(ay)
+	if y == "" {
+		return n
+	}
+
+	// anti "2027 2027" / "2026/27 2026/27"
+	ln := strings.ToLower(n)
+	ly := strings.ToLower(y)
+
+	// kalau sudah mengandung year sebagai token terakhir, jangan append lagi
+	if strings.HasSuffix(ln, " "+ly) || ln == ly {
+		return n
+	}
+
+	return strings.TrimSpace(n + " " + y)
+}
+
 /* =========================================================
    CREATE (DKM only)
    POST /admin/academic-terms
 ========================================================= */
 
 func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
-	// optional kalau kamu konsisten pakai di helper lain
 	c.Locals("DB", ctl.DB)
 
 	var p dto.AcademicTermCreateDTO
@@ -86,7 +107,6 @@ func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
 		}
 		return httpErr(c, fiber.StatusUnauthorized, err.Error())
 	}
-	// Pastikan dia DKM/Admin di school tsb
 	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return err
 	}
@@ -104,12 +124,16 @@ func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	// === Slug dari academic_term_name (bukan academic_year) ===
+	// === Display name: name + academic_year ===
 	name := strings.TrimSpace(p.AcademicTermName)
 	if name == "" {
 		return httpErr(c, fiber.StatusBadRequest, "Nama tahun akademik wajib diisi")
 	}
-	baseSlug := helper.Slugify(name, 50) // kolom varchar(50)
+
+	displayName := buildTermDisplayNameStr(name, p.AcademicTermAcademicYear)
+
+	p.AcademicTermName = displayName // OPTIONAL (kalau mau simpan display ke DB)
+	baseSlug := helper.Slugify(displayName, 50)
 
 	uniqueSlug, err := helper.EnsureUniqueSlugCI(
 		c.Context(),
@@ -135,14 +159,14 @@ func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "Berhasil membuat tahun akademik", dto.FromModel(c, ent))
 }
 
-/* =========================================================
-   PUT/PATCH (DKM only)
-   PUT /admin/academic-terms/:id
-   PATCH /admin/academic-terms/:id
-========================================================= */
+/*
+	=========================================================
+	  PATCH (DKM only)
+	  PATCH /admin/academic-terms/:id
 
+=========================================================
+*/
 func (ctl *AcademicTermController) Patch(c *fiber.Ctx) error {
-	// optional locals DB
 	c.Locals("DB", ctl.DB)
 
 	idStr := c.Params("id")
@@ -151,7 +175,7 @@ func (ctl *AcademicTermController) Patch(c *fiber.Ctx) error {
 		return httpErr(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// === School context dari TOKEN (DKM only), sama seperti Create ===
+	// === School context dari TOKEN (DKM only) ===
 	schoolID, err := helperAuth.GetActiveSchoolIDFromToken(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
@@ -184,7 +208,7 @@ func (ctl *AcademicTermController) Patch(c *fiber.Ctx) error {
 			return httpErr(c, fiber.StatusBadRequest, err.Error())
 		}
 
-		// === Samakan normalisasi dengan Create ===
+		// ---------- Normalisasi ----------
 		if p.AcademicTermCode != nil {
 			s := strings.TrimSpace(*p.AcademicTermCode)
 			p.AcademicTermCode = &s
@@ -197,11 +221,15 @@ func (ctl *AcademicTermController) Patch(c *fiber.Ctx) error {
 			s := strings.TrimSpace(*p.AcademicTermAcademicYear)
 			p.AcademicTermAcademicYear = &s
 		}
+		if p.AcademicTermName != nil {
+			s := strings.TrimSpace(*p.AcademicTermName)
+			p.AcademicTermName = &s
+		}
 
-		// === Abaikan slug dari payload (selaras Create) ===
+		// Abaikan slug dari payload
 		p.AcademicTermSlug = nil
 
-		// Validasi tanggal jika diubah
+		// ---------- Validasi tanggal ----------
 		if p.AcademicTermStartDate != nil || p.AcademicTermEndDate != nil {
 			start := ent.AcademicTermStartDate
 			end := ent.AcademicTermEndDate
@@ -216,7 +244,7 @@ func (ctl *AcademicTermController) Patch(c *fiber.Ctx) error {
 			}
 		}
 
-		// Uniqueness kode jika berubah
+		// ---------- Uniqueness kode ----------
 		if p.AcademicTermCode != nil && strings.TrimSpace(*p.AcademicTermCode) != "" {
 			var cnt int64
 			if err := tx.Model(&termModel.AcademicTermModel{}).
@@ -230,21 +258,26 @@ func (ctl *AcademicTermController) Patch(c *fiber.Ctx) error {
 			}
 		}
 
-		// Simpan nilai lama untuk deteksi refresh snapshot classes
+		// ---------- Simpan nilai lama untuk deteksi refresh ----------
 		oldAY := ent.AcademicTermAcademicYear
 		oldName := ent.AcademicTermName
 		oldAngkatan := ent.AcademicTermAngkatan
 
-		// Terapkan perubahan (kecuali slug, sudah dipaksa nil di atas)
+		// ---------- Apply patch ----------
 		p.ApplyUpdates(&ent)
 
-		// === Regenerasi slug hanya jika NAMA berubah (selaras Create) ===
-		if p.AcademicTermName != nil {
-			nm := strings.TrimSpace(*p.AcademicTermName)
+		// ✅ Pastikan name selalu "name + academic_year" kalau salah satunya berubah
+		if p.AcademicTermName != nil || p.AcademicTermAcademicYear != nil {
+			nm := strings.TrimSpace(ent.AcademicTermName)
 			if nm == "" {
 				return httpErr(c, fiber.StatusBadRequest, "Nama tahun akademik wajib diisi")
 			}
-			baseSlug := helper.Slugify(nm, 50)
+
+			// bikin displayName anti dobel "2027 2027"
+			displayName := buildTermDisplayNameStr(ent.AcademicTermName, ent.AcademicTermAcademicYear)
+			ent.AcademicTermName = displayName
+
+			baseSlug := helper.Slugify(displayName, 50)
 			uniqueSlug, err := helper.EnsureUniqueSlugCI(
 				c.Context(), tx,
 				"academic_terms", "academic_term_slug",
@@ -262,12 +295,12 @@ func (ctl *AcademicTermController) Patch(c *fiber.Ctx) error {
 
 		ent.AcademicTermUpdatedAt = time.Now()
 
-		// Simpan perubahan term
+		// ---------- Save term ----------
 		if err := tx.Save(&ent).Error; err != nil {
 			return httpErr(c, fiber.StatusInternalServerError, "Gagal memperbarui data")
 		}
 
-		// Hitung perlu refresh snapshot classes (AY/Name/Angkatan)
+		// ---------- Need refresh classes cache? ----------
 		needRefresh := false
 		if p.AcademicTermAcademicYear != nil && ent.AcademicTermAcademicYear != oldAY {
 			needRefresh = true
@@ -287,26 +320,21 @@ func (ctl *AcademicTermController) Patch(c *fiber.Ctx) error {
 		}
 
 		if needRefresh {
-			// Opsional: sekalian recompute class_name dari snapshot parent + term
-			recomputeName := gorm.Expr(
-				"CASE WHEN ? IS NULL OR TRIM(?) = '' "+
-					"THEN COALESCE(class_parent_name_snapshot,'') "+
-					"ELSE COALESCE(class_parent_name_snapshot,'') || ' — ' || ? END",
-				ent.AcademicTermName, ent.AcademicTermName, ent.AcademicTermName,
-			)
+			cacheSvc := academicTermsService.NewAcademicTermCacheService()
 
-			if err := tx.Model(&classModel.ClassModel{}).
-				Where("class_school_id = ? AND class_academic_term_id = ? AND class_deleted_at IS NULL",
-					schoolID, ent.AcademicTermID).
-				Updates(map[string]any{
-					"class_term_academic_year_snapshot": ent.AcademicTermAcademicYear,
-					"class_term_name_snapshot":          ent.AcademicTermName,
-					"class_term_slug_snapshot":          ent.AcademicTermSlug,
-					"class_term_angkatan_snapshot":      ent.AcademicTermAngkatan,
-					"class_name":                        recomputeName,
-					"class_updated_at":                  time.Now(),
-				}).Error; err != nil {
-				return httpErr(c, fiber.StatusInternalServerError, "Gagal menyegarkan snapshot kelas")
+			// 1) refresh classes
+			if err := cacheSvc.RefreshClassesForTerm(c.Context(), tx, schoolID, &ent); err != nil {
+				return httpErr(c, fiber.StatusInternalServerError, "Gagal menyegarkan cache kelas: "+err.Error())
+			}
+
+			// 2) refresh class_sections
+			if err := cacheSvc.RefreshClassSectionsForTerm(c.Context(), tx, schoolID, &ent); err != nil {
+				return httpErr(c, fiber.StatusInternalServerError, "Gagal menyegarkan cache rombel: "+err.Error())
+			}
+
+			// 3) refresh CSST
+			if err := cacheSvc.RefreshCSSTForTerm(c.Context(), tx, schoolID, &ent); err != nil {
+				return httpErr(c, fiber.StatusInternalServerError, "Gagal menyegarkan cache CSST: "+err.Error())
 			}
 		}
 
@@ -319,7 +347,7 @@ func (ctl *AcademicTermController) Patch(c *fiber.Ctx) error {
 	}
 
 	return helper.JsonUpdated(c,
-		"Berhasil memperbarui tahun akademik & menyegarkan snapshot kelas",
+		"Berhasil memperbarui tahun akademik & menyegarkan cache kelas",
 		out,
 	)
 }
@@ -330,7 +358,6 @@ func (ctl *AcademicTermController) Patch(c *fiber.Ctx) error {
 ========================================================= */
 
 func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
-	// optional locals DB
 	c.Locals("DB", ctl.DB)
 
 	idStr := c.Params("id")
@@ -351,7 +378,6 @@ func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
 		return err
 	}
 
-	// 1) Pastikan term-nya ada
 	var ent termModel.AcademicTermModel
 	if err := ctl.DB.
 		Where("academic_term_school_id = ? AND academic_term_id = ?", schoolID, id).
@@ -362,7 +388,7 @@ func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// 2) CEGAH delete kalau masih ada kelas yang pakai term ini
+	// CEGAH delete kalau masih ada kelas yang pakai term ini
 	var classCount int64
 	if err := ctl.DB.
 		Model(&classModel.ClassModel{}).
@@ -371,7 +397,7 @@ func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal mengecek relasi kelas")
 	}
 
-	// 3) CEGAH delete kalau masih ada class_sections yang pakai term ini
+	// CEGAH delete kalau masih ada class_sections yang pakai term ini
 	var sectionCount int64
 	if err := ctl.DB.
 		Model(&classSectionModel.ClassSectionModel{}).
@@ -386,7 +412,6 @@ func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
 		)
 	}
 
-	// 4) Aman → soft delete term
 	if err := ctl.DB.Delete(&ent).Error; err != nil {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal menghapus data")
 	}
@@ -402,7 +427,6 @@ func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
 ============================================ */
 
 func (ctl *AcademicTermController) Restore(c *fiber.Ctx) error {
-	// optional locals DB
 	c.Locals("DB", ctl.DB)
 
 	idStr := c.Params("id")

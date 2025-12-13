@@ -1,4 +1,3 @@
-// file: internals/features/school/attendance_assesment/submissions/controller/submission_list_controller.go
 package controller
 
 import (
@@ -14,11 +13,29 @@ import (
 	helperAuth "madinahsalam_backend/internals/helpers/auth"
 )
 
+/* =========================
+   include parser
+========================= */
+
+func hasInclude(c *fiber.Ctx, key string) bool {
+	raw := strings.ToLower(strings.TrimSpace(c.Query("include")))
+	if raw == "" {
+		return false
+	}
+	parts := strings.Split(raw, ",")
+	for _, p := range parts {
+		if strings.TrimSpace(p) == key {
+			return true
+		}
+	}
+	return false
+}
+
 // GET /submissions/list (LIST — member; student hanya lihat miliknya, school via token)
 func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 	c.Locals("DB", ctrl.DB)
 
-	// 1) Ambil school dari token (via helper yang sudah ada: parseSchoolIDParam -> GetActiveSchoolID)
+	// 1) Ambil school dari token
 	schoolID, err := parseSchoolIDParam(c)
 	if err != nil {
 		return err
@@ -40,8 +57,11 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// SchoolID selalu di-force dari token (abaikan query school_id)
+	// SchoolID selalu di-force dari token
 	q.SchoolID = &schoolID
+
+	// include flags
+	includeURLs := hasInclude(c, "submission_urls")
 
 	// 4) Base query: semua submission milik school ini
 	tx := ctrl.DB.WithContext(c.Context()).
@@ -61,7 +81,6 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 		if sid, _ := helperAuth.GetSchoolStudentIDForSchool(c, schoolID); sid != uuid.Nil {
 			q.StudentID = &sid
 		} else {
-			// Student tapi tidak punya relasi school_student -> kosongkan list
 			page := q.Page
 			if page <= 0 {
 				page = 1
@@ -77,9 +96,9 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 6) Optional filters dari query (DTO)
+	// 6) Optional filters dari query
 
-	// 🔹 Filter by submission_id / id (single UUID) — tambahan di luar DTO
+	// Filter by submission_id / id (single UUID)
 	if s := strings.TrimSpace(c.Query("id")); s != "" {
 		if sid, er := uuid.Parse(s); er == nil && sid != uuid.Nil {
 			tx = tx.Where("submission_id = ?", sid)
@@ -90,12 +109,12 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 🔹 Filter by assessment_id (DTO)
+	// Filter by assessment_id
 	if q.AssessmentID != nil {
 		tx = tx.Where("submission_assessment_id = ?", *q.AssessmentID)
 	}
 
-	// 🔹 (opsional) multiple assessment_ids=uuid1,uuid2,... (tambahan)
+	// multiple assessment_ids=uuid1,uuid2,...
 	if s := strings.TrimSpace(c.Query("assessment_ids")); s != "" {
 		parts := strings.Split(s, ",")
 		var ids []uuid.UUID
@@ -113,17 +132,17 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 🔹 StudentID (hanya untuk non-student / staff; untuk student sudah di-force di atas)
+	// StudentID (staff only)
 	if !isStudent && q.StudentID != nil {
 		tx = tx.Where("submission_student_id = ?", *q.StudentID)
 	}
 
-	// 🔹 Status
+	// Status
 	if q.Status != nil {
 		tx = tx.Where("submission_status = ?", *q.Status)
 	}
 
-	// 🔹 Periode submitted_from / submitted_to
+	// Periode submitted_from / submitted_to
 	if q.SubmittedFrom != nil {
 		tx = tx.Where("submission_submitted_at >= ?", *q.SubmittedFrom)
 	}
@@ -131,7 +150,7 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 		tx = tx.Where("submission_submitted_at < ?", *q.SubmittedTo)
 	}
 
-	// 7) Pagination (pakai Page/PerPage dari DTO dengan clamp)
+	// 7) Pagination
 	page := q.Page
 	if page <= 0 {
 		page = 1
@@ -144,13 +163,13 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 	}
 	offset := (page - 1) * perPage
 
-	// 8) Hitung total
+	// 8) Total count
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// 9) Sorting (pakai helper applySort yang sudah didefinisikan di controller lain)
+	// 9) Sorting
 	tx = applySort(tx, q.Sort)
 
 	// 10) Ambil data
@@ -162,13 +181,44 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// 11) Mapping ke DTO (timezone-aware)
-	items := make([]any, 0, len(rows))
-	for i := range rows {
-		items = append(items, dto.FromModelWithCtx(c, &rows[i]))
+	// 11) Optional include=submission_urls (compact, batch)
+	urlBySubmission := map[uuid.UUID][]dto.SubmissionURLDocCompact{}
+	if includeURLs && len(rows) > 0 {
+		ids := make([]uuid.UUID, 0, len(rows))
+		for i := range rows {
+			ids = append(ids, rows[i].SubmissionID)
+		}
+
+		var urls []model.SubmissionURLModel
+		if err := ctrl.DB.WithContext(c.Context()).
+			Model(&model.SubmissionURLModel{}).
+			Where(`
+				submission_url_school_id = ?
+				AND submission_url_submission_id IN ?
+				AND submission_url_deleted_at IS NULL
+			`, schoolID, ids).
+			Order("submission_url_is_primary DESC, submission_url_order ASC, submission_url_created_at ASC").
+			Find(&urls).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+		}
+
+		for i := range urls {
+			sid := urls[i].SubmissionURLSubmissionID
+			urlBySubmission[sid] = append(urlBySubmission[sid], dto.FromModelSubmissionURLDocCompact(urls[i]))
+		}
 	}
 
-	// 12) Build pagination full (TotalPages, HasNext, HasPrev, dsb)
+	// 12) Mapping ke DTO (timezone-aware) + inject include
+	items := make([]any, 0, len(rows))
+	for i := range rows {
+		resp := dto.FromModelWithCtx(c, &rows[i])
+		if includeURLs {
+			resp.SubmissionURLs = urlBySubmission[rows[i].SubmissionID]
+		}
+		items = append(items, resp)
+	}
+
+	// 13) Pagination meta
 	pagination := helper.BuildPaginationFromPage(total, page, perPage)
 
 	return helper.JsonList(c, "OK", items, pagination)

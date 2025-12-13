@@ -212,8 +212,14 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 	req.Normalize()
 
 	quizParts := req.FlattenQuizzes()
-	if len(quizParts) == 0 {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Minimal harus ada 1 quiz")
+
+	// ✅ hanya wajib quiz kalau kind = quiz
+	kind := strings.ToLower(strings.TrimSpace(req.Assessment.AssessmentKind))
+	if kind == "" {
+		kind = "quiz"
+	}
+	if kind == "quiz" && len(quizParts) == 0 {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Minimal harus ada 1 quiz untuk assessment_kind=quiz")
 	}
 
 	mid, err := helperAuth.ResolveSchoolForDKMOrTeacher(c)

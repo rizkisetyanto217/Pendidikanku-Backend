@@ -254,26 +254,27 @@ func (ctrl *QuizController) List(c *fiber.Ctx) error {
 		// ===========================
 		actualQuestionCount := 0
 
-		// Kalau sebelumnya kita sudah fetch questions (nestedQuestions || includeQuestions),
-		// pasti questionsByQuizID sudah keisi → ambil len dari sana.
+		// kalau kita fetch questions (nested/include), ambil dari map
 		if qs, ok := questionsByQuizID[rows[i].QuizID]; ok {
 			actualQuestionCount = len(qs)
 
-			// kalau memang NESTED diminta, baru tempel questions ke resp
+			// kalau nested diminta, tempel questions
 			if nestedQuestions && actualQuestionCount > 0 {
 				resp.Questions = dto.FromModelsQuizQuestionsWithCtx(c, qs)
 			}
 		}
 
-		// fallback kalau tidak ada fetch questions sama sekali
+		// fallback kalau gak fetch questions sama sekali
 		if actualQuestionCount == 0 {
 			actualQuestionCount = rows[i].QuizTotalQuestions
 		}
 
-		// ✅ quiz_time_limit_sec_all
+		// ✅ quiz_time_limit_sec_all = quiz_time_limit_sec * jumlah_soal
 		if resp.QuizTimeLimitSec != nil && actualQuestionCount > 0 {
 			v := (*resp.QuizTimeLimitSec) * actualQuestionCount
 			resp.QuizTimeLimitSecAll = &v
+		} else {
+			resp.QuizTimeLimitSecAll = nil
 		}
 
 		out = append(out, resp)

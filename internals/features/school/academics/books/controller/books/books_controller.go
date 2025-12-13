@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"mime/multipart"
+	"strconv"
 	"strings"
 	"time"
 
@@ -116,6 +117,20 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 		p.BookTitle = strings.TrimSpace(c.FormValue("book_title"))
 		p.BookAuthor = strPtrIfNotEmpty(c.FormValue("book_author"))
 		p.BookDesc = strPtrIfNotEmpty(c.FormValue("book_desc"))
+
+		// ✅ TAMBAH INI
+		p.BookPurchaseURL = strPtrIfNotEmpty(c.FormValue("book_purchase_url"))
+		p.BookPublisher = strPtrIfNotEmpty(c.FormValue("book_publisher"))
+
+		if ys := strings.TrimSpace(c.FormValue("book_publication_year")); ys != "" {
+			n, err := strconv.Atoi(ys)
+			if err != nil {
+				return helper.JsonError(c, fiber.StatusBadRequest, "book_publication_year harus angka")
+			}
+			v := int16(n)
+			p.BookPublicationYear = &v
+		}
+
 		if v := strings.TrimSpace(c.FormValue("book_slug")); v != "" {
 			s := helper.Slugify(v, 160)
 			p.BookSlug = &s

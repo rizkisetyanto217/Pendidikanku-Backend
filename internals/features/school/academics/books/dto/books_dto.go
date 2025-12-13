@@ -73,17 +73,23 @@ func (u *BookURLUpsert) Normalize() {
 	}
 }
 
-/* =========================================================
-   REQUEST
-========================================================= */
+/*
+	=========================================================
+	  REQUEST
 
+=========================================================
+*/
 type BookCreateRequest struct {
-	BookSchoolID    uuid.UUID `json:"book_school_id"      form:"book_school_id"      validate:"required"`
-	BookTitle       string    `json:"book_title"          form:"book_title"          validate:"required,min=1"`
-	BookAuthor      *string   `json:"book_author,omitempty"  form:"book_author"      validate:"omitempty,min=1"`
-	BookDesc        *string   `json:"book_desc,omitempty"    form:"book_desc"        validate:"omitempty"`
-	BookSlug        *string   `json:"book_slug,omitempty"    form:"book_slug"        validate:"omitempty,max=160"`
+	BookSchoolID    uuid.UUID `json:"book_school_id" form:"book_school_id" validate:"required"`
+	BookTitle       string    `json:"book_title"     form:"book_title"     validate:"required,min=1"`
+	BookAuthor      *string   `json:"book_author,omitempty" form:"book_author" validate:"omitempty,min=1"`
+	BookDesc        *string   `json:"book_desc,omitempty"   form:"book_desc"   validate:"omitempty"`
+	BookSlug        *string   `json:"book_slug,omitempty"   form:"book_slug"   validate:"omitempty,max=160"`
 	BookPurchaseURL *string   `json:"book_purchase_url,omitempty" form:"book_purchase_url" validate:"omitempty,url"`
+
+	// ✅ TAMBAH INI
+	BookPublisher       *string `json:"book_publisher,omitempty" form:"book_publisher" validate:"omitempty,max=160"`
+	BookPublicationYear *int16  `json:"book_publication_year,omitempty" form:"book_publication_year" validate:"omitempty,gte=0,lte=9999"`
 }
 
 type BookUpdateRequest struct {
@@ -120,6 +126,10 @@ func (r *BookCreateRequest) Normalize() {
 	r.BookDesc = trimPtr(r.BookDesc)
 	r.BookSlug = trimPtr(r.BookSlug)
 	r.BookPurchaseURL = trimPtr(r.BookPurchaseURL)
+
+	// ✅
+	r.BookPublisher = trimPtr(r.BookPublisher)
+	// year udah int16, jadi gak perlu trim
 }
 
 func (r *BookUpdateRequest) Normalize() {
@@ -231,6 +241,10 @@ func (r *BookCreateRequest) ToModel() *model.BookModel {
 		BookDesc:        r.BookDesc,
 		BookSlug:        r.BookSlug,
 		BookPurchaseURL: r.BookPurchaseURL,
+
+		// ✅
+		BookPublisher:       r.BookPublisher,
+		BookPublicationYear: r.BookPublicationYear,
 	}
 }
 

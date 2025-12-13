@@ -20,7 +20,7 @@ import (
 
 	// Services & helpers
 	"madinahsalam_backend/internals/features/lembaga/stats/lembaga_stats/service"
-	academicTermsSnapshot "madinahsalam_backend/internals/features/school/academics/academic_terms/snapshot"
+	academicTermsService "madinahsalam_backend/internals/features/school/academics/academic_terms/service"
 
 	// ✅ pakai DTO & model classes yang baru (academics)
 	dto "madinahsalam_backend/internals/features/school/classes/classes/dto"
@@ -294,13 +294,16 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil snapshot parent: "+err.Error())
 	}
-	if err := academicTermsSnapshot.HydrateAcademicTermSnapshot(c.Context(), tx, schoolID, m); err != nil {
+	if err := academicTermsService.HydrateAcademicTermCache(c.Context(), tx, schoolID, m); err != nil {
 		_ = tx.Rollback().Error
-		log.Printf("[CLASSES][CREATE] ❌ term snapshot error: %v", err)
-		if fe, ok := err.(*fiber.Error); ok {
-			return helper.JsonError(c, fe.Code, fe.Message)
+		log.Printf("[CLASSES][CREATE] ❌ term cache hydrate error: %v", err)
+
+		// kalau academic_term_id tidak valid / term tidak ada
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Academic term tidak ditemukan")
 		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil snapshot term: "+err.Error())
+
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil cache term: "+err.Error())
 	}
 
 	/* ---- class_name (gabungan parent + term) ---- */
@@ -932,7 +935,7 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 			_ = tx.Rollback().Error
 			return err
 		}
-		if err := academicTermsSnapshot.HydrateAcademicTermSnapshot(c.Context(), tx, existing.ClassSchoolID, &existing); err != nil {
+		if err := academicTermsService.HydrateAcademicTermCache(c.Context(), tx, existing.ClassSchoolID, &existing); err != nil {
 			_ = tx.Rollback().Error
 			return err
 		}

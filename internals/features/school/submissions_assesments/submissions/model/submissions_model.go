@@ -27,12 +27,17 @@ type SubmissionModel struct {
 	SubmissionAssessmentID uuid.UUID `gorm:"type:uuid;not null;column:submission_assessment_id" json:"submission_assessment_id"`
 	SubmissionStudentID    uuid.UUID `gorm:"type:uuid;not null;column:submission_student_id" json:"submission_student_id"`
 
+	// ✅ attempt ke berapa (1..n) — sesuai SQL terbaru
+	SubmissionAttemptCount int `gorm:"type:int;not null;default:1;column:submission_attempt_count" json:"submission_attempt_count"`
+
 	// Isi & status pengumpulan
 	SubmissionText   *string          `gorm:"type:text;column:submission_text" json:"submission_text,omitempty"`
 	SubmissionStatus SubmissionStatus `gorm:"type:varchar(24);not null;default:'submitted';column:submission_status" json:"submission_status"`
 
 	SubmissionSubmittedAt *time.Time `gorm:"type:timestamptz;column:submission_submitted_at" json:"submission_submitted_at,omitempty"`
-	SubmissionIsLate      *bool      `gorm:"column:submission_is_late" json:"submission_is_late,omitempty"`
+
+	// ✅ non-nullable + default false (bukan pointer)
+	SubmissionIsLate bool `gorm:"not null;default:false;column:submission_is_late" json:"submission_is_late"`
 
 	// Nilai akhir
 	SubmissionScore *float64 `gorm:"type:numeric(5,2);column:submission_score" json:"submission_score,omitempty"`

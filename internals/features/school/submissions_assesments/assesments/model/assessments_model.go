@@ -80,13 +80,10 @@ type AssessmentModel struct {
 	// Jadwal by date
 	AssessmentStartAt     *time.Time `gorm:"type:timestamptz;column:assessment_start_at"`
 	AssessmentDueAt       *time.Time `gorm:"type:timestamptz;column:assessment_due_at"`
-	AssessmentPublishedAt *time.Time `gorm:"type:timestamptz;column:assessment_published_at"`
-	AssessmentClosedAt    *time.Time `gorm:"type:timestamptz;column:assessment_closed_at"`
 
 	// Pengaturan
 	AssessmentKind                 AssessmentKind   `gorm:"type:assessment_kind_enum;not null;default:'quiz';column:assessment_kind"`
 	AssessmentStatus               AssessmentStatus `gorm:"type:assessment_status_enum;not null;default:'draft';column:assessment_status"`
-	AssessmentDurationMinutes      *int             `gorm:"type:int;column:assessment_duration_minutes"`
 	AssessmentTotalAttemptsAllowed int              `gorm:"type:int;not null;default:1;column:assessment_total_attempts_allowed"`
 	AssessmentMaxScore             float64          `gorm:"type:numeric(5,2);not null;default:100;column:assessment_max_score"`
 

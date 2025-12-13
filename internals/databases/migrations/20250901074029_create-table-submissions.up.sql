@@ -6,11 +6,13 @@ BEGIN;
 -- =========================================================
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
--- CREATE EXTENSION IF NOT EXISTS btree_gist; -- hanya perlu jika pakai EXCLUDE
+-- CREATE EXTENSION IF NOT EXISTS btree_gist;
 
 -- =========================================================
--- 4) SUBMISSIONS (pengumpulan tugas oleh siswa)
---   Versi terbaru (tanpa snapshot student)
+-- SUBMISSIONS (pengumpulan tugas / attempt siswa)
+--   Versi terbaru:
+--   - submission_attempt_count (multi-attempt)
+--   - submission_is_late NOT NULL DEFAULT false
 -- =========================================================
 CREATE TABLE IF NOT EXISTS submissions (
   submission_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -28,13 +30,19 @@ CREATE TABLE IF NOT EXISTS submissions (
     REFERENCES school_students(school_student_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
+  -- attempt ke berapa (1..n)
+  submission_attempt_count INT NOT NULL DEFAULT 1
+    CHECK (submission_attempt_count >= 1),
+
   -- isi & status pengumpulan
   submission_text   TEXT,
   submission_status VARCHAR(24) NOT NULL DEFAULT 'submitted'
     CHECK (submission_status IN ('draft','submitted','resubmitted','graded','returned')),
 
   submission_submitted_at TIMESTAMPTZ,
-  submission_is_late      BOOLEAN,
+
+  -- ✅ non-nullable + default
+  submission_is_late BOOLEAN NOT NULL DEFAULT false,
 
   -- penilaian (final & breakdown)
   submission_score NUMERIC(5,2)
@@ -60,17 +68,17 @@ CREATE TABLE IF NOT EXISTS submissions (
   submission_deleted_at TIMESTAMPTZ
 );
 
-
-
--- ============== INDEXES (submissions) ==============
+-- =========================================================
+-- INDEXES (submissions)
+-- =========================================================
 
 -- Pair unik id+tenant (tenant-safe)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_submissions_id_tenant
   ON submissions (submission_id, submission_school_id);
 
--- Unik: 1 submission aktif per (assessment, student)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_submissions_assessment_student_alive
-  ON submissions (submission_assessment_id, submission_student_id)
+-- ✅ Unik: 1 submission aktif per (assessment, student, attempt_count)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_submissions_assessment_student_attempt_alive
+  ON submissions (submission_assessment_id, submission_student_id, submission_attempt_count)
   WHERE submission_deleted_at IS NULL;
 
 -- Jalur query umum
@@ -94,6 +102,11 @@ CREATE INDEX IF NOT EXISTS idx_submissions_graded_by_teacher_alive
   ON submissions (submission_graded_by_teacher_id)
   WHERE submission_deleted_at IS NULL;
 
+-- Optional (tapi enak): cepat ambil attempt terakhir per assessment+student
+CREATE INDEX IF NOT EXISTS idx_submissions_assessment_student_attempt_desc_alive
+  ON submissions (submission_assessment_id, submission_student_id, submission_attempt_count DESC)
+  WHERE submission_deleted_at IS NULL;
+
 -- Time-based
 CREATE INDEX IF NOT EXISTS idx_submissions_submitted_at_alive
   ON submissions (submission_submitted_at)
@@ -106,6 +119,7 @@ CREATE INDEX IF NOT EXISTS gin_submissions_scores
   ON submissions USING GIN (submission_scores);
 
 COMMIT;
+
 
 -- =========================================================
 -- 5) SUBMISSION_URLS (lampiran kiriman user)

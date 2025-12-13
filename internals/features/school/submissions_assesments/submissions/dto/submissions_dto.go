@@ -16,7 +16,10 @@ import (
 PatchField adalah util 3-state untuk PATCH:
 - field tidak dikirim  -> Present=false
 - field dikirim nilai  -> Present=true,  Value != nil
-- field dikirim null   -> Present=true,  Value == nil  (jadikan kolom NULL)
+- field dikirim null   -> Present=true,  Value == nil
+CATATAN:
+  - untuk kolom NOT NULL (misal submission_is_late),
+    controller HARUS menolak null sebelum masuk ToUpdates
 */
 type PatchField[T any] struct {
 	Present bool `json:"-"`
@@ -36,75 +39,80 @@ func (p *PatchField[T]) UnmarshalJSON(b []byte) error {
 	p.Value = &v
 	return nil
 }
+
 func (p PatchField[T]) IsNull() bool       { return p.Present && p.Value == nil }
 func (p PatchField[T]) ShouldUpdate() bool { return p.Present }
 
-/* =========================
-   Create DTO
-   ========================= */
+//
+// =========================================================
+// CREATE DTO
+// =========================================================
+//
 
 type CreateSubmissionRequest struct {
-	SubmissionSchoolID     uuid.UUID `json:"submission_school_id" validate:"required"`
-	SubmissionAssessmentID uuid.UUID `json:"submission_assessment_id" validate:"required"`
-	SubmissionStudentID    uuid.UUID `json:"submission_student_id" validate:"required"`
+	SubmissionSchoolID     uuid.UUID `json:"submission_school_id" validate:"required,uuid4"`
+	SubmissionAssessmentID uuid.UUID `json:"submission_assessment_id" validate:"required,uuid4"`
+	SubmissionStudentID    uuid.UUID `json:"submission_student_id" validate:"required,uuid4"`
 
-	SubmissionText        *string                    `json:"submission_text,omitempty"`
-	SubmissionStatus      *subModel.SubmissionStatus `json:"submission_status,omitempty" validate:"omitempty,oneof=draft submitted resubmitted graded returned"`
-	SubmissionSubmittedAt *time.Time                 `json:"submission_submitted_at,omitempty"`
-	SubmissionIsLate      *bool                      `json:"submission_is_late,omitempty"`
+	SubmissionText *string `json:"submission_text,omitempty"`
 }
 
-func (r CreateSubmissionRequest) ToModel() subModel.SubmissionModel {
-	status := subModel.SubmissionStatusSubmitted
-	if r.SubmissionStatus != nil {
-		status = *r.SubmissionStatus
-	}
+/*
+ToModel:
+- attempt_count DISET oleh backend (hasil MAX + 1)
+- status default = draft
+- is_late default = false (dihitung saat submit)
+*/
+func (r CreateSubmissionRequest) ToModel(attemptCount int) subModel.SubmissionModel {
 	return subModel.SubmissionModel{
 		SubmissionSchoolID:     r.SubmissionSchoolID,
 		SubmissionAssessmentID: r.SubmissionAssessmentID,
 		SubmissionStudentID:    r.SubmissionStudentID,
 
-		SubmissionText:        r.SubmissionText,
-		SubmissionStatus:      status,
-		SubmissionSubmittedAt: r.SubmissionSubmittedAt,
-		SubmissionIsLate:      r.SubmissionIsLate,
-		// submission_scores        → nil (default)
-		// submission_quiz_finished → 0 (default)
-		// created_at / updated_at  → DB default now()
+		SubmissionAttemptCount: attemptCount,
+
+		SubmissionText:   r.SubmissionText,
+		SubmissionStatus: subModel.SubmissionStatusDraft,
+		SubmissionIsLate: false,
 	}
 }
 
-/* =========================
-   PATCH (Partial Update) DTO
-   ========================= */
+//
+// =========================================================
+// PATCH DTO (Partial Update)
+// =========================================================
+//
 
 type PatchSubmissionRequest struct {
 	// isi & status
 	SubmissionText        *PatchField[string]                    `json:"submission_text,omitempty"`
 	SubmissionStatus      *PatchField[subModel.SubmissionStatus] `json:"submission_status,omitempty"`
 	SubmissionSubmittedAt *PatchField[time.Time]                 `json:"submission_submitted_at,omitempty"`
-	SubmissionIsLate      *PatchField[bool]                      `json:"submission_is_late,omitempty"`
 
-	// penilaian (final & breakdown)
-	SubmissionScore        *PatchField[float64]        `json:"submission_score,omitempty"` // 0..100 (cek di controller)
+	// NOT NULL → tidak boleh null
+	SubmissionIsLate *PatchField[bool] `json:"submission_is_late,omitempty"`
+
+	// penilaian
+	SubmissionScore        *PatchField[float64]        `json:"submission_score,omitempty"` // 0..100
 	SubmissionFeedback     *PatchField[string]         `json:"submission_feedback,omitempty"`
-	SubmissionScores       *PatchField[map[string]any] `json:"submission_scores,omitempty"`        // JSON breakdown
-	SubmissionQuizFinished *PatchField[int]            `json:"submission_quiz_finished,omitempty"` // progress quiz selesai
+	SubmissionScores       *PatchField[map[string]any] `json:"submission_scores,omitempty"`
+	SubmissionQuizFinished *PatchField[int]            `json:"submission_quiz_finished,omitempty"`
 	SubmissionGradedBy     *PatchField[uuid.UUID]      `json:"submission_graded_by_teacher_id,omitempty"`
 	SubmissionGradedAt     *PatchField[time.Time]      `json:"submission_graded_at,omitempty"`
 }
 
 /*
-ToUpdates menghasilkan map[string]any untuk GORM Updates().
-- Field yang tidak dikirim -> tidak dimasukkan
-- Field yang dikirim null  -> dimasukkan dengan value = nil (set kolom ke NULL)
-- Field yang dikirim nilai -> dimasukkan dengan nilai tsb
+ToUpdates:
+- field tidak dikirim -> di-skip
+- field dikirim null -> set NULL (KECUALI is_late → controller harus blok)
+- field dikirim nilai -> set value
 */
 func (p *PatchSubmissionRequest) ToUpdates() map[string]any {
 	upd := map[string]any{}
 
 	put := func(key string, pf any) {
 		switch f := pf.(type) {
+
 		case *PatchField[string]:
 			if f != nil && f.ShouldUpdate() {
 				if f.IsNull() {
@@ -113,14 +121,13 @@ func (p *PatchSubmissionRequest) ToUpdates() map[string]any {
 					upd[key] = *f.Value
 				}
 			}
+
 		case *PatchField[bool]:
 			if f != nil && f.ShouldUpdate() {
-				if f.IsNull() {
-					upd[key] = nil
-				} else {
-					upd[key] = *f.Value
-				}
+				// is_late tidak boleh null → asumsi controller sudah validasi
+				upd[key] = *f.Value
 			}
+
 		case *PatchField[float64]:
 			if f != nil && f.ShouldUpdate() {
 				if f.IsNull() {
@@ -129,6 +136,7 @@ func (p *PatchSubmissionRequest) ToUpdates() map[string]any {
 					upd[key] = *f.Value
 				}
 			}
+
 		case *PatchField[int]:
 			if f != nil && f.ShouldUpdate() {
 				if f.IsNull() {
@@ -137,6 +145,7 @@ func (p *PatchSubmissionRequest) ToUpdates() map[string]any {
 					upd[key] = *f.Value
 				}
 			}
+
 		case *PatchField[uuid.UUID]:
 			if f != nil && f.ShouldUpdate() {
 				if f.IsNull() {
@@ -145,6 +154,7 @@ func (p *PatchSubmissionRequest) ToUpdates() map[string]any {
 					upd[key] = *f.Value
 				}
 			}
+
 		case *PatchField[time.Time]:
 			if f != nil && f.ShouldUpdate() {
 				if f.IsNull() {
@@ -153,6 +163,7 @@ func (p *PatchSubmissionRequest) ToUpdates() map[string]any {
 					upd[key] = *f.Value
 				}
 			}
+
 		case *PatchField[subModel.SubmissionStatus]:
 			if f != nil && f.ShouldUpdate() {
 				if f.IsNull() {
@@ -161,25 +172,23 @@ func (p *PatchSubmissionRequest) ToUpdates() map[string]any {
 					upd[key] = *f.Value
 				}
 			}
+
 		case *PatchField[map[string]any]:
 			if f != nil && f.ShouldUpdate() {
 				if f.IsNull() {
 					upd[key] = nil
 				} else {
-					// langsung simpan map → akan di-marshal sebagai JSONB oleh driver
 					upd[key] = *f.Value
 				}
 			}
 		}
 	}
 
-	// isi & status
 	put("submission_text", p.SubmissionText)
 	put("submission_status", p.SubmissionStatus)
 	put("submission_submitted_at", p.SubmissionSubmittedAt)
 	put("submission_is_late", p.SubmissionIsLate)
 
-	// penilaian
 	put("submission_score", p.SubmissionScore)
 	put("submission_feedback", p.SubmissionFeedback)
 	put("submission_scores", p.SubmissionScores)
@@ -190,68 +199,42 @@ func (p *PatchSubmissionRequest) ToUpdates() map[string]any {
 	return upd
 }
 
-/* =========================
-   DTO khusus grading
-   ========================= */
-
-type GradeSubmissionRequest struct {
-	SubmissionScore        *PatchField[float64]        `json:"submission_score,omitempty"` // 0..100
-	SubmissionFeedback     *PatchField[string]         `json:"submission_feedback,omitempty"`
-	SubmissionScores       *PatchField[map[string]any] `json:"submission_scores,omitempty"`        // breakdown komponen
-	SubmissionQuizFinished *PatchField[int]            `json:"submission_quiz_finished,omitempty"` // berapa quiz/komponen yang sudah selesai
-	SubmissionGradedBy     *PatchField[uuid.UUID]      `json:"submission_graded_by_teacher_id,omitempty"`
-	SubmissionGradedAt     *PatchField[time.Time]      `json:"submission_graded_at,omitempty"`
-}
-
-func (g *GradeSubmissionRequest) ToUpdates() map[string]any {
-	return (&PatchSubmissionRequest{
-		SubmissionScore:        g.SubmissionScore,
-		SubmissionFeedback:     g.SubmissionFeedback,
-		SubmissionScores:       g.SubmissionScores,
-		SubmissionQuizFinished: g.SubmissionQuizFinished,
-		SubmissionGradedBy:     g.SubmissionGradedBy,
-		SubmissionGradedAt:     g.SubmissionGradedAt,
-	}).ToUpdates()
-}
-
-/* =========================
-   Query DTO (filter & paging)
-   ========================= */
+//
+// =========================================================
+// QUERY DTO
+// =========================================================
+//
 
 type ListSubmissionsQuery struct {
-	// filter
 	SchoolID     *uuid.UUID                 `query:"school_id"`
 	AssessmentID *uuid.UUID                 `query:"assessment_id"`
 	StudentID    *uuid.UUID                 `query:"student_id"`
 	Status       *subModel.SubmissionStatus `query:"status" validate:"omitempty,oneof=draft submitted resubmitted graded returned"`
 
-	// periode waktu (opsional)
 	SubmittedFrom *time.Time `query:"submitted_from"`
 	SubmittedTo   *time.Time `query:"submitted_to"`
 
-	// paginate
 	Page    int `query:"page" validate:"omitempty,min=1"`
 	PerPage int `query:"per_page" validate:"omitempty,min=1,max=200"`
 
-	// sorting
-	// created_at | desc_created_at | submitted_at | desc_submitted_at | score | desc_score
 	Sort string `query:"sort" validate:"omitempty,oneof=created_at desc_created_at submitted_at desc_submitted_at score desc_score"`
 }
 
-/* =========================
-   Response DTO
-   ========================= */
-
+// =========================================================
+// RESPONSE DTO
+// =========================================================
 type SubmissionResponse struct {
 	SubmissionID           uuid.UUID `json:"submission_id"`
 	SubmissionSchoolID     uuid.UUID `json:"submission_school_id"`
 	SubmissionAssessmentID uuid.UUID `json:"submission_assessment_id"`
 	SubmissionStudentID    uuid.UUID `json:"submission_student_id"`
 
+	SubmissionAttemptCount int `json:"submission_attempt_count"`
+
 	SubmissionText        *string                   `json:"submission_text,omitempty"`
 	SubmissionStatus      subModel.SubmissionStatus `json:"submission_status"`
 	SubmissionSubmittedAt *time.Time                `json:"submission_submitted_at,omitempty"`
-	SubmissionIsLate      *bool                     `json:"submission_is_late,omitempty"`
+	SubmissionIsLate      bool                      `json:"submission_is_late"`
 
 	SubmissionScore        *float64       `json:"submission_score,omitempty"`
 	SubmissionScores       map[string]any `json:"submission_scores,omitempty"`
@@ -260,6 +243,9 @@ type SubmissionResponse struct {
 
 	SubmissionGradedByTeacherID *uuid.UUID `json:"submission_graded_by_teacher_id,omitempty"`
 	SubmissionGradedAt          *time.Time `json:"submission_graded_at,omitempty"`
+
+	// ✅ include=submission_urls (compact)
+	SubmissionURLs []SubmissionURLDocCompact `json:"submission_urls,omitempty"`
 
 	SubmissionCreatedAt time.Time  `json:"submission_created_at"`
 	SubmissionUpdatedAt time.Time  `json:"submission_updated_at"`
@@ -273,7 +259,6 @@ func FromModel(m *subModel.SubmissionModel) SubmissionResponse {
 		del = &t
 	}
 
-	// konversi datatypes.JSONMap → map[string]any
 	var scores map[string]any
 	if m.SubmissionScores != nil {
 		scores = map[string]any(m.SubmissionScores)
@@ -284,6 +269,8 @@ func FromModel(m *subModel.SubmissionModel) SubmissionResponse {
 		SubmissionSchoolID:     m.SubmissionSchoolID,
 		SubmissionAssessmentID: m.SubmissionAssessmentID,
 		SubmissionStudentID:    m.SubmissionStudentID,
+
+		SubmissionAttemptCount: m.SubmissionAttemptCount,
 
 		SubmissionText:        m.SubmissionText,
 		SubmissionStatus:      m.SubmissionStatus,
@@ -312,15 +299,13 @@ func FromModels(list []subModel.SubmissionModel) []SubmissionResponse {
 	return out
 }
 
-// Versi timezone-aware: semua time field dikonversi ke timezone sekolah
+// Timezone-aware
 func FromModelWithCtx(c *fiber.Ctx, m *subModel.SubmissionModel) SubmissionResponse {
 	resp := FromModel(m)
 
-	// SubmittedAt & graded_at (pointer)
 	resp.SubmissionSubmittedAt = dbtime.ToSchoolTimePtr(c, m.SubmissionSubmittedAt)
 	resp.SubmissionGradedAt = dbtime.ToSchoolTimePtr(c, m.SubmissionGradedAt)
 
-	// Created / Updated / Deleted
 	resp.SubmissionCreatedAt = dbtime.ToSchoolTime(c, m.SubmissionCreatedAt)
 	resp.SubmissionUpdatedAt = dbtime.ToSchoolTime(c, m.SubmissionUpdatedAt)
 	resp.SubmissionDeletedAt = dbtime.ToSchoolTimePtr(c, resp.SubmissionDeletedAt)
